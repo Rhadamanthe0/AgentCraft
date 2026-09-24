@@ -55,6 +55,12 @@
 - Niveau CI `chat/replace-and-join` (TreeBot9 + TestProbe1 comme joueur) :
   bot sur son pilier, « Rejoins moi » puis « Remplace et rejoins moi » ; exige
   remplacement compris, joueur rejoint et 0 degat.
+- `mission.start` rejoue UNE fois `readBrief` en echec (hors annulation) ; le
+  demarrage apres « remplace » (index `resolveArbitration`) lit le resultat et
+  dit l echec au joueur. Vu en CI : lecture tronquee deux fois, bot muet et
+  immobile sur son pilier apres un remplacement.
+- `ramasser` : objet juge a portee (1,6) mais non ramasse (jeu ~1,3) => trajet
+  puis un pas droit dessus (`stepOnto`, sol plat appuye seulement).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

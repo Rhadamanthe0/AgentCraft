@@ -4481,7 +4481,11 @@ function createMissionRunner (host, injected = {}) {
     preparation = preparing
     preparing.reporter.update('brief', 'Je verifie les etapes et les capacites necessaires pour ta demande.')
     opts.signal?.addEventListener('abort', abortRequest, { once: true })
-    if (loopPromise) await loopPromise.catch(() => {})
+    if (loopPromise) {
+      const waitStarted = Date.now()
+      await loopPromise.catch(() => {})
+      if (Date.now() - waitStarted > 2000) console.log(`[mission] ancienne boucle terminee apres ${Date.now() - waitStarted} ms`)
+    }
     if (generation !== startGeneration || request.signal.aborted) {
       preparing.reporter.finish('cancelled')
       if (preparation === preparing) preparation = null
@@ -4491,7 +4495,16 @@ function createMissionRunner (host, injected = {}) {
 
     let brief
     try {
-      brief = await brain().readBrief(text, { signal: request.signal })
+      try {
+        brief = await brain().readBrief(text, { signal: request.signal })
+      } catch (first) {
+        // Un echec isole (reponse tronquee deux fois, panne passagere) laissait
+        // le bot immobile sans rien dire, surtout apres un arbitrage : un
+        // nouvel essai, sauf annulation.
+        if (request.signal.aborted) throw first
+        console.log(`[mission] lecture de l objectif echouee (${first.message}), nouvel essai`)
+        brief = await brain().readBrief(text, { signal: request.signal })
+      }
     } catch (err) {
       return { ok: false, error: `lecture de l objectif impossible : ${err.message}` }
     } finally {

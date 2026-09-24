@@ -1281,9 +1281,18 @@ const conversation = createConversation({
         missionRunner.stop('arbitrage remplacement')
         say(`J abandonne l ancien pour « ${out.objective.texte} ».`)
       }
-      missionRunner.start(out.objective.texte, out.objective.auteur, { objectiveId: out.objective.id, mode: out.objective.mode }).catch(err => {
-        console.error(`[arbitrage] demarrage impossible : ${err.message}`)
-      })
+      // Le resultat {ok:false} n etait jamais lu : un echec de lecture laissait
+      // le bot immobile et muet apres « remplace ». On le dit au joueur.
+      missionRunner.start(out.objective.texte, out.objective.auteur, { objectiveId: out.objective.id, mode: out.objective.mode })
+        .then(result => {
+          if (result && result.ok === false && !/annule/.test(String(result.error))) {
+            say(`Je ne peux pas lancer « ${out.objective.texte} » : ${result.error}. Redis-le moi.`)
+          }
+        })
+        .catch(err => {
+          console.error(`[arbitrage] demarrage impossible : ${err.message}`)
+          say(`Je ne peux pas lancer « ${out.objective.texte} » : ${err.message}. Redis-le moi.`)
+        })
     }
     return out
   },
