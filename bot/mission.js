@@ -883,6 +883,24 @@ function createMissionRunner (host, injected = {}) {
     return `${creuses} bloc(s) de terre creuses, monte de ${montes} contre la paroi`
   }
 
+  // Eau, lave ou vide au niveau du sol sur la ligne droite (axe dominant)
+  // vers `target`, a 12 cases au plus : un pont est necessaire.
+  function gapToward (target) {
+    const bot = host.getBot()
+    if (!bot?.entity || !target) return false
+    const start = bot.entity.position.floored()
+    const ddx = target.x - (start.x + 0.5)
+    const ddz = target.z - (start.z + 0.5)
+    const dir = Math.abs(ddx) >= Math.abs(ddz) ? new Vec3(Math.sign(ddx), 0, 0) : new Vec3(0, 0, Math.sign(ddz))
+    if (dir.x === 0 && dir.z === 0) return false
+    const steps = Math.min(12, Math.floor(Math.max(Math.abs(ddx), Math.abs(ddz))))
+    for (let i = 1; i <= steps; i += 1) {
+      const b = bot.blockAt(start.plus(dir.scaled(i)).offset(0, -1, 0))
+      if (!b || b.boundingBox === 'empty' || /water|lava/.test(b.name)) return true
+    }
+    return false
+  }
+
   // Pont de terre en ligne droite vers `target` (axe dominant) : avance sur le
   // sol ferme, et pose un bloc devant soi, au niveau du sol, a chaque case
   // d eau, de lave ou de vide. S arrete a la terre ferme de l autre cote.
@@ -896,13 +914,7 @@ function createMissionRunner (host, injected = {}) {
     const dir = Math.abs(ddx) >= Math.abs(ddz) ? new Vec3(Math.sign(ddx), 0, 0) : new Vec3(0, 0, Math.sign(ddz))
     if (dir.x === 0 && dir.z === 0) return null
     const trou = b => !b || b.boundingBox === 'empty' || /water|lava/.test(b.name)
-    // Y a-t-il un trou a franchir sur la ligne, a portee de 12 cases ?
-    let obstacle = false
-    for (let i = 1; i <= 12; i += 1) {
-      const p = start.plus(dir.scaled(i))
-      if (trou(bot.blockAt(p.offset(0, -1, 0)))) { obstacle = true; break }
-    }
-    if (!obstacle) return null
+    if (!gapToward(target)) return null
     let poses = 0
     let pas = 0
     for (let i = 0; i < 24 && !mission.cancelled; i += 1) {
@@ -1094,12 +1106,6 @@ function createMissionRunner (host, injected = {}) {
       // chute de deux blocs au plus, sans toucher a ce qu un joueur a construit.
       const goal2 = typeof target === 'function' ? target() : target
       if (!result?.reached && goal2 && typeof host.digToward === 'function' && !mission?.cancelled) {
-        // Sans bloc en inventaire, le pathfinder ne peut ni jeter un pont
-        // (eau, vide) ni monter en tour : quelques blocs de terre d abord.
-        if (scaffoldingStock(host.getBot()).total < 6) {
-          await gatherDirt(6, () => false, { sol: true })
-          await collectScaffoldDrops(owner)
-        }
         // Feuilles autour du bot (buisson, couronne) : couloir ouvert a hauteur
         // du corps vers la cible, plutot qu un tunnel sous le sol.
         const feuilles = await clearLeavesToward({ position: new Vec3(Math.floor(goal2.x), Math.floor(goal2.y), Math.floor(goal2.z)) }, LEAF_CLEAR_MAX).catch(() => 0)
@@ -1110,10 +1116,20 @@ function createMissionRunner (host, injected = {}) {
         }
         // Eau ou vide en ligne droite vers la cible : pont de terre pose a la
         // main (le pathfinder s y prend mal et le bot ne ressort pas de l eau).
-        const bridged = await bridgeToward(goal2, owner)
-        if (bridged) {
-          console.log(`[mission] pont : ${bridged}`)
-          result = await call()
+        // La terre n est prise que dans ce cas (des trous dans le sol perdaient
+        // le pathfinder), puis retour au point de depart.
+        if (gapToward(goal2)) {
+          const depart = host.getBot().entity.position.clone()
+          if (scaffoldingStock(host.getBot()).total < 6) {
+            await gatherDirt(6, () => false, { sol: true })
+            await collectScaffoldDrops(owner)
+            await host.navigateToPosition(depart, { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.5, distanceBudget: 12 })
+          }
+          const bridged = await bridgeToward(goal2, owner)
+          if (bridged) {
+            console.log(`[mission] pont : ${bridged}`)
+            result = await call()
+          }
         }
       }
       if (!result?.reached && goal2 && typeof host.digToward === 'function' && !mission?.cancelled) {
