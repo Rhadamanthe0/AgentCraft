@@ -2599,7 +2599,25 @@ function createMissionRunner (host, injected = {}) {
         result = await approach()
       }
       if (feuilles > 0) mission.leavesCleared = (mission.leavesCleared ?? 0) + feuilles
-      const degage = feuilles > 0 ? ` (${feuilles} feuille(s) degagee(s) vers le tronc)` : ''
+      let degage = feuilles > 0 ? ` (${feuilles} feuille(s) degagee(s) vers le tronc)` : ''
+      // Toujours aucun chemin (mur de terre, trou, falaise) : trajet qui creuse
+      // en escalier, sans chute de plus de deux blocs, puis re-approche.
+      if (result.code === 'no_path' && mission.kind === 'recolte' && !mission.cancelled &&
+        typeof host.digToward === 'function') {
+        const dug = await host.digToward(cible.position.offset(0.5, 0.5, 0.5), {
+          signal: mission.navigationAbort.signal
+        })
+        if (dug.reached) {
+          mission.digPaths = (mission.digPaths ?? 0) + 1
+          degage += ` (chemin creuse sur ${dug.travelled} bloc(s))`
+          result = await approach()
+          if (!result.reached && result.code !== 'advanced') {
+            result = { reached: true, travelled: dug.travelled, code: 'dug' }
+          }
+        } else {
+          degage += ` (chemin creuse impossible : ${dug.code})`
+        }
+      }
       return {
         resultat: (result.reached
           ? `${cible.name} rejoint a portee, trajet de ${result.travelled ?? 0} bloc(s)`

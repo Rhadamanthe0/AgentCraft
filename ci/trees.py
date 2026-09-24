@@ -1,7 +1,10 @@
 """Tree-harvest missions driven through the real bot and its remote planner.
 
-The four levels run in parallel, each in its own arena with its own real bot
-(`tree-bot-N` service, fresh /data). Each level builds one tree by RCON
+All levels run in parallel, each in its own arena with its own real bot
+(`tree-bot-N` service, fresh /data). `trees/*` vary the tree itself;
+`terrain/*` hide a simple tree behind terrain that must be dug through, dug
+down into or climbed, and every level checks by server scoreboard that the bot
+took no damage (a fall of more than three blocks hurts). Each level builds one tree by RCON
 (fixture only), sends the chat instruction "coupe moi un arbre" through
 /api/instruction (same routing as in-game chat), then measures the world:
 remaining logs, leaves, floor and placed dirt by RCON, and the bot's standing
@@ -77,6 +80,45 @@ def levels():
             'logs': _logs(*bent[:3]) + _logs(*bent[3:5], axis='x') + _logs(*bent[5:]),
             'rules': {},
         },
+        # Terrain levels: boxes (x1, y1, z1, x2, y2, z2, block) built before the tree.
+        {
+            'name': 'terrain/dirt-wall',
+            'about': 'Tronc de 3 buches enferme dans un mur de terre de 4 blocs de haut, sans ouverture.',
+            'terrain': [(TX-4, 200, TZ-4, TX+4, 203, TZ+4, 'dirt'), (TX-3, 200, TZ-3, TX+3, 203, TZ+3, 'air')],
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
+            'logs': _logs(*trunk3),
+            'rules': {'leaves_broken_max': 0},
+        },
+        {
+            'name': 'terrain/pit',
+            'about': 'Arbre au fond d un trou de 5 blocs : sauter dedans blesse, il faut descendre en creusant.',
+            'terrain': [(0, 200, 0, SIZE, 203, SIZE, 'dirt'), (0, 204, 0, SIZE, 204, SIZE, 'grass_block'),
+                        (TX-3, 200, TZ-3, TX+3, 204, TZ+3, 'air')],
+            'start': (10.5, 205, 18.5),
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
+            'logs': _logs(*trunk3),
+            'rules': {},
+        },
+        {
+            'name': 'terrain/plateau',
+            'about': 'Arbre sur une falaise de terre de 5 blocs : il faut monter (escalier creuse ou pilier).',
+            'terrain': [(TX-5, 200, TZ-5, TX+5, 203, TZ+5, 'dirt'), (TX-5, 204, TZ-5, TX+5, 204, TZ+5, 'grass_block')],
+            'start': (6.5, 200, 18.5),
+            'leaves': [(TX-2, 208, TZ-2, TX+2, 209, TZ+2)],
+            'logs': _logs(*[(TX, 205 + i, TZ) for i in range(3)]),
+            'rules': {},
+        },
+        {
+            'name': 'terrain/hedge-pit',
+            'about': 'Trou de 5 blocs entoure d une haie de feuilles : ouvrir la haie puis descendre sans chute.',
+            'terrain': [(0, 200, 0, SIZE, 203, SIZE, 'dirt'), (0, 204, 0, SIZE, 204, SIZE, 'grass_block'),
+                        (TX-3, 200, TZ-3, TX+3, 204, TZ+3, 'air'),
+                        (TX-5, 205, TZ-5, TX+5, 206, TZ+5, LEAVES), (TX-4, 205, TZ-4, TX+4, 206, TZ+4, 'air')],
+            'start': (10.5, 205, 18.5),
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
+            'logs': _logs(*trunk3),
+            'rules': {},
+        },
     ]
 
 
@@ -92,7 +134,8 @@ def arena_origins():
 def run_level(level, x0, service, username, output, rcon, bot_api):
     name = level['name']
     x1, z0, z1 = x0 + SIZE, 0, SIZE
-    start = (x0 + LOCAL_START[0], LOCAL_START[1], LOCAL_START[2])
+    local = level.get('start', LOCAL_START)
+    start = (x0 + local[0], local[1], local[2])
     region = f'{x0} {FLOOR_Y} {z0} {x1} {TOP_Y} {z1}'
     timeline = []
 
@@ -117,12 +160,15 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
         rcon(f'fill {x0} {FLOOR_Y} {z0} {x1} {FLOOR_Y} {z1} grass_block')
         rcon(f'fill {x0} 200 {z0} {x1} {TOP_Y} {z1} air')
         rcon(f'kill @e[type=item,x={x0},y={FLOOR_Y},z={z0},dx={SIZE},dy={TOP_Y - FLOOR_Y},dz={SIZE}]')
+        for (a, b, c, d, e, f, block) in level.get('terrain', []):
+            rcon(f'fill {x0 + a} {b} {c} {x0 + d} {e} {f} {block}')
         for (a, b, c, d, e, f) in level['leaves']:
             rcon(f'fill {x0 + a} {b} {c} {x0 + d} {e} {f} {LEAVES}')
         for (x, y, z), block in level['logs']:
             rcon(f'setblock {x0 + x} {y} {z} {block}')
         rcon(f'tp {username} ' + ' '.join(map(str, start)))
         rcon(f'clear {username}')
+        rcon(f'scoreboard players set {username} degats 0')
         until = time.monotonic() + 20
         while True:
             s = bot_api(service, '/api/status')
@@ -187,6 +233,8 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
         final = bot_api(service, '/api/status')
         mission = bot_api(service, '/api/mission')
         after = measure()
+        damage_answer = rcon(f'scoreboard players get {username} degats')
+        damage = int(re.search(r'has (\d+)', damage_answer).group(1)) if re.search(r'has (\d+)', damage_answer) else None
         items_left = rcon(f'execute as @e[type=item,x={x0},y={FLOOR_Y},z={z0},dx={SIZE},dy={TOP_Y - FLOOR_Y},dz={SIZE}]'
                           ' run data get entity @s Pos')
         if final.get('missionRunning'):
@@ -196,6 +244,8 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
         checks = {
             'toutes_les_buches_coupees': after['logs'] == 0,
             'tout_le_bois_ramasse': inventory >= expected_logs,
+            # damage_taken counts tenths of health points; any fall over three blocks adds to it.
+            'aucun_degat': damage == 0,
         }
         if 'leaves_broken_max' in rules:
             checks['feuilles_intactes'] = before['leaves'] - after['leaves'] <= rules['leaves_broken_max']
@@ -217,6 +267,7 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
             'logsInInventory': inventory, 'before': before, 'after': after,
             'leavesBroken': before['leaves'] - after['leaves'], 'floorBroken': before['floor'] - after['floor'],
             'peakStandingY': round(peak_standing, 2), 'elapsedS': elapsed, 'itemsLeft': items_left,
+            'damageTaken': damage,
             'botFinalPosition': final.get('position'),
             'missionState': m.get('etat'), 'missionReason': m.get('raison'), 'missionSteps': m.get('etapes'),
             'planner': {k: (final.get('planner') or {}).get(k) for k in ('model', 'appels', 'etapes_servies', 'echecs')},
@@ -227,6 +278,7 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
 
 def run_levels(output, rcon, bot_api):
     results = [None] * len(levels())
+    rcon('scoreboard objectives add degats minecraft.custom:minecraft.damage_taken')
 
     def worker(index, level, x0, service, username):
         print(f'{level["name"]} ({username}) started', flush=True)

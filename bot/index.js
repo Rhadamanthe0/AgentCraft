@@ -411,6 +411,11 @@ function resetWatchdog () {
 let strictMovements = null
 let climbMovements = null
 let digMovements = null
+let safeDigMovements = null
+// Deplacement de mission en creusant (dernier recours apres no_path) : chute
+// seche bornee a deux blocs pour ne jamais se blesser (degats au-dela de
+// trois), pas de parkour, liquides evites comme ailleurs.
+const DIG_NAV_TIMEOUT_MS = Number(process.env.DIG_NAV_TIMEOUT_MS || 45000)
 
 function buildMovements () {
   if (!bot) return
@@ -433,7 +438,52 @@ function buildMovements () {
   digMovements.allowParkour = true
   digMovements.liquidCost = LIQUID_COST
 
+  safeDigMovements = new Movements(bot)
+  safeDigMovements.canDig = true
+  safeDigMovements.allow1by1towers = true
+  safeDigMovements.allowParkour = false
+  safeDigMovements.maxDropDown = 3
+  safeDigMovements.liquidCost = LIQUID_COST
+
   setNavigation('strict')
+}
+
+// Rejoindre `position` a moins de `range` blocs en creusant ce qui barre le
+// chemin (terre, feuilles...), en escalier pour descendre ou remonter, sans
+// chute de plus de deux blocs. Toujours borne (delai + signal) et toujours
+// nettoye : objectif du pathfinder annule, regles strictes remises.
+async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_NAV_TIMEOUT_MS } = {}) {
+  if (!bot?.pathfinder || !safeDigMovements || !bot.entity) return { reached: false, code: 'unavailable' }
+  const start = bot.entity.position.clone()
+  let timer = null
+  let onAbort = null
+  stopPathfinding()
+  bot.pathfinder.setMovements(safeDigMovements)
+  try {
+    await Promise.race([
+      bot.pathfinder.goto(new goals.GoalNear(position.x, position.y, position.z, range)),
+      new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), timeoutMs)
+      }),
+      new Promise((resolve, reject) => {
+        if (!signal) return
+        onAbort = () => reject(new Error('annule'))
+        if (signal.aborted) onAbort()
+        else signal.addEventListener('abort', onAbort, { once: true })
+      })
+    ])
+    const distance = bot.entity.position.distanceTo(position)
+    return { reached: distance <= range + 1, code: 'dug', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), distance }
+  } catch (err) {
+    const message = String(err?.message ?? err)
+    return { reached: false, code: /timeout/.test(message) ? 'timeout' : /annule/.test(message) ? 'cancelled' : 'no_path', detail: message.slice(0, 120) }
+  } finally {
+    clearTimeout(timer)
+    if (onAbort) signal?.removeEventListener?.('abort', onAbort)
+    stopPathfinding()
+    setNavigation('strict')
+    try { bot.clearControlStates() } catch (_) {}
+  }
 }
 
 // Choisit le jeu de regles courant. `strict` par defaut : tout ce qui n est pas
@@ -713,6 +763,8 @@ const missionRunner = createMissionRunner({
   // ses sous-etapes nav (token __owner), sans reacquerir.
   navigateToPlayer: (username, options = {}) => ownerAwareNavigateToPlayer(username, options),
   navigateToPosition: (position, options = {}) => ownerAwareNavigateToPosition(position, options),
+  // Dernier recours de la recolte apres no_path : trajet qui creuse.
+  digToward: (position, options = {}) => digToward(position, options),
   // Les cinq derniers messages du chat, reinjectes dans l etat a chaque etape.
   recentChat: () => recentChat.slice(-5)
 })

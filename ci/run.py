@@ -10,7 +10,7 @@ import sys
 import time
 import uuid
 
-from trees import arena_origins, bot_services, run_levels
+from trees import arena_origins, bot_services, levels, run_levels
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
@@ -162,7 +162,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
             else:
                 report['tests'].extend({'test': level, 'success': False,
                                         'error': 'PLANNER_API_KEY absent : secret GitHub du depot non configure'}
-                                       for level in ['trees/reachable', 'trees/leaves', 'trees/pillar', 'trees/bent'])
+                                       for level in [level['name'] for level in levels()])
     except (Exception, KeyboardInterrupt) as error:
         report['errors'].append(str(error) or 'Interrupted')
     finally:

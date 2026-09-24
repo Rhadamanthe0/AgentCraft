@@ -65,6 +65,15 @@ creative (verifie : `playerGameType` 0, `ops.json` vide).
 | trees/leaves | 3 buches dans un buisson de feuilles 9x9 | bois complet, sol intact, aucun bloc pose, jamais au-dessus du sol ; feuilles cassees autorisees |
 | trees/pillar | 6 buches (Y+0 a Y+5), couronne au-dessus | bois complet, 0 feuille cassee, monte d'au moins deux blocs (hauteur atteinte rapportee : un pilier plus haut est du gaspillage, pas un echec) |
 | trees/bent | tronc decale deux fois, branche horizontale | bois complet, moyens libres |
+| terrain/dirt-wall | 3 buches dans un mur de terre de 4 blocs, sans ouverture | bois complet, 0 feuille cassee, 0 degat |
+| terrain/pit | arbre au fond d un trou de 5 blocs, bot au bord | bois complet, 0 degat (sauter dedans blesse) |
+| terrain/plateau | arbre sur une falaise de terre de 5 blocs | bois complet, 0 degat |
+| terrain/hedge-pit | trou de 5 blocs entoure d une haie de feuilles | bois complet, 0 degat |
+
+Tous les niveaux verifient aussi `aucun_degat` : le scoreboard serveur
+`minecraft.custom:minecraft.damage_taken` du bot doit rester a 0 (une chute
+de plus de trois blocs blesse). Les huit niveaux tournent en parallele
+(`TreeBot1..8`).
 
 Les blocs sont comptes par RCON (`clone ... filtered` vers une zone de
 comptage eloignee) toutes les 3 s ; la hauteur est echantillonnee chaque
