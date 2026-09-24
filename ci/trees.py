@@ -370,6 +370,11 @@ def mission_type(name):
     return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat'}.get(name.split('/')[0], name.split('/')[0])
 
 
+def wood(inventory, placed_planks=0):
+    inventory = inventory or {}
+    return inventory.get('buches', 0) + (inventory.get('planches', 0) + placed_planks) // 4
+
+
 def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
     name = level['name']
     x1, z0, z1 = x0 + SIZE, 0, SIZE
@@ -392,7 +397,8 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
                 # grass_block is not in #minecraft:dirt in 26.1; grass under a log also turns to dirt.
                 'floor': sum(count(f'{x0} {FLOOR_Y} {z0} {x1} {FLOOR_Y} {z1}', block)
                              for block in ('minecraft:grass_block', 'minecraft:dirt')),
-                'dirt_above_floor': count(f'{x0} 200 {z0} {x1} {TOP_Y} {z1}', 'minecraft:dirt')}
+                'dirt_above_floor': count(f'{x0} 200 {z0} {x1} {TOP_Y} {z1}', 'minecraft:dirt'),
+                'planks': count(f'{x0} 200 {z0} {x1} {TOP_Y} {z1}', '#minecraft:planks')}
 
     try:
         # Solid ground under the arena: a bot that digs down must hit stone, not
@@ -448,7 +454,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
             s = bot_api(bot, '/api/status')
             m = s.get('mission') or {}
             p = s.get('position') or {}
-            inv = (s.get('inventory') or {}).get('buches', 0)
+            inv = wood(s.get('inventory'))
             running = bool(s.get('missionRunning'))
             if s.get('onGround') and p.get('y') is not None:
                 peak_standing = max(peak_standing, p['y'])
@@ -491,7 +497,9 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
                           ' run data get entity @s Pos')
         if final.get('missionRunning'):
             bot_api(bot, '/api/stop', {})
-        inventory = (final.get('inventory') or {}).get('buches', 0)
+        # Planks the bot crafted from a log (scaffolding) still count as wood:
+        # 4 planks = 1 log, in inventory or left placed in the arena.
+        inventory = wood(final.get('inventory'), after.get('planks', 0))
         rules = level['rules']
         checks = {
             'toutes_les_buches_coupees': after['logs'] == 0,
