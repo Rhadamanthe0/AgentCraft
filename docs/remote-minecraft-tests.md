@@ -75,12 +75,37 @@ creative (verifie : `playerGameType` 0, `ops.json` vide).
 | join/cliff-down | bot en haut d une falaise de 5 ; `TestProbe4` en bas | joueur rejoint, 0 degat (descente en creusant) |
 | join/cliff-up | `TestProbe5` en haut d une falaise de 4 ; bot en bas, inventaire vide | joueur rejoint, 0 degat |
 | join/closed-room | bot enferme dans une piece de terre murs + toit ; `TestProbe6` dehors | joueur rejoint, 0 degat |
+| join/shaft | bot au fond d un puits 1x1 de 6 ; `TestProbe7` en surface | joueur rejoint, 0 degat |
+| join/tall-cliff | `TestProbe8` en haut d une falaise de 8 (plus qu un pilier de 6) ; bot en bas, inventaire vide | joueur rejoint, 0 degat |
+| join/buried | bot enterre dans une cavite 1x2 sous 3 blocs de terre ; `TestProbe9` en surface | joueur rejoint, 0 degat |
+| join/water-gap | riviere d eau de 3 de large (1 de profondeur) sur toute l arene | joueur rejoint, 0 degat |
+| join/ravine-detour | ravin 3x6 entre le bot et `TestProbe10`, pont de terre 20 blocs plus loin | joueur rejoint, 0 degat |
 
 Tous les niveaux verifient aussi `aucun_degat` : le scoreboard serveur
 `minecraft.custom:minecraft.damage_taken` du bot doit rester a 0 (une chute
-de plus de trois blocs blesse). Les quatorze niveaux tournent en parallele
-(`TreeBot1..14`) ; les joueurs des niveaux `join/*` sont des sondes muettes
-(`probe-2..6`, `TestProbe2..6`), jamais op.
+de plus de trois blocs blesse). Tous les niveaux tournent en parallele sur un groupe fixe de 16 vrais bots
+(`TreeBot1..16`) : chaque bot enchaine sa file de niveaux (arene neuve a chaque
+fois, mission arretee et memoire videe entre deux). Chaque bot a sa sonde
+muette (`TestProbe2..17`, jamais op) qui joue le joueur des niveaux `join/*`
+et `chat/*`. Les tests unitaires tournent pendant le demarrage de Paper et les
+scenarios de navigation pendant les missions.
+
+### Types de mission du banc
+
+La boucle de travail ajoute et valide **un type de mission a la fois**, une
+dizaine de niveaux par type, de plus en plus difficiles ; le type suivant ne
+commence que quand le precedent est entierement vert.
+
+| Type | Niveaux | Etat |
+| --- | --- | --- |
+| rejoindre (« Rejoins moi ») | `join/*` : 10 | en validation |
+| bois (« coupe moi un arbre ») | `trees/*`, `terrain/*` : 8 | vert, a completer a 10 |
+| chat (arbitrage, arret) | `chat/*` : 1 | a completer |
+| suivre (« suis moi ») | - | a venir |
+| ramasser (terre, herbe, sable) | - | a venir |
+| fabriquer (planches, etabli, hache) | - | a venir |
+| construire (maison de terre) | - | a venir |
+| parcours (allers-retours, aller sous un arbre) | - | a venir |
 
 Les blocs sont comptes par RCON (`clone ... filtered` vers une zone de
 comptage eloignee) toutes les 3 s ; la hauteur est echantillonnee chaque

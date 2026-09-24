@@ -5,7 +5,9 @@ services:
       EULA: "TRUE"
       TYPE: PAPER
       VERSION: "26.1.2"
-      MEMORY: 2G
+      MEMORY: 3G
+      # 16 bots + 16 probes + harness : au-dela de 20 le serveur refuse ("server_full").
+      MAX_PLAYERS: "48"
       ONLINE_MODE: "FALSE"
       MODE: survival
       FORCE_GAMEMODE: "TRUE"
@@ -65,9 +67,9 @@ services:
       PLANNER_API_KEY: "${PLANNER_API_KEY:-}"
       PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot1
       # Bots must not take each other's chat for orders (shared server).
-      CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TreeBot9,TreeBot10,TreeBot11,TreeBot12,TreeBot13,TreeBot14,TestProbe1,TestProbe2,TestProbe3,TestProbe4,TestProbe5,TestProbe6
+      CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TreeBot9,TreeBot10,TreeBot11,TreeBot12,TreeBot13,TreeBot14,TreeBot15,TreeBot16,TestProbe1,TestProbe2,TestProbe3,TestProbe4,TestProbe5,TestProbe6,TestProbe7,TestProbe8,TestProbe9,TestProbe10,TestProbe11,TestProbe12,TestProbe13,TestProbe14,TestProbe15,TestProbe16,TestProbe17
       PLANNER_USER_AGENT: minecraft-bot/1.0
-      PLANNER_TIMEOUT_MS: "20000"
+      PLANNER_TIMEOUT_MS: "30000"
       PLANNER_MAX_TOKENS: "2000"
       MISSION_MAX_STEPS: "90"
       MISSION_MAX_DURATION_MS: "900000"
@@ -138,8 +140,6 @@ services:
       <<: *tree-bot-env
       BOT_USERNAME: TreeBot9
       PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot9
-# No published ports, host mounts, Docker socket or production data. The only
-# API key is the planner key passed to the bot service for tree missions.
   tree-bot-10:
     <<: *tree-bot
     environment:
@@ -170,7 +170,19 @@ services:
       <<: *tree-bot-env
       BOT_USERNAME: TreeBot14
       PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot14
-  # Silent probe players standing in for the human requester of join levels.
+  tree-bot-15:
+    <<: *tree-bot
+    environment:
+      <<: *tree-bot-env
+      BOT_USERNAME: TreeBot15
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot15
+  tree-bot-16:
+    <<: *tree-bot
+    environment:
+      <<: *tree-bot-env
+      BOT_USERNAME: TreeBot16
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot16
+  # Silent probe players standing in for the human requester (one per worker).
   probe-2: &probe
     build:
       context: ..
@@ -178,7 +190,7 @@ services:
     init: true
     environment:
       NODE_PATH: /work/bot/node_modules
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe2", "--idle-secs", "1200"]
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe2", "--idle-secs", "1700"]
     depends_on:
       minecraft:
         condition: service_healthy
@@ -186,13 +198,46 @@ services:
     cap_drop: [ALL]
   probe-3:
     <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe3", "--idle-secs", "1200"]
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe3", "--idle-secs", "1700"]
   probe-4:
     <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe4", "--idle-secs", "1200"]
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe4", "--idle-secs", "1700"]
   probe-5:
     <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe5", "--idle-secs", "1200"]
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe5", "--idle-secs", "1700"]
   probe-6:
     <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe6", "--idle-secs", "1200"]
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe6", "--idle-secs", "1700"]
+  probe-7:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe7", "--idle-secs", "1700"]
+  probe-8:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe8", "--idle-secs", "1700"]
+  probe-9:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe9", "--idle-secs", "1700"]
+  probe-10:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe10", "--idle-secs", "1700"]
+  probe-11:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe11", "--idle-secs", "1700"]
+  probe-12:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe12", "--idle-secs", "1700"]
+  probe-13:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe13", "--idle-secs", "1700"]
+  probe-14:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe14", "--idle-secs", "1700"]
+  probe-15:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe15", "--idle-secs", "1700"]
+  probe-16:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe16", "--idle-secs", "1700"]
+  probe-17:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe17", "--idle-secs", "1700"]

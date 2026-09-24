@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import threading
 import time
 import uuid
 
@@ -61,19 +62,20 @@ def main():
             raise RuntimeError('Fixture command rejected: ' + value)
         return value
 
-    def http(service, port, route, body=None):
-        script = """const [port, route, body] = process.argv.slice(1);
-fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-type':'application/json'},body} : {})
+    def http(service, port, route, body=None, method=None):
+        script = """const [port, route, method, body] = process.argv.slice(1);
+fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'application/json'},body} : {method})
 .then(async r=>{const s=await r.text();if(!r.ok)throw Error(s);console.log(s)})
 .catch(e=>{console.error(e.message);process.exitCode=1})"""
         return json.loads(compose('exec', '-T', service, 'node', '-e', script, str(port),
-                                  route, *([] if body is None else [json.dumps(body)]), timeout=45).stdout)
+                                  route, method or ('GET' if body is None else 'POST'),
+                                  *([] if body is None else [json.dumps(body)]), timeout=45).stdout)
 
     def api(route, body=None):
         return http('harness', 3101, route, body)
 
-    def bot_api(service, route, body=None):
-        return http(service, 3000, route, body)
+    def bot_api(service, route, body=None, method=None):
+        return http(service, 3000, route, body, method)
 
     def fixture(start, blocks):
         rcon('fill 0 200 0 32 208 32 air')
@@ -97,12 +99,21 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
         # Tree bots share the harness Dockerfile; their builds hit the same cache.
         probes = [f'probe-{name[len("TestProbe"):]}' for name in probe_names()]
         compose('build', 'harness', *[service for service, _ in bot_services()], *probes, timeout=600)
-        if args.suite in ('unit', 'all'):
-            print('Running focused offline regression tests...', flush=True)
+        # Everything independent runs at once: offline unit tests start while
+        # Paper boots, navigation scenarios run beside the mission levels.
+        unit_results, nav_results = [], []
+
+        def run_unit():
             result = compose('run', '--rm', '--no-deps', 'harness', 'node', '--test',
                              *['tmp/' + name for name in UNIT], timeout=180, check=False)
             (output / 'unit.log').write_text(result.stdout + result.stderr, encoding='utf-8')
-            report['tests'].append({'test': 'unit/navigation-regression', 'success': result.returncode == 0})
+            unit_results.append({'test': 'unit/navigation-regression', 'success': result.returncode == 0})
+
+        unit_thread = None
+        if args.suite in ('unit', 'all'):
+            print('Running focused offline regression tests (in parallel)...', flush=True)
+            unit_thread = threading.Thread(target=run_unit, daemon=True)
+            unit_thread.start()
         if args.suite in ('minecraft', 'trees', 'all'):
             print('Starting isolated Paper server...', flush=True)
             compose('up', '-d', '--wait', '--wait-timeout', '240', 'minecraft', timeout=270)
@@ -113,13 +124,16 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
             rcon('fill 0 199 0 32 199 32 stone')
             rcon('fill 0 200 0 32 208 32 air')
             rcon('setworldspawn 2 200 2')
-            compose('up', '-d', '--wait', '--wait-timeout', '90', 'harness', timeout=120)
+            bots_wanted = args.suite in ('trees', 'all') and bool(os.environ.get('PLANNER_API_KEY'))
+            extra = ([service for service, _ in bot_services()] + probes) if bots_wanted else []
+            compose('up', '-d', '--wait', '--wait-timeout', '150', 'harness', *extra, timeout=200)
             ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
             mode = rcon('data get entity TestProbe1 playerGameType')
             if ops or not re.search(r':\s*0\s*$', mode):
                 raise RuntimeError('Expected empty ops.json and survival mode: ' + mode)
             report['survivalProof'] = {'ops': ops, 'playerGameType': mode}
-        if args.suite in ('minecraft', 'all'):
+
+        def run_navigation():
             scenarios = [
                 ('navigation/simple-obstacle', (2.5, 200, 2.5), (14.5, 200, 2.5),
                  ['fill 8 200 0 8 202 6 stone'], None),
@@ -147,13 +161,16 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
                     else:
                         passed = value['result']['reached'] and value['finalDistanceXZ'] <= 1 and value['finalDeltaY'] <= .75
                     passed = passed and not value['after']['controls']
-                    report['tests'].append(dict(test=name, success=bool(passed), **value))
+                    nav_results.append(dict(test=name, success=bool(passed), **value))
                 except Exception as error:
-                    report['tests'].append({'test': name, 'success': False, 'error': str(error)})
+                    nav_results.append({'test': name, 'success': False, 'error': str(error)})
+
+        nav_thread = None
+        if args.suite in ('minecraft', 'all'):
+            nav_thread = threading.Thread(target=run_navigation, daemon=True)
+            nav_thread.start()
         if args.suite in ('trees', 'all'):
             if os.environ.get('PLANNER_API_KEY'):
-                services = [service for service, _ in bot_services()]
-                compose('up', '-d', '--wait', '--wait-timeout', '120', *services, *probes, timeout=180)
                 # Probe players have no healthcheck: wait until each one is in the world.
                 until = time.monotonic() + 60
                 while not all(re.search(r':\s*0\s*$', rcon(f'data get entity {name} playerGameType')) for name in probe_names()):
@@ -166,11 +183,17 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
                 if ops or not all(re.search(r':\s*0\s*$', mode) for mode in modes.values()):
                     raise RuntimeError('Expected tree bots in survival without ops: ' + json.dumps(modes))
                 report['botSurvivalProof'] = {'ops': ops, 'playerGameType': modes}
-                report['tests'].extend(run_levels(output, rcon, bot_api))
+                level_results = run_levels(output, rcon, bot_api)
             else:
-                report['tests'].extend({'test': level, 'success': False,
-                                        'error': 'PLANNER_API_KEY absent : secret GitHub du depot non configure'}
-                                       for level in [level['name'] for level in levels()])
+                level_results = [{'test': level, 'success': False,
+                                  'error': 'PLANNER_API_KEY absent : secret GitHub du depot non configure'}
+                                 for level in [level['name'] for level in levels()]]
+        else:
+            level_results = []
+        for thread in (unit_thread, nav_thread):
+            if thread:
+                thread.join()
+        report['tests'].extend(unit_results + nav_results + level_results)
     except (Exception, KeyboardInterrupt) as error:
         report['errors'].append(str(error) or 'Interrupted')
     finally:
@@ -199,7 +222,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
             return info + (' ; echec : ' + ', '.join(failed) if failed else '')
         summary = '\n'.join([f"Commit: {report['sha'] or 'local export (no Git SHA)'}",
                              f"Result: {'PASS' if report['success'] else 'FAIL'}", '',
-                             *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" + detail(t) for t in report['tests']],
+                             *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '') + detail(t)
+                               for t in report['tests']],
                              *report['errors']]) + '\n'
         (output / 'summary.md').write_text(summary, encoding='utf-8')
         if os.environ.get('GITHUB_STEP_SUMMARY'):
