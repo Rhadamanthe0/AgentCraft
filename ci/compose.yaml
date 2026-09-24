@@ -65,7 +65,7 @@ services:
       PLANNER_API_KEY: "${PLANNER_API_KEY:-}"
       PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot1
       # Bots must not take each other's chat for orders (shared server).
-      CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TreeBot9,TestProbe1
+      CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TreeBot9,TreeBot10,TreeBot11,TreeBot12,TreeBot13,TreeBot14,TestProbe1,TestProbe2,TestProbe3,TestProbe4,TestProbe5,TestProbe6
       PLANNER_USER_AGENT: minecraft-bot/1.0
       PLANNER_TIMEOUT_MS: "20000"
       PLANNER_MAX_TOKENS: "2000"
@@ -140,3 +140,59 @@ services:
       PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot9
 # No published ports, host mounts, Docker socket or production data. The only
 # API key is the planner key passed to the bot service for tree missions.
+  tree-bot-10:
+    <<: *tree-bot
+    environment:
+      <<: *tree-bot-env
+      BOT_USERNAME: TreeBot10
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot10
+  tree-bot-11:
+    <<: *tree-bot
+    environment:
+      <<: *tree-bot-env
+      BOT_USERNAME: TreeBot11
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot11
+  tree-bot-12:
+    <<: *tree-bot
+    environment:
+      <<: *tree-bot-env
+      BOT_USERNAME: TreeBot12
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot12
+  tree-bot-13:
+    <<: *tree-bot
+    environment:
+      <<: *tree-bot-env
+      BOT_USERNAME: TreeBot13
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot13
+  tree-bot-14:
+    <<: *tree-bot
+    environment:
+      <<: *tree-bot-env
+      BOT_USERNAME: TreeBot14
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot14
+  # Silent probe players standing in for the human requester of join levels.
+  probe-2: &probe
+    build:
+      context: ..
+      dockerfile: ci/Dockerfile
+    init: true
+    environment:
+      NODE_PATH: /work/bot/node_modules
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe2", "--idle-secs", "1200"]
+    depends_on:
+      minecraft:
+        condition: service_healthy
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+  probe-3:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe3", "--idle-secs", "1200"]
+  probe-4:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe4", "--idle-secs", "1200"]
+  probe-5:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe5", "--idle-secs", "1200"]
+  probe-6:
+    <<: *probe
+    command: ["node", "/work/tmp/probe-bot.js", "TestProbe6", "--idle-secs", "1200"]

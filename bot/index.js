@@ -416,6 +416,10 @@ let strictMovements = null
 let climbMovements = null
 let digMovements = null
 let safeDigMovements = null
+let joinDigMovements = null
+// Trajet vers un joueur en creusant : jamais ce qu un joueur a construit ou
+// range (planches, portes, vitres, coffres, lits, escaliers, dalles...).
+const BUILT_BLOCK = /(_planks|_door|_trapdoor|glass|glass_pane|chest|_bed|furnace|crafting_table|_stairs|_slab|_fence|_fence_gate|_wall|bricks|torch|lantern|_wool|_carpet|barrel|anvil|_sign|bookshelf|ladder|_log|_wood|smooth_|polished_|cut_)/
 // Deplacement de mission en creusant (dernier recours apres no_path) : chute
 // seche bornee a deux blocs pour ne jamais se blesser (degats au-dela de
 // trois), pas de parkour, liquides evites comme ailleurs.
@@ -449,6 +453,16 @@ function buildMovements () {
   safeDigMovements.maxDropDown = 3
   safeDigMovements.liquidCost = LIQUID_COST
 
+  joinDigMovements = new Movements(bot)
+  joinDigMovements.canDig = true
+  joinDigMovements.allow1by1towers = true
+  joinDigMovements.allowParkour = false
+  joinDigMovements.maxDropDown = 3
+  joinDigMovements.liquidCost = LIQUID_COST
+  for (const block of Object.values(bot.registry.blocksByName)) {
+    if (BUILT_BLOCK.test(block.name)) joinDigMovements.blocksCantBreak.add(block.id)
+  }
+
   setNavigation('strict')
 }
 
@@ -456,13 +470,14 @@ function buildMovements () {
 // chemin (terre, feuilles...), en escalier pour descendre ou remonter, sans
 // chute de plus de deux blocs. Toujours borne (delai + signal) et toujours
 // nettoye : objectif du pathfinder annule, regles strictes remises.
-async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_NAV_TIMEOUT_MS } = {}) {
-  if (!bot?.pathfinder || !safeDigMovements || !bot.entity) return { reached: false, code: 'unavailable' }
+async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_NAV_TIMEOUT_MS, protectBuilt = false } = {}) {
+  const movements = protectBuilt ? joinDigMovements : safeDigMovements
+  if (!bot?.pathfinder || !movements || !bot.entity) return { reached: false, code: 'unavailable' }
   const start = bot.entity.position.clone()
   let timer = null
   let onAbort = null
   stopPathfinding()
-  bot.pathfinder.setMovements(safeDigMovements)
+  bot.pathfinder.setMovements(movements)
   try {
     await Promise.race([
       bot.pathfinder.goto(new goals.GoalNear(position.x, position.y, position.z, range)),

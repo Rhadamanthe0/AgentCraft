@@ -90,6 +90,50 @@ def levels():
             'logs': _logs(*trunk6),
             'rules': {},
         },
+        # Join levels: the bot starts in a trap, a silent probe player says
+        # "Rejoins moi" from outside; the bot must reach it with no damage.
+        {
+            'name': 'join/pit',
+            'about': 'Bot au fond d un trou 3x3 de 3 blocs dans la terre ; le joueur est a 10 blocs, en haut.',
+            'kind': 'join', 'probe': 'TestProbe2',
+            'terrain': [(0, 200, 0, SIZE, 201, SIZE, 'dirt'), (0, 202, 0, SIZE, 202, SIZE, 'grass_block'),
+                        (TX-1, 200, TZ-1, TX+1, 202, TZ+1, 'air')],
+            'start': (TX + .5, 200, TZ + .5), 'probeAt': (TX + 10.5, 203, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'join/leaf-pillar',
+            'about': 'Bot en haut de son pilier de terre (3 blocs) plante dans un buisson de feuilles ; le joueur est au sol a 10 blocs.',
+            'kind': 'join', 'probe': 'TestProbe3',
+            'terrain': [(TX-2, 201, TZ-2, TX+2, 204, TZ+2, LEAVES), (TX, 200, TZ, TX, 202, TZ, 'dirt'),
+                        (TX, 203, TZ, TX, 204, TZ, 'air')],
+            'start': (TX + .5, 203, TZ + .5), 'probeAt': (TX + 10.5, 200, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'join/cliff-down',
+            'about': 'Bot en haut d une falaise de terre de 5 blocs ; le joueur est en bas : descendre sans chute de plus de deux blocs.',
+            'kind': 'join', 'probe': 'TestProbe4',
+            'terrain': [(TX-3, 200, TZ-3, TX+3, 204, TZ+3, 'dirt')],
+            'start': (TX + .5, 205, TZ + .5), 'probeAt': (TX + 10.5, 200, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'join/cliff-up',
+            'about': 'Joueur en haut d une falaise de terre de 4 blocs ; le bot est en bas, sans rien en inventaire.',
+            'kind': 'join', 'probe': 'TestProbe5',
+            'terrain': [(TX-3, 200, TZ-3, TX+3, 203, TZ+3, 'dirt')],
+            'start': (TX - 9.5, 200, TZ + .5), 'probeAt': (TX + .5, 204, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'join/closed-room',
+            'about': 'Bot enferme dans une piece de terre fermee (murs et toit) ; le joueur est dehors a 9 blocs.',
+            'kind': 'join', 'probe': 'TestProbe6',
+            'terrain': [(TX-2, 200, TZ-2, TX+2, 203, TZ+2, 'dirt'), (TX-1, 200, TZ-1, TX+1, 202, TZ+1, 'air')],
+            'start': (TX + .5, 200, TZ + .5), 'probeAt': (TX + 9.5, 200, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
         # Terrain levels: boxes (x1, y1, z1, x2, y2, z2, block) built before the tree.
         {
             'name': 'terrain/dirt-wall',
@@ -208,6 +252,51 @@ def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure,
     }
 
 
+JOIN_TIMEOUT_S = 150
+
+
+def probe_names():
+    return [level['probe'] for level in levels() if level.get('probe')]
+
+
+def run_join_steps(level, x0, service, username, output, rcon, bot_api):
+    """A probe player says "Rejoins moi" while the bot is trapped; the bot must
+    reach it (XZ <= 3, same level) without damage, by whatever means."""
+    probe_name = level['probe']
+    local = level['probeAt']
+    probe = (x0 + local[0], local[1], local[2])
+    rcon(f'tp {probe_name} ' + ' '.join(map(str, probe)))
+    time.sleep(1)
+    started = time.monotonic()
+    timeline = []
+    answer = bot_api(service, '/api/instruction', {'message': 'Rejoins moi', 'requester': probe_name})
+    joined = False
+    while time.monotonic() - started < JOIN_TIMEOUT_S:
+        s = bot_api(service, '/api/status')
+        p = s.get('position') or {}
+        timeline.append({'t': round(time.monotonic() - started, 1), 'pos': p, 'onGround': s.get('onGround'),
+                         'running': s.get('missionRunning'), 'etat': (s.get('mission') or {}).get('etat')})
+        if s.get('onGround') and p and math.hypot(p['x'] - probe[0], p['z'] - probe[2]) <= 3 and abs(p['y'] - probe[1]) <= 1:
+            joined = True
+            break
+        time.sleep(1)
+    damage_answer = rcon(f'scoreboard players get {username} degats')
+    match = re.search(r'has (\d+)', damage_answer)
+    damage = int(match.group(1)) if match else None
+    final = bot_api(service, '/api/status')
+    if final.get('missionRunning'):
+        bot_api(service, '/api/stop', {})
+    checks = {'a_rejoint_le_joueur': joined, 'aucun_degat': damage == 0}
+    (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
+        json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
+    return {
+        'test': level['name'], 'success': all(checks.values()), 'about': level['about'], 'bot': username,
+        'checks': checks, 'endReason': 'rejoint' if joined else f'joueur non rejoint en {JOIN_TIMEOUT_S} s',
+        'expectedLogs': 0, 'logsInInventory': 0, 'elapsedS': round(time.monotonic() - started, 1),
+        'damageTaken': damage, 'botFinalPosition': final.get('position'), 'probe': probe_name,
+    }
+
+
 def bot_services():
     """(compose service, username) per level, in level order."""
     return [(f'tree-bot-{i}', f'TreeBot{i}') for i in range(1, len(levels()) + 1)]
@@ -279,6 +368,8 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
             raise RuntimeError(f"Fixture has {before['logs']} logs, expected {expected_logs}")
         if level.get('kind') == 'chat':
             return run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure, timeline)
+        if level.get('kind') == 'join':
+            return run_join_steps(level, x0, service, username, output, rcon, bot_api)
         answer = bot_api(service, '/api/instruction', {'message': INSTRUCTION, 'requester': REQUESTER})
         started = time.monotonic()
         peak_standing = start[1]
