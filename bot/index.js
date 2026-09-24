@@ -171,6 +171,10 @@ function stopPathfinding () {
 // hors LLM. Factory injectable pour les tests sans vrai bot.
 // ---------------------------------------------------------------------------
 const ARBITRATION_MS = Number(process.env.ARBITRATION_MS || 60000)
+// Nouvelle demande pendant une tache : `remplacement` (defaut, demande du
+// proprietaire le 2026-09-24 : la question a chaque fois etait penible) ou
+// `question` (ancien comportement : pause + « pause_reprise ou remplacement ? »).
+const ARBITRATION_DEFAULT = (process.env.ARBITRATION_DEFAULT || 'remplacement').trim().toLowerCase()
 const OBJECTIVES_FILE = process.env.OBJECTIVES_FILE || '/data/objectives.json'
 const OBJECTIVES_EVENTS_FILE = process.env.OBJECTIVES_EVENTS_FILE || '/data/objectives-events.jsonl'
 
@@ -1173,6 +1177,45 @@ function validateModeFirst (req, res, next) {
   next()
 }
 
+function resolveArbitrationNow ({ choice, actor } = {}) {
+  if (!objectives) throw Object.assign(new Error('arbitrage indisponible'), { code: 'stale' })
+  const out = objectives.resolveArbitration({ choice, actor })
+  // Reprise strictement explicite : pause_reprise demarre le NOUVEL objectif,
+  // l ancien reste en pile (pause, jamais stop destructeur) ; remplacement
+  // archive l ancien. Persistance d abord, physique ensuite.
+  if (out.status === 'resumed-new' || out.status === 'replaced') {
+    try {
+      resumeAll()
+    } catch (err) {
+      say(`Arbitrage tranche mais reprise impossible : ${err.message} (pause maintenue)`)
+      return out
+    }
+    stopPathfinding()
+    if (out.status === 'resumed-new') {
+      // Suspension vraie (objet vivant preserve) au lieu d un pauseWork
+      // ecrase par le start suivant : a la cloture, resumeSuspended relance.
+      try { missionRunner.suspend?.('arbitrage pause_reprise') } catch (_) {}
+      say(`Je passe a « ${out.objective.texte} », l ancien attendra.`)
+    } else {
+      missionRunner.stop('arbitrage remplacement')
+      say(`J abandonne l ancien pour « ${out.objective.texte} ».`)
+    }
+    // Le resultat {ok:false} n etait jamais lu : un echec de lecture laissait
+    // le bot immobile et muet apres « remplace ». On le dit au joueur.
+    missionRunner.start(out.objective.texte, out.objective.auteur, { objectiveId: out.objective.id, mode: out.objective.mode })
+      .then(result => {
+        if (result && result.ok === false && !/annule/.test(String(result.error))) {
+          say(`Je ne peux pas lancer « ${out.objective.texte} » : ${result.error}. Redis-le moi.`)
+        }
+      })
+      .catch(err => {
+        console.error(`[arbitrage] demarrage impossible : ${err.message}`)
+        say(`Je ne peux pas lancer « ${out.objective.texte} » : ${err.message}. Redis-le moi.`)
+      })
+  }
+  return out
+}
+
 // Demande concurrente (D22/D38/D44-D46) : pause + question explicite
 // pause_reprise / remplacement, 60 s puis reprise ancien + pending garde.
 // Fail-closed : sans controleur (corruption), admission refusee, jamais de
@@ -1208,6 +1251,16 @@ async function startObjectiveDurable (objective, requester, opts = {}) {
     try { missionRunner.pauseWork?.('arbitrage concurrent') } catch (_) {}
     try { physicalExecutor?.pauseWork?.('arbitrage concurrent') } catch (_) {}
     stopPathfinding()
+    // Par defaut, la nouvelle demande remplace l ancienne sans question : le
+    // demandeur est l auteur du candidat, donc autorise a trancher (D44).
+    if (ARBITRATION_DEFAULT !== 'question') {
+      try {
+        const out = resolveArbitrationNow({ choice: 'remplacement', actor: requester })
+        return { ok: true, replaced: true, status: out?.status, objective: proposal.objective, mode: proposalMode }
+      } catch (err) {
+        console.error(`[arbitrage] remplacement automatique impossible : ${err.message}`)
+      }
+    }
     say(proposal.question)
     return { ok: true, arbitration: true, question: proposal.question, objective: proposal.objective, mode: proposalMode }
   }
@@ -1258,44 +1311,7 @@ const conversation = createConversation({
     if (!snap || !snap.arbitration) return null
     return { candidateAuteur: snap.arbitration.candidate?.auteur ?? null, question: snap.arbitration.question }
   },
-  resolveArbitration: ({ choice, actor } = {}) => {
-    if (!objectives) throw Object.assign(new Error('arbitrage indisponible'), { code: 'stale' })
-    const out = objectives.resolveArbitration({ choice, actor })
-    // Reprise strictement explicite : pause_reprise demarre le NOUVEL objectif,
-    // l ancien reste en pile (pause, jamais stop destructeur) ; remplacement
-    // archive l ancien. Persistance d abord, physique ensuite.
-    if (out.status === 'resumed-new' || out.status === 'replaced') {
-      try {
-        resumeAll()
-      } catch (err) {
-        say(`Arbitrage tranche mais reprise impossible : ${err.message} (pause maintenue)`)
-        return out
-      }
-      stopPathfinding()
-      if (out.status === 'resumed-new') {
-        // Suspension vraie (objet vivant preserve) au lieu d un pauseWork
-        // ecrase par le start suivant : a la cloture, resumeSuspended relance.
-        try { missionRunner.suspend?.('arbitrage pause_reprise') } catch (_) {}
-        say(`Je passe a « ${out.objective.texte} », l ancien attendra.`)
-      } else {
-        missionRunner.stop('arbitrage remplacement')
-        say(`J abandonne l ancien pour « ${out.objective.texte} ».`)
-      }
-      // Le resultat {ok:false} n etait jamais lu : un echec de lecture laissait
-      // le bot immobile et muet apres « remplace ». On le dit au joueur.
-      missionRunner.start(out.objective.texte, out.objective.auteur, { objectiveId: out.objective.id, mode: out.objective.mode })
-        .then(result => {
-          if (result && result.ok === false && !/annule/.test(String(result.error))) {
-            say(`Je ne peux pas lancer « ${out.objective.texte} » : ${result.error}. Redis-le moi.`)
-          }
-        })
-        .catch(err => {
-          console.error(`[arbitrage] demarrage impossible : ${err.message}`)
-          say(`Je ne peux pas lancer « ${out.objective.texte} » : ${err.message}. Redis-le moi.`)
-        })
-    }
-    return out
-  },
+  resolveArbitration: (input = {}) => resolveArbitrationNow(input),
   noteIgnored: (username, message) => {
     // Sans perte : une interpretation annulee par un stop reste en inbox,
     // texte ORIGINAL entier (jamais tronque).

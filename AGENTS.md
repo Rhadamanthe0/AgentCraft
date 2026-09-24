@@ -45,6 +45,14 @@
   l objet, `digToward` vers l objet (20 s) ; la descente est journalisee.
 - Arenes du banc : 10 couches de pierre dessous et barriere autour ; sinon un
   bot qui creuse ou sort du bord tombe de ~260 blocs (vu sur fe9f85b).
+- **Nouvelle demande = remplacement par defaut** (`ARBITRATION_DEFAULT`,
+  defaut `remplacement`, demande du proprietaire) : `startObjectiveDurable`
+  tranche aussitot l arbitrage via `resolveArbitrationNow` au lieu de poser
+  « pause_reprise ou remplacement ? ». `question` restaure l ancien
+  comportement. Le niveau CI `chat/replace-and-join` exige 0 question.
+- Pilier dans la couronne : `isPillarBlock` ne compte plus feuilles/buches
+  voisines comme sol naturel ; si `navWithDescent` laisse le bot perche sur
+  l echafaudage, `digToward` jusqu au sol (20 s) puis re-tente le trajet.
 - Arbitrage : `parseArbitrationChoice` accepte les formulations libres vues en
   jeu (« Remplace la demande », « Remplace et rejoins moi », « abandonne » ;
   « reprends apres », « garde l ancien »). Une nouvelle demande pendant un
@@ -1700,6 +1708,7 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `CMD_PREFIX` | `!` | Prefixe des commandes explicites. |
 | `DIG_NAV_TIMEOUT_MS` | `45000` | Delai d un trajet de recolte qui creuse (`digToward`, apres `no_path`). |
 | `MISSION_LEAF_CLEAR_MAX` | `12` | Feuilles cassees au plus par `avancer` pour ouvrir le couloir vers une buche enfermee (mission bois, apres `no_path`). |
+| `ARBITRATION_DEFAULT` | `remplacement` | Nouvelle demande pendant une tache : la remplacer aussitot (`remplacement`) ou demander « pause_reprise ou remplacement ? » (`question`). |
 | `CHAT_IGNORE_PLAYERS` | vide | Joueurs dont le chat est ignore (virgules). Banc CI : les bots d arbre s ignorent entre eux, sinon chacun prend les phrases des autres pour des ordres. |
 | `LIQUID_COST` | `30` | Cout des liquides pour le pathfinder. |
 | `LIQUID_GRACE_MS` | `5000` | Temps dans un liquide avant sauvetage. |
