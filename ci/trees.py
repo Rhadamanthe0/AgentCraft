@@ -134,6 +134,42 @@ def levels():
             'start': (TX + .5, 200, TZ + .5), 'probeAt': (TX + 9.5, 200, TZ + .5),
             'leaves': [], 'logs': [], 'rules': {},
         },
+        # Round 2 (harder): deeper, taller, buried, detour.
+        {
+            'name': 'join/shaft',
+            'about': 'Bot au fond d un puits 1x1 de 6 blocs dans la terre ; le joueur est en surface a 10 blocs.',
+            'kind': 'join', 'probe': 'TestProbe7',
+            'terrain': [(0, 200, 0, SIZE, 204, SIZE, 'dirt'), (0, 205, 0, SIZE, 205, SIZE, 'grass_block'),
+                        (TX, 200, TZ, TX, 205, TZ, 'air')],
+            'start': (TX + .5, 200, TZ + .5), 'probeAt': (TX + 10.5, 206, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'join/tall-cliff',
+            'about': 'Joueur en haut d une falaise de terre de 8 blocs (plus haut qu un pilier de 6) ; bot en bas, inventaire vide.',
+            'kind': 'join', 'probe': 'TestProbe8',
+            'terrain': [(TX-3, 200, TZ-3, TX+3, 207, TZ+3, 'dirt')],
+            'start': (TX - 9.5, 200, TZ + .5), 'probeAt': (TX + .5, 208, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'join/buried',
+            'about': 'Bot enterre dans une cavite 1x2 sous 3 blocs de terre ; le joueur est en surface a 10 blocs.',
+            'kind': 'join', 'probe': 'TestProbe9',
+            'terrain': [(0, 200, 0, SIZE, 203, SIZE, 'dirt'), (0, 204, 0, SIZE, 204, SIZE, 'grass_block'),
+                        (TX, 200, TZ, TX, 201, TZ, 'air')],
+            'start': (TX + .5, 200, TZ + .5), 'probeAt': (TX + 10.5, 205, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'join/ravine-detour',
+            'about': 'Ravin de 3 de large et 6 de profondeur entre le bot et le joueur ; un pont de terre 20 blocs plus loin.',
+            'kind': 'join', 'probe': 'TestProbe10',
+            'terrain': [(0, 200, 0, SIZE, 204, SIZE, 'dirt'), (0, 205, 0, SIZE, 205, SIZE, 'grass_block'),
+                        (TX-1, 200, 0, TX+1, 205, 29, 'air')],
+            'start': (TX - 6.5, 206, 8.5), 'probeAt': (TX + 7.5, 206, 8.5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
         # Terrain levels: boxes (x1, y1, z1, x2, y2, z2, block) built before the tree.
         {
             'name': 'terrain/dirt-wall',

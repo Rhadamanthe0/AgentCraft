@@ -781,32 +781,42 @@ function createMissionRunner (host, injected = {}) {
     return creuses
   }
 
-  // Sortie d un trou (ou pied d un mur) vers une cible plus haute de 2 a
-  // PILER_MAX blocs : choisit une case libre au pied d une paroi dont le haut
-  // est praticable, du cote de la cible, prend la terre ailleurs, s y place,
-  // pile jusqu au niveau du rebord. Le navigateur finit ensuite a pied.
+  // Sortie par le haut vers une cible plus haute de 2 a CLIMB_MAX blocs (fond
+  // de trou, puits, pied de falaise, bot enterre) : choisit une case au pied
+  // d une paroi dont le haut est praticable, du cote de la cible ; la colonne
+  // au-dessus peut etre de la terre (creusee en montant). Puis monte niveau par
+  // niveau : creuse ce qui gene au-dessus de la tete, pose un bloc sous soi.
+  // La terre creusee sert d echafaudage ; le reste est pris dans les parois.
+  const CLIMB_MAX = Number(process.env.MISSION_CLIMB_MAX || 12)
+  const TERRE_NATURELLE = /^(dirt|grass_block|coarse_dirt|rooted_dirt|podzol|mycelium|sand|red_sand|gravel|clay|[a-z_]*_leaves)$/
   async function climbOutToward (target, owner) {
     const bot = host.getBot()
     if (!bot?.entity || !target) return null
     const feetY = Math.floor(bot.entity.position.y + 0.01)
     const hauteur = Math.floor(target.y + 0.01) - feetY
-    if (hauteur < 2 || hauteur > PILER_MAX) return null
+    if (hauteur < 2 || hauteur > CLIMB_MAX) return null
     const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
     const libre = (x, y, z) => { const b = at(x, y, z); return !!b && b.boundingBox === 'empty' && !/water|lava/.test(b.name) }
+    const terre = (x, y, z) => { const b = at(x, y, z); return !!b && TERRE_NATURELLE.test(b.name) }
     const here = bot.entity.position.floored()
     let best = null
     for (let dx = -8; dx <= 8; dx += 1) {
       for (let dz = -8; dz <= 8; dz += 1) {
         const x = here.x + dx
         const z = here.z + dz
-        if (!estSolide(at(x, feetY - 1, z))) continue
+        if (!estSolide(at(x, feetY - 1, z)) || !libre(x, feetY, z) || !libre(x, feetY + 1, z)) continue
+        let aCreuser = 0
         let colonne = true
-        for (let y = feetY; y <= feetY + hauteur + 1; y += 1) if (!libre(x, y, z)) colonne = false
+        for (let y = feetY + 2; y <= feetY + hauteur + 1; y += 1) {
+          if (libre(x, y, z)) continue
+          if (terre(x, y, z)) aCreuser += 1
+          else colonne = false
+        }
         if (!colonne) continue
         for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           if (!estSolide(at(x + ox, feetY + hauteur - 1, z + oz))) continue
           if (!libre(x + ox, feetY + hauteur, z + oz) || !libre(x + ox, feetY + hauteur + 1, z + oz)) continue
-          const score = Math.hypot(x + ox + 0.5 - target.x, z + oz + 0.5 - target.z) + 0.5 * Math.hypot(dx, dz)
+          const score = Math.hypot(x + ox + 0.5 - target.x, z + oz + 0.5 - target.z) + 0.5 * Math.hypot(dx, dz) + aCreuser
           if (!best || score < best.score) best = { x, z, rx: x + ox, rz: z + oz, score }
         }
       }
@@ -816,32 +826,55 @@ function createMissionRunner (host, injected = {}) {
       return null
     }
     const poste = new Vec3(best.x + 0.5, feetY, best.z + 0.5)
-    const rejoindrePoste = async () => {
+    const auPoste = () => {
       const p = host.getBot().entity.position
-      if (Math.floor(p.x) === best.x && Math.floor(p.z) === best.z) return true
+      return Math.floor(p.x) === best.x && Math.floor(p.z) === best.z
+    }
+    const rejoindrePoste = async () => {
+      if (auPoste()) return true
       await host.navigateToPosition(poste, { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.4, distanceBudget: 24 })
-      const q = host.getBot().entity.position
-      return Math.floor(q.x) === best.x && Math.floor(q.z) === best.z
+      return auPoste()
     }
     if (!await rejoindrePoste()) {
       console.log('[mission] sortie par le haut : poste contre la paroi injoignable')
       return null
     }
     const epargne = (x, z) => (x === best.rx && z === best.rz) || (x === best.x && z === best.z)
-    const creuses = await gatherDirt(hauteur, epargne)
+    let creuses = await gatherDirt(Math.min(hauteur, 4), epargne)
     await collectScaffoldDrops(owner)
-    const stock = scaffoldingStock(host.getBot()).total
-    if (stock < hauteur || mission.cancelled) {
-      console.log(`[mission] sortie par le haut : ${stock}/${hauteur} blocs de terre`)
-      return null
-    }
     if (!await rejoindrePoste() || mission.cancelled) return null
-    const pile = await ACTIONS.piler(null, { hauteur })
-    if (pile?.echec) {
-      console.log(`[mission] sortie par le haut : pilier refuse (${pile.resultat})`)
-      return null
+    let montes = 0
+    for (let niveau = 0; niveau < hauteur && !mission.cancelled; niveau += 1) {
+      const live = host.getBot()
+      const pieds = live.entity.position.floored()
+      for (const dy of [2, 1]) {
+        const b = live.blockAt(pieds.offset(0, dy, 0))
+        if (!b || b.boundingBox === 'empty') continue
+        if (!TERRE_NATURELLE.test(b.name)) return null
+        try {
+          await withTimeout(live.lookAt(b.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+          await withTimeout(live.dig(b), 8000, 'creusage trop long')
+          creuses += 1
+        } catch (_) {
+          return null
+        }
+      }
+      await sleep(300)
+      if (scaffoldingStock(live).total < 1) {
+        creuses += await gatherDirt(Math.min(hauteur - niveau, 3), epargne)
+        if (scaffoldingStock(host.getBot()).total < 1) {
+          console.log(`[mission] sortie par le haut : plus de terre apres ${montes} niveau(x)`)
+          return null
+        }
+      }
+      const pile = await ACTIONS.piler(null, { hauteur: 1 })
+      if (pile?.echec) {
+        console.log(`[mission] sortie par le haut : pilier refuse au niveau ${niveau} (${pile.resultat})`)
+        return montes > 0 ? `${montes} niveau(x) montes sur ${hauteur}` : null
+      }
+      montes += 1
     }
-    return `${creuses} bloc(s) de terre pris, pilier de ${hauteur} contre la paroi`
+    return `${creuses} bloc(s) de terre creuses, monte de ${montes} contre la paroi`
   }
 
   // Ramasse la terre tombee pres du bot (un bloc creuse dans une paroi lache
