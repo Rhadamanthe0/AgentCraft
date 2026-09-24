@@ -32,6 +32,13 @@
   (index.js) prend le pathfinder avec `safeDigMovements` (creuse, tours 1x1,
   pas de parkour, `maxDropDown=3` = chute seche de deux blocs au plus),
   borne par `DIG_NAV_TIMEOUT_MS` (45 s) et le signal de mission.
+- `findTargetBlock(..., { anyHeight: true })` ignore les bornes de casse
+  (MAX_DIG_DEPTH, MAX_REACH_UP) pour SE DEPLACER : `avancer`, l indice
+  `navigation` et `regarder_autour` voient un arbre au fond d un trou ou en
+  haut d une falaise (sinon « rien » et marche a l aveugle vers le vide).
+  `casser` garde ses bornes. `needs_height` loin a l horizontale => `digToward`.
+- Arenes du banc : 10 couches de pierre dessous et barriere autour ; sinon un
+  bot qui creuse ou sort du bord tombe de ~260 blocs (vu sur fe9f85b).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

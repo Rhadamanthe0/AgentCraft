@@ -107,7 +107,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
             compose('up', '-d', '--wait', '--wait-timeout', '240', 'minecraft', timeout=270)
             rcon('forceload add 0 0 32 32')
             for x0 in arena_origins():  # Tree arenas and their block-count scratch areas.
-                rcon(f'forceload add {x0} 0 {x0 + 36} 36')
+                rcon(f'forceload add {x0 - 1} -1 {x0 + 37} 37')  # Arena and its fence.
                 rcon(f'forceload add {x0} 200 {x0 + 36} 236')
             rcon('fill 0 199 0 32 199 32 stone')
             rcon('fill 0 200 0 32 208 32 air')

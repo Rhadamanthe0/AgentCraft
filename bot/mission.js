@@ -845,13 +845,17 @@ function createMissionRunner (host, injected = {}) {
 
     const here = bot.entity.position
     const feetY = Math.floor(here.y)
+    // anyHeight : pour SE DEPLACER vers la matiere (fond de trou, haut de
+    // falaise), pas pour la casser d ici. Les bornes verticales ci-dessous
+    // restent celles de `casser`.
+    const anyHeight = opts.anyHeight === true
 
     const candidates = []
     for (const position of positions) {
-      if (position.y < feetY - MAX_DIG_DEPTH) continue
+      if (!anyHeight && position.y < feetY - MAX_DIG_DEPTH) continue
       // Trop haut pour etre atteint depuis le sol : passer a la cible suivante
       // plutot que de s acharner sur le haut d un tronc.
-      if (position.y > feetY + MAX_REACH_UP) continue
+      if (!anyHeight && position.y > feetY + MAX_REACH_UP) continue
 
       const dx = position.x + 0.5 - here.x
       const dz = position.z + 0.5 - here.z
@@ -1602,7 +1606,11 @@ function createMissionRunner (host, injected = {}) {
 
     // Relief, denivele, piste et boussole : mesures avant l etat, pour que la
     // boussole reuse la meme navigation (un seul balayage du repere).
-    const nav = navigationHint(block)
+    // Matiere presente mais hors des bornes de casse (fond de trou, haut de
+    // falaise) : l indice de navigation la montre quand meme, sinon le modele
+    // la croyait absente et marchait a l aveugle.
+    const lointaine = !block && mission.kind === 'recolte' ? findTargetBlock(undefined, { anyHeight: true }) : null
+    const nav = navigationHint(block ?? lointaine)
     const piste = pisteRecente()
     const cibleDeniv = block ??
       (mission.kind === 'construction' && mission.landmarkResource
@@ -2501,7 +2509,7 @@ function createMissionRunner (host, injected = {}) {
         ? Math.max(1, Math.min(EXPLORE_MAX, Math.round(Number(params.distance))))
         : scaled(scale, 1, EXPLORE_MAX)
 
-      const cible = mission.kind === 'geste'
+      let cible = mission.kind === 'geste'
         ? null
         : (findTargetBlock() ??
           (mission.landmarkResource ? findTargetBlock(mission.landmarkResource) : null))
@@ -2522,6 +2530,10 @@ function createMissionRunner (host, injected = {}) {
           code: 'cible_haute'
         }
       }
+
+      // Matiere plus bas ou plus haut que les bornes de casse : on la vise
+      // quand meme pour s en approcher (en creusant au besoin, sans chute).
+      if (!cible && mission.kind === 'recolte') cible = findTargetBlock(undefined, { anyHeight: true })
 
       if (!cible) {
         // Filet minimal sans cible : meme budget que le chemin avec cible
@@ -2602,7 +2614,8 @@ function createMissionRunner (host, injected = {}) {
       let degage = feuilles > 0 ? ` (${feuilles} feuille(s) degagee(s) vers le tronc)` : ''
       // Toujours aucun chemin (mur de terre, trou, falaise) : trajet qui creuse
       // en escalier, sans chute de plus de deux blocs, puis re-approche.
-      if (result.code === 'no_path' && mission.kind === 'recolte' && !mission.cancelled &&
+      const farAbove = result.code === 'needs_height' && Number(result.horizontalDistance) > REACH
+      if ((result.code === 'no_path' || farAbove) && mission.kind === 'recolte' && !mission.cancelled &&
         typeof host.digToward === 'function') {
         const dug = await host.digToward(cible.position.offset(0.5, 0.5, 0.5), {
           signal: mission.navigationAbort.signal
@@ -3184,7 +3197,7 @@ function createMissionRunner (host, injected = {}) {
         // Secteur : chaque cap ne voit que son cone (demi-angle PI/4 par
         // defaut). Sans bloc dans le cone, le cap rend « rien » — jamais le
         // plus proche global, qui rendait les 4 caps identiques.
-        const block = findTargetBlock(undefined, { yaw })
+        const block = findTargetBlock(undefined, { yaw }) ?? findTargetBlock(undefined, { yaw, anyHeight: true })
         vus.push(block ? `${nom} : ${block.name}` : `${nom} : rien`)
       }
 
