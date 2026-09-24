@@ -1708,6 +1708,7 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `PLANNER_WARMUP_TIMEOUT_MS` | `180000` | Delai tant qu'aucune reponse n'est revenue. **Voir piege 16.** |
 | `PLANNER_KEEP_ALIVE` | `30m` | Reliquat Ollama : plus envoye qu'a un Ollama (`IS_OLLAMA`), donc inactif avec Zen. Le code le lit encore. |
 | `PLANNER_TEMPERATURE` | `0` | Un planificateur ne doit pas improviser. |
+| `PLANNER_THINKING` | vide | `disabled` envoie `thinking: {type: disabled}` au modele unique (chat) : mesure CI, 86 % des jetons produits etaient du raisonnement (~3,9 s/plan, cache de prompt deja a 91 %). Un 400 du gateway retire le champ pour la suite. Active dans le banc (A/B). |
 | `PLANNER_DEBUG` | vide | `1` trace chaque plan recu et chaque reponse rejetee. |
 | `PLANNER_MAX_TOKENS` | `2000` | Jetons maximaux de la reponse du planificateur. **Le raisonnement de deepseek compte dedans : ne pas descendre a 700.** |
 | `REPAIR_BASE_URL` | `https://opencode.ai/zen/go/v1` | Transport du reparateur (OpenAI `/chat/completions`), meme gateway que le planificateur. |

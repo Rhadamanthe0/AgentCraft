@@ -136,6 +136,10 @@ def main():
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as error:
             raise RuntimeError(f'{service}{route}: HTTP {error.code} {error.read().decode("utf-8", "replace")[:300]}')
+        except (urllib.error.URLError, ConnectionError, OSError):
+            # Published port refused or dropped the connection: the slower
+            # docker exec path still works.
+            return http_exec(service, port, route, body, method)
 
     def http_exec(service, port, route, body=None, method=None):
         script = """const [port, route, method, body] = process.argv.slice(1);

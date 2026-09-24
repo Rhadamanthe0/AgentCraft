@@ -83,6 +83,11 @@ const EFFECTIVE_MAX_TOKENS = Math.max(Number.isFinite(MAX_TOKENS) ? MAX_TOKENS :
 // Note contrat transport (llm.js) : aucune option `reasoning`/`effort` n y
 // existe ; le seul levier est maxTokens (max_tokens / max_output_tokens selon
 // protocole). D ou ce budget par modele, sans modifier llm.js.
+// Raisonnement du modele unique (chat) : `PLANNER_THINKING=disabled` envoie
+// `thinking: {type: 'disabled'}` (deja utilise par le mode dual). Mesure CI :
+// 86 % des jetons produits etaient du raisonnement, ~3,9 s par plan. Un 400
+// du gateway sur ce champ le retire pour la suite (une seule fois, annonce).
+let THINKING = (process.env.PLANNER_THINKING || '').trim().toLowerCase()
 const PILOT_MAX_TOKENS = Number(process.env.PLANNER_PILOT_MAX_TOKENS || 4096)
 const PILOT_RETRY_MAX_TOKENS = Number(process.env.PLANNER_PILOT_RETRY_MAX_TOKENS || 8192)
 const PILOT_EFFECTIVE_MAX_TOKENS = Math.max(
@@ -346,6 +351,19 @@ async function callWithProfile (system, user, { image = null, signal = null, max
   async function doCall (model, proto, budget) {
     stats.tentatives += 1
     syncProfileStats()
+    const thinking = proto === 'chat' && THINKING === 'disabled' ? { type: 'disabled' } : null
+    if (thinking) {
+      try {
+        return await llm.call(system, user, {
+          baseUrl: BASE_URL, apiKey: API_KEY, model, temperature, maxTokens: budget, timeoutMs,
+          keepAlive: IS_OLLAMA ? KEEP_ALIVE : null, headers, image, signal, protocol: proto, thinking
+        })
+      } catch (err) {
+        if (!(err?.code === 'LLM_HTTP' && err?.status === 400)) throw err
+        THINKING = ''
+        console.log(`[planner] champ thinking refuse par le gateway (${String(err.message).slice(0, 80)}) : raisonnement laisse actif`)
+      }
+    }
     return llm.call(system, user, {
       baseUrl: BASE_URL,
       apiKey: API_KEY,
