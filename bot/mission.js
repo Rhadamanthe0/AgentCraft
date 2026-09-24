@@ -869,7 +869,11 @@ function createMissionRunner (host, injected = {}) {
           return null
         }
       }
-      const pile = await ACTIONS.piler(null, { hauteur: 1 })
+      let pile = await ACTIONS.piler(null, { hauteur: 1 })
+      if (pile?.echec && /atterrissage/.test(pile.resultat || '')) {
+        await sleep(400)
+        pile = await ACTIONS.piler(null, { hauteur: 1 })
+      }
       if (pile?.echec) {
         console.log(`[mission] sortie par le haut : pilier refuse au niveau ${niveau} (${pile.resultat})`)
         return montes > 0 ? `${montes} niveau(x) montes sur ${hauteur}` : null
@@ -896,7 +900,7 @@ function createMissionRunner (host, injected = {}) {
     let obstacle = false
     for (let i = 1; i <= 12; i += 1) {
       const p = start.plus(dir.scaled(i))
-      if (trou(bot.blockAt(p.offset(0, -1, 0))) && trou(bot.blockAt(p.offset(0, -2, 0)))) { obstacle = true; break }
+      if (trou(bot.blockAt(p.offset(0, -1, 0)))) { obstacle = true; break }
     }
     if (!obstacle) return null
     let poses = 0
@@ -1060,7 +1064,7 @@ function createMissionRunner (host, injected = {}) {
       const bot = host.getBot()
       const under = bot?.entity ? bot.blockAt(bot.entity.position.offset(0, -0.5, 0)) : null
       if (!result?.reached && under && (PILER_DIRT.test(under.name) || /_planks$/.test(under.name)) &&
-        typeof host.digToward === 'function' && !mission?.cancelled) {
+        isPillarBlock(bot, under) && typeof host.digToward === 'function' && !mission?.cancelled) {
         // Le sol est le premier bloc qui n est plus une colonne isolee
         // d echafaudage : la terre du sol (souvent de la dirt sous un pilier)
         // ne doit jamais etre creusee (vu : bot descendu dans le sol).
@@ -1096,6 +1100,14 @@ function createMissionRunner (host, injected = {}) {
           await gatherDirt(6, () => false, { sol: true })
           await collectScaffoldDrops(owner)
         }
+        // Feuilles autour du bot (buisson, couronne) : couloir ouvert a hauteur
+        // du corps vers la cible, plutot qu un tunnel sous le sol.
+        const feuilles = await clearLeavesToward({ position: new Vec3(Math.floor(goal2.x), Math.floor(goal2.y), Math.floor(goal2.z)) }, LEAF_CLEAR_MAX).catch(() => 0)
+        if (feuilles > 0) {
+          console.log(`[mission] ${feuilles} feuille(s) cassee(s) vers la cible`)
+          result = await call()
+          if (result?.reached) return result
+        }
         // Eau ou vide en ligne droite vers la cible : pont de terre pose a la
         // main (le pathfinder s y prend mal et le bot ne ressort pas de l eau).
         const bridged = await bridgeToward(goal2, owner)
@@ -1106,7 +1118,9 @@ function createMissionRunner (host, injected = {}) {
       }
       if (!result?.reached && goal2 && typeof host.digToward === 'function' && !mission?.cancelled) {
         const dug = await host.digToward(goal2, { signal: mission.navigationAbort.signal, range: 2, protectBuilt: true })
-        console.log(`[mission] trajet en creusant vers la cible : ${dug.code}`)
+        const here = host.getBot()?.entity?.position
+        console.log(`[mission] trajet en creusant vers la cible (${goal2.x.toFixed(1)} ${goal2.y.toFixed(1)} ${goal2.z.toFixed(1)}) : ${dug.code}` +
+          (here ? `, bot en ${here.x.toFixed(1)} ${here.y.toFixed(1)} ${here.z.toFixed(1)}` : ''))
         if (dug.reached) result = await call()
       }
     }
