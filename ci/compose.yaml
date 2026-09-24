@@ -5,7 +5,9 @@ services:
       EULA: "TRUE"
       TYPE: PAPER
       VERSION: "26.1.2"
-      MEMORY: 2G
+      MEMORY: 3G
+      # 16 bots + 16 probes + harness : au-dela de 20 le serveur refuse ("server_full").
+      MAX_PLAYERS: "48"
       ONLINE_MODE: "FALSE"
       MODE: survival
       FORCE_GAMEMODE: "TRUE"
