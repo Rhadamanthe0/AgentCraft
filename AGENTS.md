@@ -37,6 +37,12 @@
   `navigation` et `regarder_autour` voient un arbre au fond d un trou ou en
   haut d une falaise (sinon « rien » et marche a l aveugle vers le vide).
   `casser` garde ses bornes. `needs_height` loin a l horizontale => `digToward`.
+- Relief plus haut que le bot (falaise) : `climbToward` prend la terre du
+  relief voisin (jamais sous les pieds), pile de la hauteur du pied de l arbre
+  puis re-approche a pied. L escalier du pathfinder (`digToward`) montait mal
+  en 26.1 : sauts sur place contre la paroi (tete trop pres du plafond).
+- `ramasser` : si la descente d echafaudage laisse le bot perche au-dessus de
+  l objet, `digToward` vers l objet (20 s) ; la descente est journalisee.
 - Arenes du banc : 10 couches de pierre dessous et barriere autour ; sinon un
   bot qui creuse ou sort du bord tombe de ~260 blocs (vu sur fe9f85b).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
