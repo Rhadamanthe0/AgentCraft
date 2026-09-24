@@ -106,7 +106,9 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
 
     def measure():
         return {'logs': count(region, '#minecraft:logs'), 'leaves': count(region, '#minecraft:leaves'),
-                'floor': count(f'{x0} {FLOOR_Y} {z0} {x1} {FLOOR_Y} {z1}', '#minecraft:dirt'),
+                # grass_block is not in #minecraft:dirt in 26.1; grass under a log also turns to dirt.
+                'floor': sum(count(f'{x0} {FLOOR_Y} {z0} {x1} {FLOOR_Y} {z1}', block)
+                             for block in ('minecraft:grass_block', 'minecraft:dirt')),
                 'dirt_above_floor': count(f'{x0} 200 {z0} {x1} {TOP_Y} {z1}', 'minecraft:dirt')}
 
     try:
