@@ -12,7 +12,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', required=True, help='owner/repository')
     parser.add_argument('--sha', required=True, help='Full commit SHA just pushed')
-    parser.add_argument('--timeout', type=int, default=3000, help='Wait budget in seconds')
+    parser.add_argument('--timeout', type=int, default=2100, help='Wait budget in seconds')
     parser.add_argument('--output', default='test-results/remote')
     args = parser.parse_args()
     if not re.fullmatch(r'[0-9a-f]{40}', args.sha) or not re.fullmatch(r'[\w.-]+/[\w.-]+', args.repo):

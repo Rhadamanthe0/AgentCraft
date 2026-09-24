@@ -10,7 +10,7 @@ import sys
 import time
 import uuid
 
-from trees import run_levels
+from trees import arena_origins, bot_services, run_levels
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
@@ -72,8 +72,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
     def api(route, body=None):
         return http('harness', 3101, route, body)
 
-    def bot_api(route, body=None):
-        return http('bot', 3000, route, body)
+    def bot_api(service, route, body=None):
+        return http(service, 3000, route, body)
 
     def fixture(start, blocks):
         rcon('fill 0 200 0 32 208 32 air')
@@ -94,7 +94,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
     try:
         compose('config', '--quiet')
         print('Building test image...', flush=True)
-        compose('build', 'harness', timeout=600)
+        # Tree bots share the harness Dockerfile; their builds hit the same cache.
+        compose('build', 'harness', *[service for service, _ in bot_services()], timeout=600)
         if args.suite in ('unit', 'all'):
             print('Running focused offline regression tests...', flush=True)
             result = compose('run', '--rm', '--no-deps', 'harness', 'node', '--test',
@@ -105,8 +106,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
             print('Starting isolated Paper server...', flush=True)
             compose('up', '-d', '--wait', '--wait-timeout', '240', 'minecraft', timeout=270)
             rcon('forceload add 0 0 32 32')
-            rcon('forceload add 100 0 136 36')  # Tree arena.
-            rcon('forceload add 300 0 336 36')  # Scratch area for block counts.
+            for x0 in arena_origins():  # Tree arenas and their block-count scratch areas.
+                rcon(f'forceload add {x0} 0 {x0 + 36} 36')
+                rcon(f'forceload add {x0} 200 {x0 + 36} 236')
             rcon('fill 0 199 0 32 199 32 stone')
             rcon('fill 0 200 0 32 208 32 air')
             rcon('setworldspawn 2 200 2')
@@ -148,15 +150,19 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
                 except Exception as error:
                     report['tests'].append({'test': name, 'success': False, 'error': str(error)})
         if args.suite in ('trees', 'all'):
-            key = bool(os.environ.get('PLANNER_API_KEY'))
-            if key:
-                compose('up', '-d', '--wait', '--wait-timeout', '120', 'bot', timeout=180)
+            if os.environ.get('PLANNER_API_KEY'):
+                services = [service for service, _ in bot_services()]
+                compose('up', '-d', '--wait', '--wait-timeout', '120', *services, timeout=180)
                 ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
-                mode = rcon('data get entity TestBot playerGameType')
-                if ops or not re.search(r':\s*0\s*$', mode):
-                    raise RuntimeError('Expected TestBot in survival without ops: ' + mode)
-                report['botSurvivalProof'] = {'ops': ops, 'playerGameType': mode}
-            report['tests'].extend(run_levels(output, compose, rcon, api, bot_api, key))
+                modes = {name: rcon(f'data get entity {name} playerGameType') for _, name in bot_services()}
+                if ops or not all(re.search(r':\s*0\s*$', mode) for mode in modes.values()):
+                    raise RuntimeError('Expected tree bots in survival without ops: ' + json.dumps(modes))
+                report['botSurvivalProof'] = {'ops': ops, 'playerGameType': modes}
+                report['tests'].extend(run_levels(output, rcon, bot_api))
+            else:
+                report['tests'].extend({'test': level, 'success': False,
+                                        'error': 'PLANNER_API_KEY absent : secret GitHub du depot non configure'}
+                                       for level in ['trees/reachable', 'trees/leaves', 'trees/pillar', 'trees/bent'])
     except (Exception, KeyboardInterrupt) as error:
         report['errors'].append(str(error) or 'Interrupted')
     finally:
@@ -181,7 +187,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
             failed = [k for k, ok in (t.get('checks') or {}).items() if not ok]
             if 'checks' not in t:
                 return ''
-            info = f" ({t['logsInInventory']}/{t['expectedLogs']} buches, {t['elapsedS']} s)"
+            info = f" ({t['logsInInventory']}/{t['expectedLogs']} buches, {t['elapsedS']} s, {t['endReason']})"
             return info + (' ; echec : ' + ', '.join(failed) if failed else '')
         summary = '\n'.join([f"Commit: {report['sha'] or 'local export (no Git SHA)'}",
                              f"Result: {'PASS' if report['success'] else 'FAIL'}", '',

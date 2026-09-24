@@ -42,27 +42,28 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
-  # Real bot (bot/index.js) for tree missions. Same image as the harness; only
-  # started by the `trees` suite. Its only secret is the planner key, read
-  # from the runner environment (GitHub secret), never from a .env file.
-  bot:
+  # Real bots (bot/index.js) for tree missions, one per level, run in parallel.
+  # Same image as the harness; only started by the `trees` suite. Their only
+  # secret is the planner key, read from the runner environment (GitHub
+  # secret), never from a .env file.
+  tree-bot-1: &tree-bot
     build:
       context: ..
       dockerfile: ci/Dockerfile
     init: true
     working_dir: /work/bot
     command: ["node", "index.js"]
-    environment:
+    environment: &tree-bot-env
       NODE_PATH: /work/bot/node_modules
       MC_HOST: minecraft
       MC_PORT: "25565"
       MC_VERSION: "26.1"
-      BOT_USERNAME: TestBot
+      BOT_USERNAME: TreeBot1
       API_PORT: "3000"
       PLANNER_BASE_URL: https://opencode.ai/zen/go/v1
       PLANNER_MODEL: deepseek-v4.1-flash
       PLANNER_API_KEY: "${PLANNER_API_KEY:-}"
-      PLANNER_SESSION_ID: minecraft-bot-ci-TestBot
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot1
       PLANNER_USER_AGENT: minecraft-bot/1.0
       PLANNER_TIMEOUT_MS: "20000"
       PLANNER_MAX_TOKENS: "2000"
@@ -74,7 +75,7 @@ services:
       OBJECTIVES_FILE: /data/objectives.json
       OBJECTIVES_EVENTS_FILE: /data/objectives-events.jsonl
       LOG_FILE: /data/bot.log
-    # Anonymous volume, renewed for every tree level: no memory carried over.
+    # Anonymous volume: every run starts with no memory or objectives.
     volumes:
       - /data
     depends_on:
@@ -87,5 +88,23 @@ services:
       interval: 2s
       timeout: 3s
       retries: 45
+  tree-bot-2:
+    <<: *tree-bot
+    environment:
+      <<: *tree-bot-env
+      BOT_USERNAME: TreeBot2
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot2
+  tree-bot-3:
+    <<: *tree-bot
+    environment:
+      <<: *tree-bot-env
+      BOT_USERNAME: TreeBot3
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot3
+  tree-bot-4:
+    <<: *tree-bot
+    environment:
+      <<: *tree-bot-env
+      BOT_USERNAME: TreeBot4
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot4
 # No published ports, host mounts, Docker socket or production data. The only
 # API key is the planner key passed to the bot service for tree missions.

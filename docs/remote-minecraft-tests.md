@@ -52,10 +52,12 @@ Le vrai bot (`bot/index.js`, conteneur `bot` jetable) recoit par
 et la traite avec son vrai planificateur distant (OpenCode Go,
 `deepseek-v4.1-flash`). Il faut donc le secret GitHub `PLANNER_API_KEY`
 (Settings > Secrets and variables > Actions) ; sans lui, ces quatre tests
-echouent avec `PLANNER_API_KEY absent`. La cle n'est passee qu'au conteneur
-`bot`. Chaque niveau recree le bot avec un `/data` neuf (ni memoire ni
-objectifs herites), vide son inventaire et le place par RCON ; le bot n'a
-jamais RCON, ni op, ni creative (verifie : `playerGameType` 0, `ops.json` vide).
+echouent avec `PLANNER_API_KEY absent`. La cle n'est passee qu'aux conteneurs
+`tree-bot-1..4`. Les quatre niveaux tournent **en parallele** : un vrai bot
+par niveau (`TreeBot1..4`, `/data` neuf), chacun dans sa propre arene, a 100
+blocs des autres (au-dela du rayon de recherche de 32). L'inventaire est vide
+et le bot place par RCON au debut ; les bots n'ont jamais RCON, ni op, ni
+creative (verifie : `playerGameType` 0, `ops.json` vide).
 
 | Niveau | Arbre construit | Preuve requise |
 | --- | --- | --- |
@@ -64,12 +66,22 @@ jamais RCON, ni op, ni creative (verifie : `playerGameType` 0, `ops.json` vide).
 | trees/pillar | 6 buches (Y+0 a Y+5), couronne au-dessus | bois complet, 0 feuille cassee, monte a Y+2 exactement (pilier de deux blocs) |
 | trees/bent | tronc decale deux fois, branche horizontale | bois complet, moyens libres |
 
-Les blocs sont comptes par RCON (`clone ... filtered`, zone de comptage a
-part) avant, pendant et apres ; la hauteur est echantillonnee chaque seconde
-quand le bot est au sol. Un niveau s'arrete 20 s apres la recolte complete,
-quand la mission se termine d'elle-meme, ou apres 6 minutes. `trees-*-timeline.json`
-garde la chronologie (position, inventaire, plan, etat du monde) et
-`containers.log` le journal complet du bot. Les appels au modele sont
+Les blocs sont comptes par RCON (`clone ... filtered` vers une zone de
+comptage eloignee) toutes les 3 s ; la hauteur est echantillonnee chaque
+seconde quand le bot est au sol. Un niveau s'arrete des que l'issue est
+connue :
+
+- la mission se termine d'elle-meme (le bot annonce fini, echec ou arret) ;
+- tout le bois est coupe et ramasse (10 s de grace pour que le bot l'annonce ;
+  sinon `endReason` le signale, sans faire echouer le test) ;
+- rien de productif n'a change depuis 60 s (buches, feuilles, sol, dirt posee,
+  inventaire, blocs casses, hauteur) : bot bloque ;
+- aucune mission lancee 45 s apres la phrase ;
+- plafond de 5 minutes.
+
+Pire cas du job complet : ~10 minutes (limite GitHub : 30). `trees-*-timeline.json`
+garde la chronologie (position, inventaire, plans, etat du monde) et
+`containers.log` le journal complet des bots. Les appels au modele sont
 non deterministes : un echec isole se relit dans la chronologie avant d'etre
 corrige.
 
@@ -157,7 +169,7 @@ git push
 python ci/fetch-results.py --repo PROPRIETAIRE/DEPOT --sha "$(git rev-parse HEAD)"
 ```
 
-Le script attend au plus 50 minutes (le job complet dure jusqu'a ~30 min), telecharge les artefacts, controle le SHA
+Le script attend au plus 35 minutes (job complet : ~10 min au pire, file d'attente comprise en plus), telecharge les artefacts, controle le SHA
 et l'absence de modifications locales dans le checkout teste, puis renvoie un
 code non nul si le job ou les tests ont echoue. Un run absent/en attente n'est
 jamais assimile a une reussite. Si plusieurs executions existent, il suit la
