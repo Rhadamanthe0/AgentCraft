@@ -25,6 +25,15 @@
   d affilee faisaient echouer la mission (vu sur trees/bent).
 - `llm.call` rejoue UNE fois une panne passagere du gateway (5xx, 429, 400
   « Upstream request failed »), dans le meme delai.
+- Banc CI mutualise (2026-09-24) : UNE image
+  `minebot-ci:<projet>` par execution (build du seul `harness`, supprimee par
+  `docker image rm` en fin de run ; `--rmi local` ignore les images nommees).
+  16 bots dans UN conteneur `bots` (`ci/multi-bot.js`, un processus
+  `index.js` par bot, API `3000+N`, `/data/botN/`, tas 256 Mo, jamais relance
+  en silence) ; 16 sondes dans UN processus (`ci/probes.js`).
+  `ci/cleanup.py` balaie conteneurs/reseaux/volumes/images `mc-ci-*` et
+  `minebot-ci:*` (jamais de prune). `report.resourceSnapshot` = docker stats.
+  Une IP pour 16 bots : `ci/paper/bukkit.yml` coupe le `connection-throttle`.
 - Banc `terrain/*` (meme suite, 8 bots en parallele) : arbre derriere un mur
   de terre, au fond d un trou de 5, sur une falaise de 5, trou entoure d une
   haie. Chaque niveau exige 0 degat (scoreboard `damage_taken`).

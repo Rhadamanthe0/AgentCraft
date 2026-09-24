@@ -11,11 +11,12 @@ import subprocess
 import sys
 import threading
 import time
+from http.client import RemoteDisconnected
 import urllib.error
 import urllib.request
 import uuid
 
-from trees import arena_origins, bot_services, levels, probe_names, run_levels
+from trees import BOTS_SERVICE, PROBES_SERVICE, arena_origins, bot_services, levels, probe_names, run_levels
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
@@ -31,14 +32,16 @@ def main():
     output.mkdir(parents=True)
     marker = output / 'active.json'
     marker.write_text(json.dumps({'project': project}), encoding='utf-8')
-    env = dict(os.environ, COMPOSE_DISABLE_ENV_FILE='1', MSYS_NO_PATHCONV='1')
+    # One test image per run, shared by every service and removed at the end.
+    image = f'minebot-ci:{project}'
+    env = dict(os.environ, COMPOSE_DISABLE_ENV_FILE='1', MSYS_NO_PATHCONV='1', CI_TAG=project)
     # Ignore inherited Compose settings; the CLI pins file, directory and project.
     for key in list(env):
         if key.startswith('COMPOSE_') and key != 'COMPOSE_DISABLE_ENV_FILE':
             del env[key]
     base = ['docker', 'compose', '--env-file', str(ROOT / 'ci/empty.env'),
             '--project-directory', str(ROOT / 'ci'), '-f', str(ROOT / 'ci/compose.yaml'), '-p', project]
-    report = {'schemaVersion': 1, 'project': project, 'suite': args.suite,
+    report = {'schemaVersion': 1, 'project': project, 'image': image, 'suite': args.suite,
               'startedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
               'sha': None, 'dirty': None, 'success': False, 'tests': [], 'errors': []}
     try:
@@ -122,8 +125,12 @@ def main():
             raise RuntimeError('Fixture command rejected: ' + value)
         return value
 
+    unreachable = set()  # (service, port) whose published port refused or dropped the connection.
+
     def http(service, port, route, body=None, method=None):
         try:
+            if (service, port) in unreachable:
+                raise ConnectionError('published port unusable')
             host, mapped = endpoint(service, port)
         except Exception:
             return http_exec(service, port, route, body, method)
@@ -135,9 +142,21 @@ def main():
             with urllib.request.urlopen(request, timeout=45) as response:
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as error:
-            raise RuntimeError(f'{service}{route}: HTTP {error.code} {error.read().decode("utf-8", "replace")[:300]}')
+            raise RuntimeError(f'{service}:{port}{route}: HTTP {error.code} {error.read().decode("utf-8", "replace")[:300]}')
+        except (ConnectionRefusedError, ConnectionResetError, RemoteDisconnected):
+            # The request never reached a listener (e.g. a process bound to the
+            # container's 127.0.0.1 only): switch this endpoint to docker exec.
+            unreachable.add((service, port))
+            return http_exec(service, port, route, body, method)
+        except urllib.error.URLError as error:
+            if isinstance(error.reason, (ConnectionRefusedError, ConnectionResetError)):
+                unreachable.add((service, port))
+                return http_exec(service, port, route, body, method)
+            raise
 
     def http_exec(service, port, route, body=None, method=None):
+        # Runs inside the target container, so it reaches the process that
+        # listens on `port` there (each pool bot has its own port in `bots`).
         script = """const [port, route, method, body] = process.argv.slice(1);
 fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'application/json'},body} : {method})
 .then(async r=>{const s=await r.text();if(!r.ok)throw Error(s);console.log(s)})
@@ -149,8 +168,34 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
     def api(route, body=None):
         return http('harness', 3101, route, body)
 
-    def bot_api(service, route, body=None, method=None):
-        return http(service, 3000, route, body, method)
+    def bot_api(port, route, body=None, method=None):
+        # Every pool bot is a process of the shared `bots` container; its API
+        # port (3000+N, see trees.bot_services) is its identity.
+        return http(BOTS_SERVICE, port, route, body, method)
+
+    def size_mb(text):
+        match = re.match(r'([\d.]+)\s*([kKMG]i?B|B)', text.strip())
+        if not match:
+            return None
+        scale = {'B': 1 / 2**20, 'kB': 1 / 1024, 'KiB': 1 / 1024, 'MB': 1, 'MiB': 1, 'GB': 1024, 'GiB': 1024}
+        return float(match.group(1)) * scale.get(match.group(2), 1)
+
+    def resource_snapshot():
+        # One `docker stats` sample of this project's containers only.
+        ids = compose('ps', '-q', timeout=30).stdout.split()
+        out = command(['docker', 'stats', '--no-stream', '--format', '{{json .}}', *ids], timeout=60).stdout
+        rows = []
+        for line in out.splitlines():
+            if line.strip():
+                row = json.loads(line)
+                rows.append({'container': row.get('Name'),
+                             'cpuPercent': float((row.get('CPUPerc') or '0').rstrip('%') or 0),
+                             'memUsage': row.get('MemUsage'),
+                             'memMB': size_mb((row.get('MemUsage') or '').split('/')[0]),
+                             'pids': row.get('PIDs')})
+        return {'takenAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'containers': rows,
+                'totalCpuPercent': round(sum(r['cpuPercent'] for r in rows), 1),
+                'totalMemMB': round(sum(r['memMB'] or 0 for r in rows))}
 
     def fixture(start, blocks):
         rcon('fill 0 200 0 32 208 32 air')
@@ -170,10 +215,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
     print(f'Bench {project}; reports: {output}', flush=True)
     try:
         compose('config', '--quiet')
-        print('Building test image...', flush=True)
-        # Tree bots share the harness Dockerfile; their builds hit the same cache.
-        probes = [f'probe-{name[len("TestProbe"):]}' for name in probe_names()]
-        compose('build', 'harness', *[service for service, _ in bot_services()], *probes, timeout=600)
+        print(f'Building test image {image} (shared by every service)...', flush=True)
+        # Only `harness` has a build section; `bots` and `probes` reuse its image.
+        compose('build', 'harness', timeout=600)
         # Everything independent runs at once: offline unit tests start while
         # Paper boots, navigation scenarios run beside the mission levels.
         unit_results, nav_results = [], []
@@ -200,8 +244,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             rcon('fill 0 200 0 32 208 32 air')
             rcon('setworldspawn 2 200 2')
             bots_wanted = args.suite in ('trees', 'all') and bool(os.environ.get('PLANNER_API_KEY'))
-            extra = ([service for service, _ in bot_services()] + probes) if bots_wanted else []
-            compose('up', '-d', '--wait', '--wait-timeout', '150', 'harness', *extra, timeout=200)
+            # Two containers host all pool bots and all probe players.
+            extra = [BOTS_SERVICE, PROBES_SERVICE] if bots_wanted else []
+            compose('up', '-d', '--wait', '--wait-timeout', '240', 'harness', *extra, timeout=290)
             ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
             mode = rcon('data get entity TestProbe1 playerGameType')
             if ops or not re.search(r':\s*0\s*$', mode):
@@ -246,7 +291,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             nav_thread.start()
         if args.suite in ('trees', 'all'):
             if os.environ.get('PLANNER_API_KEY'):
-                # Probe players have no healthcheck: wait until each one is in the world.
+                # The probes healthcheck only proves the process: wait until each one is in the world.
                 until = time.monotonic() + 60
                 while not all(re.search(r':\s*0\s*$', rcon(f'data get entity {name} playerGameType')) for name in probe_names()):
                     if time.monotonic() > until:
@@ -258,7 +303,20 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 if ops or not all(re.search(r':\s*0\s*$', mode) for mode in modes.values()):
                     raise RuntimeError('Expected tree bots in survival without ops: ' + json.dumps(modes))
                 report['botSurvivalProof'] = {'ops': ops, 'playerGameType': modes}
+                # Footprint sample ~60 s into the levels (sooner if they all end).
+                levels_done = threading.Event()
+
+                def sample():
+                    levels_done.wait(60)
+                    try:
+                        report['resourceSnapshot'] = resource_snapshot()
+                    except Exception as error:
+                        report['resourceSnapshot'] = {'error': str(error)}
+                sampler = threading.Thread(target=sample, daemon=True)
+                sampler.start()
                 level_results = run_levels(output, rcon, bot_api)
+                levels_done.set()
+                sampler.join(90)
                 # Planner cost per bot: latency, prompt cache hit rate, reasoning tokens.
                 stats = {}
                 for service, username in bot_services():
@@ -299,7 +357,12 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             logs = compose('logs', '--no-color', timeout=30, check=False)
             (output / 'containers.log').write_text(logs.stdout + logs.stderr, encoding='utf-8')
             compose('rm', '--stop', '--force', '--volumes', timeout=60)
-            compose('down', '--remove-orphans', '--rmi', 'local', timeout=60)
+            compose('down', '--remove-orphans', timeout=60)
+            # `--rmi local` skips images with an explicit name: remove this
+            # run's image by its exact tag, never anything else.
+            removed = command(['docker', 'image', 'rm', image], timeout=60, check=False)
+            if removed.returncode and 'no such image' not in (removed.stderr or '').lower():
+                raise RuntimeError(f'Could not remove {image}; see commands.log')
             marker.unlink(missing_ok=True)
         except Exception as error:
             report['errors'].append('Cleanup failed: ' + str(error))
@@ -321,6 +384,10 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                              *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '') + detail(t)
                                for t in report['tests']],
                              *([f"Planificateur : {report['plannerSummary']}"] if report.get('plannerSummary') else []),
+                             *([f"Ressources (docker stats, ~60 s apres le debut des niveaux) : "
+                                f"{report['resourceSnapshot']['totalMemMB']} MB, CPU {report['resourceSnapshot']['totalCpuPercent']} % "
+                                f"sur {len(report['resourceSnapshot']['containers'])} conteneurs"]
+                               if (report.get('resourceSnapshot') or {}).get('containers') else []),
                              *report['errors']]) + '\n'
         (output / 'summary.md').write_text(summary, encoding='utf-8')
         if os.environ.get('GITHUB_STEP_SUMMARY'):
