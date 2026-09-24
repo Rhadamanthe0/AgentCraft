@@ -703,6 +703,10 @@ Ce que l etat impose, et qui n est pas negociable :
   vrai = a portee de ramassage, donc ramasse). navigation designe un BLOC a
   casser, navigation_objet un OBJET a marcher dessus : ne casse jamais sur un
   objet.
+- etat.arbre_demande non null => le joueur veut UN arbre entier, pas un
+  quota : coupe toutes ses buches (buches_restantes, branches comprises) et
+  ramasse celles tombees (buches_au_sol). Quand termine est vrai, mets "fini"
+  a 1 : ne cherche pas d autre arbre.
 - etat.arret_refuse present => tu viens de declarer l objectif fini a tort, et
   le code te dit ce qui manque. Mets "fini" a 0 et planifie ce qui manque.
 - environnement.acces_par_montee non null => la cible retenue devient

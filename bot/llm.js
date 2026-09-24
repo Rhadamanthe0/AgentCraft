@@ -85,6 +85,16 @@ function joinEndpoint (baseUrl, path) {
   return `${String(baseUrl).replace(/\/+$/, '')}${path}`
 }
 
+async function isTransient (response) {
+  if (response.status >= 500 || response.status === 429) return true
+  if (response.status !== 400) return false
+  try {
+    return /upstream request failed/i.test(await response.clone().text())
+  } catch (_) {
+    return false
+  }
+}
+
 async function call (system, user, options = {}) {
   const {
     baseUrl,
@@ -193,7 +203,14 @@ async function call (system, user, options = {}) {
   // donc aucune de ses erreurs ne recoit un code d indisponibilite.
   let parsed
   try {
-    const response = await fetch(endpoint, { method: 'POST', signal: controller.signal, headers, body })
+    let response = await fetch(endpoint, { method: 'POST', signal: controller.signal, headers, body })
+    // Un seul nouvel essai sur une panne passagere du gateway (5xx, 429, ou
+    // 400 « Upstream request failed » de Zen), dans le meme delai global. Une
+    // vraie erreur de requete (cle, modele, schema) n est jamais rejouee.
+    if (!response.ok && await isTransient(response)) {
+      await new Promise(resolve => setTimeout(resolve, 500))
+      response = await fetch(endpoint, { method: 'POST', signal: controller.signal, headers, body })
+    }
 
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 200)

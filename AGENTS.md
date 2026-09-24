@@ -1,5 +1,22 @@
 # CLAUDE.md
 
+## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
+
+- Banc CI `trees` (`ci/trees.py`, docs/remote-minecraft-tests.md) : quatre
+  vrais bots en parallele recoivent « coupe moi un arbre ». Ils s'ignorent via
+  `CHAT_IGNORE_PLAYERS`, sinon chacun prend les phrases des autres pour des ordres.
+- « un arbre / l arbre / cet arbre » sans quantite : `mission.wholeTree`. La
+  premiere buche coupee fixe l arbre (`mission.tree`) ; `arbre_demande` dans
+  l etat compte ses buches restantes (rayon 4, +14 en hauteur) et le bois au
+  sol ; `finishAllowed` juge sur ces chiffres au lieu du quota 16.
+- `avancer` vers une buche en `no_path` (mission bois) casse les feuilles du
+  couloir a hauteur du corps vers le tronc (`MISSION_LEAF_CLEAR_MAX`, 12),
+  puis re-tente. Aucune autre feuille n est touchee.
+- `llm.call` rejoue UNE fois une panne passagere du gateway (5xx, 429, 400
+  « Upstream request failed »), dans le meme delai.
+- 4 tests unitaires echouent deja sur main (runtime-objectives S5,
+  tree-pillar-support, tree-height-access, tree-target-visibility).
+
 ## Outil facultatif et stock de montee du 2026-09-24 (prioritaire)
 
 - En mission bois, la hache est une optimisation facultative. Apres echec
@@ -1634,6 +1651,7 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `JEV_TIMEOUT_MS` | `4000` | Delai d'un appel de classification. |
 | `JEV_PLAN_TIMEOUT_MS` | `8000` | Delai d'un tour de planification (plus large, la boucle ne doit pas casser sur un pic). |
 | `CMD_PREFIX` | `!` | Prefixe des commandes explicites. |
+| `MISSION_LEAF_CLEAR_MAX` | `12` | Feuilles cassees au plus par `avancer` pour ouvrir le couloir vers une buche enfermee (mission bois, apres `no_path`). |
 | `CHAT_IGNORE_PLAYERS` | vide | Joueurs dont le chat est ignore (virgules). Banc CI : les bots d arbre s ignorent entre eux, sinon chacun prend les phrases des autres pour des ordres. |
 | `LIQUID_COST` | `30` | Cout des liquides pour le pathfinder. |
 | `LIQUID_GRACE_MS` | `5000` | Temps dans un liquide avant sauvetage. |
