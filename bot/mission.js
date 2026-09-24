@@ -4095,7 +4095,7 @@ function createMissionRunner (host, injected = {}) {
     let decision
     try {
       decision = await actionChooser.chooseWithJev({
-        jev,
+        jev: actionChooser.jevModule(),
         state,
         kind: mission.kind,
         supply: mission.supply,

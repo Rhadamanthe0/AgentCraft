@@ -6,6 +6,7 @@
 // aucun appel distant, aucun secret.
 
 process.env.ACTION_CHOOSER = 'jev'
+process.env.JEV_PROVIDER = 'typesafe'
 process.env.MISSION_TICK_MS = '20'
 process.env.MISSION_QUEUE_TICK_MS = '5'
 process.env.MISSION_MAX_STEPS = '3'

@@ -1571,8 +1571,9 @@ app.get('/api/status', (req, res) => {
     // le planificateur JSON. Latence Jev par decision vs planner.moyenne_ms.
     choix_actions: {
       ...actionChooser.snapshot(),
-      jev_actif: jev.isEnabled(),
-      jev_modele: jev.MODEL,
+      jev_actif: actionChooser.jevModule().isEnabled(),
+      jev_modele: actionChooser.jevModule().MODEL,
+      jev_detection: actionChooser.getProvider() === 'zen' ? actionChooser.jevModule().detection : null,
       moyenne_ms_planner: planner.isEnabled() ? (planner.stats.moyenne_ms ?? null) : null
     },
     // Nombre d actions dont la documentation/exemples a ete enrichie par l aide
@@ -2012,9 +2013,14 @@ if (planner.isEnabled()) {
   )
   const jevOk = jev.init()
   if (actionChooser.getMode() === 'jev') {
-    console.log(jevOk
-      ? `[jev] choisit les actions de mission (ACTION_CHOOSER=jev, modele ${jev.MODEL}) ; chat, brief, aide et reflexion restent au planificateur JSON`
-      : `[jev] ACTION_CHOOSER=jev mais Jev inactif (${jev.initError}) : chaque tour repassera au planificateur JSON`)
+    const chooser = actionChooser.jevModule()
+    const ok = actionChooser.getProvider() === 'zen' ? chooser.init() : jevOk
+    console.log(ok
+      ? `[jev] choisit les actions de mission (ACTION_CHOOSER=jev, fournisseur ${actionChooser.getProvider()}) ; chat, brief, aide et reflexion restent au planificateur JSON`
+      : `[jev] ACTION_CHOOSER=jev mais Jev inactif (${chooser.initError}) : chaque tour repassera au planificateur JSON`)
+    // Zen : cherche un modele « jev » sur le gateway, sinon deepseek sans
+    // raisonnement. En arriere-plan, journalise une fois, ne leve jamais.
+    if (ok && actionChooser.getProvider() === 'zen') chooser.detectModel().catch(() => {})
   } else if (jevOk) {
     console.log('[jev] disponible mais inutilise : le planificateur JSON a la main')
   }

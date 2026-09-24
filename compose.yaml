@@ -76,6 +76,11 @@ services:
       # cela) ; chat, brief, aide et reflexion restent au planificateur JSON.
       # Un echec de Jev rend le tour au planificateur. Defaut `planner`.
       ACTION_CHOOSER: "${ACTION_CHOOSER:-planner}"
+      # Qui repond aux questions de Jev : `zen` (gateway du planificateur,
+      # defaut) ou `typesafe` (TYPESAFE_API_KEY). Modele Zen : JEV_ZEN_MODEL,
+      # sinon un modele « jev » detecte sur /models, sinon deepseek-v4.1-flash.
+      JEV_PROVIDER: "${JEV_PROVIDER:-}"
+      JEV_ZEN_MODEL: "${JEV_ZEN_MODEL:-}"
       JEV_MODEL: "${JEV_MODEL:-jev-latest}"
       JEV_MIN_CONFIDENCE: "${JEV_MIN_CONFIDENCE:-0.6}"
       # Au-dessus de ce seuil, Jev declare la mission accomplie.

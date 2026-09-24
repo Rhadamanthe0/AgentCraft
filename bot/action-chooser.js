@@ -2,12 +2,17 @@
 
 // Choix de l action suivante d une mission : planificateur JSON ou Jev.
 //
-// `ACTION_CHOOSER=jev` confie a Jev (TypeSafe, bot/jev.js) le SEUL role
+// `ACTION_CHOOSER=jev` confie a « Jev » le SEUL role
 // « quelle action maintenant ? » de la boucle de mission. Tout le reste ne
 // bouge pas et reste sur le planificateur JSON distant (bot/planner.js) :
 // routage du chat (`interpretMessage`/`classify`), lecture de l objectif
 // (`readBrief`), reflexion (`reviser_actions`) et aide (`demander_aide`,
 // bot/repair.js).
+//
+// Jev = des questions fermees, servies par `JEV_PROVIDER` : `zen` (defaut avec
+// un gateway, bot/jev-zen.js : meme gateway, cle et en-tetes que le
+// planificateur, une question par appel) ou `typesafe` (bot/jev.js, API
+// TypeSafe d origine, inutilisee en CI).
 //
 // Jev repond a des questions fermees : une action par tour (premier appel,
 // `planMission`), puis son ampleur sur une echelle 0-4 (second appel,
@@ -38,8 +43,35 @@ function readMode (env = process.env) {
 
 let mode = readMode()
 
+// Qui repond aux questions fermees : `zen` (defaut des qu un gateway est
+// configure : bot/jev-zen.js, meme gateway/cle/en-tetes que le planificateur)
+// ou `typesafe` (bot/jev.js, l API TypeSafe d origine, gardee pour plus tard).
+function readProvider (env = process.env) {
+  const raw = String(env.JEV_PROVIDER ?? '').trim().toLowerCase()
+  if (raw === 'zen' || raw === 'typesafe') return raw
+  return env.PLANNER_BASE_URL ? 'zen' : 'typesafe'
+}
+
+let provider = readProvider()
+
+function getProvider () {
+  return provider
+}
+
+function setProvider (next) {
+  provider = next === 'typesafe' ? 'typesafe' : 'zen'
+  stats.jev_fournisseur = provider
+  return provider
+}
+
+// Le module qui repond, selon le fournisseur (charge a la demande).
+function jevModule () {
+  return provider === 'zen' ? require('./jev-zen') : require('./jev')
+}
+
 const stats = {
   mode,
+  jev_fournisseur: provider,
   // Decisions servies par Jev (une par action executee).
   decisions_jev: 0,
   // Appels reseau a Jev : 1 par decision, 2 quand l action a une ampleur.
@@ -141,8 +173,10 @@ async function chooseWithJev ({ jev, state, kind, supply, dynamicCriteria = {}, 
       const criteria = needsDynamic && typeof dynamicCriteria === 'function'
         ? dynamicCriteria()
         : (typeof dynamicCriteria === 'function' ? {} : dynamicCriteria)
-      stats.appels_jev += 1
-      params = await jev.planParams(state, plan.step, criteria) ?? params
+      const got = await jev.planParams(state, plan.step, criteria)
+      if (got) params = got
+      // TypeSafe pose toutes les questions en un appel ; Zen, une par question.
+      stats.appels_jev += Number.isFinite(got?.calls) ? got.calls : 1
     } catch (err) {
       // Un second etage rate ne coute pas le tour : ampleur moyenne, traduite
       // par le code. Mieux vaut agir un peu que rien.
@@ -199,6 +233,10 @@ function _reset () {
 
 module.exports = {
   readMode,
+  readProvider,
+  getProvider,
+  setProvider,
+  jevModule,
   setMode,
   getMode,
   wantsJev,

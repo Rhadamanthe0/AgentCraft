@@ -84,11 +84,23 @@
 ## Choix des actions par Jev du 2026-09-24 (prioritaire)
 
 - `ACTION_CHOOSER=jev` (defaut `planner`, demande du proprietaire) : Jev
-  (`bot/jev.js`) ne tient QUE le choix de l action de chaque tour de mission
+  (questions fermees) ne tient QUE le choix de l action de chaque tour de mission
   (`bot/action-chooser.js`, `decide()` de `mission.js`). Chat
   (`interpretMessage`), `readBrief`, `demander_aide` et `reviser_actions`
   restent au planificateur JSON. Missions `geste` : planificateur seul.
-- 1 appel Jev par action, 2 si l action a une ampleur (`skills.paramsFor`) ;
+- **Pas d API TypeSafe** (proprietaire) : `JEV_PROVIDER=zen` (defaut des que
+  `PLANNER_BASE_URL` est pose, `bot/jev-zen.js`) pose chaque question fermee
+  au gateway Zen du planificateur (meme cle, user-agent, session
+  `<PLANNER_SESSION_ID>-jev`, `llm.call` /chat/completions), prompt systeme
+  court et fixe, reponse stricte `{"choix","confiance"}` ; choix hors options
+  = rejet = repli planificateur. Ampleur = option "0".."4" ; objet de
+  `fabriquer` = option parmi les recettes calculees. Modele : `JEV_ZEN_MODEL`,
+  sinon un id contenant « jev » sur `GET /models` s il repond (sonde au
+  demarrage, `choix_actions.jev_detection`, `node bot/jev-zen.js`), sinon
+  `deepseek-v4.1-flash` avec `thinking: disabled` et max_tokens 300.
+  `typesafe` (`bot/jev.js`) reste disponible, inutilise en CI.
+- 1 appel Jev par action, 2 si l action a une ampleur (`skills.paramsFor`),
+  3 pour `fabriquer` en Zen (objet puis ampleur) ;
   l ampleur 0-4 passe par `mission.scaled()`, jamais de valeur du modele.
   Jev ne voit pas les actions `plannerOnly` (dire, regarder, sauter, appuyer,
   regarder_autour, pivoter, memoriser, oublier, donner, rejoindre_demandeur,
@@ -100,8 +112,9 @@
   planificateur), puis nouvel essai.
   `/api/status.choix_actions` compare les latences. CI (`ci/compose.yaml`) :
   `ACTION_CHOOSER` defaut `jev` sur la branche `claude/jev-action-choice`,
-  secret GitHub `TYPESAFE_API_KEY` facultatif (sans lui : repli a chaque tour).
-  Tests : `tmp/action-chooser.test.js` (transport TypeSafe simule).
+  aucun secret TypeSafe (Zen via `PLANNER_API_KEY`). Tests :
+  `tmp/action-chooser.test.js` (TypeSafe simule), `tmp/jev-zen.test.js`
+  (llm.call simule).
 
 ## Outil facultatif et stock de montee du 2026-09-24 (prioritaire)
 
@@ -1729,8 +1742,13 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `MEMORY_NOTE_MAX` | `4000` | Taille maximale d'une note isolee, en caracteres. |
 | `RESCUE_WALK_TIMEOUT_MS` | `15000` | Delai pour rejoindre la terre ferme **a pied**. |
 | `BUILD_MOVE_TIMEOUT_MS` | `12000` | Delai pour rejoindre un poste de tir a pied. |
-| `TYPESAFE_API_KEY` | — | Cle de Jev : repli complet si `PLANNER_BASE_URL` est vide, ou choix des actions de mission si `ACTION_CHOOSER=jev`. |
+| `TYPESAFE_API_KEY` | — | Cle TypeSafe : repli complet si `PLANNER_BASE_URL` est vide, ou Jev si `JEV_PROVIDER=typesafe`. |
 | `ACTION_CHOOSER` | `planner` | `jev` : Jev choisit l action de chaque tour de mission (hors `geste`), tout le reste reste au planificateur JSON ; un echec de Jev rend le tour au planificateur. Stats : `/api/status.choix_actions`. |
+| `JEV_PROVIDER` | `zen` si `PLANNER_BASE_URL`, sinon `typesafe` | Qui repond aux questions de Jev : gateway Zen du planificateur (`bot/jev-zen.js`) ou API TypeSafe (`bot/jev.js`). |
+| `JEV_ZEN_MODEL` | vide | Modele Zen de Jev. Vide : id contenant « jev » sur `/models` s il repond, sinon `deepseek-v4.1-flash` (raisonnement coupe). |
+| `JEV_ZEN_MAX_TOKENS` | `300` | Jetons max d une reponse `{"choix","confiance"}`. |
+| `JEV_ZEN_TIMEOUT_MS` | `8000` | Delai d une question fermee Zen. |
+| `JEV_ZEN_SESSION_ID` | `<PLANNER_SESSION_ID>-jev` | En-tete `x-opencode-session` des questions de Jev (cache separe du planificateur). |
 | `ACTION_CHOOSER_PAUSE_AFTER` | `3` | Echecs Jev d affilee avant de le mettre en pause (tours au planificateur). |
 | `ACTION_CHOOSER_PAUSE_MS` | `60000` | Duree de cette pause avant de retenter Jev. |
 | `JEV_MODEL` | `jev-latest` | Modele System One. |
@@ -1826,6 +1844,7 @@ constantes du module, surchargeables mais non listees dans le tableau.
 | `bot/logger.js` | journalisation ERREUR/WARNING vers `/data/bot.log` **et** le chat ; capture `console.error`/`console.warn` et handlers globaux |
 | `bot/memory.js` | memoire du planificateur : portees `travail` / `long_terme`, budget de jetons, refus de depassement |
 | `bot/jev.js` | l'ancien pilote (questions typees TypeSafe) ; repli quand `PLANNER_BASE_URL` est vide |
+| `bot/jev-zen.js` | questions fermees de Jev servies par le gateway Zen (`JEV_PROVIDER=zen`), detection du modele sur `/models` |
 | `bot/action-chooser.js` | `ACTION_CHOOSER` : choix de l action du tour de mission par Jev, repli planificateur par tour, statistiques `choix_actions` |
 | `bot/mission.js` | boucle de mission, file d'etapes, garde-fou d'arret, detecteur de blocage, les 23 actions |
 | `bot/craft.js` | recettes, etabli, verification d'outil avant de casser |

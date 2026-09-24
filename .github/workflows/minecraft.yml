@@ -30,8 +30,6 @@ jobs:
         # The planner key only reaches the disposable bot container (tree missions).
         env:
           PLANNER_API_KEY: ${{ secrets.PLANNER_API_KEY }}
-          # Jev picks mission actions when ACTION_CHOOSER=jev (optional: without it, planner fallback).
-          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
         run: python ci/run.py --suite all
       - name: Remove any remaining disposable test containers
         if: always()

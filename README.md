@@ -377,16 +377,29 @@ qui évite que le premier ordre du joueur paie l'ouverture de la session.
 
 ### Choix des actions par Jev (`ACTION_CHOOSER=jev`)
 
-`ACTION_CHOOSER` (défaut `planner`) peut confier à **Jev** (TypeSafe,
-`bot/jev.js`, clé `TYPESAFE_API_KEY`) le **seul** choix de l'action de chaque
-tour de mission. Le routage du chat, la lecture de l'objectif, `demander_aide`
-et `reviser_actions` restent au planificateur JSON.
+`ACTION_CHOOSER` (défaut `planner`) peut confier à **Jev** — des questions
+fermées — le **seul** choix de l'action de chaque tour de mission. Le routage
+du chat, la lecture de l'objectif, `demander_aide` et `reviser_actions` restent
+au planificateur JSON.
+
+- `JEV_PROVIDER=zen` (défaut dès que `PLANNER_BASE_URL` est posé,
+  `bot/jev-zen.js`) : chaque question part sur le gateway OpenCode Zen du
+  planificateur (même clé `PLANNER_API_KEY`, mêmes en-têtes, session
+  `<PLANNER_SESSION_ID>-jev`), réponse stricte
+  `{"choix": "<option>", "confiance": 0..1}` ; un choix hors options est
+  rejeté. Modèle : `JEV_ZEN_MODEL`, sinon un modèle dont l'id contient « jev »
+  sur `GET /models` s'il répond, sinon `deepseek-v4.1-flash` sans raisonnement
+  (`max_tokens` 300, `JEV_ZEN_MAX_TOKENS`). `node bot/jev-zen.js` affiche la
+  détection. `JEV_PROVIDER=typesafe` garde l'API TypeSafe (`bot/jev.js`,
+  `TYPESAFE_API_KEY`).
 
 - Jev répond à des questions fermées : une action par tour (1 appel), plus son
   ampleur sur une échelle 0-4 (2e appel) si l'action en déclare une —
   `casser`, `ramasser`, `fabriquer`, `avancer`, `piler`, `construire`,
   `attendre`. Le code traduit l'ampleur dans l'unité de l'action
-  (`mission.scaled()`) : aucune valeur numérique ne vient du modèle.
+  (`mission.scaled()`) : aucune valeur numérique ne vient du modèle. En Zen,
+  `fabriquer` coûte 3 appels (action, objet parmi les recettes calculées,
+  ampleur).
 - Jev ne voit que les actions sans `plannerOnly` : `casser`, `ramasser`,
   `fabriquer`, `avancer`, `piler`, `choisir_terrain`, `construire`,
   `poser_porte`, `sortir`, `attendre`, `terminer`. Il ne peut **pas** choisir
@@ -398,8 +411,9 @@ et `reviser_actions` restent au planificateur JSON.
   **ce tour** au planificateur JSON, journalisé une fois par cause : une mission
   ne s'arrête jamais à cause de Jev. Après 3 échecs d'affilée, Jev est mis en
   pause 60 s (`ACTION_CHOOSER_PAUSE_AFTER`, `ACTION_CHOOSER_PAUSE_MS`).
-- `/api/status.choix_actions` : `mode`, `decisions_jev`, `appels_jev`,
-  `replis_planner`, `moyenne_ms_jev` (par décision) et `moyenne_ms_planner`.
+- `/api/status.choix_actions` : `mode`, `jev_fournisseur`, `jev_modele`,
+  `jev_detection`, `decisions_jev`, `appels_jev`, `replis_planner`,
+  `moyenne_ms_jev` (par décision) et `moyenne_ms_planner`.
 
 ## Missions continues
 
