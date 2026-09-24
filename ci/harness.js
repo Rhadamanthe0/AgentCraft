@@ -54,5 +54,7 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: error.message }))
   } finally { busy = false }
 })
-server.listen(3101, '127.0.0.1')
+// Toutes interfaces du conteneur : compose ne publie ce port que sur le
+// loopback de l hote (sinon le port publie ne repond jamais).
+server.listen(3101, '0.0.0.0')
 bot.once('end', () => { ready = false; server.close(); stop(1, 'disconnected') })

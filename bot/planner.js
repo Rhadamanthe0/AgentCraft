@@ -83,6 +83,11 @@ const EFFECTIVE_MAX_TOKENS = Math.max(Number.isFinite(MAX_TOKENS) ? MAX_TOKENS :
 // Note contrat transport (llm.js) : aucune option `reasoning`/`effort` n y
 // existe ; le seul levier est maxTokens (max_tokens / max_output_tokens selon
 // protocole). D ou ce budget par modele, sans modifier llm.js.
+// Raisonnement du modele unique (chat) : `PLANNER_THINKING=disabled` envoie
+// `thinking: {type: 'disabled'}` (deja utilise par le mode dual). Mesure CI :
+// 86 % des jetons produits etaient du raisonnement, ~3,9 s par plan. Un 400
+// du gateway sur ce champ le retire pour la suite (une seule fois, annonce).
+let THINKING = (process.env.PLANNER_THINKING || '').trim().toLowerCase()
 const PILOT_MAX_TOKENS = Number(process.env.PLANNER_PILOT_MAX_TOKENS || 4096)
 const PILOT_RETRY_MAX_TOKENS = Number(process.env.PLANNER_PILOT_RETRY_MAX_TOKENS || 8192)
 const PILOT_EFFECTIVE_MAX_TOKENS = Math.max(
@@ -294,6 +299,11 @@ const stats = {
   moyenne_ms: null,
   derniers_jetons: null,
   jetons_en_cache: null,
+  // Cumuls pour juger le cache de prompt et le cout du raisonnement.
+  jetons_total: 0,
+  jetons_en_cache_total: 0,
+  jetons_sortie_total: 0,
+  jetons_raisonnement_total: 0,
   // Miroir du profil pour /api/status.planner (index.js etale ...stats sans
   // changer de code) : l endpoint historique affiche ainsi l effectif, pas une
   // promesse de pilote quand le repli DeepSeek est actif.
@@ -341,6 +351,19 @@ async function callWithProfile (system, user, { image = null, signal = null, max
   async function doCall (model, proto, budget) {
     stats.tentatives += 1
     syncProfileStats()
+    const thinking = proto === 'chat' && THINKING === 'disabled' ? { type: 'disabled' } : null
+    if (thinking) {
+      try {
+        return await llm.call(system, user, {
+          baseUrl: BASE_URL, apiKey: API_KEY, model, temperature, maxTokens: budget, timeoutMs,
+          keepAlive: IS_OLLAMA ? KEEP_ALIVE : null, headers, image, signal, protocol: proto, thinking
+        })
+      } catch (err) {
+        if (!(err?.code === 'LLM_HTTP' && err?.status === 400)) throw err
+        THINKING = ''
+        console.log(`[planner] champ thinking refuse par le gateway (${String(err.message).slice(0, 80)}) : raisonnement laisse actif`)
+      }
+    }
     return llm.call(system, user, {
       baseUrl: BASE_URL,
       apiKey: API_KEY,
@@ -1100,7 +1123,12 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   stats.derniers_jetons = response.usage?.prompt_tokens ?? null
   // DeepSeek nomme ainsi la part servie depuis son cache ; Ollama ne renseigne
   // rien, son gain se lit dans la latence.
-  stats.jetons_en_cache = response.usage?.prompt_cache_hit_tokens ?? null
+  stats.jetons_en_cache = response.usage?.prompt_cache_hit_tokens ??
+    response.usage?.prompt_tokens_details?.cached_tokens ?? null
+  stats.jetons_total += response.usage?.prompt_tokens ?? 0
+  stats.jetons_en_cache_total += stats.jetons_en_cache ?? 0
+  stats.jetons_sortie_total += response.usage?.completion_tokens ?? 0
+  stats.jetons_raisonnement_total += response.usage?.completion_tokens_details?.reasoning_tokens ?? 0
 
   if (DEBUG) {
     console.log(

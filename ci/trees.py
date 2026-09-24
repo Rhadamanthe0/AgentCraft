@@ -1,7 +1,8 @@
 """Tree-harvest missions driven through the real bot and its remote planner.
 
 All levels run in parallel, each in its own arena with its own real bot
-(`tree-bot-N` service, fresh /data). `trees/*` vary the tree itself;
+(`TreeBotN`, one of the POOL_SIZE processes of the shared `bots` container,
+own API port and fresh /data/botN). `trees/*` vary the tree itself;
 `terrain/*` hide a simple tree behind terrain that must be dug through, dug
 down into or climbed, and every level checks by server scoreboard that the bot
 took no damage (a fall of more than three blocks hurts). Each level builds one tree by RCON
@@ -223,7 +224,7 @@ def levels():
 PROBE_LOCAL = (4.5, 200, 32.5)
 
 
-def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure, timeline, probe_player):
+def run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_player):
     """Interrupt a tree job while the bot stands on its pillar, then check that
     "Remplace et rejoins moi" is understood and that the bot reaches the
     player without taking damage (it must take its pillar down first)."""
@@ -231,10 +232,10 @@ def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure,
     rcon(f'tp {probe_player} ' + ' '.join(map(str, probe)))
     started = time.monotonic()
     answers = {}
-    answers['tree'] = bot_api(service, '/api/instruction', {'message': INSTRUCTION, 'requester': probe_player})
+    answers['tree'] = bot_api(bot, '/api/instruction', {'message': INSTRUCTION, 'requester': probe_player})
 
     def status():
-        s = bot_api(service, '/api/status')
+        s = bot_api(bot, '/api/status')
         timeline.append({'t': round(time.monotonic() - started, 1), 'pos': s.get('position'),
                          'onGround': s.get('onGround'), 'running': s.get('missionRunning'),
                          'etat': (s.get('mission') or {}).get('etat'), 'objectif': (s.get('mission') or {}).get('objectif')})
@@ -250,17 +251,17 @@ def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure,
         time.sleep(1)
     # Same sequence as seen in game: stop first, so the tree job is paused and
     # the new request opens the "resume or replace?" question.
-    answers['stop'] = bot_api(service, '/api/instruction', {'message': 'Stop', 'requester': probe_player})
+    answers['stop'] = bot_api(bot, '/api/instruction', {'message': 'Stop', 'requester': probe_player})
     time.sleep(2)
-    answers['join'] = bot_api(service, '/api/instruction', {'message': 'Rejoins moi', 'requester': probe_player})
+    answers['join'] = bot_api(bot, '/api/instruction', {'message': 'Rejoins moi', 'requester': probe_player})
     # The arbitration question lives in the objective controller snapshot.
     arbitration = False
     until = time.monotonic() + 15
     while time.monotonic() < until and not arbitration:
-        arbitration = bool((bot_api(service, '/api/status').get('objectifs') or {}).get('arbitration'))
+        arbitration = bool((bot_api(bot, '/api/status').get('objectifs') or {}).get('arbitration'))
         time.sleep(1)
     if arbitration:
-        answers['replace'] = bot_api(service, '/api/instruction', {'message': 'Remplace et rejoins moi', 'requester': probe_player})
+        answers['replace'] = bot_api(bot, '/api/instruction', {'message': 'Remplace et rejoins moi', 'requester': probe_player})
     joined = False
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
@@ -273,9 +274,9 @@ def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure,
     damage_answer = rcon(f'scoreboard players get {username} degats')
     match = re.search(r'has (\d+)', damage_answer)
     damage = int(match.group(1)) if match else None
-    final = bot_api(service, '/api/status')
+    final = bot_api(bot, '/api/status')
     if final.get('missionRunning'):
-        bot_api(service, '/api/stop', {})
+        bot_api(bot, '/api/stop', {})
     checks = {'etait_sur_son_pilier': on_pillar, 'a_rejoint_le_joueur': joined, 'aucun_degat': damage == 0}
     # Since ARBITRATION_DEFAULT=remplacement, a new request replaces the
     # paused tree job directly: asking "resume or replace?" is a failure.
@@ -298,7 +299,7 @@ def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure,
 JOIN_TIMEOUT_S = 150
 
 
-def run_join_steps(level, x0, service, username, output, rcon, bot_api, probe_name):
+def run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name):
     """A probe player says "Rejoins moi" while the bot is trapped; the bot must
     reach it (XZ <= 3, same level) without damage, by whatever means."""
     local = level['probeAt']
@@ -307,10 +308,10 @@ def run_join_steps(level, x0, service, username, output, rcon, bot_api, probe_na
     time.sleep(1)
     started = time.monotonic()
     timeline = []
-    answer = bot_api(service, '/api/instruction', {'message': 'Rejoins moi', 'requester': probe_name})
+    answer = bot_api(bot, '/api/instruction', {'message': 'Rejoins moi', 'requester': probe_name})
     joined = False
     while time.monotonic() - started < JOIN_TIMEOUT_S:
-        s = bot_api(service, '/api/status')
+        s = bot_api(bot, '/api/status')
         p = s.get('position') or {}
         timeline.append({'t': round(time.monotonic() - started, 1), 'pos': p, 'onGround': s.get('onGround'),
                          'running': s.get('missionRunning'), 'etat': (s.get('mission') or {}).get('etat')})
@@ -321,9 +322,9 @@ def run_join_steps(level, x0, service, username, output, rcon, bot_api, probe_na
     damage_answer = rcon(f'scoreboard players get {username} degats')
     match = re.search(r'has (\d+)', damage_answer)
     damage = int(match.group(1)) if match else None
-    final = bot_api(service, '/api/status')
+    final = bot_api(bot, '/api/status')
     if final.get('missionRunning'):
-        bot_api(service, '/api/stop', {})
+        bot_api(bot, '/api/stop', {})
     checks = {'a_rejoint_le_joueur': joined, 'aucun_degat': damage == 0}
     (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
         json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
@@ -341,9 +342,19 @@ def run_join_steps(level, x0, service, username, output, rcon, bot_api, probe_na
 POOL_SIZE = 16
 
 
+# All pool bots live in ONE compose service (`bots`, ci/multi-bot.js); each bot
+# is a process with its own API port. Keep in step with the `bots` service
+# (POOL_SIZE env and one published port per bot) in ci/compose.yaml.
+BOTS_SERVICE = 'bots'
+PROBES_SERVICE = 'probes'
+API_BASE_PORT = 3000
+
+
 def bot_services():
-    """(compose service, username) per pool worker."""
-    return [(f'tree-bot-{i}', f'TreeBot{i}') for i in range(1, POOL_SIZE + 1)]
+    """(API port inside the `bots` container, username) per pool worker.
+
+    The port is the bot's identity for `bot_api(port, route)`."""
+    return [(API_BASE_PORT + i, f'TreeBot{i}') for i in range(1, POOL_SIZE + 1)]
 
 
 def probe_names():
@@ -364,7 +375,7 @@ def wood(inventory, placed_planks=0):
     return inventory.get('buches', 0) + (inventory.get('planches', 0) + placed_planks) // 4
 
 
-def run_level(level, x0, service, username, output, rcon, bot_api, probe_name):
+def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
     name = level['name']
     x1, z0, z1 = x0 + SIZE, 0, SIZE
     local = level.get('start', LOCAL_START)
@@ -414,7 +425,7 @@ def run_level(level, x0, service, username, output, rcon, bot_api, probe_name):
         rcon(f'scoreboard players set {username} degats 0')
         until = time.monotonic() + 20
         while True:
-            s = bot_api(service, '/api/status')
+            s = bot_api(bot, '/api/status')
             p = s.get('position') or {}
             if s.get('onGround') and all(abs(p.get(k, -999) - v) < .2 for k, v in zip('xyz', start)):
                 break
@@ -426,10 +437,10 @@ def run_level(level, x0, service, username, output, rcon, bot_api, probe_name):
         if before['logs'] != expected_logs:
             raise RuntimeError(f"Fixture has {before['logs']} logs, expected {expected_logs}")
         if level.get('kind') == 'chat':
-            return run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure, timeline, probe_name)
+            return run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_name)
         if level.get('kind') == 'join':
-            return run_join_steps(level, x0, service, username, output, rcon, bot_api, probe_name)
-        answer = bot_api(service, '/api/instruction', {'message': INSTRUCTION, 'requester': REQUESTER})
+            return run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name)
+        answer = bot_api(bot, '/api/instruction', {'message': INSTRUCTION, 'requester': REQUESTER})
         started = time.monotonic()
         peak_standing = start[1]
         world, last_world_check = before, 0
@@ -440,7 +451,7 @@ def run_level(level, x0, service, username, output, rcon, bot_api, probe_name):
         last_plan = None
         while time.monotonic() - started < LEVEL_CAP_S:
             now = time.monotonic()
-            s = bot_api(service, '/api/status')
+            s = bot_api(bot, '/api/status')
             m = s.get('mission') or {}
             p = s.get('position') or {}
             inv = wood(s.get('inventory'))
@@ -477,15 +488,15 @@ def run_level(level, x0, service, username, output, rcon, bot_api, probe_name):
                 break
             time.sleep(1)
         elapsed = round(time.monotonic() - started, 1)
-        final = bot_api(service, '/api/status')
-        mission = bot_api(service, '/api/mission')
+        final = bot_api(bot, '/api/status')
+        mission = bot_api(bot, '/api/mission')
         after = measure()
         damage_answer = rcon(f'scoreboard players get {username} degats')
         damage = int(re.search(r'has (\d+)', damage_answer).group(1)) if re.search(r'has (\d+)', damage_answer) else None
         items_left = rcon(f'execute as @e[type=item,x={x0},y={FLOOR_Y},z={z0},dx={SIZE},dy={TOP_Y - FLOOR_Y},dz={SIZE}]'
                           ' run data get entity @s Pos')
         if final.get('missionRunning'):
-            bot_api(service, '/api/stop', {})
+            bot_api(bot, '/api/stop', {})
         # Planks the bot crafted from a log (scaffolding) still count as wood:
         # 4 planks = 1 log, in inventory or left placed in the arena.
         inventory = wood(final.get('inventory'), after.get('planks', 0))
@@ -533,15 +544,15 @@ def run_levels(output, rcon, bot_api):
     queue = list(range(len(all_levels)))
     lock = threading.Lock()
 
-    def reset(service):
+    def reset(bot):
         # Previous level's mission and working notes must not leak into the next one.
         for route, body, method in (('/api/stop', {}, 'POST'), ('/api/memory', None, 'DELETE')):
             try:
-                bot_api(service, route, body, method=method)
+                bot_api(bot, route, body, method=method)
             except Exception:
                 pass
 
-    def worker(service, username, probe):
+    def worker(bot, username, probe):
         first = True
         while True:
             with lock:
@@ -550,16 +561,16 @@ def run_levels(output, rcon, bot_api):
                 index = queue.pop(0)
             level = all_levels[index]
             if not first:
-                reset(service)
+                reset(bot)
             first = False
             print(f'{level["name"]} ({username}) started', flush=True)
-            result = run_level(level, origins[index], service, username, output, rcon, bot_api, probe)
+            result = run_level(level, origins[index], bot, username, output, rcon, bot_api, probe)
             result['type'] = mission_type(level['name'])
             results[index] = result
             print(f'{level["name"]} finished in {result.get("elapsedS")} s', flush=True)
 
-    threads = [threading.Thread(target=worker, args=(service, username, probe))
-               for (service, username), probe in zip(bot_services(), probe_names())]
+    threads = [threading.Thread(target=worker, args=(bot, username, probe))
+               for (bot, username), probe in zip(bot_services(), probe_names())]
     for thread in threads:
         thread.start()
     for thread in threads:

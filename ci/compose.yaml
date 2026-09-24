@@ -23,17 +23,31 @@ services:
       RCON_CMDS_STARTUP: |-
         time set day
         gamerule advance_time false
+      # /config is copied into /data before Paper starts: ci/paper/bukkit.yml
+      # disables the per-IP login throttle (16 bots share one container IP).
+      COPY_CONFIG_DEST: /data
+    # RCON reached directly by ci/run.py (a docker exec per command costs ~1 s
+    # on Windows). Loopback only, random host port, disposable password.
+    ports:
+      - "127.0.0.1::25575"
     # Anonymous, disposable volume; never the live mc-data volume.
     volumes:
       - /data
+      - ./paper/bukkit.yml:/config/bukkit.yml:ro
+  # One test image per run (built once, from the harness service); every other
+  # service reuses it. CI_TAG is the disposable project name set by ci/run.py,
+  # and ci/run.py / ci/cleanup.py remove minebot-ci:<project> at the end.
   harness:
     build:
       context: ..
       dockerfile: ci/Dockerfile
+    image: "minebot-ci:${CI_TAG:-local}"
     init: true
     environment:
       NODE_PATH: /work/bot/node_modules
     command: ["node", "/work/ci/harness.js", "TestProbe1", "--idle-secs", "600"]
+    ports:
+      - "127.0.0.1::3101"
     depends_on:
       minecraft:
         condition: service_healthy
@@ -44,41 +58,65 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
-  # Real bots (bot/index.js) for tree missions, one per level, run in parallel.
-  # Same image as the harness; only started by the `trees` suite. Their only
-  # secret is the planner key, read from the runner environment (GitHub
-  # secret), never from a .env file.
-  tree-bot-1: &tree-bot
-    build:
-      context: ..
-      dockerfile: ci/Dockerfile
+  # Real bots (bot/index.js) for the tree/join/chat levels: ONE container, one
+  # `node index.js` process per bot (ci/multi-bot.js), TreeBotN listening on
+  # API_PORT 3000+N with its own state under /data/botN/. Only started by the
+  # `trees` suite. Their only secret is the planner key, read from the runner
+  # environment (GitHub secret), never from a .env file.
+  bots:
+    image: "minebot-ci:${CI_TAG:-local}"
+    pull_policy: never
     init: true
     working_dir: /work/bot
-    command: ["node", "index.js"]
-    environment: &tree-bot-env
+    command: ["node", "/work/ci/multi-bot.js", "bots"]
+    # Bot APIs reached directly by ci/run.py; loopback only, random host ports.
+    # One line per pool worker (POOL_SIZE in ci/trees.py).
+    ports:
+      - "127.0.0.1::3001"
+      - "127.0.0.1::3002"
+      - "127.0.0.1::3003"
+      - "127.0.0.1::3004"
+      - "127.0.0.1::3005"
+      - "127.0.0.1::3006"
+      - "127.0.0.1::3007"
+      - "127.0.0.1::3008"
+      - "127.0.0.1::3009"
+      - "127.0.0.1::3010"
+      - "127.0.0.1::3011"
+      - "127.0.0.1::3012"
+      - "127.0.0.1::3013"
+      - "127.0.0.1::3014"
+      - "127.0.0.1::3015"
+      - "127.0.0.1::3016"
+    environment:
       NODE_PATH: /work/bot/node_modules
+      POOL_SIZE: "16"
+      API_BASE_PORT: "3000"
+      # V8 heap cap of each bot process (NODE_OPTIONS=--max-old-space-size).
+      # Offline, a bot idles at ~110-135 MB RSS with ~25 MB of heap; chunks,
+      # pathfinding and the planner add to that once in the world.
+      BOT_MAX_OLD_SPACE_MB: "256"
       MC_HOST: minecraft
       MC_PORT: "25565"
       MC_VERSION: "26.1"
-      BOT_USERNAME: TreeBot1
-      API_PORT: "3000"
+      # BOT_USERNAME, API_PORT, PLANNER_SESSION_ID and the /data/botN/ files
+      # (memory, actions doc, objectives, log) are set per child by multi-bot.js.
       PLANNER_BASE_URL: https://opencode.ai/zen/go/v1
       PLANNER_MODEL: deepseek-v4.1-flash
       PLANNER_API_KEY: "${PLANNER_API_KEY:-}"
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot1
       # Bots must not take each other's chat for orders (shared server).
       CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TreeBot9,TreeBot10,TreeBot11,TreeBot12,TreeBot13,TreeBot14,TreeBot15,TreeBot16,TestProbe1,TestProbe2,TestProbe3,TestProbe4,TestProbe5,TestProbe6,TestProbe7,TestProbe8,TestProbe9,TestProbe10,TestProbe11,TestProbe12,TestProbe13,TestProbe14,TestProbe15,TestProbe16,TestProbe17
       PLANNER_USER_AGENT: minecraft-bot/1.0
       PLANNER_TIMEOUT_MS: "30000"
+      # Mesure : 86 % des jetons produits etaient du raisonnement (~3,9 s/plan).
+      PLANNER_THINKING: disabled
       PLANNER_MAX_TOKENS: "2000"
       MISSION_MAX_STEPS: "90"
       MISSION_MAX_DURATION_MS: "900000"
       MISSION_DEFAULT_QUOTA: "16"
-      MEMORY_FILE: /data/memory.json
-      ACTIONS_DOC_FILE: /data/actions-doc.json
-      OBJECTIVES_FILE: /data/objectives.json
-      OBJECTIVES_EVENTS_FILE: /data/objectives-events.jsonl
-      LOG_FILE: /data/bot.log
+    # 16 processes x (256 MB heap cap + ~100 MB code/buffers) stays under it;
+    # past it the kernel kills a bot, which the healthcheck and logs show.
+    mem_limit: 6g
     # Anonymous volume: every run starts with no memory or objectives.
     volumes:
       - /data
@@ -87,157 +125,32 @@ services:
         condition: service_healthy
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    # Healthy only when every child is alive AND answers /api/status spawned=true.
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/status').then(r=>r.json()).then(s=>process.exit(s.spawned?0:1)).catch(()=>process.exit(1))"]
-      interval: 2s
-      timeout: 3s
-      retries: 45
-  tree-bot-2:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot2
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot2
-  tree-bot-3:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot3
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot3
-  tree-bot-4:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot4
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot4
-  tree-bot-5:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot5
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot5
-  tree-bot-6:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot6
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot6
-  tree-bot-7:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot7
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot7
-  tree-bot-8:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot8
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot8
-  tree-bot-9:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot9
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot9
-  tree-bot-10:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot10
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot10
-  tree-bot-11:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot11
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot11
-  tree-bot-12:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot12
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot12
-  tree-bot-13:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot13
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot13
-  tree-bot-14:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot14
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot14
-  tree-bot-15:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot15
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot15
-  tree-bot-16:
-    <<: *tree-bot
-    environment:
-      <<: *tree-bot-env
-      BOT_USERNAME: TreeBot16
-      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot16
-  # Silent probe players standing in for the human requester (one per worker).
-  probe-2: &probe
-    build:
-      context: ..
-      dockerfile: ci/Dockerfile
+      test: ["CMD", "node", "/work/ci/multi-bot.js", "health"]
+      interval: 3s
+      timeout: 5s
+      start_period: 20s
+      retries: 60
+  # Silent probe players standing in for the human requester (one per worker),
+  # TestProbe2..17: ONE node process (ci/probes.js), one shared minecraft-data
+  # registry instead of 16 processes (~100 MB each).
+  probes:
+    image: "minebot-ci:${CI_TAG:-local}"
+    pull_policy: never
     init: true
     environment:
       NODE_PATH: /work/bot/node_modules
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe2", "--idle-secs", "1700"]
+    command: ["node", "/work/ci/probes.js", "TestProbe2", "TestProbe3", "TestProbe4", "TestProbe5", "TestProbe6", "TestProbe7", "TestProbe8", "TestProbe9", "TestProbe10", "TestProbe11", "TestProbe12", "TestProbe13", "TestProbe14", "TestProbe15", "TestProbe16", "TestProbe17", "--idle-secs", "1700"]
+    mem_limit: 768m
     depends_on:
       minecraft:
         condition: service_healthy
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-  probe-3:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe3", "--idle-secs", "1700"]
-  probe-4:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe4", "--idle-secs", "1700"]
-  probe-5:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe5", "--idle-secs", "1700"]
-  probe-6:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe6", "--idle-secs", "1700"]
-  probe-7:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe7", "--idle-secs", "1700"]
-  probe-8:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe8", "--idle-secs", "1700"]
-  probe-9:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe9", "--idle-secs", "1700"]
-  probe-10:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe10", "--idle-secs", "1700"]
-  probe-11:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe11", "--idle-secs", "1700"]
-  probe-12:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe12", "--idle-secs", "1700"]
-  probe-13:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe13", "--idle-secs", "1700"]
-  probe-14:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe14", "--idle-secs", "1700"]
-  probe-15:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe15", "--idle-secs", "1700"]
-  probe-16:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe16", "--idle-secs", "1700"]
-  probe-17:
-    <<: *probe
-    command: ["node", "/work/tmp/probe-bot.js", "TestProbe17", "--idle-secs", "1700"]
+    # Children alive only; being in the world is checked by RCON in ci/run.py.
+    healthcheck:
+      test: ["CMD", "node", "/work/ci/multi-bot.js", "health"]
+      interval: 3s
+      timeout: 5s
+      retries: 20

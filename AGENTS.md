@@ -25,6 +25,15 @@
   d affilee faisaient echouer la mission (vu sur trees/bent).
 - `llm.call` rejoue UNE fois une panne passagere du gateway (5xx, 429, 400
   « Upstream request failed »), dans le meme delai.
+- Banc CI mutualise (2026-09-24) : UNE image
+  `minebot-ci:<projet>` par execution (build du seul `harness`, supprimee par
+  `docker image rm` en fin de run ; `--rmi local` ignore les images nommees).
+  16 bots dans UN conteneur `bots` (`ci/multi-bot.js`, un processus
+  `index.js` par bot, API `3000+N`, `/data/botN/`, tas 256 Mo, jamais relance
+  en silence) ; 16 sondes dans UN processus (`ci/probes.js`).
+  `ci/cleanup.py` balaie conteneurs/reseaux/volumes/images `mc-ci-*` et
+  `minebot-ci:*` (jamais de prune). `report.resourceSnapshot` = docker stats.
+  Une IP pour 16 bots : `ci/paper/bukkit.yml` coupe le `connection-throttle`.
 - Banc `terrain/*` (meme suite, 8 bots en parallele) : arbre derriere un mur
   de terre, au fond d un trou de 5, sur une falaise de 5, trou entoure d une
   haie. Chaque niveau exige 0 degat (scoreboard `damage_taken`).
@@ -80,6 +89,12 @@
   `digToward` de dernier recours. La descente d echafaudage s arrete au premier
   bloc qui n est plus une colonne isolee (la dirt du sol sous un pilier n est
   jamais creusee ; vu sur join/leaf-pillar).
+- Vitesse du banc : `ci/run.py` parle RCON en direct (TCP, port loopback
+  publie `127.0.0.1::25575`, une connexion partagee sous verrou) et HTTP en
+  direct aux bots/harness (`127.0.0.1::3000`/`3101`, `docker compose port`) ;
+  repli `docker compose exec` si le port manque. Avant : >1 600 exec a ~1 s.
+  Le rapport porte `plannerSummary` (latence moyenne, part de prompt en cache,
+  jetons de raisonnement) : cumuls `jetons_*_total` dans `planner.stats`.
 - Pilier dans la couronne : `isPillarBlock` ne compte plus feuilles/buches
   voisines comme sol naturel ; si `navWithDescent` laisse le bot perche sur
   l echafaudage, `digToward` jusqu au sol (20 s) puis re-tente le trajet.
@@ -1702,6 +1717,7 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `PLANNER_WARMUP_TIMEOUT_MS` | `180000` | Delai tant qu'aucune reponse n'est revenue. **Voir piege 16.** |
 | `PLANNER_KEEP_ALIVE` | `30m` | Reliquat Ollama : plus envoye qu'a un Ollama (`IS_OLLAMA`), donc inactif avec Zen. Le code le lit encore. |
 | `PLANNER_TEMPERATURE` | `0` | Un planificateur ne doit pas improviser. |
+| `PLANNER_THINKING` | vide | `disabled` envoie `thinking: {type: disabled}` au modele unique (chat) : mesure CI, 86 % des jetons produits etaient du raisonnement (~3,9 s/plan, cache de prompt deja a 91 %). Un 400 du gateway retire le champ pour la suite. Active dans le banc (A/B). |
 | `PLANNER_DEBUG` | vide | `1` trace chaque plan recu et chaque reponse rejetee. |
 | `PLANNER_MAX_TOKENS` | `2000` | Jetons maximaux de la reponse du planificateur. **Le raisonnement de deepseek compte dedans : ne pas descendre a 700.** |
 | `REPAIR_BASE_URL` | `https://opencode.ai/zen/go/v1` | Transport du reparateur (OpenAI `/chat/completions`), meme gateway que le planificateur. |

@@ -1,0 +1,6 @@
+# Bench server only (ci/compose.yaml copies it to /data before Paper starts;
+# Bukkit fills every other key with its defaults). All pool bots share the
+# `bots` container IP and all probes the `probes` one: the default 4000 ms
+# per-IP login throttle would refuse most of them.
+settings:
+  connection-throttle: -1
