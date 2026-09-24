@@ -1118,18 +1118,32 @@ function createMissionRunner (host, injected = {}) {
         // main (le pathfinder s y prend mal et le bot ne ressort pas de l eau).
         // La terre n est prise que dans ce cas (des trous dans le sol perdaient
         // le pathfinder), puis retour au point de depart.
-        if (gapToward(goal2)) {
-          const depart = host.getBot().entity.position.clone()
-          if (scaffoldingStock(host.getBot()).total < 6) {
-            await gatherDirt(6, () => false, { sol: true })
+        // Par tours : terre prise a cote de la tete de pont, retour a la tete
+        // de pont, blocs poses tant qu il en reste ; jusqu a l autre rive.
+        for (let tour = 0; tour < 4 && gapToward(goal2) && !mission?.cancelled; tour += 1) {
+          const tete = host.getBot().entity.position.clone()
+          if (scaffoldingStock(host.getBot()).total < 3) {
+            // Terre prise derriere soi seulement : un trou au bord de l eau se
+            // remplirait et agrandirait la riviere.
+            const vx = goal2.x - tete.x
+            const vz = goal2.z - tete.z
+            const derriere = (x, z) => (x + 0.5 - tete.x) * vx + (z + 0.5 - tete.z) * vz > -1.5 * Math.hypot(vx, vz)
+            const pris = await gatherDirt(6, derriere, { sol: true })
             await collectScaffoldDrops(owner)
-            await host.navigateToPosition(depart, { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.5, distanceBudget: 12 })
+            await host.navigateToPosition(tete, { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.5, distanceBudget: 12 })
+            console.log(`[mission] pont : ${pris} bloc(s) de terre creuses, stock ${scaffoldingStock(host.getBot()).total}`)
           }
+          if (scaffoldingStock(host.getBot()).total < 1) break
           const bridged = await bridgeToward(goal2, owner)
-          if (bridged) {
-            console.log(`[mission] pont : ${bridged}`)
-            result = await call()
-          }
+          console.log(`[mission] pont : ${bridged ?? 'rien pose'}`)
+          if (!bridged) break
+        }
+        if (!gapToward(goal2)) result = await call()
+        else if (!result?.reached) {
+          // Le pathfinder qui creuse entrerait dans l eau, dont le bot ne
+          // ressort pas en 26.1 : echec franc plutot que noyade.
+          console.log('[mission] pont inacheve : pas de trajet en creusant a travers l eau')
+          return result
         }
       }
       if (!result?.reached && goal2 && typeof host.digToward === 'function' && !mission?.cancelled) {
