@@ -11,6 +11,7 @@ const skills = require('./skills')
 const craft = require('./craft')
 const jev = require('./jev')
 const planner = require('./planner')
+const actionChooser = require('./action-chooser')
 const memory = require('./memory')
 const repair = require('./repair')
 const { createMissionRunner } = require('./mission')
@@ -1566,6 +1567,14 @@ app.get('/api/status', (req, res) => {
     planner: planner.isEnabled()
       ? { base: planner.BASE_URL, model: planner.MODEL, planMax: planner.PLAN_MAX, ...planner.stats }
       : null,
+    // Qui choisit l action de chaque tour de mission (ACTION_CHOOSER) : Jev ou
+    // le planificateur JSON. Latence Jev par decision vs planner.moyenne_ms.
+    choix_actions: {
+      ...actionChooser.snapshot(),
+      jev_actif: jev.isEnabled(),
+      jev_modele: jev.MODEL,
+      moyenne_ms_planner: planner.isEnabled() ? (planner.stats.moyenne_ms ?? null) : null
+    },
     // Nombre d actions dont la documentation/exemples a ete enrichie par l aide
     // distante (voir /api/actions). Zero au demarrage : la documentation native
     // suffit, l aide ne fait que la corriger.
@@ -2001,7 +2010,14 @@ if (planner.isEnabled()) {
     `${skills.documentedActions().filter(d => d.source === 'aide').length} action(s) documentee(s) par l aide, ` +
     `seuil de fin ${planner.DONE_THRESHOLD}`
   )
-  if (jev.init()) console.log('[jev] disponible mais inutilise : le planificateur JSON a la main')
+  const jevOk = jev.init()
+  if (actionChooser.getMode() === 'jev') {
+    console.log(jevOk
+      ? `[jev] choisit les actions de mission (ACTION_CHOOSER=jev, modele ${jev.MODEL}) ; chat, brief, aide et reflexion restent au planificateur JSON`
+      : `[jev] ACTION_CHOOSER=jev mais Jev inactif (${jev.initError}) : chaque tour repassera au planificateur JSON`)
+  } else if (jevOk) {
+    console.log('[jev] disponible mais inutilise : le planificateur JSON a la main')
+  }
   // En arriere-plan : le bot peut se connecter et obeir aux commandes prefixees
   // pendant que le modele monte en VRAM.
   planner.warmup()

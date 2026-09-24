@@ -375,6 +375,32 @@ documentee(s) par l aide, seuil de fin 0.75
 La dernière ligne compte : la session distante est préchauffée au démarrage, ce
 qui évite que le premier ordre du joueur paie l'ouverture de la session.
 
+### Choix des actions par Jev (`ACTION_CHOOSER=jev`)
+
+`ACTION_CHOOSER` (défaut `planner`) peut confier à **Jev** (TypeSafe,
+`bot/jev.js`, clé `TYPESAFE_API_KEY`) le **seul** choix de l'action de chaque
+tour de mission. Le routage du chat, la lecture de l'objectif, `demander_aide`
+et `reviser_actions` restent au planificateur JSON.
+
+- Jev répond à des questions fermées : une action par tour (1 appel), plus son
+  ampleur sur une échelle 0-4 (2e appel) si l'action en déclare une —
+  `casser`, `ramasser`, `fabriquer`, `avancer`, `piler`, `construire`,
+  `attendre`. Le code traduit l'ampleur dans l'unité de l'action
+  (`mission.scaled()`) : aucune valeur numérique ne vient du modèle.
+- Jev ne voit que les actions sans `plannerOnly` : `casser`, `ramasser`,
+  `fabriquer`, `avancer`, `piler`, `choisir_terrain`, `construire`,
+  `poser_porte`, `sortir`, `attendre`, `terminer`. Il ne peut **pas** choisir
+  `dire`, `regarder`, `sauter`, `appuyer`, `regarder_autour`, `pivoter`,
+  `memoriser`, `oublier`, `donner`, `rejoindre_demandeur`,
+  `tourner_vers_demandeur`, `demander_aide`, `reviser_actions`. Les missions
+  `geste` restent donc entièrement au planificateur.
+- Un échec de Jev (clé absente, délai, erreur, action hors catalogue) rend
+  **ce tour** au planificateur JSON, journalisé une fois par cause : une mission
+  ne s'arrête jamais à cause de Jev. Après 3 échecs d'affilée, Jev est mis en
+  pause 60 s (`ACTION_CHOOSER_PAUSE_AFTER`, `ACTION_CHOOSER_PAUSE_MS`).
+- `/api/status.choix_actions` : `mode`, `decisions_jev`, `appels_jev`,
+  `replis_planner`, `moyenne_ms_jev` (par décision) et `moyenne_ms_planner`.
+
 ## Missions continues
 
 Une **mission** est un objectif que le bot poursuit tout seul jusqu'a ce qu'il

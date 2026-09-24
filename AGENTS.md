@@ -81,6 +81,28 @@
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
+## Choix des actions par Jev du 2026-09-24 (prioritaire)
+
+- `ACTION_CHOOSER=jev` (defaut `planner`, demande du proprietaire) : Jev
+  (`bot/jev.js`) ne tient QUE le choix de l action de chaque tour de mission
+  (`bot/action-chooser.js`, `decide()` de `mission.js`). Chat
+  (`interpretMessage`), `readBrief`, `demander_aide` et `reviser_actions`
+  restent au planificateur JSON. Missions `geste` : planificateur seul.
+- 1 appel Jev par action, 2 si l action a une ampleur (`skills.paramsFor`) ;
+  l ampleur 0-4 passe par `mission.scaled()`, jamais de valeur du modele.
+  Jev ne voit pas les actions `plannerOnly` (dire, regarder, sauter, appuyer,
+  regarder_autour, pivoter, memoriser, oublier, donner, rejoindre_demandeur,
+  tourner_vers_demandeur, demander_aide, reviser_actions).
+- Echec Jev (cle absente, delai, erreur, action hors catalogue) => CE tour au
+  planificateur JSON, journalise une fois par cause ; la file d un repli se
+  consomme avant de revenir a Jev ; pas d appel anticipe en mode jev.
+  Disjoncteur : 3 echecs d affilee => 60 s sans appel Jev (tours au
+  planificateur), puis nouvel essai.
+  `/api/status.choix_actions` compare les latences. CI (`ci/compose.yaml`) :
+  `ACTION_CHOOSER` defaut `jev` sur la branche `claude/jev-action-choice`,
+  secret GitHub `TYPESAFE_API_KEY` facultatif (sans lui : repli a chaque tour).
+  Tests : `tmp/action-chooser.test.js` (transport TypeSafe simule).
+
 ## Outil facultatif et stock de montee du 2026-09-24 (prioritaire)
 
 - En mission bois, la hache est une optimisation facultative. Apres echec
@@ -1707,7 +1729,10 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `MEMORY_NOTE_MAX` | `4000` | Taille maximale d'une note isolee, en caracteres. |
 | `RESCUE_WALK_TIMEOUT_MS` | `15000` | Delai pour rejoindre la terre ferme **a pied**. |
 | `BUILD_MOVE_TIMEOUT_MS` | `12000` | Delai pour rejoindre un poste de tir a pied. |
-| `TYPESAFE_API_KEY` | — | Ne sert plus que si `PLANNER_BASE_URL` est vide. |
+| `TYPESAFE_API_KEY` | — | Cle de Jev : repli complet si `PLANNER_BASE_URL` est vide, ou choix des actions de mission si `ACTION_CHOOSER=jev`. |
+| `ACTION_CHOOSER` | `planner` | `jev` : Jev choisit l action de chaque tour de mission (hors `geste`), tout le reste reste au planificateur JSON ; un echec de Jev rend le tour au planificateur. Stats : `/api/status.choix_actions`. |
+| `ACTION_CHOOSER_PAUSE_AFTER` | `3` | Echecs Jev d affilee avant de le mettre en pause (tours au planificateur). |
+| `ACTION_CHOOSER_PAUSE_MS` | `60000` | Duree de cette pause avant de retenter Jev. |
 | `JEV_MODEL` | `jev-latest` | Modele System One. |
 | `JEV_MIN_CONFIDENCE` | `0.6` | Confiance mini pour qu'un message de chat agisse. |
 | `JEV_DONE_THRESHOLD` | `0.75` | Seuil de la question `termine` pour clore une mission. |
@@ -1801,6 +1826,7 @@ constantes du module, surchargeables mais non listees dans le tableau.
 | `bot/logger.js` | journalisation ERREUR/WARNING vers `/data/bot.log` **et** le chat ; capture `console.error`/`console.warn` et handlers globaux |
 | `bot/memory.js` | memoire du planificateur : portees `travail` / `long_terme`, budget de jetons, refus de depassement |
 | `bot/jev.js` | l'ancien pilote (questions typees TypeSafe) ; repli quand `PLANNER_BASE_URL` est vide |
+| `bot/action-chooser.js` | `ACTION_CHOOSER` : choix de l action du tour de mission par Jev, repli planificateur par tour, statistiques `choix_actions` |
 | `bot/mission.js` | boucle de mission, file d'etapes, garde-fou d'arret, detecteur de blocage, les 23 actions |
 | `bot/craft.js` | recettes, etabli, verification d'outil avant de casser |
 | `bot/build.js` | geometrie de la maison et pose des blocs ; ne parle a aucun modele |

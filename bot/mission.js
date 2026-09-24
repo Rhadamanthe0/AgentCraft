@@ -25,6 +25,7 @@ const delivery = require('./delivery')
 const Vec3 = require('vec3').Vec3
 const jev = require('./jev')
 const planner = require('./planner')
+const actionChooser = require('./action-chooser')
 const memory = require('./memory')
 const repair = require('./repair')
 const screenshot = require('./screenshot')
@@ -3935,6 +3936,9 @@ function createMissionRunner (host, injected = {}) {
   function startPrefetch () {
     if (!isRunning() || mission.cancelled) return
     if (!planner.isEnabled()) return
+    // ACTION_CHOOSER=jev : le choix d action appartient a Jev, un plan JSON
+    // anticipe serait jete ; la file ne vit que le temps d un repli.
+    if (actionChooser.wantsJev(mission.kind)) return
     if (mission.prefetch) return
     if (mission.queue.length !== 1) return
     if (mission.kind === 'geste') return
@@ -4081,8 +4085,44 @@ function createMissionRunner (host, injected = {}) {
     }
   }
 
+  // ACTION_CHOOSER=jev : Jev choisit l action du tour, le planificateur JSON
+  // garde tout le reste (chat, brief, aide, reflexion). Un echec de Jev rend CE
+  // tour au planificateur (null ici), jamais la mission : voir action-chooser.js.
+  async function decideByJev (state) {
+    const revision = mission.planRevision
+    const signal = mission.navigationAbort.signal
+    mission.activity?.update('planning', 'Je choisis la prochaine action a partir de ce que je vois dans le jeu.')
+    let decision
+    try {
+      decision = await actionChooser.chooseWithJev({
+        jev,
+        state,
+        kind: mission.kind,
+        supply: mission.supply,
+        dynamicCriteria: () => ({ fabrications: craft.targetCriteria(host.getBot()) })
+      })
+    } catch (err) {
+      if (signal.aborted) throw new Error('plan annule')
+      actionChooser.noteFallback(err.message)
+      return null
+    }
+    // L appel Jev n est pas annulable : un stop ou une precision arrives
+    // pendant l attente invalident la decision, comme pour un plan JSON.
+    if (signal.aborted) throw new Error('plan annule')
+    if (mission.planRevision !== revision) throw new Error('plan annule apres precision')
+    return decision
+  }
+
   async function decide (state) {
-    return planner.isEnabled() ? decideFromPlan(state) : decideFromJev(state)
+    if (!planner.isEnabled()) return decideFromJev(state)
+    if (actionChooser.getMode() === 'jev' && mission.kind === 'geste') actionChooser.noteGeste()
+    // Une file heritee d un repli se consomme d abord : ses etapes sont
+    // valides tant qu aucun echec ne l a videe.
+    if (actionChooser.wantsJev(mission.kind) && mission.queue.length === 0) {
+      const decision = await decideByJev(state)
+      if (decision) return decision
+    }
+    return decideFromPlan(state)
   }
 
   // Le garde-fou du « le modele classe, il ne compte pas », applique a la seule
@@ -4318,6 +4358,7 @@ function createMissionRunner (host, injected = {}) {
         ampleur: decision.scaleLevel === null ? null : Number(decision.scaleLevel.toFixed(2)),
         parametres: Object.keys(decision.choices).length > 0 ? decision.choices : null,
         en_file: decision.queued ?? 0,
+        choisi_par: decision.source ?? (planner.isEnabled() ? 'planner' : 'jev'),
         pourquoi: decision.why || null
       }
 

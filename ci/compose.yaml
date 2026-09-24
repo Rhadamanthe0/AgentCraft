@@ -64,6 +64,11 @@ services:
       PLANNER_MODEL: deepseek-v4.1-flash
       PLANNER_API_KEY: "${PLANNER_API_KEY:-}"
       PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot1
+      # Who picks each mission action: `jev` (TypeSafe, bot/jev.js) or
+      # `planner`. Chat, brief, help and reflection stay on the planner. Without
+      # the TypeSafe key every turn falls back to the planner (logged once).
+      ACTION_CHOOSER: "${ACTION_CHOOSER:-jev}"
+      TYPESAFE_API_KEY: "${TYPESAFE_API_KEY:-}"
       # Bots must not take each other's chat for orders (shared server).
       CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TreeBot9,TreeBot10,TreeBot11,TreeBot12,TreeBot13,TreeBot14,TestProbe1,TestProbe2,TestProbe3,TestProbe4,TestProbe5,TestProbe6
       PLANNER_USER_AGENT: minecraft-bot/1.0

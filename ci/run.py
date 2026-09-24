@@ -14,7 +14,8 @@ from trees import arena_origins, bot_services, levels, probe_names, run_levels
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
-        'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js']
+        'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js',
+        'action-chooser.test.js']
 
 
 def main():

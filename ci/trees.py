@@ -458,7 +458,9 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
             'damageTaken': damage,
             'botFinalPosition': final.get('position'),
             'missionState': m.get('etat'), 'missionReason': m.get('raison'), 'missionSteps': m.get('etapes'),
-            'planner': {k: (final.get('planner') or {}).get(k) for k in ('model', 'appels', 'etapes_servies', 'echecs')},
+            'planner': {k: (final.get('planner') or {}).get(k) for k in ('model', 'appels', 'etapes_servies', 'echecs', 'moyenne_ms')},
+            # ACTION_CHOOSER: who picked each mission action (Jev vs planner) and its latency.
+            'actionChooser': final.get('choix_actions'),
         }
     except Exception as error:
         return {'test': name, 'success': False, 'bot': username, 'error': str(error), 'timelineTail': timeline[-5:]}

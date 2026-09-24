@@ -72,6 +72,10 @@ services:
       # distant (PLANNER_BASE_URL ci-dessous) prend la main. Ces variables ne
       # servent que si PLANNER_BASE_URL est vide.
       TYPESAFE_API_KEY: "${TYPESAFE_API_KEY:-}"
+      # `jev` : Jev choisit l action de chaque tour de mission (et seulement
+      # cela) ; chat, brief, aide et reflexion restent au planificateur JSON.
+      # Un echec de Jev rend le tour au planificateur. Defaut `planner`.
+      ACTION_CHOOSER: "${ACTION_CHOOSER:-planner}"
       JEV_MODEL: "${JEV_MODEL:-jev-latest}"
       JEV_MIN_CONFIDENCE: "${JEV_MIN_CONFIDENCE:-0.6}"
       # Au-dessus de ce seuil, Jev declare la mission accomplie.
