@@ -83,6 +83,13 @@ test('langage naturel : variations stop/accent immediates hors LLM', () => {
   assert.equal(parseArbitrationChoice('pause_reprise'), 'pause_reprise')
   assert.equal(parseArbitrationChoice('remplacement'), 'remplacement')
   assert.equal(parseArbitrationChoice('que fais-tu ?'), null)
+  // Formulations libres vues en jeu le 2026-09-24.
+  assert.equal(parseArbitrationChoice('Remplace la demande'), 'remplacement')
+  assert.equal(parseArbitrationChoice('Remplace et rejoins moi'), 'remplacement')
+  assert.equal(parseArbitrationChoice('abandonne'), 'remplacement')
+  assert.equal(parseArbitrationChoice('reprends apres'), 'pause_reprise')
+  assert.equal(parseArbitrationChoice('garde l ancien'), 'pause_reprise')
+  assert.equal(isResume('reprends apres'), false)
 })
 
 test('inbox : multi messages seriaslises sans perte', () => {

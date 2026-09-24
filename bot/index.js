@@ -1211,7 +1211,10 @@ async function startObjectiveDurable (objective, requester, opts = {}) {
     say(proposal.question)
     return { ok: true, arbitration: true, question: proposal.question, objective: proposal.objective, mode: proposalMode }
   }
-  say('Je note ta demande, je la traiterai apres celle en cours.')
+  // Une question d arbitrage attend encore sa reponse : la reposer clairement
+  // plutot que d annoncer une file que le joueur ne comprend pas.
+  if (proposal.question) say('J attends d abord ta reponse : dis « remplace » pour abandonner l ancienne tache, ou « reprends apres » pour la garder.')
+  else say('Je note ta demande, je la traiterai apres celle en cours.')
   return { ok: true, queued: true, status: proposal.status, objective: proposal.objective, mode: proposalMode }
 }
 

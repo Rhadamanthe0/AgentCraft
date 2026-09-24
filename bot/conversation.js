@@ -40,6 +40,11 @@ function parseArbitrationChoice (text) {
   if (/reprends?.*(ensuite|apres)|garde.*pause|pause.*puis.*reprends/.test(t)) return 'pause_reprise'
   if (/^(oui\s+pour\s+l.autre|abandonne.*ancien|remplace.*ancien|non.*reprends?\s+pas)/.test(t)) return 'remplacement'
   if (/^remplace$/.test(t)) return 'remplacement'
+  // Formulations libres vues en jeu : « Remplace la demande », « Remplace et
+  // rejoins moi », « abandonne », « laisse tomber l arbre ». Une reprise
+  // explicite (« reprends apres », « garde l ancien ») l emporte, testee avant.
+  if (/\b(reprends?|reprise|garde)\b.*\b(apres|ensuite|ancien|plus tard)\b/.test(t)) return 'pause_reprise'
+  if (/^(remplace|abandonne|laisse tomber|oublie|annule)\b/.test(t)) return 'remplacement'
   return null
 }
 

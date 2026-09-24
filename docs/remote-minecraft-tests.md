@@ -65,6 +65,7 @@ creative (verifie : `playerGameType` 0, `ops.json` vide).
 | trees/leaves | 3 buches dans un buisson de feuilles 9x9 | bois complet, sol intact, aucun bloc pose, jamais au-dessus du sol ; feuilles cassees autorisees |
 | trees/pillar | 6 buches (Y+0 a Y+5), couronne au-dessus | bois complet, 0 feuille cassee, monte d'au moins deux blocs (hauteur atteinte rapportee : un pilier plus haut est du gaspillage, pas un echec) |
 | trees/bent | tronc decale deux fois, branche horizontale | bois complet, moyens libres |
+| chat/replace-and-join | bot sur son pilier (tronc de 6), le joueur `TestProbe1` dit « Rejoins moi » puis « Remplace et rejoins moi » | remplacement compris, joueur rejoint (XZ <= 3), 0 degat |
 | terrain/dirt-wall | 3 buches dans un mur de terre de 4 blocs, sans ouverture | bois complet, 0 feuille cassee, 0 degat |
 | terrain/pit | arbre au fond d un trou de 5 blocs, bot au bord | bois complet, 0 degat (sauter dedans blesse) |
 | terrain/plateau | arbre sur une falaise de terre de 5 blocs | bois complet, 0 degat |

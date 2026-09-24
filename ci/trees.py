@@ -16,6 +16,7 @@ to announce it), nothing productive changed for NO_PROGRESS_S, no mission
 started, or the hard cap LEVEL_CAP_S is reached.
 """
 import json
+import math
 import re
 import threading
 import time
@@ -80,6 +81,15 @@ def levels():
             'logs': _logs(*bent[:3]) + _logs(*bent[3:5], axis='x') + _logs(*bent[5:]),
             'rules': {},
         },
+        # Chat level: the player interrupts a tree job while the bot is on its pillar.
+        {
+            'name': 'chat/replace-and-join',
+            'about': 'Bot sur son pilier en coupant un arbre ; le joueur dit « Rejoins moi » puis « Remplace et rejoins moi ».',
+            'kind': 'chat',
+            'leaves': [(TX-2, 206, TZ-2, TX+2, 207, TZ+2)],
+            'logs': _logs(*trunk6),
+            'rules': {},
+        },
         # Terrain levels: boxes (x1, y1, z1, x2, y2, z2, block) built before the tree.
         {
             'name': 'terrain/dirt-wall',
@@ -120,6 +130,75 @@ def levels():
             'rules': {},
         },
     ]
+
+
+PROBE = 'TestProbe1'  # Silent harness player acting as the human requester.
+PROBE_LOCAL = (4.5, 200, 32.5)
+
+
+def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure, timeline):
+    """Interrupt a tree job while the bot stands on its pillar, then check that
+    "Remplace et rejoins moi" is understood and that the bot reaches the
+    player without taking damage (it must take its pillar down first)."""
+    probe = (x0 + PROBE_LOCAL[0], PROBE_LOCAL[1], PROBE_LOCAL[2])
+    rcon(f'tp {PROBE} ' + ' '.join(map(str, probe)))
+    started = time.monotonic()
+    answers = {}
+    answers['tree'] = bot_api(service, '/api/instruction', {'message': INSTRUCTION, 'requester': PROBE})
+
+    def status():
+        s = bot_api(service, '/api/status')
+        timeline.append({'t': round(time.monotonic() - started, 1), 'pos': s.get('position'),
+                         'onGround': s.get('onGround'), 'running': s.get('missionRunning'),
+                         'etat': (s.get('mission') or {}).get('etat'), 'objectif': (s.get('mission') or {}).get('objectif')})
+        return s
+
+    on_pillar = False
+    while time.monotonic() - started < 180:
+        s = status()
+        p = s.get('position') or {}
+        if s.get('onGround') and (p.get('y') or 0) >= 201.9:
+            on_pillar = True
+            break
+        time.sleep(1)
+    answers['join'] = bot_api(service, '/api/instruction', {'message': 'Rejoins moi', 'requester': PROBE})
+    # The arbitration question lives in the objective controller snapshot.
+    arbitration = False
+    until = time.monotonic() + 15
+    while time.monotonic() < until and not arbitration:
+        arbitration = bool((bot_api(service, '/api/status').get('objectifs') or {}).get('arbitration'))
+        time.sleep(1)
+    if arbitration:
+        answers['replace'] = bot_api(service, '/api/instruction', {'message': 'Remplace et rejoins moi', 'requester': PROBE})
+    joined = False
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        s = status()
+        p = s.get('position') or {}
+        if s.get('onGround') and p and math.hypot(p['x'] - probe[0], p['z'] - probe[2]) <= 3 and abs(p['y'] - probe[1]) <= 1:
+            joined = True
+            break
+        time.sleep(1)
+    damage_answer = rcon(f'scoreboard players get {username} degats')
+    match = re.search(r'has (\d+)', damage_answer)
+    damage = int(match.group(1)) if match else None
+    final = bot_api(service, '/api/status')
+    if final.get('missionRunning'):
+        bot_api(service, '/api/stop', {})
+    checks = {'etait_sur_son_pilier': on_pillar, 'a_rejoint_le_joueur': joined, 'aucun_degat': damage == 0}
+    if arbitration:
+        replace = answers.get('replace') or {}
+        checks['remplacement_compris'] = replace.get('relation') == 'arbitration' and replace.get('choice') == 'remplacement'
+    (output / 'chat-replace-and-join-timeline.json').write_text(
+        json.dumps({'bot': username, 'answers': answers, 'timeline': timeline}, indent=1), encoding='utf-8')
+    return {
+        'test': level['name'], 'success': all(checks.values()), 'about': level['about'], 'bot': username,
+        'checks': checks, 'endReason': 'rejoint' if joined else 'joueur non rejoint en 120 s',
+        'expectedLogs': 0, 'logsInInventory': 0, 'elapsedS': round(time.monotonic() - started, 1),
+        'arbitration': arbitration, 'answers': {k: {kk: v.get(kk) for kk in ('relation', 'choice', 'arbitration', 'queued', 'error')}
+                                                 for k, v in answers.items()},
+        'damageTaken': damage, 'botFinalPosition': final.get('position'),
+    }
 
 
 def bot_services():
@@ -191,6 +270,8 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
         expected_logs = len(level['logs'])
         if before['logs'] != expected_logs:
             raise RuntimeError(f"Fixture has {before['logs']} logs, expected {expected_logs}")
+        if level.get('kind') == 'chat':
+            return run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure, timeline)
         answer = bot_api(service, '/api/instruction', {'message': INSTRUCTION, 'requester': REQUESTER})
         started = time.monotonic()
         peak_standing = start[1]

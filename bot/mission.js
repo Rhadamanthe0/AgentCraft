@@ -791,13 +791,24 @@ function createMissionRunner (host, injected = {}) {
   // planches) sous ses pieds, attend l atterrissage, et recommence tant que
   // le bot est plus d un bloc et demi au-dessus de `targetY`. S arrete sur tout
   // autre bloc (sol naturel, feuilles) : jamais de puits.
-  async function descendScaffold (targetY) {
+  // Colonne isolee : les quatre voisins du bloc porteur sont vides. C est ce
+  // qui distingue un pilier pose par le bot d un sol naturel en terre, qu il
+  // ne faut jamais creuser sous ses pieds.
+  function isPillarBlock (bot, block) {
+    return [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => {
+      const side = bot.blockAt(block.position.offset(dx, 0, dz))
+      return !side || side.boundingBox !== 'block'
+    })
+  }
+
+  async function descendScaffold (targetY = -Infinity, { pillarOnly = false } = {}) {
     let removed = 0
     for (let i = 0; i < PILER_MAX + 2 && !mission.cancelled; i += 1) {
       const bot = host.getBot()
       if (!bot?.entity || bot.entity.position.y - targetY <= 1.5) break
       const below = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
       if (!below || !(PILER_DIRT.test(below.name) || /_planks$/.test(below.name))) break
+      if (pillarOnly && !isPillarBlock(bot, below)) break
       try {
         await withTimeout(bot.lookAt(below.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
         await withTimeout(bot.dig(below), 6000, 'creusage trop long')
@@ -811,6 +822,22 @@ function createMissionRunner (host, injected = {}) {
       removed += 1
     }
     return removed
+  }
+
+  // Trajet vers un joueur ou une position : perche sur son propre pilier, le
+  // navigateur refuse la chute (> 2 blocs) et repond no_path. On defait alors
+  // le pilier (seulement une colonne isolee) puis on re-tente une fois.
+  async function navWithDescent (call) {
+    let result = await call()
+    const bloque = !result?.reached && ['no_path', 'stuck', 'timeout'].includes(result?.code)
+    if (bloque && !mission?.cancelled) {
+      const removed = await descendScaffold(-Infinity, { pillarOnly: true })
+      if (removed > 0) {
+        console.log(`[mission] pilier defait (${removed} bloc(s)) avant de repartir`)
+        result = await call()
+      }
+    }
+    return result
   }
 
   // Feuilles dans le couloir a hauteur du corps (pieds et tete) entre le bot
@@ -2171,7 +2198,8 @@ function createMissionRunner (host, injected = {}) {
       mission.pendingJoin = true
       // Token proprietaire prive (objet opaque) : la sous-etape nav s execute
       // DANS le slot de l etape, sans reacquerir (busy permanent sinon).
-      const result = await host.navigateToPlayer(mission.requester, { signal: mission.navigationAbort.signal, __owner: stepToken })
+      const result = await navWithDescent(() =>
+        host.navigateToPlayer(mission.requester, { signal: mission.navigationAbort.signal, __owner: stepToken }))
       // Conserve l obligation non satisfaite : un "dire" au tour suivant ne
       // transforme pas un deplacement echoue en geste accompli.
       mission.pendingJoin = !result.reached
@@ -4328,8 +4356,8 @@ function createMissionRunner (host, injected = {}) {
       // rejoindre/retour/sous_arbre (nav sous-etape) passent DANS le slot.
       const courseHost = {
         ...host,
-        navigateToPlayer: (username, options = {}) => host.navigateToPlayer(username, { ...options, __owner: courseToken }),
-        navigateToPosition: (position, options = {}) => host.navigateToPosition(position, { ...options, __owner: courseToken })
+        navigateToPlayer: (username, options = {}) => navWithDescent(() => host.navigateToPlayer(username, { ...options, __owner: courseToken })),
+        navigateToPosition: (position, options = {}) => navWithDescent(() => host.navigateToPosition(position, { ...options, __owner: courseToken }))
       }
       const runCourse = () => movementTask.executeTask(current.movementTask, courseHost, current.requester,
         controller.signal, task => {
