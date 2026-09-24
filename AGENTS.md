@@ -1634,6 +1634,7 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `JEV_TIMEOUT_MS` | `4000` | Delai d'un appel de classification. |
 | `JEV_PLAN_TIMEOUT_MS` | `8000` | Delai d'un tour de planification (plus large, la boucle ne doit pas casser sur un pic). |
 | `CMD_PREFIX` | `!` | Prefixe des commandes explicites. |
+| `CHAT_IGNORE_PLAYERS` | vide | Joueurs dont le chat est ignore (virgules). Banc CI : les bots d arbre s ignorent entre eux, sinon chacun prend les phrases des autres pour des ordres. |
 | `LIQUID_COST` | `30` | Cout des liquides pour le pathfinder. |
 | `LIQUID_GRACE_MS` | `5000` | Temps dans un liquide avant sauvetage. |
 | `STUCK_GRACE_MS` | `7000` | Immobilite avant sauvetage. |
