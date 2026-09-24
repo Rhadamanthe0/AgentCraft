@@ -894,9 +894,16 @@ function createMissionRunner (host, injected = {}) {
     const dir = Math.abs(ddx) >= Math.abs(ddz) ? new Vec3(Math.sign(ddx), 0, 0) : new Vec3(0, 0, Math.sign(ddz))
     if (dir.x === 0 && dir.z === 0) return false
     const steps = Math.min(12, Math.floor(Math.max(Math.abs(ddx), Math.abs(ddz))))
+    const liquide = b => !!b && /water|lava/.test(b.name)
+    const vide = b => !b || (b.boundingBox === 'empty' && !liquide(b))
+    // Une cible plus basse se rejoint en descendant : seul un liquide est un
+    // obstacle (vu : pont suspendu construit depuis le haut d une falaise).
+    const plusBas = target.y < start.y - 1
     for (let i = 1; i <= steps; i += 1) {
-      const b = bot.blockAt(start.plus(dir.scaled(i)).offset(0, -1, 0))
-      if (!b || b.boundingBox === 'empty' || /water|lava/.test(b.name)) return true
+      const p = start.plus(dir.scaled(i))
+      const sol = bot.blockAt(p.offset(0, -1, 0))
+      if (liquide(sol)) return true
+      if (!plusBas && vide(sol) && vide(bot.blockAt(p.offset(0, -2, 0))) && vide(bot.blockAt(p.offset(0, -3, 0)))) return true
     }
     return false
   }
