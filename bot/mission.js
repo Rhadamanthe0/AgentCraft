@@ -732,6 +732,61 @@ function createMissionRunner (host, injected = {}) {
     return true
   }
 
+  // Niveau ou l on se tient au pied de `cible` : la plus basse buche de sa
+  // colonne (un arbre pousse depuis le sol).
+  function standingLevel (cible) {
+    const bot = host.getBot()
+    let y = cible.position.y
+    for (let i = 0; i < 16; i += 1) {
+      const below = bot.blockAt(new Vec3(cible.position.x, y - 1, cible.position.z))
+      if (!below || !TREE_LOG.test(below.name)) break
+      y -= 1
+    }
+    return y
+  }
+
+  // Monte d une hauteur H vers une cible posee sur un relief plus haut :
+  // obtient H blocs de terre dans le relief voisin (jamais sous les pieds),
+  // pile de H, puis laisse l approche normale finir a pied. Rend un resume ou
+  // null si ce n est pas le cas (cible pas plus haute, pas assez de terre).
+  async function climbToward (cible) {
+    const bot = host.getBot()
+    if (!bot?.entity || !cible) return null
+    const feetY = Math.floor(bot.entity.position.y + 0.01)
+    const hauteur = standingLevel(cible) - feetY
+    if (hauteur < 2 || hauteur > PILER_MAX) return null
+    let creuses = 0
+    for (let i = 0; i < hauteur + 4 && scaffoldingStock(bot).total < hauteur && !mission.cancelled; i += 1) {
+      const here = bot.entity.position
+      const eye = here.offset(0, 1.62, 0)
+      let best = null
+      for (let dx = -3; dx <= 3; dx += 1) {
+        for (let dz = -3; dz <= 3; dz += 1) {
+          for (let dy = 0; dy <= 2; dy += 1) {
+            const block = bot.blockAt(new Vec3(Math.floor(here.x) + dx, feetY + dy, Math.floor(here.z) + dz))
+            if (!block || !/^(dirt|grass_block|coarse_dirt)$/.test(block.name)) continue
+            const d = eye.distanceTo(block.position.offset(0.5, 0.5, 0.5))
+            if (d > REACH) continue
+            if (!best || d < best.d) best = { block, d }
+          }
+        }
+      }
+      if (!best) break
+      try {
+        await withTimeout(bot.lookAt(best.block.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+        await withTimeout(bot.dig(best.block), 6000, 'creusage trop long')
+      } catch (_) {
+        break
+      }
+      creuses += 1
+      await sleep(500)
+    }
+    if (scaffoldingStock(bot).total < hauteur) return null
+    const pile = await ACTIONS.piler(null, { hauteur })
+    if (pile?.echec) return `montee impossible : ${pile.resultat}`
+    return `${creuses} bloc(s) de terre pris, pilier de ${hauteur}`
+  }
+
   // Descend d un pilier pose par le bot : casse le bloc d echafaudage (dirt,
   // planches) sous ses pieds, attend l atterrissage, et recommence tant que
   // le bot est plus d un bloc et demi au-dessus de `targetY`. S arrete sur tout
@@ -845,13 +900,17 @@ function createMissionRunner (host, injected = {}) {
 
     const here = bot.entity.position
     const feetY = Math.floor(here.y)
+    // anyHeight : pour SE DEPLACER vers la matiere (fond de trou, haut de
+    // falaise), pas pour la casser d ici. Les bornes verticales ci-dessous
+    // restent celles de `casser`.
+    const anyHeight = opts.anyHeight === true
 
     const candidates = []
     for (const position of positions) {
-      if (position.y < feetY - MAX_DIG_DEPTH) continue
+      if (!anyHeight && position.y < feetY - MAX_DIG_DEPTH) continue
       // Trop haut pour etre atteint depuis le sol : passer a la cible suivante
       // plutot que de s acharner sur le haut d un tronc.
-      if (position.y > feetY + MAX_REACH_UP) continue
+      if (!anyHeight && position.y > feetY + MAX_REACH_UP) continue
 
       const dx = position.x + 0.5 - here.x
       const dz = position.z + 0.5 - here.z
@@ -1602,7 +1661,11 @@ function createMissionRunner (host, injected = {}) {
 
     // Relief, denivele, piste et boussole : mesures avant l etat, pour que la
     // boussole reuse la meme navigation (un seul balayage du repere).
-    const nav = navigationHint(block)
+    // Matiere presente mais hors des bornes de casse (fond de trou, haut de
+    // falaise) : l indice de navigation la montre quand meme, sinon le modele
+    // la croyait absente et marchait a l aveugle.
+    const lointaine = !block && mission.kind === 'recolte' ? findTargetBlock(undefined, { anyHeight: true }) : null
+    const nav = navigationHint(block ?? lointaine)
     const piste = pisteRecente()
     const cibleDeniv = block ??
       (mission.kind === 'construction' && mission.landmarkResource
@@ -2314,7 +2377,15 @@ function createMissionRunner (host, injected = {}) {
         if (!live?.entity) break
         // Perche sur son propre pilier au-dessus de l objet : le navigateur ne
         // descend que de deux blocs, donc on defait le pilier sous ses pieds.
-        if (item.position.y < live.entity.position.y - 1.5) await descendScaffold(item.position.y)
+        if (item.position.y < live.entity.position.y - 1.5) {
+          const removed = await descendScaffold(item.position.y)
+          const still = host.getBot()?.entity?.position
+          console.log(`[mission] descente d echafaudage : ${removed} bloc(s), objet a y=${item.position.y.toFixed(1)}, bot a y=${still?.y?.toFixed(2)}`)
+          // Toujours perche : trajet qui creuse vers l objet, sans chute > 2.
+          if (still && item.position.y < still.y - 1.5 && typeof host.digToward === 'function') {
+            await host.digToward(item.position, { signal: mission.navigationAbort.signal, range: 1.5, timeoutMs: 20000 })
+          }
+        }
         // Bois tombe sur des feuilles (bout de branche) : hors d atteinte au
         // sol. On casse la feuille qui le porte, s il est a portee, pour qu il
         // tombe ; seule cette feuille est touchee.
@@ -2501,7 +2572,7 @@ function createMissionRunner (host, injected = {}) {
         ? Math.max(1, Math.min(EXPLORE_MAX, Math.round(Number(params.distance))))
         : scaled(scale, 1, EXPLORE_MAX)
 
-      const cible = mission.kind === 'geste'
+      let cible = mission.kind === 'geste'
         ? null
         : (findTargetBlock() ??
           (mission.landmarkResource ? findTargetBlock(mission.landmarkResource) : null))
@@ -2522,6 +2593,10 @@ function createMissionRunner (host, injected = {}) {
           code: 'cible_haute'
         }
       }
+
+      // Matiere plus bas ou plus haut que les bornes de casse : on la vise
+      // quand meme pour s en approcher (en creusant au besoin, sans chute).
+      if (!cible && mission.kind === 'recolte') cible = findTargetBlock(undefined, { anyHeight: true })
 
       if (!cible) {
         // Filet minimal sans cible : meme budget que le chemin avec cible
@@ -2599,7 +2674,37 @@ function createMissionRunner (host, injected = {}) {
         result = await approach()
       }
       if (feuilles > 0) mission.leavesCleared = (mission.leavesCleared ?? 0) + feuilles
-      const degage = feuilles > 0 ? ` (${feuilles} feuille(s) degagee(s) vers le tronc)` : ''
+      let degage = feuilles > 0 ? ` (${feuilles} feuille(s) degagee(s) vers le tronc)` : ''
+      // Toujours aucun chemin (mur de terre, trou, falaise) : trajet qui creuse
+      // en escalier, sans chute de plus de deux blocs, puis re-approche.
+      // Arbre sur une hauteur (falaise) : monter en pilier au pied du relief
+      // avec de la terre prise dans le relief lui-meme, puis rejoindre a pied.
+      // L escalier creuse par le pathfinder ne laissait pas la place de la tete
+      // (sauts sur place mesures) ; le pilier maison est prouve.
+      if ((result.code === 'no_path' || result.code === 'needs_height') && mission.kind === 'recolte' && !mission.cancelled) {
+        const climbed = await climbToward(cible)
+        if (climbed) {
+          degage += ` (${climbed})`
+          result = await approach()
+        }
+      }
+      const farAbove = result.code === 'needs_height' && Number(result.horizontalDistance) > REACH
+      if ((result.code === 'no_path' || farAbove) && mission.kind === 'recolte' && !mission.cancelled &&
+        typeof host.digToward === 'function') {
+        const dug = await host.digToward(cible.position.offset(0.5, 0.5, 0.5), {
+          signal: mission.navigationAbort.signal
+        })
+        if (dug.reached) {
+          mission.digPaths = (mission.digPaths ?? 0) + 1
+          degage += ` (chemin creuse sur ${dug.travelled} bloc(s))`
+          result = await approach()
+          if (!result.reached && result.code !== 'advanced') {
+            result = { reached: true, travelled: dug.travelled, code: 'dug' }
+          }
+        } else {
+          degage += ` (chemin creuse impossible : ${dug.code})`
+        }
+      }
       return {
         resultat: (result.reached
           ? `${cible.name} rejoint a portee, trajet de ${result.travelled ?? 0} bloc(s)`
@@ -3166,7 +3271,7 @@ function createMissionRunner (host, injected = {}) {
         // Secteur : chaque cap ne voit que son cone (demi-angle PI/4 par
         // defaut). Sans bloc dans le cone, le cap rend « rien » — jamais le
         // plus proche global, qui rendait les 4 caps identiques.
-        const block = findTargetBlock(undefined, { yaw })
+        const block = findTargetBlock(undefined, { yaw }) ?? findTargetBlock(undefined, { yaw, anyHeight: true })
         vus.push(block ? `${nom} : ${block.name}` : `${nom} : rien`)
       }
 

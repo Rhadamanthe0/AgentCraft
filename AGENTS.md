@@ -25,6 +25,26 @@
   d affilee faisaient echouer la mission (vu sur trees/bent).
 - `llm.call` rejoue UNE fois une panne passagere du gateway (5xx, 429, 400
   « Upstream request failed »), dans le meme delai.
+- Banc `terrain/*` (meme suite, 8 bots en parallele) : arbre derriere un mur
+  de terre, au fond d un trou de 5, sur une falaise de 5, trou entoure d une
+  haie. Chaque niveau exige 0 degat (scoreboard `damage_taken`).
+- `avancer` en `no_path` apres degagement de feuilles : `host.digToward`
+  (index.js) prend le pathfinder avec `safeDigMovements` (creuse, tours 1x1,
+  pas de parkour, `maxDropDown=3` = chute seche de deux blocs au plus),
+  borne par `DIG_NAV_TIMEOUT_MS` (45 s) et le signal de mission.
+- `findTargetBlock(..., { anyHeight: true })` ignore les bornes de casse
+  (MAX_DIG_DEPTH, MAX_REACH_UP) pour SE DEPLACER : `avancer`, l indice
+  `navigation` et `regarder_autour` voient un arbre au fond d un trou ou en
+  haut d une falaise (sinon « rien » et marche a l aveugle vers le vide).
+  `casser` garde ses bornes. `needs_height` loin a l horizontale => `digToward`.
+- Relief plus haut que le bot (falaise) : `climbToward` prend la terre du
+  relief voisin (jamais sous les pieds), pile de la hauteur du pied de l arbre
+  puis re-approche a pied. L escalier du pathfinder (`digToward`) montait mal
+  en 26.1 : sauts sur place contre la paroi (tete trop pres du plafond).
+- `ramasser` : si la descente d echafaudage laisse le bot perche au-dessus de
+  l objet, `digToward` vers l objet (20 s) ; la descente est journalisee.
+- Arenes du banc : 10 couches de pierre dessous et barriere autour ; sinon un
+  bot qui creuse ou sort du bord tombe de ~260 blocs (vu sur fe9f85b).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
@@ -1662,6 +1682,7 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `JEV_TIMEOUT_MS` | `4000` | Delai d'un appel de classification. |
 | `JEV_PLAN_TIMEOUT_MS` | `8000` | Delai d'un tour de planification (plus large, la boucle ne doit pas casser sur un pic). |
 | `CMD_PREFIX` | `!` | Prefixe des commandes explicites. |
+| `DIG_NAV_TIMEOUT_MS` | `45000` | Delai d un trajet de recolte qui creuse (`digToward`, apres `no_path`). |
 | `MISSION_LEAF_CLEAR_MAX` | `12` | Feuilles cassees au plus par `avancer` pour ouvrir le couloir vers une buche enfermee (mission bois, apres `no_path`). |
 | `CHAT_IGNORE_PLAYERS` | vide | Joueurs dont le chat est ignore (virgules). Banc CI : les bots d arbre s ignorent entre eux, sinon chacun prend les phrases des autres pour des ordres. |
 | `LIQUID_COST` | `30` | Cout des liquides pour le pathfinder. |
