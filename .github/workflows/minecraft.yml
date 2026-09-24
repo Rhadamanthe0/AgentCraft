@@ -8,9 +8,11 @@ on:
 permissions:
   contents: read
 
-# Serialize world tests on the PC; a new push does not interrupt cleanup.
+# One pending run per branch (a shared group let GitHub cancel the pending run
+# of one branch when another branch pushed). The single self-hosted runner
+# already runs one job at a time; a new push never interrupts a running bench.
 concurrency:
-  group: minecraft-bench
+  group: minecraft-bench-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
