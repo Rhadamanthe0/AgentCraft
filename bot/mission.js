@@ -748,7 +748,7 @@ function createMissionRunner (host, injected = {}) {
   // Prend de la terre dans le relief voisin (a hauteur des pieds et au-dessus,
   // jamais sous les pieds) jusqu a en avoir `besoin` en stock d echafaudage.
   // `epargne(x, z)` exclut des colonnes a garder intactes (le rebord vise).
-  async function gatherDirt (besoin, epargne = () => false) {
+  async function gatherDirt (besoin, epargne = () => false, { sol = false } = {}) {
     const bot = host.getBot()
     let creuses = 0
     for (let i = 0; i < besoin + 4 && scaffoldingStock(bot).total < besoin && !mission.cancelled; i += 1) {
@@ -758,7 +758,9 @@ function createMissionRunner (host, injected = {}) {
       let best = null
       for (let dx = -3; dx <= 3; dx += 1) {
         for (let dz = -3; dz <= 3; dz += 1) {
-          for (let dy = 0; dy <= 2; dy += 1) {
+          for (let dy = sol ? -1 : 0; dy <= 2; dy += 1) {
+            // Le sol n est pris qu a cote du bot, jamais sous ses pieds.
+            if (dy < 0 && Math.abs(dx) + Math.abs(dz) < 2) continue
             const block = bot.blockAt(new Vec3(Math.floor(here.x) + dx, feetY + dy, Math.floor(here.z) + dz))
             if (!block || !/^(dirt|grass_block|coarse_dirt)$/.test(block.name)) continue
             if (epargne(block.position.x, block.position.z)) continue
@@ -1030,6 +1032,12 @@ function createMissionRunner (host, injected = {}) {
       // chute de deux blocs au plus, sans toucher a ce qu un joueur a construit.
       const goal2 = typeof target === 'function' ? target() : target
       if (!result?.reached && goal2 && typeof host.digToward === 'function' && !mission?.cancelled) {
+        // Sans bloc en inventaire, le pathfinder ne peut ni jeter un pont
+        // (eau, vide) ni monter en tour : quelques blocs de terre d abord.
+        if (scaffoldingStock(host.getBot()).total < 6) {
+          await gatherDirt(6, () => false, { sol: true })
+          await collectScaffoldDrops(owner)
+        }
         const dug = await host.digToward(goal2, { signal: mission.navigationAbort.signal, range: 2, protectBuilt: true })
         console.log(`[mission] trajet en creusant vers la cible : ${dug.code}`)
         if (dug.reached) result = await call()
@@ -3016,7 +3024,17 @@ function createMissionRunner (host, injected = {}) {
           failure = 'case occupee a hauteur des pieds'
           break
         }
-        // Plafond : un pilier sous un toit coince la tete du bot.
+        // Plafond : un pilier sous un toit coince la tete du bot. Des feuilles
+        // (couronne d un arbre) se cassent au lieu d arreter la montee.
+        for (const dy of [2, 1]) {
+          const haut = live.blockAt(ancre.offset(0, dy, 0))
+          if (!haut || !/_leaves$/.test(haut.name)) continue
+          try {
+            await withTimeout(live.lookAt(haut.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+            await withTimeout(live.dig(haut), 6000, 'creusage trop long')
+            mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
+          } catch (_) {}
+        }
         const dessus1 = live.blockAt(ancre.offset(0, 1, 0))
         const dessus2 = live.blockAt(ancre.offset(0, 2, 0))
         if ((dessus1 && estSolide(dessus1)) || (dessus2 && estSolide(dessus2))) {

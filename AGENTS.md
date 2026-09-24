@@ -68,6 +68,13 @@
   de plus en plus durs. Groupe fixe de 16 bots (`POOL_SIZE`) qui enchainent
   les niveaux (stop + memoire videe entre deux), une sonde muette par bot ;
   tests unitaires et scenarios de navigation en parallele des missions.
+- `piler` casse les feuilles au-dessus de la tete au lieu de s arreter sur
+  « plafond » (vu sur trees/bent : derniere buche dans la couronne).
+- Eau (join/water-gap) : en 26.1 le bot ne ressort pas d une eau d un bloc.
+  Avant `digToward` de dernier recours, `gatherDirt(6, ..., { sol: true })`
+  (sol pris a cote, jamais sous les pieds) pour que le pathfinder jette un
+  pont ; `joinDigMovements.liquidCost = 200`. CI : PLANNER_TIMEOUT_MS 30 s
+  (16 bots en parallele, deux delais de 20 s vus sur trees/bent).
 - Pilier dans la couronne : `isPillarBlock` ne compte plus feuilles/buches
   voisines comme sol naturel ; si `navWithDescent` laisse le bot perche sur
   l echafaudage, `digToward` jusqu au sol (20 s) puis re-tente le trajet.
