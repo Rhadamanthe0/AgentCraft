@@ -8,10 +8,13 @@
 - « un arbre / l arbre / cet arbre » sans quantite : `mission.wholeTree`. La
   premiere buche coupee fixe l arbre (`mission.tree`) ; `arbre_demande` dans
   l etat compte ses buches restantes (rayon 4, +14 en hauteur) et le bois au
-  sol ; `finishAllowed` juge sur ces chiffres au lieu du quota 16.
+  sol ; `finishAllowed` juge sur ces chiffres au lieu du quota 16, et la
+  boucle clot la mission des que l arbre est fini (0 debout, 0 au sol) :
+  le modele voulait sinon rejoindre un demandeur absent ou viser 16 buches.
 - `avancer` vers une buche en `no_path` (mission bois) casse les feuilles du
   couloir a hauteur du corps vers le tronc (`MISSION_LEAF_CLEAR_MAX`, 12),
-  puis re-tente. Aucune autre feuille n est touchee.
+  en rejoignant d abord la premiere feuille si elle est hors de portee, puis
+  re-tente. Aucune autre feuille n est touchee.
 - `llm.call` rejoue UNE fois une panne passagere du gateway (5xx, 429, 400
   « Upstream request failed »), dans le meme delai.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,

@@ -708,7 +708,7 @@ function createMissionRunner (host, injected = {}) {
   // Feuilles dans le couloir a hauteur du corps (pieds et tete) entre le bot
   // et la colonne de `cible`, a portee, les plus proches d abord. Cassees une
   // par une, verifiees cote serveur ; rend le nombre reellement cassees.
-  async function clearLeavesToward (cible, max) {
+  async function clearLeavesToward (cible, max, approached = false) {
     const bot = host.getBot()
     if (!bot?.entity || max <= 0) return 0
     const feet = bot.entity.position
@@ -731,12 +731,24 @@ function createMissionRunner (host, injected = {}) {
         seen.add(key)
         const block = bot.blockAt(new Vec3(x, y, z))
         if (!block || !/_leaves$/.test(block.name)) continue
-        if (eye.distanceTo(block.position.offset(0.5, 0.5, 0.5)) > REACH) continue
-        candidates.push({ block, t })
+        candidates.push({ block, t, reachable: eye.distanceTo(block.position.offset(0.5, 0.5, 0.5)) <= REACH })
       }
     }
+    candidates.sort((a, b) => a.t - b.t)
+    if (candidates.length === 0) return 0
+    // Le buisson commence hors de portee : rejoindre d abord un poste d ou la
+    // premiere feuille du couloir se casse, puis recalculer le couloir.
+    if (!candidates.some(c => c.reachable)) {
+      if (approached) return 0
+      const first = candidates[0].block
+      const nav = await host.navigateToPosition(first.position.offset(0.5, 0.5, 0.5), {
+        signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, distanceBudget: 16
+      })
+      if (!nav.reached || mission.cancelled) return 0
+      return clearLeavesToward(cible, max, true)
+    }
     let cleared = 0
-    for (const { block } of candidates.sort((a, b) => a.t - b.t)) {
+    for (const { block } of candidates.filter(c => c.reachable)) {
       if (cleared >= max || mission.cancelled) break
       try {
         await withTimeout(bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
@@ -4029,6 +4041,14 @@ function createMissionRunner (host, injected = {}) {
         `[mission] ${mission.steps}. ${decision.step}${choice}` +
         `${numeric ? ` (${numeric})` : ''} (fini ${(decision.done * 100).toFixed(0)}%${queued}) -> ${outcome.resultat}`
       )
+
+      // Arbre entier demande : sa fin se mesure (0 buche debout, 0 au sol), elle
+      // ne depend pas d un « fini » du modele, qui voulait parfois chercher un
+      // demandeur absent ou le quota par defaut apres le dernier ramassage.
+      if (mission.wholeTree && treeStatus()?.termine) {
+        finish('done', 'arbre entier coupe et ramasse')
+        return
+      }
 
       // Une aide obtenue enrichit la documentation des actions : la generation
       // a bouge, donc le prompt systeme est reconstruit. On repart d une

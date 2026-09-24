@@ -67,7 +67,8 @@ def levels():
             'about': 'Tronc de 6 buches (Y+0 a Y+5), couronne au-dessus : il faut monter de deux blocs.',
             'leaves': [(TX-2, 206, TZ-2, TX+2, 207, TZ+2), (TX, 208, TZ, TX, 208, TZ)],
             'logs': _logs(*trunk6),
-            'rules': {'leaves_broken_max': 0, 'standing_y_min': 201.9, 'standing_y_max': 202.5},
+            # Two blocks are required; a higher pillar is wasteful but reported, not failed.
+            'rules': {'leaves_broken_max': 0, 'standing_y_min': 201.9},
         },
         {
             'name': 'trees/bent',

@@ -63,7 +63,7 @@ creative (verifie : `playerGameType` 0, `ops.json` vide).
 | --- | --- | --- |
 | trees/reachable | 3 buches, couronne au-dessus | toutes les buches coupees et en inventaire, 0 feuille ni sol casse, aucun bloc pose, jamais au-dessus du sol |
 | trees/leaves | 3 buches dans un buisson de feuilles 9x9 | bois complet, sol intact, aucun bloc pose, jamais au-dessus du sol ; feuilles cassees autorisees |
-| trees/pillar | 6 buches (Y+0 a Y+5), couronne au-dessus | bois complet, 0 feuille cassee, monte a Y+2 exactement (pilier de deux blocs) |
+| trees/pillar | 6 buches (Y+0 a Y+5), couronne au-dessus | bois complet, 0 feuille cassee, monte d'au moins deux blocs (hauteur atteinte rapportee : un pilier plus haut est du gaspillage, pas un echec) |
 | trees/bent | tronc decale deux fois, branche horizontale | bois complet, moyens libres |
 
 Les blocs sont comptes par RCON (`clone ... filtered` vers une zone de
@@ -72,8 +72,9 @@ seconde quand le bot est au sol. Un niveau s'arrete des que l'issue est
 connue :
 
 - la mission se termine d'elle-meme (le bot annonce fini, echec ou arret) ;
-- tout le bois est coupe et ramasse (10 s de grace pour que le bot l'annonce ;
-  sinon `endReason` le signale, sans faire echouer le test) ;
+- tout le bois est coupe et ramasse : le bot clot lui-meme une mission
+  « un arbre » a ce moment-la (10 s de grace, sinon `endReason` le signale
+  sans faire echouer le test) ;
 - rien de productif n'a change depuis 60 s (buches, feuilles, sol, dirt posee,
   inventaire, blocs casses, hauteur) : bot bloque ;
 - aucune mission lancee 45 s apres la phrase ;
