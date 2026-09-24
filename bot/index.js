@@ -37,6 +37,11 @@ const MC_VERSION = process.env.MC_VERSION || '26.1'
 const BOT_USERNAME = process.env.BOT_USERNAME || 'TestBot'
 const API_PORT = Number(process.env.API_PORT || 3000)
 const CMD_PREFIX = process.env.CMD_PREFIX || '!'
+// Joueurs dont le chat est ignore (liste separee par des virgules, vide par
+// defaut). Sert aux bancs multi-bots : un bot ne doit pas prendre les phrases
+// d un autre bot (« je vais couper un arbre pour toi ») pour des ordres.
+const CHAT_IGNORE_PLAYERS = new Set(String(process.env.CHAT_IGNORE_PLAYERS || '')
+  .split(',').map(name => name.trim().toLowerCase()).filter(Boolean))
 
 // Le bot n a AUCUN pouvoir d administration : ni /tp, ni /gamemode, ni
 // inventaire creative. Il joue avec le mode de jeu du serveur, qui est en
@@ -1344,7 +1349,7 @@ function connectBot () {
     })
 
     bot.on('chat', (username, message) => {
-      if (!spawned || username === bot.username) return
+      if (!spawned || username === bot.username || CHAT_IGNORE_PLAYERS.has(String(username).toLowerCase())) return
 
       try {
         const raw = String(message || '').trim()

@@ -7,5 +7,7 @@ COPY tmp/*.test.js /work/tmp/
 COPY tmp/probe-bot.js /work/tmp/probe-bot.js
 COPY ci/harness.js /work/ci/harness.js
 ENV NODE_PATH=/work/bot/node_modules
+# Writable state for the real bot (memory, objectives, log), fresh per container.
+RUN mkdir -p /data && chown node:node /data
 USER node
 WORKDIR /work

@@ -10,6 +10,8 @@ import sys
 import time
 import uuid
 
+from trees import arena_origins, bot_services, run_levels
+
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
         'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js']
@@ -17,7 +19,7 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--suite', choices=['unit', 'minecraft', 'all'], default='all')
+    parser.add_argument('--suite', choices=['unit', 'minecraft', 'trees', 'all'], default='all')
     args = parser.parse_args()
     project = 'mc-ci-' + uuid.uuid4().hex[:12]
     output = ROOT / 'test-results' / project
@@ -59,13 +61,19 @@ def main():
             raise RuntimeError('Fixture command rejected: ' + value)
         return value
 
-    def api(route, body=None):
-        script = """const [route, body] = process.argv.slice(1);
-fetch('http://127.0.0.1:3101'+route, body ? {method:'POST',headers:{'content-type':'application/json'},body} : {})
+    def http(service, port, route, body=None):
+        script = """const [port, route, body] = process.argv.slice(1);
+fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-type':'application/json'},body} : {})
 .then(async r=>{const s=await r.text();if(!r.ok)throw Error(s);console.log(s)})
 .catch(e=>{console.error(e.message);process.exitCode=1})"""
-        return json.loads(compose('exec', '-T', 'harness', 'node', '-e', script,
+        return json.loads(compose('exec', '-T', service, 'node', '-e', script, str(port),
                                   route, *([] if body is None else [json.dumps(body)]), timeout=45).stdout)
+
+    def api(route, body=None):
+        return http('harness', 3101, route, body)
+
+    def bot_api(service, route, body=None):
+        return http(service, 3000, route, body)
 
     def fixture(start, blocks):
         rcon('fill 0 200 0 32 208 32 air')
@@ -86,17 +94,21 @@ fetch('http://127.0.0.1:3101'+route, body ? {method:'POST',headers:{'content-typ
     try:
         compose('config', '--quiet')
         print('Building test image...', flush=True)
-        compose('build', 'harness', timeout=600)
+        # Tree bots share the harness Dockerfile; their builds hit the same cache.
+        compose('build', 'harness', *[service for service, _ in bot_services()], timeout=600)
         if args.suite in ('unit', 'all'):
             print('Running focused offline regression tests...', flush=True)
             result = compose('run', '--rm', '--no-deps', 'harness', 'node', '--test',
                              *['tmp/' + name for name in UNIT], timeout=180, check=False)
             (output / 'unit.log').write_text(result.stdout + result.stderr, encoding='utf-8')
             report['tests'].append({'test': 'unit/navigation-regression', 'success': result.returncode == 0})
-        if args.suite in ('minecraft', 'all'):
+        if args.suite in ('minecraft', 'trees', 'all'):
             print('Starting isolated Paper server...', flush=True)
             compose('up', '-d', '--wait', '--wait-timeout', '240', 'minecraft', timeout=270)
             rcon('forceload add 0 0 32 32')
+            for x0 in arena_origins():  # Tree arenas and their block-count scratch areas.
+                rcon(f'forceload add {x0} 0 {x0 + 36} 36')
+                rcon(f'forceload add {x0} 200 {x0 + 36} 236')
             rcon('fill 0 199 0 32 199 32 stone')
             rcon('fill 0 200 0 32 208 32 air')
             rcon('setworldspawn 2 200 2')
@@ -106,6 +118,7 @@ fetch('http://127.0.0.1:3101'+route, body ? {method:'POST',headers:{'content-typ
             if ops or not re.search(r':\s*0\s*$', mode):
                 raise RuntimeError('Expected empty ops.json and survival mode: ' + mode)
             report['survivalProof'] = {'ops': ops, 'playerGameType': mode}
+        if args.suite in ('minecraft', 'all'):
             scenarios = [
                 ('navigation/simple-obstacle', (2.5, 200, 2.5), (14.5, 200, 2.5),
                  ['fill 8 200 0 8 202 6 stone'], None),
@@ -136,6 +149,20 @@ fetch('http://127.0.0.1:3101'+route, body ? {method:'POST',headers:{'content-typ
                     report['tests'].append(dict(test=name, success=bool(passed), **value))
                 except Exception as error:
                     report['tests'].append({'test': name, 'success': False, 'error': str(error)})
+        if args.suite in ('trees', 'all'):
+            if os.environ.get('PLANNER_API_KEY'):
+                services = [service for service, _ in bot_services()]
+                compose('up', '-d', '--wait', '--wait-timeout', '120', *services, timeout=180)
+                ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
+                modes = {name: rcon(f'data get entity {name} playerGameType') for _, name in bot_services()}
+                if ops or not all(re.search(r':\s*0\s*$', mode) for mode in modes.values()):
+                    raise RuntimeError('Expected tree bots in survival without ops: ' + json.dumps(modes))
+                report['botSurvivalProof'] = {'ops': ops, 'playerGameType': modes}
+                report['tests'].extend(run_levels(output, rcon, bot_api))
+            else:
+                report['tests'].extend({'test': level, 'success': False,
+                                        'error': 'PLANNER_API_KEY absent : secret GitHub du depot non configure'}
+                                       for level in ['trees/reachable', 'trees/leaves', 'trees/pillar', 'trees/bent'])
     except (Exception, KeyboardInterrupt) as error:
         report['errors'].append(str(error) or 'Interrupted')
     finally:
@@ -154,9 +181,17 @@ fetch('http://127.0.0.1:3101'+route, body ? {method:'POST',headers:{'content-typ
         (output / 'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         # Convenience copy, deliberately ignored by Git; artifacts retain per-run files.
         (ROOT / 'test-results/latest.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+        def detail(t):
+            if t.get('error'):
+                return ' : ' + t['error']
+            failed = [k for k, ok in (t.get('checks') or {}).items() if not ok]
+            if 'checks' not in t:
+                return ''
+            info = f" ({t['logsInInventory']}/{t['expectedLogs']} buches, {t['elapsedS']} s, {t['endReason']})"
+            return info + (' ; echec : ' + ', '.join(failed) if failed else '')
         summary = '\n'.join([f"Commit: {report['sha'] or 'local export (no Git SHA)'}",
                              f"Result: {'PASS' if report['success'] else 'FAIL'}", '',
-                             *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" for t in report['tests']],
+                             *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" + detail(t) for t in report['tests']],
                              *report['errors']]) + '\n'
         (output / 'summary.md').write_text(summary, encoding='utf-8')
         if os.environ.get('GITHUB_STEP_SUMMARY'):

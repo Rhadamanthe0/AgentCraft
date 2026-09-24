@@ -88,6 +88,18 @@ const SCREENSHOT_EVERY = Math.max(1, Number(process.env.MISSION_SCREENSHOT_EVERY
 const SCREENSHOT_RAYON = Math.max(1, Number(process.env.MISSION_SCREENSHOT_RAYON || 16))
 // Portee de casse cote serveur : ~4.5 blocs. On garde une marge.
 const REACH = 4
+// Degagement de feuilles vers un tronc enferme (mission bois) : feuilles
+// cassees au plus par appel a `avancer`, hors quota, seulement dans le couloir
+// a hauteur du corps entre le bot et la buche visee, et seulement apres un
+// no_path vers cette buche. Aucune autre feuille n est touchee.
+const LEAF_CLEAR_MAX = Number(process.env.MISSION_LEAF_CLEAR_MAX || 12)
+// « un arbre », « l arbre », « cet arbre » : un arbre entier est demande.
+const WHOLE_TREE_TEXT = /\b(?:un|1|cet|ce|l'|l )\s*arbre\b/i
+// Volume de l arbre commence, autour de sa premiere buche coupee : branches
+// jusqu a 4 blocs de cote, cime jusqu a 14 blocs plus haut.
+const TREE_RADIUS = 4
+const TREE_HEIGHT = 14
+const TREE_LOG = /_log$|_wood$/
 const ITEM_PICKUP_RADIUS = 12
 // En dessous de cette distance, le serveur fait entrer l objet dans l inventaire
 // sans que le bot ait a se deplacer.
@@ -693,6 +705,117 @@ function createMissionRunner (host, injected = {}) {
   // buche haute, hors de portee verticale — le bot avancait vers un bloc qu il
   // ne pourrait jamais casser, le depassait, revenait : l oscillation observee
   // en jeu entre 2,7 et 10,8 blocs de l arbre.
+  async function dropFromLeaves (item) {
+    const bot = host.getBot()
+    if (mission?.resource !== 'bois' || !bot?.entity) return false
+    let dropped = null
+    try { dropped = item.getDroppedItem?.() } catch (_) {}
+    if (!dropped || !TREE_LOG.test(dropped.name)) return false
+    const support = bot.blockAt(item.position.offset(0, -0.2, 0))
+    if (!support || !/_leaves$/.test(support.name)) return false
+    const center = support.position.offset(0.5, 0.5, 0.5)
+    if (bot.entity.position.offset(0, 1.62, 0).distanceTo(center) > REACH) {
+      const nav = await host.navigateToPosition(center, {
+        signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, distanceBudget: 16
+      })
+      if (!nav.reached || mission.cancelled) return false
+    }
+    const live = host.getBot()
+    try {
+      await withTimeout(live.lookAt(center, true), 4000, 'visee trop longue')
+      await withTimeout(live.dig(support), 6000, 'creusage trop long')
+    } catch (_) {
+      return false
+    }
+    mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
+    await sleep(600)
+    return true
+  }
+
+  // Descend d un pilier pose par le bot : casse le bloc d echafaudage (dirt,
+  // planches) sous ses pieds, attend l atterrissage, et recommence tant que
+  // le bot est plus d un bloc et demi au-dessus de `targetY`. S arrete sur tout
+  // autre bloc (sol naturel, feuilles) : jamais de puits.
+  async function descendScaffold (targetY) {
+    let removed = 0
+    for (let i = 0; i < PILER_MAX + 2 && !mission.cancelled; i += 1) {
+      const bot = host.getBot()
+      if (!bot?.entity || bot.entity.position.y - targetY <= 1.5) break
+      const below = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+      if (!below || !(PILER_DIRT.test(below.name) || /_planks$/.test(below.name))) break
+      try {
+        await withTimeout(bot.lookAt(below.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+        await withTimeout(bot.dig(below), 6000, 'creusage trop long')
+      } catch (_) {
+        break
+      }
+      const until = Date.now() + 1500
+      while (Date.now() < until && !(host.getBot()?.entity?.onGround && host.getBot().entity.position.y < below.position.y + 0.5)) {
+        await sleep(50)
+      }
+      removed += 1
+    }
+    return removed
+  }
+
+  // Feuilles dans le couloir a hauteur du corps (pieds et tete) entre le bot
+  // et la colonne de `cible`, a portee, les plus proches d abord. Cassees une
+  // par une, verifiees cote serveur ; rend le nombre reellement cassees.
+  async function clearLeavesToward (cible, max, approached = false) {
+    const bot = host.getBot()
+    if (!bot?.entity || max <= 0) return 0
+    const feet = bot.entity.position
+    const eye = feet.offset(0, 1.62, 0)
+    const tx = cible.position.x + 0.5
+    const tz = cible.position.z + 0.5
+    const dx = tx - feet.x
+    const dz = tz - feet.z
+    const length = Math.hypot(dx, dz)
+    const y0 = Math.floor(feet.y + 0.01)
+    const seen = new Set()
+    const candidates = []
+    for (let t = 0; t <= length; t += 0.3) {
+      const x = Math.floor(feet.x + dx * t / length)
+      const z = Math.floor(feet.z + dz * t / length)
+      if (x === cible.position.x && z === cible.position.z) break
+      for (const y of [y0, y0 + 1]) {
+        const key = `${x},${y},${z}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const block = bot.blockAt(new Vec3(x, y, z))
+        if (!block || !/_leaves$/.test(block.name)) continue
+        candidates.push({ block, t, reachable: eye.distanceTo(block.position.offset(0.5, 0.5, 0.5)) <= REACH })
+      }
+    }
+    candidates.sort((a, b) => a.t - b.t)
+    if (candidates.length === 0) return 0
+    // Le buisson commence hors de portee : rejoindre d abord un poste d ou la
+    // premiere feuille du couloir se casse, puis recalculer le couloir.
+    if (!candidates.some(c => c.reachable)) {
+      if (approached) return 0
+      const first = candidates[0].block
+      const nav = await host.navigateToPosition(first.position.offset(0.5, 0.5, 0.5), {
+        signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, distanceBudget: 16
+      })
+      if (!nav.reached || mission.cancelled) return 0
+      return clearLeavesToward(cible, max, true)
+    }
+    let cleared = 0
+    for (const { block } of candidates.filter(c => c.reachable)) {
+      if (cleared >= max || mission.cancelled) break
+      try {
+        await withTimeout(bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+        await withTimeout(bot.dig(block), 6000, 'creusage trop long')
+      } catch (_) {
+        break
+      }
+      const after = bot.blockAt(block.position)
+      if (after && after.name === block.name) break
+      cleared += 1
+    }
+    return cleared
+  }
+
   function findTargetBlock (resource, opts = {}) {
     // Surcharge toleree : findTargetBlock({ yaw }) vaut secteur sur la matiere
     // courante. Rien d autre n utilise cette forme aujourd hui.
@@ -861,6 +984,33 @@ function createMissionRunner (host, injected = {}) {
     if (!bot?.inventory) return false
     if (!cibleHaute) return false
     return scaffoldingStock(bot).total < PILER_MAX
+  }
+
+  // Arbre demande : buches encore en place et buches tombees non ramassees.
+  // null tant qu aucune buche n a ete coupee (arbre pas encore choisi).
+  function treeStatus () {
+    const bot = host.getBot()
+    const t = mission?.tree
+    if (!mission?.wholeTree || !t || !bot?.entity) return null
+    let standing = 0
+    for (let dx = -TREE_RADIUS; dx <= TREE_RADIUS; dx += 1) {
+      for (let dz = -TREE_RADIUS; dz <= TREE_RADIUS; dz += 1) {
+        for (let dy = -1; dy <= TREE_HEIGHT; dy += 1) {
+          const block = bot.blockAt(new Vec3(t.x + dx, t.y + dy, t.z + dz))
+          if (block && TREE_LOG.test(block.name)) standing += 1
+        }
+      }
+    }
+    const anchor = new Vec3(t.x + 0.5, t.y, t.z + 0.5)
+    const onGround = Object.values(bot.entities ?? {})
+      .filter(e => e && e.name === 'item' && e.position &&
+        e.position.distanceTo(anchor) <= TREE_RADIUS + TREE_HEIGHT)
+      .reduce((sum, e) => {
+        let item = null
+        try { item = e.getDroppedItem?.() } catch (_) {}
+        return sum + (item && TREE_LOG.test(item.name) ? item.count : 0)
+      }, 0)
+    return { buches_restantes: standing, buches_au_sol: onGround, termine: standing === 0 && onGround === 0 }
   }
 
   function nearbyItems () {
@@ -1484,7 +1634,11 @@ function createMissionRunner (host, injected = {}) {
       quota_par_defaut: DEFAULT_QUOTA,
       // La quantite reellement visee (lue dans la consigne, sinon le defaut).
       // Le modele la lit ; c est `finishAllowed` qui s en sert pour juger.
-      quota_vise: mission.quota,
+      quota_vise: mission.wholeTree ? null : mission.quota,
+      // Un arbre entier demande : le code compte ses buches, le modele decide.
+      arbre_demande: mission.wholeTree
+        ? (treeStatus() ?? { commence: false, consigne: 'coupe une premiere buche : elle fixe l arbre' })
+        : null,
       // Compteurs de memoire seulement : la memoire long terme est passee en
       // couche 3 du prompt systeme (mise en cache), la memoire de mission en
       // couche 4 recollee a chaque appel. Une ecriture memoire n invalide donc
@@ -2073,6 +2227,9 @@ function createMissionRunner (host, injected = {}) {
         // fait avancer `blocs_casses`/`unites_recoltees` (voir `finishAllowed`).
         if (secondaire) mission.dirtSecondaire = (mission.dirtSecondaire ?? 0) + 1
         else mission.broken += 1
+        if (!secondaire && mission.wholeTree && !mission.tree) {
+          mission.tree = { x: block.position.x, y: block.position.y, z: block.position.z }
+        }
         await sleep(120)
       }
 
@@ -2155,6 +2312,13 @@ function createMissionRunner (host, injected = {}) {
         if (mission.cancelled) break
         const live = host.getBot()
         if (!live?.entity) break
+        // Perche sur son propre pilier au-dessus de l objet : le navigateur ne
+        // descend que de deux blocs, donc on defait le pilier sous ses pieds.
+        if (item.position.y < live.entity.position.y - 1.5) await descendScaffold(item.position.y)
+        // Bois tombe sur des feuilles (bout de branche) : hors d atteinte au
+        // sol. On casse la feuille qui le porte, s il est a portee, pour qu il
+        // tombe ; seule cette feuille est touchee.
+        await dropFromLeaves(item)
         // Meme navigateur que l approche de ressource, mais jusqu au rayon
         // de collecte. Pas de succes sans gain d inventaire plus bas.
         const walk = await host.navigateToPosition(item.position, {
@@ -2418,19 +2582,33 @@ function createMissionRunner (host, injected = {}) {
 
       // Destination de travail : A* choisit un poste libre d ou le bloc est
       // visible et a portee. Le LLM ne pilote plus les virages/contournements.
-      const result = await host.navigateToPosition(cible.position.offset(0.5, 0.5, 0.5), {
+      const approach = () => host.navigateToPosition(cible.position.offset(0.5, 0.5, 0.5), {
         signal: mission.navigationAbort.signal, __owner: stepToken,
         interaction: true, allowHighApproach: true, distanceBudget: distance
       })
+      let result = await approach()
+      // Tronc enferme dans des feuilles : sans degagement, no_path en boucle et
+      // aucune action ne pouvait ouvrir le passage. On casse seulement les
+      // feuilles du couloir a hauteur du corps, puis on re-tente l approche.
+      let feuilles = 0
+      while (result.code === 'no_path' && mission.resource === 'bois' && !mission.cancelled &&
+        feuilles < LEAF_CLEAR_MAX) {
+        const cleared = await clearLeavesToward(cible, LEAF_CLEAR_MAX - feuilles)
+        if (cleared === 0) break
+        feuilles += cleared
+        result = await approach()
+      }
+      if (feuilles > 0) mission.leavesCleared = (mission.leavesCleared ?? 0) + feuilles
+      const degage = feuilles > 0 ? ` (${feuilles} feuille(s) degagee(s) vers le tronc)` : ''
       return {
-        resultat: result.reached
+        resultat: (result.reached
           ? `${cible.name} rejoint a portee, trajet de ${result.travelled ?? 0} bloc(s)`
           : result.code === 'advanced'
             ? `avance de ${result.travelled} bloc(s) sur le chemin vers ${cible.name}; cible pas encore a portee`
             : result.code === 'needs_height'
               ? `poste proche de ${cible.name} rejoint a ${result.horizontalDistance} bloc(s) au sol ; ` +
                 `cible encore trop haute (+${result.verticalGap}), hors portee : reobserve avant de choisir comment monter`
-            : `approche de ${cible.name} impossible : ${result.code}`,
+            : `approche de ${cible.name} impossible : ${result.code}`) + degage,
         echec: !result.reached && result.code !== 'advanced',
         code: result.code
       }
@@ -3680,6 +3858,14 @@ function createMissionRunner (host, injected = {}) {
         : { ok: false, why: 'le bot n est pas encore arrive aupres de sa cible' }
     }
 
+    if (mission.wholeTree) {
+      const tree = treeStatus()
+      if (!tree) return { ok: false, why: 'aucune buche de l arbre n a encore ete coupee' }
+      if (tree.buches_restantes > 0) return { ok: false, why: `il reste ${tree.buches_restantes} buche(s) sur l arbre` }
+      if (tree.buches_au_sol > 0) return { ok: false, why: `${tree.buches_au_sol} buche(s) au sol a ramasser` }
+      return { ok: true }
+    }
+
     const got = state.progression?.unites_recoltees ?? 0
     const quota = mission.quota ?? DEFAULT_QUOTA
     return got >= quota
@@ -3915,6 +4101,14 @@ function createMissionRunner (host, injected = {}) {
         `[mission] ${mission.steps}. ${decision.step}${choice}` +
         `${numeric ? ` (${numeric})` : ''} (fini ${(decision.done * 100).toFixed(0)}%${queued}) -> ${outcome.resultat}`
       )
+
+      // Arbre entier demande : sa fin se mesure (0 buche debout, 0 au sol), elle
+      // ne depend pas d un « fini » du modele, qui voulait parfois chercher un
+      // demandeur absent ou le quota par defaut apres le dernier ramassage.
+      if (mission.wholeTree && treeStatus()?.termine) {
+        finish('done', 'arbre entier coupe et ramasse')
+        return
+      }
 
       // Une aide obtenue enrichit la documentation des actions : la generation
       // a bouge, donc le prompt systeme est reconstruit. On repart d une
@@ -4245,6 +4439,12 @@ function createMissionRunner (host, injected = {}) {
       // arret premature. En fabrication, le quota recolte ne sert pas : la
       // preuve est l objet cible (fabricationCible/Quantite ci-dessous).
       quota: build.parseQuota(text, { allowBlockUnits: kind === 'recolte' && !fabricationCible }) ?? DEFAULT_QUOTA,
+      // « coupe (moi) un arbre » : le travail est UN arbre entier, pas le quota
+      // par defaut. L arbre est fixe par la premiere buche coupee ; la fin est
+      // jugee sur ses buches restantes et son bois au sol (finishAllowed).
+      wholeTree: kind === 'recolte' && resource === 'bois' && !fabricationCible &&
+        build.parseQuota(text, { allowBlockUnits: true }) === null && WHOLE_TREE_TEXT.test(text),
+      tree: null,
       // Fabrication generique : cible validee registre + quantite codee,
       // persistee et servie dans buildState (consigne.fabrication_cible).
       // Legacy recolte sans cible : null, chemin inchange.
@@ -4761,6 +4961,8 @@ function createMissionRunner (host, injected = {}) {
       blocs_casses: mission.broken,
       objets_recoltes: collected(),
       dirt_secondaire: mission.dirtSecondaire ?? 0,
+      feuilles_degagees: mission.leavesCleared ?? 0,
+      arbre_entier: mission.wholeTree ? (treeStatus() ?? { commence: false }) : null,
       // Grand livre des dons (S6) : tente/retire/prouve/incertain par engagement.
       livraison: deliveryLedgersFor(mission).map(deliveryLedgerView),
       fabrication_cible: mission.fabricationCible ?? null,

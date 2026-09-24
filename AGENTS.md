@@ -1,5 +1,33 @@
 # CLAUDE.md
 
+## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
+
+- Banc CI `trees` (`ci/trees.py`, docs/remote-minecraft-tests.md) : quatre
+  vrais bots en parallele recoivent « coupe moi un arbre ». Ils s'ignorent via
+  `CHAT_IGNORE_PLAYERS`, sinon chacun prend les phrases des autres pour des ordres.
+- « un arbre / l arbre / cet arbre » sans quantite : `mission.wholeTree`. La
+  premiere buche coupee fixe l arbre (`mission.tree`) ; `arbre_demande` dans
+  l etat compte ses buches restantes (rayon 4, +14 en hauteur) et le bois au
+  sol ; `finishAllowed` juge sur ces chiffres au lieu du quota 16, et la
+  boucle clot la mission des que l arbre est fini (0 debout, 0 au sol) :
+  le modele voulait sinon rejoindre un demandeur absent ou viser 16 buches.
+- `avancer` vers une buche en `no_path` (mission bois) casse les feuilles du
+  couloir a hauteur du corps vers le tronc (`MISSION_LEAF_CLEAR_MAX`, 12),
+  en rejoignant d abord la premiere feuille si elle est hors de portee, puis
+  re-tente. Aucune autre feuille n est touchee.
+- `ramasser` d un objet plus bas que le bot perche sur son pilier : le
+  navigateur ne descend que de deux blocs, donc `descendScaffold` casse
+  l echafaudage (dirt/planches) sous ses pieds jusqu au niveau de l objet.
+- Buche tombee sur des feuilles (bout de branche) : `ramasser` casse la
+  seule feuille qui la porte (en s en approchant si besoin) pour la faire tomber.
+- Reponse tronquee (max_tokens) du modele unique : `callWithProfile` rejoue
+  UNE fois a budget double (>= 4000), meme delai ; avant, trois troncatures
+  d affilee faisaient echouer la mission (vu sur trees/bent).
+- `llm.call` rejoue UNE fois une panne passagere du gateway (5xx, 429, 400
+  « Upstream request failed »), dans le meme delai.
+- 4 tests unitaires echouent deja sur main (runtime-objectives S5,
+  tree-pillar-support, tree-height-access, tree-target-visibility).
+
 ## Outil facultatif et stock de montee du 2026-09-24 (prioritaire)
 
 - En mission bois, la hache est une optimisation facultative. Apres echec
@@ -1634,6 +1662,8 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `JEV_TIMEOUT_MS` | `4000` | Delai d'un appel de classification. |
 | `JEV_PLAN_TIMEOUT_MS` | `8000` | Delai d'un tour de planification (plus large, la boucle ne doit pas casser sur un pic). |
 | `CMD_PREFIX` | `!` | Prefixe des commandes explicites. |
+| `MISSION_LEAF_CLEAR_MAX` | `12` | Feuilles cassees au plus par `avancer` pour ouvrir le couloir vers une buche enfermee (mission bois, apres `no_path`). |
+| `CHAT_IGNORE_PLAYERS` | vide | Joueurs dont le chat est ignore (virgules). Banc CI : les bots d arbre s ignorent entre eux, sinon chacun prend les phrases des autres pour des ordres. |
 | `LIQUID_COST` | `30` | Cout des liquides pour le pathfinder. |
 | `LIQUID_GRACE_MS` | `5000` | Temps dans un liquide avant sauvetage. |
 | `STUCK_GRACE_MS` | `7000` | Immobilite avant sauvetage. |

@@ -404,6 +404,17 @@ async function callWithProfile (system, user, { image = null, signal = null, max
         return markSuccess(res2, FALLBACK_MODEL)
       }
     }
+    // Modele unique (deepseek) : son raisonnement compte dans max_tokens et
+    // epuise parfois le budget. UN reessai a budget double, meme delai et meme
+    // signal ; trois troncatures d affilee faisaient echouer la mission.
+    if (target0 !== PILOT_MODEL && isTruncationError(err, signal)) {
+      stats.troncatures += 1
+      stats.reessais += 1
+      const retryBudget = Math.max(4000, 2 * (Number.isFinite(maxTokens) ? maxTokens : 2000))
+      console.log(`[planner] reponse tronquee, reessai a ${retryBudget} jetons (delai inchange)`)
+      const resRetry = await doCall(target0, proto0, retryBudget)
+      return markSuccess(resRetry, target0)
+    }
     if (!isAvailabilityError(err, signal)) throw err
     if (target0 !== PILOT_MODEL || !isProfileEnabled()) throw err
     _profile.fallbackActive = true
@@ -703,6 +714,10 @@ Ce que l etat impose, et qui n est pas negociable :
   vrai = a portee de ramassage, donc ramasse). navigation designe un BLOC a
   casser, navigation_objet un OBJET a marcher dessus : ne casse jamais sur un
   objet.
+- etat.arbre_demande non null => le joueur veut UN arbre entier, pas un
+  quota : coupe toutes ses buches (buches_restantes, branches comprises) et
+  ramasse celles tombees (buches_au_sol). Quand termine est vrai, mets "fini"
+  a 1 : ne cherche pas d autre arbre.
 - etat.arret_refuse present => tu viens de declarer l objectif fini a tort, et
   le code te dit ce qui manque. Mets "fini" a 0 et planifie ce qui manque.
 - environnement.acces_par_montee non null => la cible retenue devient
