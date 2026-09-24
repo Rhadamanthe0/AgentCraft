@@ -15,6 +15,9 @@
   couloir a hauteur du corps vers le tronc (`MISSION_LEAF_CLEAR_MAX`, 12),
   en rejoignant d abord la premiere feuille si elle est hors de portee, puis
   re-tente. Aucune autre feuille n est touchee.
+- `ramasser` d un objet plus bas que le bot perche sur son pilier : le
+  navigateur ne descend que de deux blocs, donc `descendScaffold` casse
+  l echafaudage (dirt/planches) sous ses pieds jusqu au niveau de l objet.
 - `llm.call` rejoue UNE fois une panne passagere du gateway (5xx, 429, 400
   « Upstream request failed »), dans le meme delai.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,

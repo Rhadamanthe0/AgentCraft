@@ -705,6 +705,32 @@ function createMissionRunner (host, injected = {}) {
   // buche haute, hors de portee verticale — le bot avancait vers un bloc qu il
   // ne pourrait jamais casser, le depassait, revenait : l oscillation observee
   // en jeu entre 2,7 et 10,8 blocs de l arbre.
+  // Descend d un pilier pose par le bot : casse le bloc d echafaudage (dirt,
+  // planches) sous ses pieds, attend l atterrissage, et recommence tant que
+  // le bot est plus d un bloc et demi au-dessus de `targetY`. S arrete sur tout
+  // autre bloc (sol naturel, feuilles) : jamais de puits.
+  async function descendScaffold (targetY) {
+    let removed = 0
+    for (let i = 0; i < PILER_MAX + 2 && !mission.cancelled; i += 1) {
+      const bot = host.getBot()
+      if (!bot?.entity || bot.entity.position.y - targetY <= 1.5) break
+      const below = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+      if (!below || !(PILER_DIRT.test(below.name) || /_planks$/.test(below.name))) break
+      try {
+        await withTimeout(bot.lookAt(below.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+        await withTimeout(bot.dig(below), 6000, 'creusage trop long')
+      } catch (_) {
+        break
+      }
+      const until = Date.now() + 1500
+      while (Date.now() < until && !(host.getBot()?.entity?.onGround && host.getBot().entity.position.y < below.position.y + 0.5)) {
+        await sleep(50)
+      }
+      removed += 1
+    }
+    return removed
+  }
+
   // Feuilles dans le couloir a hauteur du corps (pieds et tete) entre le bot
   // et la colonne de `cible`, a portee, les plus proches d abord. Cassees une
   // par une, verifiees cote serveur ; rend le nombre reellement cassees.
@@ -2259,6 +2285,9 @@ function createMissionRunner (host, injected = {}) {
         if (mission.cancelled) break
         const live = host.getBot()
         if (!live?.entity) break
+        // Perche sur son propre pilier au-dessus de l objet : le navigateur ne
+        // descend que de deux blocs, donc on defait le pilier sous ses pieds.
+        if (item.position.y < live.entity.position.y - 1.5) await descendScaffold(item.position.y)
         // Meme navigateur que l approche de ressource, mais jusqu au rayon
         // de collecte. Pas de succes sans gain d inventaire plus bas.
         const walk = await host.navigateToPosition(item.position, {
