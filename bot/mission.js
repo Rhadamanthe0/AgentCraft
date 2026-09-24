@@ -795,8 +795,8 @@ function createMissionRunner (host, injected = {}) {
     const libre = (x, y, z) => { const b = at(x, y, z); return !!b && b.boundingBox === 'empty' && !/water|lava/.test(b.name) }
     const here = bot.entity.position.floored()
     let best = null
-    for (let dx = -3; dx <= 3; dx += 1) {
-      for (let dz = -3; dz <= 3; dz += 1) {
+    for (let dx = -8; dx <= 8; dx += 1) {
+      for (let dz = -8; dz <= 8; dz += 1) {
         const x = here.x + dx
         const z = here.z + dz
         if (!estSolide(at(x, feetY - 1, z))) continue
@@ -811,20 +811,60 @@ function createMissionRunner (host, injected = {}) {
         }
       }
     }
-    if (!best) return null
-    const creuses = await gatherDirt(hauteur, (x, z) => (x === best.rx && z === best.rz) || (x === best.x && z === best.z))
-    if (scaffoldingStock(host.getBot()).total < hauteur || mission.cancelled) return null
-    const live = host.getBot()
-    const pos = live.entity.position
-    if (Math.floor(pos.x) !== best.x || Math.floor(pos.z) !== best.z) {
-      await host.navigateToPosition(new Vec3(best.x + 0.5, feetY, best.z + 0.5),
-        { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.4, distanceBudget: 12 })
+    if (!best) {
+      console.log(`[mission] sortie par le haut : aucun poste contre une paroi de ${hauteur}`)
+      return null
     }
-    const now = host.getBot().entity.position
-    if (Math.floor(now.x) !== best.x || Math.floor(now.z) !== best.z || mission.cancelled) return null
+    const poste = new Vec3(best.x + 0.5, feetY, best.z + 0.5)
+    const rejoindrePoste = async () => {
+      const p = host.getBot().entity.position
+      if (Math.floor(p.x) === best.x && Math.floor(p.z) === best.z) return true
+      await host.navigateToPosition(poste, { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.4, distanceBudget: 24 })
+      const q = host.getBot().entity.position
+      return Math.floor(q.x) === best.x && Math.floor(q.z) === best.z
+    }
+    if (!await rejoindrePoste()) {
+      console.log('[mission] sortie par le haut : poste contre la paroi injoignable')
+      return null
+    }
+    const epargne = (x, z) => (x === best.rx && z === best.rz) || (x === best.x && z === best.z)
+    const creuses = await gatherDirt(hauteur, epargne)
+    await collectScaffoldDrops(owner)
+    const stock = scaffoldingStock(host.getBot()).total
+    if (stock < hauteur || mission.cancelled) {
+      console.log(`[mission] sortie par le haut : ${stock}/${hauteur} blocs de terre`)
+      return null
+    }
+    if (!await rejoindrePoste() || mission.cancelled) return null
     const pile = await ACTIONS.piler(null, { hauteur })
-    if (pile?.echec) return null
+    if (pile?.echec) {
+      console.log(`[mission] sortie par le haut : pilier refuse (${pile.resultat})`)
+      return null
+    }
     return `${creuses} bloc(s) de terre pris, pilier de ${hauteur} contre la paroi`
+  }
+
+  // Ramasse la terre tombee pres du bot (un bloc creuse dans une paroi lache
+  // son objet hors du rayon de collecte) : trajet de ramassage vers chacun.
+  async function collectScaffoldDrops (owner) {
+    for (let i = 0; i < 8 && !mission.cancelled; i += 1) {
+      const bot = host.getBot()
+      const here = bot.entity.position
+      const drop = Object.values(bot.entities).find(e => {
+        if (e.name !== 'item' || !e.position || e.position.distanceTo(here) > 6) return false
+        let item = null
+        try { item = e.getDroppedItem?.() } catch (_) {}
+        return item && PILER_DIRT.test(item.name)
+      })
+      if (!drop) return
+      const nav = await host.navigateToPosition(drop.position, {
+        signal: mission.navigationAbort.signal, __owner: owner, pickup: true, radius: 1.2, distanceBudget: 10
+      })
+      await sleep(400)
+      if (!nav?.reached && drop.isValid !== false) {
+        if (!await stepOnto(drop)) return
+      }
+    }
   }
 
   // Monte d une hauteur H vers une cible posee sur un relief plus haut :
