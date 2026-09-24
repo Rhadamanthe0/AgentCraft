@@ -50,6 +50,15 @@
   tranche aussitot l arbitrage via `resolveArbitrationNow` au lieu de poser
   « pause_reprise ou remplacement ? ». `question` restaure l ancien
   comportement. Le niveau CI `chat/replace-and-join` exige 0 question.
+- Rejoindre un joueur en toute circonstance (`navWithDescent`, apres le
+  navigateur et la descente de pilier) : cible plus haute de 2 a 6 (fond de
+  trou, pied de falaise) => `climbOutToward` prend la terre des parois (sauf
+  la colonne du rebord), se place contre la paroi cote cible et pile jusqu au
+  rebord ; sinon dernier recours `digToward(..., { protectBuilt: true })` :
+  escalier, tunnel, tour 1x1, chute <= 2, sans casser ce qu un joueur a
+  construit (`BUILT_BLOCK` : planches, portes, vitres, coffres, buches...).
+  Banc `join/*` : trou, pilier dans les feuilles, falaise en bas/en haut,
+  piece fermee ; sondes muettes `TestProbe2..6`.
 - Pilier dans la couronne : `isPillarBlock` ne compte plus feuilles/buches
   voisines comme sol naturel ; si `navWithDescent` laisse le bot perche sur
   l echafaudage, `digToward` jusqu au sol (20 s) puis re-tente le trajet.

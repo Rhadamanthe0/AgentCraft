@@ -10,7 +10,7 @@ import sys
 import time
 import uuid
 
-from trees import arena_origins, bot_services, levels, run_levels
+from trees import arena_origins, bot_services, levels, probe_names, run_levels
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
@@ -95,7 +95,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
         compose('config', '--quiet')
         print('Building test image...', flush=True)
         # Tree bots share the harness Dockerfile; their builds hit the same cache.
-        compose('build', 'harness', *[service for service, _ in bot_services()], timeout=600)
+        probes = [f'probe-{name[len("TestProbe"):]}' for name in probe_names()]
+        compose('build', 'harness', *[service for service, _ in bot_services()], *probes, timeout=600)
         if args.suite in ('unit', 'all'):
             print('Running focused offline regression tests...', flush=True)
             result = compose('run', '--rm', '--no-deps', 'harness', 'node', '--test',
@@ -152,9 +153,16 @@ fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-ty
         if args.suite in ('trees', 'all'):
             if os.environ.get('PLANNER_API_KEY'):
                 services = [service for service, _ in bot_services()]
-                compose('up', '-d', '--wait', '--wait-timeout', '120', *services, timeout=180)
+                compose('up', '-d', '--wait', '--wait-timeout', '120', *services, *probes, timeout=180)
+                # Probe players have no healthcheck: wait until each one is in the world.
+                until = time.monotonic() + 60
+                while not all(re.search(r':\s*0\s*$', rcon(f'data get entity {name} playerGameType')) for name in probe_names()):
+                    if time.monotonic() > until:
+                        raise RuntimeError('Probe players did not join')
+                    time.sleep(1)
                 ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
-                modes = {name: rcon(f'data get entity {name} playerGameType') for _, name in bot_services()}
+                modes = {name: rcon(f'data get entity {name} playerGameType')
+                         for name in [name for _, name in bot_services()] + probe_names()}
                 if ops or not all(re.search(r':\s*0\s*$', mode) for mode in modes.values()):
                     raise RuntimeError('Expected tree bots in survival without ops: ' + json.dumps(modes))
                 report['botSurvivalProof'] = {'ops': ops, 'playerGameType': modes}

@@ -70,11 +70,17 @@ creative (verifie : `playerGameType` 0, `ops.json` vide).
 | terrain/pit | arbre au fond d un trou de 5 blocs, bot au bord | bois complet, 0 degat (sauter dedans blesse) |
 | terrain/plateau | arbre sur une falaise de terre de 5 blocs | bois complet, 0 degat |
 | terrain/hedge-pit | trou de 5 blocs entoure d une haie de feuilles | bois complet, 0 degat |
+| join/pit | bot au fond d un trou 3x3 de 3 blocs ; `TestProbe2` en haut a 10 blocs dit « Rejoins moi » | joueur rejoint (XZ <= 3, meme niveau) en 150 s, 0 degat |
+| join/leaf-pillar | bot en haut de son pilier de terre dans un buisson de feuilles ; `TestProbe3` au sol | joueur rejoint, 0 degat |
+| join/cliff-down | bot en haut d une falaise de 5 ; `TestProbe4` en bas | joueur rejoint, 0 degat (descente en creusant) |
+| join/cliff-up | `TestProbe5` en haut d une falaise de 4 ; bot en bas, inventaire vide | joueur rejoint, 0 degat |
+| join/closed-room | bot enferme dans une piece de terre murs + toit ; `TestProbe6` dehors | joueur rejoint, 0 degat |
 
 Tous les niveaux verifient aussi `aucun_degat` : le scoreboard serveur
 `minecraft.custom:minecraft.damage_taken` du bot doit rester a 0 (une chute
-de plus de trois blocs blesse). Les huit niveaux tournent en parallele
-(`TreeBot1..8`).
+de plus de trois blocs blesse). Les quatorze niveaux tournent en parallele
+(`TreeBot1..14`) ; les joueurs des niveaux `join/*` sont des sondes muettes
+(`probe-2..6`, `TestProbe2..6`), jamais op.
 
 Les blocs sont comptes par RCON (`clone ... filtered` vers une zone de
 comptage eloignee) toutes les 3 s ; la hauteur est echantillonnee chaque

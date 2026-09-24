@@ -745,19 +745,15 @@ function createMissionRunner (host, injected = {}) {
     return y
   }
 
-  // Monte d une hauteur H vers une cible posee sur un relief plus haut :
-  // obtient H blocs de terre dans le relief voisin (jamais sous les pieds),
-  // pile de H, puis laisse l approche normale finir a pied. Rend un resume ou
-  // null si ce n est pas le cas (cible pas plus haute, pas assez de terre).
-  async function climbToward (cible) {
+  // Prend de la terre dans le relief voisin (a hauteur des pieds et au-dessus,
+  // jamais sous les pieds) jusqu a en avoir `besoin` en stock d echafaudage.
+  // `epargne(x, z)` exclut des colonnes a garder intactes (le rebord vise).
+  async function gatherDirt (besoin, epargne = () => false) {
     const bot = host.getBot()
-    if (!bot?.entity || !cible) return null
-    const feetY = Math.floor(bot.entity.position.y + 0.01)
-    const hauteur = standingLevel(cible) - feetY
-    if (hauteur < 2 || hauteur > PILER_MAX) return null
     let creuses = 0
-    for (let i = 0; i < hauteur + 4 && scaffoldingStock(bot).total < hauteur && !mission.cancelled; i += 1) {
+    for (let i = 0; i < besoin + 4 && scaffoldingStock(bot).total < besoin && !mission.cancelled; i += 1) {
       const here = bot.entity.position
+      const feetY = Math.floor(here.y + 0.01)
       const eye = here.offset(0, 1.62, 0)
       let best = null
       for (let dx = -3; dx <= 3; dx += 1) {
@@ -765,6 +761,7 @@ function createMissionRunner (host, injected = {}) {
           for (let dy = 0; dy <= 2; dy += 1) {
             const block = bot.blockAt(new Vec3(Math.floor(here.x) + dx, feetY + dy, Math.floor(here.z) + dz))
             if (!block || !/^(dirt|grass_block|coarse_dirt)$/.test(block.name)) continue
+            if (epargne(block.position.x, block.position.z)) continue
             const d = eye.distanceTo(block.position.offset(0.5, 0.5, 0.5))
             if (d > REACH) continue
             if (!best || d < best.d) best = { block, d }
@@ -781,6 +778,106 @@ function createMissionRunner (host, injected = {}) {
       creuses += 1
       await sleep(500)
     }
+    return creuses
+  }
+
+  // Sortie d un trou (ou pied d un mur) vers une cible plus haute de 2 a
+  // PILER_MAX blocs : choisit une case libre au pied d une paroi dont le haut
+  // est praticable, du cote de la cible, prend la terre ailleurs, s y place,
+  // pile jusqu au niveau du rebord. Le navigateur finit ensuite a pied.
+  async function climbOutToward (target, owner) {
+    const bot = host.getBot()
+    if (!bot?.entity || !target) return null
+    const feetY = Math.floor(bot.entity.position.y + 0.01)
+    const hauteur = Math.floor(target.y + 0.01) - feetY
+    if (hauteur < 2 || hauteur > PILER_MAX) return null
+    const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+    const libre = (x, y, z) => { const b = at(x, y, z); return !!b && b.boundingBox === 'empty' && !/water|lava/.test(b.name) }
+    const here = bot.entity.position.floored()
+    let best = null
+    for (let dx = -8; dx <= 8; dx += 1) {
+      for (let dz = -8; dz <= 8; dz += 1) {
+        const x = here.x + dx
+        const z = here.z + dz
+        if (!estSolide(at(x, feetY - 1, z))) continue
+        let colonne = true
+        for (let y = feetY; y <= feetY + hauteur + 1; y += 1) if (!libre(x, y, z)) colonne = false
+        if (!colonne) continue
+        for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          if (!estSolide(at(x + ox, feetY + hauteur - 1, z + oz))) continue
+          if (!libre(x + ox, feetY + hauteur, z + oz) || !libre(x + ox, feetY + hauteur + 1, z + oz)) continue
+          const score = Math.hypot(x + ox + 0.5 - target.x, z + oz + 0.5 - target.z) + 0.5 * Math.hypot(dx, dz)
+          if (!best || score < best.score) best = { x, z, rx: x + ox, rz: z + oz, score }
+        }
+      }
+    }
+    if (!best) {
+      console.log(`[mission] sortie par le haut : aucun poste contre une paroi de ${hauteur}`)
+      return null
+    }
+    const poste = new Vec3(best.x + 0.5, feetY, best.z + 0.5)
+    const rejoindrePoste = async () => {
+      const p = host.getBot().entity.position
+      if (Math.floor(p.x) === best.x && Math.floor(p.z) === best.z) return true
+      await host.navigateToPosition(poste, { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.4, distanceBudget: 24 })
+      const q = host.getBot().entity.position
+      return Math.floor(q.x) === best.x && Math.floor(q.z) === best.z
+    }
+    if (!await rejoindrePoste()) {
+      console.log('[mission] sortie par le haut : poste contre la paroi injoignable')
+      return null
+    }
+    const epargne = (x, z) => (x === best.rx && z === best.rz) || (x === best.x && z === best.z)
+    const creuses = await gatherDirt(hauteur, epargne)
+    await collectScaffoldDrops(owner)
+    const stock = scaffoldingStock(host.getBot()).total
+    if (stock < hauteur || mission.cancelled) {
+      console.log(`[mission] sortie par le haut : ${stock}/${hauteur} blocs de terre`)
+      return null
+    }
+    if (!await rejoindrePoste() || mission.cancelled) return null
+    const pile = await ACTIONS.piler(null, { hauteur })
+    if (pile?.echec) {
+      console.log(`[mission] sortie par le haut : pilier refuse (${pile.resultat})`)
+      return null
+    }
+    return `${creuses} bloc(s) de terre pris, pilier de ${hauteur} contre la paroi`
+  }
+
+  // Ramasse la terre tombee pres du bot (un bloc creuse dans une paroi lache
+  // son objet hors du rayon de collecte) : trajet de ramassage vers chacun.
+  async function collectScaffoldDrops (owner) {
+    for (let i = 0; i < 8 && !mission.cancelled; i += 1) {
+      const bot = host.getBot()
+      const here = bot.entity.position
+      const drop = Object.values(bot.entities).find(e => {
+        if (e.name !== 'item' || !e.position || e.position.distanceTo(here) > 6) return false
+        let item = null
+        try { item = e.getDroppedItem?.() } catch (_) {}
+        return item && PILER_DIRT.test(item.name)
+      })
+      if (!drop) return
+      const nav = await host.navigateToPosition(drop.position, {
+        signal: mission.navigationAbort.signal, __owner: owner, pickup: true, radius: 1.2, distanceBudget: 10
+      })
+      await sleep(400)
+      if (!nav?.reached && drop.isValid !== false) {
+        if (!await stepOnto(drop)) return
+      }
+    }
+  }
+
+  // Monte d une hauteur H vers une cible posee sur un relief plus haut :
+  // obtient H blocs de terre dans le relief voisin (jamais sous les pieds),
+  // pile de H, puis laisse l approche normale finir a pied. Rend un resume ou
+  // null si ce n est pas le cas (cible pas plus haute, pas assez de terre).
+  async function climbToward (cible) {
+    const bot = host.getBot()
+    if (!bot?.entity || !cible) return null
+    const feetY = Math.floor(bot.entity.position.y + 0.01)
+    const hauteur = standingLevel(cible) - feetY
+    if (hauteur < 2 || hauteur > PILER_MAX) return null
+    const creuses = await gatherDirt(hauteur)
     if (scaffoldingStock(bot).total < hauteur) return null
     const pile = await ACTIONS.piler(null, { hauteur })
     if (pile?.echec) return `montee impossible : ${pile.resultat}`
@@ -855,7 +952,12 @@ function createMissionRunner (host, injected = {}) {
   // Trajet vers un joueur ou une position : perche sur son propre pilier, le
   // navigateur refuse la chute (> 2 blocs) et repond no_path. On defait alors
   // le pilier (seulement une colonne isolee) puis on re-tente une fois.
-  async function navWithDescent (call) {
+  function playerPosition (username) {
+    const p = host.getBot()?.players?.[username]?.entity?.position
+    return p ? p.clone() : null
+  }
+
+  async function navWithDescent (call, { target = null, owner = null } = {}) {
     let result = await call()
     const bloque = !result?.reached && ['no_path', 'stuck', 'timeout'].includes(result?.code)
     if (bloque && !mission?.cancelled) {
@@ -880,6 +982,24 @@ function createMissionRunner (host, injected = {}) {
           { signal: mission.navigationAbort.signal, range: 1.5, timeoutMs: 20000 })
         console.log(`[mission] descente creusee depuis l echafaudage : ${down.code}`)
         if (down.reached) result = await call()
+      }
+      // Cible plus haute (fond d un trou, pied d un mur) : pilier contre la
+      // paroi jusqu au rebord, puis nouvel essai a pied.
+      const goal = typeof target === 'function' ? target() : target
+      if (!result?.reached && goal && !mission?.cancelled) {
+        const climbed = await climbOutToward(goal, owner)
+        if (climbed) {
+          console.log(`[mission] sortie par le haut : ${climbed}`)
+          result = await call()
+        }
+      }
+      // Dernier recours : le pathfinder qui creuse (escalier, tunnel, tour 1x1),
+      // chute de deux blocs au plus, sans toucher a ce qu un joueur a construit.
+      const goal2 = typeof target === 'function' ? target() : target
+      if (!result?.reached && goal2 && typeof host.digToward === 'function' && !mission?.cancelled) {
+        const dug = await host.digToward(goal2, { signal: mission.navigationAbort.signal, range: 2, protectBuilt: true })
+        console.log(`[mission] trajet en creusant vers la cible : ${dug.code}`)
+        if (dug.reached) result = await call()
       }
     }
     return result
@@ -2244,7 +2364,8 @@ function createMissionRunner (host, injected = {}) {
       // Token proprietaire prive (objet opaque) : la sous-etape nav s execute
       // DANS le slot de l etape, sans reacquerir (busy permanent sinon).
       const result = await navWithDescent(() =>
-        host.navigateToPlayer(mission.requester, { signal: mission.navigationAbort.signal, __owner: stepToken }))
+        host.navigateToPlayer(mission.requester, { signal: mission.navigationAbort.signal, __owner: stepToken }),
+      { target: () => playerPosition(mission.requester), owner: stepToken })
       // Conserve l obligation non satisfaite : un "dire" au tour suivant ne
       // transforme pas un deplacement echoue en geste accompli.
       mission.pendingJoin = !result.reached
@@ -4406,8 +4527,10 @@ function createMissionRunner (host, injected = {}) {
       // rejoindre/retour/sous_arbre (nav sous-etape) passent DANS le slot.
       const courseHost = {
         ...host,
-        navigateToPlayer: (username, options = {}) => navWithDescent(() => host.navigateToPlayer(username, { ...options, __owner: courseToken })),
-        navigateToPosition: (position, options = {}) => navWithDescent(() => host.navigateToPosition(position, { ...options, __owner: courseToken }))
+        navigateToPlayer: (username, options = {}) => navWithDescent(() => host.navigateToPlayer(username, { ...options, __owner: courseToken }),
+          { target: () => playerPosition(username), owner: courseToken }),
+        navigateToPosition: (position, options = {}) => navWithDescent(() => host.navigateToPosition(position, { ...options, __owner: courseToken }),
+          { target: position ? new Vec3(position.x, position.y, position.z) : null, owner: courseToken })
       }
       const runCourse = () => movementTask.executeTask(current.movementTask, courseHost, current.requester,
         controller.signal, task => {
