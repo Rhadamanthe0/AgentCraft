@@ -187,6 +187,8 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
         final = bot_api(service, '/api/status')
         mission = bot_api(service, '/api/mission')
         after = measure()
+        items_left = rcon(f'execute as @e[type=item,x={x0},y={FLOOR_Y},z={z0},dx={SIZE},dy={TOP_Y - FLOOR_Y},dz={SIZE}]'
+                          ' run data get entity @s Pos')
         if final.get('missionRunning'):
             bot_api(service, '/api/stop', {})
         inventory = (final.get('inventory') or {}).get('buches', 0)
@@ -214,7 +216,8 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
             'checks': checks, 'endReason': end_reason, 'expectedLogs': expected_logs,
             'logsInInventory': inventory, 'before': before, 'after': after,
             'leavesBroken': before['leaves'] - after['leaves'], 'floorBroken': before['floor'] - after['floor'],
-            'peakStandingY': round(peak_standing, 2), 'elapsedS': elapsed,
+            'peakStandingY': round(peak_standing, 2), 'elapsedS': elapsed, 'itemsLeft': items_left,
+            'botFinalPosition': final.get('position'),
             'missionState': m.get('etat'), 'missionReason': m.get('raison'), 'missionSteps': m.get('etapes'),
             'planner': {k: (final.get('planner') or {}).get(k) for k in ('model', 'appels', 'etapes_servies', 'echecs')},
         }

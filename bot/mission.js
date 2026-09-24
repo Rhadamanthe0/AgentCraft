@@ -705,6 +705,33 @@ function createMissionRunner (host, injected = {}) {
   // buche haute, hors de portee verticale — le bot avancait vers un bloc qu il
   // ne pourrait jamais casser, le depassait, revenait : l oscillation observee
   // en jeu entre 2,7 et 10,8 blocs de l arbre.
+  async function dropFromLeaves (item) {
+    const bot = host.getBot()
+    if (mission?.resource !== 'bois' || !bot?.entity) return false
+    let dropped = null
+    try { dropped = item.getDroppedItem?.() } catch (_) {}
+    if (!dropped || !TREE_LOG.test(dropped.name)) return false
+    const support = bot.blockAt(item.position.offset(0, -0.2, 0))
+    if (!support || !/_leaves$/.test(support.name)) return false
+    const center = support.position.offset(0.5, 0.5, 0.5)
+    if (bot.entity.position.offset(0, 1.62, 0).distanceTo(center) > REACH) {
+      const nav = await host.navigateToPosition(center, {
+        signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, distanceBudget: 16
+      })
+      if (!nav.reached || mission.cancelled) return false
+    }
+    const live = host.getBot()
+    try {
+      await withTimeout(live.lookAt(center, true), 4000, 'visee trop longue')
+      await withTimeout(live.dig(support), 6000, 'creusage trop long')
+    } catch (_) {
+      return false
+    }
+    mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
+    await sleep(600)
+    return true
+  }
+
   // Descend d un pilier pose par le bot : casse le bloc d echafaudage (dirt,
   // planches) sous ses pieds, attend l atterrissage, et recommence tant que
   // le bot est plus d un bloc et demi au-dessus de `targetY`. S arrete sur tout
@@ -2288,6 +2315,10 @@ function createMissionRunner (host, injected = {}) {
         // Perche sur son propre pilier au-dessus de l objet : le navigateur ne
         // descend que de deux blocs, donc on defait le pilier sous ses pieds.
         if (item.position.y < live.entity.position.y - 1.5) await descendScaffold(item.position.y)
+        // Bois tombe sur des feuilles (bout de branche) : hors d atteinte au
+        // sol. On casse la feuille qui le porte, s il est a portee, pour qu il
+        // tombe ; seule cette feuille est touchee.
+        await dropFromLeaves(item)
         // Meme navigateur que l approche de ressource, mais jusqu au rayon
         // de collecte. Pas de succes sans gain d inventaire plus bas.
         const walk = await host.navigateToPosition(item.position, {
