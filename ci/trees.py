@@ -156,7 +156,9 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
                 'dirt_above_floor': count(f'{x0} 200 {z0} {x1} {TOP_Y} {z1}', 'minecraft:dirt')}
 
     try:
-        rcon(f'fill {x0} {FLOOR_Y - 1} {z0} {x1} {FLOOR_Y - 1} {z1} stone')
+        # Solid ground under the arena: a bot that digs down must hit stone, not
+        # fall ~260 blocks through the floating platform (seen on terrain/pit).
+        rcon(f'fill {x0} {FLOOR_Y - 10} {z0} {x1} {FLOOR_Y - 1} {z1} stone')
         rcon(f'fill {x0} {FLOOR_Y} {z0} {x1} {FLOOR_Y} {z1} grass_block')
         rcon(f'fill {x0} 200 {z0} {x1} {TOP_Y} {z1} air')
         rcon(f'kill @e[type=item,x={x0},y={FLOOR_Y},z={z0},dx={SIZE},dy={TOP_Y - FLOOR_Y},dz={SIZE}]')
