@@ -161,6 +161,10 @@ def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure,
             on_pillar = True
             break
         time.sleep(1)
+    # Same sequence as seen in game: stop first, so the tree job is paused and
+    # the new request opens the "resume or replace?" question.
+    answers['stop'] = bot_api(service, '/api/instruction', {'message': 'Stop', 'requester': PROBE})
+    time.sleep(2)
     answers['join'] = bot_api(service, '/api/instruction', {'message': 'Rejoins moi', 'requester': PROBE})
     # The arbitration question lives in the objective controller snapshot.
     arbitration = False
@@ -186,6 +190,9 @@ def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure,
     if final.get('missionRunning'):
         bot_api(service, '/api/stop', {})
     checks = {'etait_sur_son_pilier': on_pillar, 'a_rejoint_le_joueur': joined, 'aucun_degat': damage == 0}
+    # A new objective over the paused tree job must raise the question.
+    if answers['join'].get('relation') == 'new':
+        checks['question_posee'] = arbitration
     if arbitration:
         replace = answers.get('replace') or {}
         checks['remplacement_compris'] = replace.get('relation') == 'arbitration' and replace.get('choice') == 'remplacement'

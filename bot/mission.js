@@ -791,6 +791,31 @@ function createMissionRunner (host, injected = {}) {
   // planches) sous ses pieds, attend l atterrissage, et recommence tant que
   // le bot est plus d un bloc et demi au-dessus de `targetY`. S arrete sur tout
   // autre bloc (sol naturel, feuilles) : jamais de puits.
+  async function stepOnto (item) {
+    const bot = host.getBot()
+    if (!bot?.entity || !item?.position) return false
+    const here = bot.entity.position
+    if (Math.abs(item.position.y - here.y) > 0.6) return false
+    const support = bot.blockAt(item.position.offset(0, -0.5, 0))
+    if (!support || support.boundingBox !== 'block') return false
+    try {
+      await bot.lookAt(item.position.offset(0, 1.6, 0), true)
+      bot.setControlState('forward', true)
+      const until = Date.now() + 1500
+      while (Date.now() < until && item.isValid !== false) {
+        const p = host.getBot()?.entity?.position
+        if (!p || Math.hypot(p.x - item.position.x, p.z - item.position.z) < 0.6) break
+        await sleep(50)
+      }
+    } catch (_) {
+      return false
+    } finally {
+      try { host.getBot()?.setControlState('forward', false) } catch (_) {}
+    }
+    await sleep(300)
+    return true
+  }
+
   // Colonne isolee : les quatre voisins du bloc porteur sont vides. C est ce
   // qui distingue un pilier pose par le bot d un sol naturel en terre, qu il
   // ne faut jamais creuser sous ses pieds.
@@ -2377,7 +2402,8 @@ function createMissionRunner (host, injected = {}) {
         : 0
       // Use the same supported pickup post as navigation, including height:
       // an item nearby in XZ can still be two floors below the bot.
-      const distant = items.filter(
+      let pasCourt = false
+      let distant = items.filter(
         item => !itemInPickupRange(bot, bot.entity.position, item.position, ITEM_AUTO_PICKUP))
 
       if (distant.length === 0) {
@@ -2390,10 +2416,11 @@ function createMissionRunner (host, injected = {}) {
         if (autoDirt > 0) {
           return { resultat: `${items.length} objet(s) a portee, +${autoDirt} dirt secondaire dans l inventaire (ramassage automatique, carburant de pilier)` }
         }
-        return {
-          resultat: `${items.length} objet(s) a portee mais +0 ${mission.resource} dans l inventaire : rien de la matiere visee`,
-          echec: true
-        }
+        // Juge « a portee » mais rien n est entre : le ramassage du jeu est
+        // plus court (~1,3 bloc) que ce seuil. Marcher dessus au lieu d echouer
+        // (vu : buche a 1,6 bloc jamais ramassee, mission bloquee).
+        distant = items
+        pasCourt = true
       }
 
       let atteints = 0
@@ -2418,6 +2445,9 @@ function createMissionRunner (host, injected = {}) {
         // sol. On casse la feuille qui le porte, s il est a portee, pour qu il
         // tombe ; seule cette feuille est touchee.
         await dropFromLeaves(item)
+        // Objet deja « proche » mais pas ramasse : un pas droit dessus, sur sol
+        // plat seulement (meme niveau, appui solide), jamais vers un vide.
+        if (pasCourt) await stepOnto(item)
         // Meme navigateur que l approche de ressource, mais jusqu au rayon
         // de collecte. Pas de succes sans gain d inventaire plus bas.
         const walk = await host.navigateToPosition(item.position, {
