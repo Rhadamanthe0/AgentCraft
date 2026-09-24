@@ -1,0 +1,16 @@
+{
+  "name": "minecraft-test-bot",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Disposable Mineflayer bot for a local Docker Minecraft test server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "0.6.0",
+    "express": "5.2.1",
+    "mineflayer": "4.39.0",
+    "mineflayer-pathfinder": "2.4.5"
+  }
+}

@@ -1,0 +1,45 @@
+services:
+  minecraft:
+    image: itzg/minecraft-server:2026.9.1-java25
+    environment:
+      EULA: "TRUE"
+      TYPE: PAPER
+      VERSION: "26.1.2"
+      MEMORY: 2G
+      ONLINE_MODE: "FALSE"
+      MODE: survival
+      FORCE_GAMEMODE: "TRUE"
+      DIFFICULTY: peaceful
+      SPAWN_PROTECTION: "0"
+      LEVEL_TYPE: FLAT
+      SEED: "24092026"
+      GENERATE_STRUCTURES: "FALSE"
+      VIEW_DISTANCE: "4"
+      SIMULATION_DISTANCE: "4"
+      ENABLE_RCON: "TRUE"
+      RCON_PASSWORD: disposable-ci-only
+      RCON_CMDS_STARTUP: |-
+        time set day
+        gamerule advance_time false
+    # Anonymous, disposable volume; never the live mc-data volume.
+    volumes:
+      - /data
+  harness:
+    build:
+      context: ..
+      dockerfile: ci/Dockerfile
+    init: true
+    environment:
+      NODE_PATH: /work/bot/node_modules
+    command: ["node", "/work/ci/harness.js", "TestProbe1", "--idle-secs", "600"]
+    depends_on:
+      minecraft:
+        condition: service_healthy
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3101/state').then(r=>r.json()).then(s=>process.exit(s.ready?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+# No published ports, host mounts, Docker socket, API keys or production data.

@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Minecraft TestBot</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: .25rem; }
+    h2 { margin-top: 2rem; font-size: 1.1rem; }
+    #status, #mission { padding: .75rem; border: 1px solid #aaa; border-radius: .5rem; white-space: pre-wrap; }
+    #mission { margin-top: .75rem; background: #fafafa; }
+    .grid { display: grid; grid-template-columns: repeat(3, 90px); gap: .5rem; justify-content: center; margin: 1.5rem 0; }
+    button { min-height: 52px; font-size: 1rem; cursor: pointer; }
+    .row { display: flex; gap: .5rem; margin: .75rem 0; flex-wrap: wrap; }
+    input { padding: .6rem; min-width: 80px; }
+    .grow { flex: 1; min-width: 220px; }
+    .hint { color: #555; font-size: .85rem; margin: .25rem 0 0; }
+    #commands { font-size: .85rem; color: #333; }
+    #commands li { margin: .15rem 0; }
+    code { background: #f0f0f0; padding: 0 .25rem; border-radius: .2rem; }
+  </style>
+</head>
+<body>
+  <h1>TestBot</h1>
+  <p>Contrôleur local du bot Mineflayer.</p>
+
+  <div id="status">Connexion…</div>
+
+  <div class="grid">
+    <div></div>
+    <button data-control="forward">▲ Avant</button>
+    <div></div>
+    <button data-control="left">◀ Gauche</button>
+    <button id="jump">Saut</button>
+    <button data-control="right">Droite ▶</button>
+    <div></div>
+    <button data-control="back">▼ Arrière</button>
+    <div></div>
+  </div>
+
+  <div class="row">
+    <button id="turnLeft">↶ Tourner +30°</button>
+    <button id="turnRight">Tourner -30° ↷</button>
+    <button id="stop">■ Arrêt (et mission)</button>
+  </div>
+
+  <h2>Mission continue</h2>
+  <p class="hint">
+    L'objectif part au planificateur, qui rend un plan d'actions à chaque tour
+    et décide lui-même quand c'est terminé. Exemples : « ramasse de l'herbe »,
+    « va à côté d'un arbre », « coupe du bois ».
+  </p>
+  <div class="row">
+    <input id="objective" class="grow" maxlength="240" placeholder="Objectif à accomplir">
+    <button id="startMission">Lancer</button>
+    <button id="stopMission">Arrêter</button>
+  </div>
+  <div id="mission">Aucune mission.</div>
+
+  <h2>Aller vers des coordonnées</h2>
+  <div class="row">
+    <input id="x" type="number" step="any" placeholder="X">
+    <input id="y" type="number" step="any" placeholder="Y">
+    <input id="z" type="number" step="any" placeholder="Z">
+    <button id="goto">Aller</button>
+  </div>
+
+  <h2>Chat</h2>
+  <div class="row">
+    <input id="message" class="grow" maxlength="240" placeholder="Message ou commande Minecraft">
+    <button id="chat">Envoyer</button>
+  </div>
+
+  <h2>Commandes configurées</h2>
+  <ul id="commands"><li>Chargement…</li></ul>
+
+  <script>
+    async function post (url, body = {}) {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Erreur')
+      return data
+    }
+
+    // Relâche les touches maintenues sans toucher à la mission : perdre le
+    // focus de l'onglet ne doit pas annuler un objectif en cours.
+    async function releaseControls () {
+      for (const control of ['forward', 'back', 'left', 'right', 'sprint', 'sneak']) {
+        try {
+          await post('/api/control', { control, state: false })
+        } catch (_) {}
+      }
+    }
+
+    function describeMission (m, running) {
+      if (!m) return 'Aucune mission.'
+
+      const lines = [
+        `Objectif: ${m.objectif}`,
+        `Demandé par: ${m.demandeur}`,
+        `Ressource visée: ${m.matiere} (confiance ${m.confiance_matiere})`,
+        `État: ${m.etat}${running ? ' (en cours)' : ''}${m.raison ? ` — ${m.raison}` : ''}`,
+        `Étapes: ${m.etapes} | blocs cassés: ${m.blocs_casses} | objets récoltés: ${m.objets_recoltes}`
+      ]
+
+      if (m.dernier_plan) {
+        lines.push(`Dernier plan: ${m.dernier_plan.step} (confiance ${m.dernier_plan.confidence}, accompli ${Math.round(m.dernier_plan.done * 100)}%)`)
+      }
+
+      for (const step of (m.historique || []).slice(-3)) {
+        lines.push(`  · ${step.action} → ${step.resultat}`)
+      }
+
+      return lines.join('\n')
+    }
+
+    async function refresh () {
+      try {
+        const r = await fetch('/api/status', { cache: 'no-store' })
+        const s = await r.json()
+
+        const intent = s.lastIntent
+          ? `${s.lastIntent.command ?? 'erreur'}${s.lastIntent.confidence !== undefined ? ` (${s.lastIntent.confidence})` : ''} « ${s.lastIntent.message} »`
+          : '-'
+
+        document.getElementById('status').textContent =
+          `Connecté: ${s.spawned ? 'oui' : 'non'}\n` +
+          `Utilisateur: ${s.username}\n` +
+          `Version: ${s.minecraftVersion ?? '-'} (attendue: ${s.expectedMinecraftVersion})\n` +
+          `Position: ${s.position ? `${s.position.x}, ${s.position.y}, ${s.position.z}` : '-'}\n` +
+          `Vie: ${s.health ?? '-'} | Nourriture: ${s.food ?? '-'}\n` +
+          `Pathfinding: ${s.pathfinding ? 'actif' : 'non'} | Sauvetages: ${s.rescues}\n` +
+          `Classificateur: ${s.classifier}${s.classifierModel ? ` (${s.classifierModel})` : ''}` +
+          `${s.classifierError ? ` — ${s.classifierError}` : ''}\n` +
+          `Dernière intention: ${intent}`
+
+        document.getElementById('mission').textContent =
+          describeMission(s.mission, s.missionRunning)
+      } catch (e) {
+        document.getElementById('status').textContent = `Erreur: ${e.message}`
+      }
+    }
+
+    async function loadCommands () {
+      const list = document.getElementById('commands')
+      try {
+        const r = await fetch('/api/commands', { cache: 'no-store' })
+        const data = await r.json()
+
+        list.innerHTML = ''
+
+        const audit = document.createElement('li')
+        audit.innerHTML = data.audit.ok
+          ? `<strong>Audit: cohérent</strong> — ${data.audit.counts.commandes} commandes, ` +
+            `${data.audit.counts.routables_par_jev} routables par Jev, ` +
+            `${data.audit.counts.actions} actions, ` +
+            `${data.audit.counts.ressources} ressources.`
+          : `<strong>Audit: ${data.audit.problems.length} incohérence(s)</strong> — ` +
+            data.audit.problems.join(' ; ')
+        list.appendChild(audit)
+
+        for (const c of data.commands) {
+          const li = document.createElement('li')
+          li.innerHTML = `<code>${c.usage}</code> — ${c.summary}` +
+            (c.routableParJev ? '' : ' <em>(préfixe uniquement)</em>')
+          list.appendChild(li)
+        }
+
+        const steps = document.createElement('li')
+        steps.textContent = `Actions : ${(data.actions || []).map(a => a.name).join(', ')}`
+        list.appendChild(steps)
+
+        const resources = document.createElement('li')
+        resources.textContent = `Ressources reconnues : ${(data.resources || []).join(', ')}`
+        list.appendChild(resources)
+      } catch (e) {
+        list.innerHTML = `<li>Erreur: ${e.message}</li>`
+      }
+    }
+
+    document.querySelectorAll('[data-control]').forEach(button => {
+      const control = button.dataset.control
+
+      const start = e => {
+        e.preventDefault()
+        button.setPointerCapture?.(e.pointerId)
+        post('/api/control', { control, state: true }).catch(console.error)
+      }
+
+      const stop = e => {
+        e.preventDefault()
+        post('/api/control', { control, state: false }).catch(console.error)
+      }
+
+      button.addEventListener('pointerdown', start)
+      button.addEventListener('pointerup', stop)
+      button.addEventListener('pointercancel', stop)
+    })
+
+    document.getElementById('jump').onclick = () =>
+      post('/api/jump').catch(e => alert(e.message))
+
+    document.getElementById('turnLeft').onclick = () =>
+      post('/api/turn', { degrees: 30 }).catch(e => alert(e.message))
+
+    document.getElementById('turnRight').onclick = () =>
+      post('/api/turn', { degrees: -30 }).catch(e => alert(e.message))
+
+    document.getElementById('stop').onclick = () =>
+      post('/api/stop').catch(e => alert(e.message))
+
+    document.getElementById('startMission').onclick = async () => {
+      const input = document.getElementById('objective')
+      const objective = input.value.trim()
+
+      if (!objective) {
+        alert('Écris un objectif.')
+        return
+      }
+
+      try {
+        await post('/api/mission', { objective, requester: 'interface web' })
+        input.value = ''
+        refresh()
+      } catch (e) {
+        alert(e.message)
+      }
+    }
+
+    document.getElementById('objective').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('startMission').click()
+    })
+
+    document.getElementById('stopMission').onclick = async () => {
+      try {
+        const r = await fetch('/api/mission', { method: 'DELETE' })
+        if (!r.ok) throw new Error('Erreur')
+        refresh()
+      } catch (e) {
+        alert(e.message)
+      }
+    }
+
+    document.getElementById('goto').onclick = () => {
+      const rawX = document.getElementById('x').value.trim()
+      const rawY = document.getElementById('y').value.trim()
+      const rawZ = document.getElementById('z').value.trim()
+
+      if (!rawX || !rawY || !rawZ) {
+        alert('Renseigne X, Y et Z.')
+        return
+      }
+
+      post('/api/goto', {
+        x: Number(rawX),
+        y: Number(rawY),
+        z: Number(rawZ),
+        range: 1
+      }).catch(e => alert(e.message))
+    }
+
+    async function sendChat () {
+      const input = document.getElementById('message')
+      try {
+        await post('/api/chat', { message: input.value })
+        input.value = ''
+      } catch (e) {
+        alert(e.message)
+      }
+    }
+
+    document.getElementById('chat').onclick = sendChat
+    document.getElementById('message').addEventListener('keydown', e => {
+      if (e.key === 'Enter') sendChat()
+    })
+
+    window.addEventListener('blur', releaseControls)
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) releaseControls()
+    })
+
+    setInterval(refresh, 1000)
+    refresh()
+    loadCommands()
+  </script>
+</body>
+</html>

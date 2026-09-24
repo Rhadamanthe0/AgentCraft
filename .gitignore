@@ -1,0 +1,15 @@
+.env
+.env.local
+.env.*.local
+**/node_modules/
+**/__pycache__/
+test-results/
+*.bak
+*.log
+.opencode/
+# Keep test sources, not recorded game state or local reports.
+tmp/*
+!tmp/*.js
+!tmp/*.ps1
+# Runner registration and credentials always stay outside version control.
+.runner/

@@ -1,0 +1,176 @@
+services:
+  minecraft:
+    image: itzg/minecraft-server:2026.9.1-java25
+    tty: true
+    stdin_open: true
+    ports:
+      - "127.0.0.1:25565:25565"
+    environment:
+      EULA: "TRUE"
+      TYPE: "PAPER"
+      VERSION: "26.1.2"
+      MEMORY: "2G"
+      ONLINE_MODE: "FALSE"
+      MAX_PLAYERS: "5"
+      # Le serveur tourne en SURVIE. C etait "creative", et le bot, qui etait
+      # operateur, se remettait lui-meme en survie au spawn par /gamemode :
+      # casser un bloc en creative ne fait rien tomber, donc aucune recolte
+      # n etait possible. Le bot n ayant plus aucun pouvoir d administration,
+      # c est au serveur d etre dans le bon mode.
+      MODE: "survival"
+      DIFFICULTY: "peaceful"
+      SPAWN_PROTECTION: "0"
+      # Toujours le jour : le temps est fige et remis au jour a chaque demarrage.
+      # 26.1 a renomme la gamerule ; l ancien nom `doDaylightCycle` est refuse
+      # ("Incorrect argument for command"), c est `advance_time` qu il faut.
+      # Verifie au rcon.
+      RCON_CMDS_STARTUP: |-
+        time set day
+        gamerule advance_time false
+      VIEW_DISTANCE: "6"
+      SIMULATION_DISTANCE: "4"
+      MOTD: "Docker Minecraft bot test"
+      # Le BOT n'a AUCUN pouvoir d administration. Il etait op pour se
+      # teleporter hors de l eau et basculer son mode de jeu ; le proprietaire a
+      # demande un bot sans aucun pouvoir. Seul le joueur humain Rhadamanthe0
+      # est operateur.
+      #
+      # Consequence assumee pour le bot : il ne sait pas nager sur cette version
+      # (piege 3) et ne peut plus se sortir d un bassin. Il demande de l aide
+      # dans le chat.
+      #
+      # L UUID hors-ligne (version 3) de Rhadamanthe0 est en dur, releve dans
+      # les logs serveur (`UUID of player ... is ...`). Le NOM ne marcherait
+      # pas : ONLINE_MODE=FALSE fait deriver l UUID du pseudo par le serveur,
+      # alors qu un nom est resolu aupres de Mojang et renvoie un AUTRE UUID,
+      # donc une entree qui ne correspond a personne (piege 2). Si le pseudo
+      # change, relever le nouvel UUID et le reporter ici.
+      #
+      # OVERRIDE_OPS ecrase ops.json a chaque demarrage a partir de cette ligne :
+      # sans elle, le fichier du volume survit et une entree obsolette persiste.
+      OPS: "7d49f288-3851-3404-bb5b-853d7bdcc2ff"
+      OVERRIDE_OPS: "TRUE"
+    volumes:
+      - mc-data:/data
+    networks:
+      - mc-test-net
+
+  bot:
+    build:
+      context: ./bot
+    init: true
+    depends_on:
+      minecraft:
+        condition: service_healthy
+    environment:
+      MC_HOST: "minecraft"
+      MC_PORT: "25565"
+      MC_VERSION: "26.1"
+      BOT_USERNAME: "TestBot"
+      API_PORT: "3000"
+      # Jev (TypeSafe System One) n est plus le pilote : le planificateur JSON
+      # distant (PLANNER_BASE_URL ci-dessous) prend la main. Ces variables ne
+      # servent que si PLANNER_BASE_URL est vide.
+      TYPESAFE_API_KEY: "${TYPESAFE_API_KEY:-}"
+      JEV_MODEL: "${JEV_MODEL:-jev-latest}"
+      JEV_MIN_CONFIDENCE: "${JEV_MIN_CONFIDENCE:-0.6}"
+      # Au-dessus de ce seuil, Jev declare la mission accomplie.
+      JEV_DONE_THRESHOLD: "${JEV_DONE_THRESHOLD:-0.75}"
+      # Garde-fous de la boucle de mission : elle s arrete au premier atteint.
+      # Plus larges qu avant : une maison 5x5x5 en survie demande 96 blocs, donc
+      # 24 buches a couper une par une, puis a transformer en planches.
+      MISSION_MAX_STEPS: "${MISSION_MAX_STEPS:-90}"
+      MISSION_MAX_DURATION_MS: "${MISSION_MAX_DURATION_MS:-900000}"
+      # Quantite visee quand l objectif n en precise aucune.
+      MISSION_DEFAULT_QUOTA: "${MISSION_DEFAULT_QUOTA:-16}"
+      # Mini-carte PNG jointe au planificateur. DESACTIVEE par defaut : sans
+      # MISSION_SCREENSHOT=1, aucun pixel n est genere et l etat envoye est
+      # strictement le meme qu avant. Quand elle est active, une capture est
+      # jointe toutes MISSION_SCREENSHOT_EVERY etapes (cooldown : l image coute
+      # des jetons d entree), sur un carre de MISSION_SCREENSHOT_RAYON blocs de
+      # demi-cote. La data URL vit dans le message utilisateur, jamais dans
+      # l etat ; celui-ci ne porte que le booleen capture_presente.
+      MISSION_SCREENSHOT: "${MISSION_SCREENSHOT:-}"
+      MISSION_SCREENSHOT_EVERY: "${MISSION_SCREENSHOT_EVERY:-5}"
+      MISSION_SCREENSHOT_RAYON: "${MISSION_SCREENSHOT_RAYON:-16}"
+      # Planificateur JSON : le modele distant OpenCode Go (gateway compatible
+      # OpenAI /chat/completions). Un appel rend plusieurs etapes, executees
+      # dans l ordre, et le premier echec vide la file et fait replanifier.
+      #
+      # `x-opencode-session` doit rester STABLE par conversation : c est lui qui
+      # optimise le routage et le cache de prompt cote OpenCode Zen. On le
+      # derive du pseudo du bot. Vider PLANNER_BASE_URL pour revenir a Jev.
+      PLANNER_BASE_URL: "${PLANNER_BASE_URL:-https://opencode.ai/zen/go/v1}"
+      # deepseek-v4.1-flash est un modele a raisonnement : il lui faut de la
+      # marge de sortie (PLANNER_MAX_TOKENS), sinon il raisonne jusqu'au bout et
+      # rend un contenu vide (finish=length).
+      PLANNER_MODEL: "${PLANNER_MODEL:-deepseek-v4.1-flash}"
+      PLANNER_ROUTING_MODE: "${PLANNER_ROUTING_MODE:-legacy}"
+      PLANNER_FAST_MODEL: "${PLANNER_FAST_MODEL:-mimo-v2.6-flash}"
+      PLANNER_FAST_TIMEOUT_MS: "${PLANNER_FAST_TIMEOUT_MS:-45000}"
+      PLANNER_FAST_MAX_TOKENS: "${PLANNER_FAST_MAX_TOKENS:-4096}"
+      PLANNER_STRATEGY_MODEL: "${PLANNER_STRATEGY_MODEL:-muse-spark-1.3-contributor}"
+      PLANNER_STRATEGY_TIMEOUT_MS: "${PLANNER_STRATEGY_TIMEOUT_MS:-120000}"
+      PLANNER_STRATEGY_MAX_TOKENS: "${PLANNER_STRATEGY_MAX_TOKENS:-16384}"
+      PLANNER_API_KEY: "${PLANNER_API_KEY:-}"
+      PLANNER_SESSION_ID: "${PLANNER_SESSION_ID:-minecraft-bot-TestBot}"
+      PLANNER_USER_AGENT: "${PLANNER_USER_AGENT:-minecraft-bot/1.0}"
+      PLANNER_PLAN_MAX: "${PLANNER_PLAN_MAX:-5}"
+      PLANNER_TIMEOUT_MS: "${PLANNER_TIMEOUT_MS:-12000}"
+      # 2000 : le raisonnement de deepseek-v4.1-flash compte dedans.
+      PLANNER_MAX_TOKENS: "${PLANNER_MAX_TOKENS:-2000}"
+      PLANNER_DEBUG: "${PLANNER_DEBUG:-}"
+      # Budget de temps d un plan, en secondes de jeu. Le code complete tout plan
+      # plus court que le minimum avec `regarder_autour`, donc une valeur trop
+      # haute ne cree pas d action inutile, elle allonge seulement chaque plan.
+      PLANNER_BUDGET_MIN_S: "${PLANNER_BUDGET_MIN_S:-1}"
+      PLANNER_BUDGET_MAX_S: "${PLANNER_BUDGET_MAX_S:-2}"
+      # Auto-reparation : quand le bot est bloque, `demander_aide` interroge un
+      # modele plus capable qui rend une operation `documenter` sur une action
+      # native (un `quand` et des exemples, jamais du code ni une action
+      # nouvelle). Meme gateway que le planificateur ; sans cle, le module est
+      # inactif et la mission continue.
+      REPAIR_BASE_URL: "${REPAIR_BASE_URL:-https://opencode.ai/zen/go/v1}"
+      # Meme modele que le planificateur : deepseek v4.1 pour tout.
+      REPAIR_MODEL: "${REPAIR_MODEL:-deepseek-v4.1-flash}"
+      REPAIR_API_KEY: "${REPAIR_API_KEY:-}"
+      # Nombre maximal d appels au reparateur par mission, pour ne pas boucler
+      # sur une API payante.
+      REPAIR_MAX_PER_MISSION: "${REPAIR_MAX_PER_MISSION:-2}"
+      # Reflexion sur le catalogue (reviser_actions) : plafond par mission.
+      REPAIR_MAX_REVISIONS: "${REPAIR_MAX_REVISIONS:-2}"
+      REPAIR_DEBUG: "${REPAIR_DEBUG:-}"
+      # Documentation/exemples ajoutes aux actions natives par l'aide distante
+      # (`documenter`), conservee entre deux demarrages dans ACTIONS_DOC_FILE
+      # (defaut /data/actions-doc.json).
+      # La memoire du planificateur vit a cote, avec un plafond PAR PORTEE
+      # (cache en couches, ARCHITECTURE.md §9) : la memoire long terme est la
+      # couche 3 du prompt, ecrite une seule fois par mission (au finish) ;
+      # la memoire de travail est la couche 4, fil de la mission en ajout
+      # seul, compacte par un resume du modele au-dela du seuil.
+      MEMORY_FILE: "/data/memory.json"
+      MEMORY_LONG_TERM_TOKENS: "${MEMORY_LONG_TERM_TOKENS:-10000}"
+      MEMORY_WORK_TOKENS: "${MEMORY_WORK_TOKENS:-10000}"
+      MEMORY_WORK_COMPACT_AT: "${MEMORY_WORK_COMPACT_AT:-8000}"
+      MEMORY_WORK_COMPACT_TO: "${MEMORY_WORK_COMPACT_TO:-4000}"
+      MEMORY_NOTE_MAX: "${MEMORY_NOTE_MAX:-4000}"
+      # Trace detaillee de chaque pose de bloc. Vide = silencieux.
+      BUILD_DEBUG: "${BUILD_DEBUG:-}"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - bot-data:/data
+    networks:
+      - mc-test-net
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+networks:
+  mc-test-net:
+    driver: bridge
+
+volumes:
+  mc-data:
+  bot-data:

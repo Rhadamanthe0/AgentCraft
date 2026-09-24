@@ -1,0 +1,11 @@
+**
+!bot/
+!bot/package.json
+!bot/*.js
+!tmp/
+!tmp/*.test.js
+!tmp/probe-bot.js
+!ci/
+!ci/Dockerfile
+!ci/harness.js
+!ci/package-lock.json

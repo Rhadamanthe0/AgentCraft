@@ -1,0 +1,41 @@
+name: Minecraft bench
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize world tests on the PC; a new push does not interrupt cleanup.
+concurrency:
+  group: minecraft-bench
+  cancel-in-progress: false
+
+jobs:
+  minecraft:
+    if: github.event.repository.private == true
+    runs-on: [self-hosted, Windows, X64, minecraft]
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Run unit regressions and real Minecraft tests
+        run: python ci/run.py --suite all
+      - name: Remove any remaining disposable test containers
+        if: always()
+        run: python ci/cleanup.py
+      - name: Publish report, logs and movement traces
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: minecraft-${{ github.sha }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
