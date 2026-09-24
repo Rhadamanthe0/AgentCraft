@@ -75,6 +75,11 @@
   (sol pris a cote, jamais sous les pieds) pour que le pathfinder jette un
   pont ; `joinDigMovements.liquidCost = 200`. CI : PLANNER_TIMEOUT_MS 30 s
   (16 bots en parallele, deux delais de 20 s vus sur trees/bent).
+- `bridgeToward` (mission.js) : eau/lave/vide en ligne droite vers le joueur
+  => pont de terre pose a la main (bloc devant soi au niveau du sol), avant le
+  `digToward` de dernier recours. La descente d echafaudage s arrete au premier
+  bloc qui n est plus une colonne isolee (la dirt du sol sous un pilier n est
+  jamais creusee ; vu sur join/leaf-pillar).
 - Pilier dans la couronne : `isPillarBlock` ne compte plus feuilles/buches
   voisines comme sol naturel ; si `navWithDescent` laisse le bot perche sur
   l echafaudage, `digToward` jusqu au sol (20 s) puis re-tente le trajet.
