@@ -84,7 +84,7 @@ def levels():
         # Chat level: the player interrupts a tree job while the bot is on its pillar.
         {
             'name': 'chat/replace-and-join',
-            'about': 'Bot sur son pilier en coupant un arbre ; le joueur dit « Rejoins moi » puis « Remplace et rejoins moi ».',
+            'about': 'Bot sur son pilier en coupant un arbre ; le joueur dit « Stop » puis « Rejoins moi » : la nouvelle demande remplace l ancienne, sans question.',
             'kind': 'chat',
             'leaves': [(TX-2, 206, TZ-2, TX+2, 207, TZ+2)],
             'logs': _logs(*trunk6),
@@ -190,9 +190,9 @@ def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure,
     if final.get('missionRunning'):
         bot_api(service, '/api/stop', {})
     checks = {'etait_sur_son_pilier': on_pillar, 'a_rejoint_le_joueur': joined, 'aucun_degat': damage == 0}
-    # A new objective over the paused tree job must raise the question.
-    if answers['join'].get('relation') == 'new':
-        checks['question_posee'] = arbitration
+    # Since ARBITRATION_DEFAULT=remplacement, a new request replaces the
+    # paused tree job directly: asking "resume or replace?" is a failure.
+    checks['aucune_question'] = not arbitration
     if arbitration:
         replace = answers.get('replace') or {}
         checks['remplacement_compris'] = replace.get('relation') == 'arbitration' and replace.get('choice') == 'remplacement'

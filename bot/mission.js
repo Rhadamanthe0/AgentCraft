@@ -819,10 +819,13 @@ function createMissionRunner (host, injected = {}) {
   // Colonne isolee : les quatre voisins du bloc porteur sont vides. C est ce
   // qui distingue un pilier pose par le bot d un sol naturel en terre, qu il
   // ne faut jamais creuser sous ses pieds.
+  // Feuilles, buches et plantes ne sont pas un sol : un pilier monte contre
+  // un tronc, dans la couronne, reste un pilier (vu en jeu : bot bloque en haut
+  // d un pilier de planches entoure de feuilles, « parcours interrompu »).
   function isPillarBlock (bot, block) {
     return [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => {
       const side = bot.blockAt(block.position.offset(dx, 0, dz))
-      return !side || side.boundingBox !== 'block'
+      return !side || side.boundingBox !== 'block' || /_leaves$|_log$|_wood$|_stem$/.test(side.name)
     })
   }
 
@@ -860,6 +863,23 @@ function createMissionRunner (host, injected = {}) {
       if (removed > 0) {
         console.log(`[mission] pilier defait (${removed} bloc(s)) avant de repartir`)
         result = await call()
+      }
+      // Toujours perche sur de l echafaudage : descente en creusant, chute de
+      // deux blocs au plus, vers le sol juste sous le bot, puis nouvel essai.
+      const bot = host.getBot()
+      const under = bot?.entity ? bot.blockAt(bot.entity.position.offset(0, -0.5, 0)) : null
+      if (!result?.reached && under && (PILER_DIRT.test(under.name) || /_planks$/.test(under.name)) &&
+        typeof host.digToward === 'function' && !mission?.cancelled) {
+        let ground = under.position.y
+        while (ground > under.position.y - 16) {
+          const b = bot.blockAt(new Vec3(under.position.x, ground - 1, under.position.z))
+          if (b && b.boundingBox === 'block' && !PILER_DIRT.test(b.name) && !/_planks$/.test(b.name)) break
+          ground -= 1
+        }
+        const down = await host.digToward(new Vec3(bot.entity.position.x, ground, bot.entity.position.z),
+          { signal: mission.navigationAbort.signal, range: 1.5, timeoutMs: 20000 })
+        console.log(`[mission] descente creusee depuis l echafaudage : ${down.code}`)
+        if (down.reached) result = await call()
       }
     }
     return result
