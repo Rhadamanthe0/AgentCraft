@@ -45,13 +45,39 @@ son processus. La liste des operateurs et le mode sont verifies.
 | navigation/abort | Progression reelle avant annulation, reponse <= 1,5 s, controles vides |
 | navigation/unreachable | Cible enfermee refusee, jamais une fausse arrivee |
 
+### Missions d'arbre (`--suite trees`, incluse dans `all`)
+
+Le vrai bot (`bot/index.js`, conteneur `bot` jetable) recoit par
+`/api/instruction` la phrase `coupe moi un arbre`, comme un message de chat,
+et la traite avec son vrai planificateur distant (OpenCode Go,
+`deepseek-v4.1-flash`). Il faut donc le secret GitHub `PLANNER_API_KEY`
+(Settings > Secrets and variables > Actions) ; sans lui, ces quatre tests
+echouent avec `PLANNER_API_KEY absent`. La cle n'est passee qu'au conteneur
+`bot`. Chaque niveau recree le bot avec un `/data` neuf (ni memoire ni
+objectifs herites), vide son inventaire et le place par RCON ; le bot n'a
+jamais RCON, ni op, ni creative (verifie : `playerGameType` 0, `ops.json` vide).
+
+| Niveau | Arbre construit | Preuve requise |
+| --- | --- | --- |
+| trees/reachable | 3 buches, couronne au-dessus | toutes les buches coupees et en inventaire, 0 feuille ni sol casse, aucun bloc pose, jamais au-dessus du sol |
+| trees/leaves | 3 buches dans un buisson de feuilles 9x9 | bois complet, sol intact, aucun bloc pose, jamais au-dessus du sol ; feuilles cassees autorisees |
+| trees/pillar | 6 buches (Y+0 a Y+5), couronne au-dessus | bois complet, 0 feuille cassee, monte a Y+2 exactement (pilier de deux blocs) |
+| trees/bent | tronc decale deux fois, branche horizontale | bois complet, moyens libres |
+
+Les blocs sont comptes par RCON (`clone ... filtered`, zone de comptage a
+part) avant, pendant et apres ; la hauteur est echantillonnee chaque seconde
+quand le bot est au sol. Un niveau s'arrete 20 s apres la recolte complete,
+quand la mission se termine d'elle-meme, ou apres 6 minutes. `trees-*-timeline.json`
+garde la chronologie (position, inventaire, plan, etat du monde) et
+`containers.log` le journal complet du bot. Les appels au modele sont
+non deterministes : un echec isole se relit dans la chronologie avant d'etre
+corrige.
+
 Les 56 tests de regression selectionnes couvrent navigation, descente,
 points d'entree, traces, parcours et integration mission/navigation avec des
 simulations. Les quatre scenarios ci-dessus tournent sur Paper reel.
-Ce banc ne certifie pas encore les missions libres `collect/tree` et
-`build/basic`, ni le chat/planner distant ou le chien de garde de `index.js`.
-Ces suites devront ajouter leurs propres assertions de stock et de blocs.
-Aucune cle de modele n'est necessaire pour les suites actuelles.
+Ce banc ne certifie pas encore les missions de construction (`build/basic`).
+Seules les missions d'arbre utilisent une cle de modele.
 
 Les dependances npm du banc sont verrouillees par `ci/package-lock.json` et
 installees via `npm ci`. Une modification de `bot/package.json` impose de
@@ -131,7 +157,7 @@ git push
 python ci/fetch-results.py --repo PROPRIETAIRE/DEPOT --sha "$(git rev-parse HEAD)"
 ```
 
-Le script attend au plus 15 minutes, telecharge les artefacts, controle le SHA
+Le script attend au plus 50 minutes (le job complet dure jusqu'a ~30 min), telecharge les artefacts, controle le SHA
 et l'absence de modifications locales dans le checkout teste, puis renvoie un
 code non nul si le job ou les tests ont echoue. Un run absent/en attente n'est
 jamais assimile a une reussite. Si plusieurs executions existent, il suit la

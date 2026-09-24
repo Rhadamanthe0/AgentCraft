@@ -10,6 +10,8 @@ import sys
 import time
 import uuid
 
+from trees import run_levels
+
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
         'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js']
@@ -17,7 +19,7 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--suite', choices=['unit', 'minecraft', 'all'], default='all')
+    parser.add_argument('--suite', choices=['unit', 'minecraft', 'trees', 'all'], default='all')
     args = parser.parse_args()
     project = 'mc-ci-' + uuid.uuid4().hex[:12]
     output = ROOT / 'test-results' / project
@@ -59,13 +61,19 @@ def main():
             raise RuntimeError('Fixture command rejected: ' + value)
         return value
 
-    def api(route, body=None):
-        script = """const [route, body] = process.argv.slice(1);
-fetch('http://127.0.0.1:3101'+route, body ? {method:'POST',headers:{'content-type':'application/json'},body} : {})
+    def http(service, port, route, body=None):
+        script = """const [port, route, body] = process.argv.slice(1);
+fetch('http://127.0.0.1:'+port+route, body ? {method:'POST',headers:{'content-type':'application/json'},body} : {})
 .then(async r=>{const s=await r.text();if(!r.ok)throw Error(s);console.log(s)})
 .catch(e=>{console.error(e.message);process.exitCode=1})"""
-        return json.loads(compose('exec', '-T', 'harness', 'node', '-e', script,
+        return json.loads(compose('exec', '-T', service, 'node', '-e', script, str(port),
                                   route, *([] if body is None else [json.dumps(body)]), timeout=45).stdout)
+
+    def api(route, body=None):
+        return http('harness', 3101, route, body)
+
+    def bot_api(route, body=None):
+        return http('bot', 3000, route, body)
 
     def fixture(start, blocks):
         rcon('fill 0 200 0 32 208 32 air')
@@ -93,10 +101,12 @@ fetch('http://127.0.0.1:3101'+route, body ? {method:'POST',headers:{'content-typ
                              *['tmp/' + name for name in UNIT], timeout=180, check=False)
             (output / 'unit.log').write_text(result.stdout + result.stderr, encoding='utf-8')
             report['tests'].append({'test': 'unit/navigation-regression', 'success': result.returncode == 0})
-        if args.suite in ('minecraft', 'all'):
+        if args.suite in ('minecraft', 'trees', 'all'):
             print('Starting isolated Paper server...', flush=True)
             compose('up', '-d', '--wait', '--wait-timeout', '240', 'minecraft', timeout=270)
             rcon('forceload add 0 0 32 32')
+            rcon('forceload add 100 0 136 36')  # Tree arena.
+            rcon('forceload add 300 0 336 36')  # Scratch area for block counts.
             rcon('fill 0 199 0 32 199 32 stone')
             rcon('fill 0 200 0 32 208 32 air')
             rcon('setworldspawn 2 200 2')
@@ -106,6 +116,7 @@ fetch('http://127.0.0.1:3101'+route, body ? {method:'POST',headers:{'content-typ
             if ops or not re.search(r':\s*0\s*$', mode):
                 raise RuntimeError('Expected empty ops.json and survival mode: ' + mode)
             report['survivalProof'] = {'ops': ops, 'playerGameType': mode}
+        if args.suite in ('minecraft', 'all'):
             scenarios = [
                 ('navigation/simple-obstacle', (2.5, 200, 2.5), (14.5, 200, 2.5),
                  ['fill 8 200 0 8 202 6 stone'], None),
@@ -136,6 +147,16 @@ fetch('http://127.0.0.1:3101'+route, body ? {method:'POST',headers:{'content-typ
                     report['tests'].append(dict(test=name, success=bool(passed), **value))
                 except Exception as error:
                     report['tests'].append({'test': name, 'success': False, 'error': str(error)})
+        if args.suite in ('trees', 'all'):
+            key = bool(os.environ.get('PLANNER_API_KEY'))
+            if key:
+                compose('up', '-d', '--wait', '--wait-timeout', '120', 'bot', timeout=180)
+                ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
+                mode = rcon('data get entity TestBot playerGameType')
+                if ops or not re.search(r':\s*0\s*$', mode):
+                    raise RuntimeError('Expected TestBot in survival without ops: ' + mode)
+                report['botSurvivalProof'] = {'ops': ops, 'playerGameType': mode}
+            report['tests'].extend(run_levels(output, compose, rcon, api, bot_api, key))
     except (Exception, KeyboardInterrupt) as error:
         report['errors'].append(str(error) or 'Interrupted')
     finally:
@@ -154,9 +175,17 @@ fetch('http://127.0.0.1:3101'+route, body ? {method:'POST',headers:{'content-typ
         (output / 'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         # Convenience copy, deliberately ignored by Git; artifacts retain per-run files.
         (ROOT / 'test-results/latest.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+        def detail(t):
+            if t.get('error'):
+                return ' : ' + t['error']
+            failed = [k for k, ok in (t.get('checks') or {}).items() if not ok]
+            if 'checks' not in t:
+                return ''
+            info = f" ({t['logsInInventory']}/{t['expectedLogs']} buches, {t['elapsedS']} s)"
+            return info + (' ; echec : ' + ', '.join(failed) if failed else '')
         summary = '\n'.join([f"Commit: {report['sha'] or 'local export (no Git SHA)'}",
                              f"Result: {'PASS' if report['success'] else 'FAIL'}", '',
-                             *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" for t in report['tests']],
+                             *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" + detail(t) for t in report['tests']],
                              *report['errors']]) + '\n'
         (output / 'summary.md').write_text(summary, encoding='utf-8')
         if os.environ.get('GITHUB_STEP_SUMMARY'):

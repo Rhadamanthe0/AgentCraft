@@ -42,4 +42,50 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
-# No published ports, host mounts, Docker socket, API keys or production data.
+  # Real bot (bot/index.js) for tree missions. Same image as the harness; only
+  # started by the `trees` suite. Its only secret is the planner key, read
+  # from the runner environment (GitHub secret), never from a .env file.
+  bot:
+    build:
+      context: ..
+      dockerfile: ci/Dockerfile
+    init: true
+    working_dir: /work/bot
+    command: ["node", "index.js"]
+    environment:
+      NODE_PATH: /work/bot/node_modules
+      MC_HOST: minecraft
+      MC_PORT: "25565"
+      MC_VERSION: "26.1"
+      BOT_USERNAME: TestBot
+      API_PORT: "3000"
+      PLANNER_BASE_URL: https://opencode.ai/zen/go/v1
+      PLANNER_MODEL: deepseek-v4.1-flash
+      PLANNER_API_KEY: "${PLANNER_API_KEY:-}"
+      PLANNER_SESSION_ID: minecraft-bot-ci-TestBot
+      PLANNER_USER_AGENT: minecraft-bot/1.0
+      PLANNER_TIMEOUT_MS: "20000"
+      PLANNER_MAX_TOKENS: "2000"
+      MISSION_MAX_STEPS: "90"
+      MISSION_MAX_DURATION_MS: "900000"
+      MISSION_DEFAULT_QUOTA: "16"
+      MEMORY_FILE: /data/memory.json
+      ACTIONS_DOC_FILE: /data/actions-doc.json
+      OBJECTIVES_FILE: /data/objectives.json
+      OBJECTIVES_EVENTS_FILE: /data/objectives-events.jsonl
+      LOG_FILE: /data/bot.log
+    # Anonymous volume, renewed for every tree level: no memory carried over.
+    volumes:
+      - /data
+    depends_on:
+      minecraft:
+        condition: service_healthy
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/status').then(r=>r.json()).then(s=>process.exit(s.spawned?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+# No published ports, host mounts, Docker socket or production data. The only
+# API key is the planner key passed to the bot service for tree missions.

@@ -17,7 +17,7 @@ jobs:
   minecraft:
     if: github.event.repository.private == true
     runs-on: [self-hosted, Windows, X64, minecraft]
-    timeout-minutes: 25
+    timeout-minutes: 60
     defaults:
       run:
         shell: powershell
@@ -27,6 +27,9 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Run unit regressions and real Minecraft tests
+        # The planner key only reaches the disposable bot container (tree missions).
+        env:
+          PLANNER_API_KEY: ${{ secrets.PLANNER_API_KEY }}
         run: python ci/run.py --suite all
       - name: Remove any remaining disposable test containers
         if: always()
