@@ -23,6 +23,10 @@ services:
       RCON_CMDS_STARTUP: |-
         time set day
         gamerule advance_time false
+    # RCON reached directly by ci/run.py (a docker exec per command costs ~1 s
+    # on Windows). Loopback only, random host port, disposable password.
+    ports:
+      - "127.0.0.1::25575"
     # Anonymous, disposable volume; never the live mc-data volume.
     volumes:
       - /data
@@ -34,6 +38,8 @@ services:
     environment:
       NODE_PATH: /work/bot/node_modules
     command: ["node", "/work/ci/harness.js", "TestProbe1", "--idle-secs", "600"]
+    ports:
+      - "127.0.0.1::3101"
     depends_on:
       minecraft:
         condition: service_healthy
@@ -55,6 +61,9 @@ services:
     init: true
     working_dir: /work/bot
     command: ["node", "index.js"]
+    # Bot API reached directly by ci/run.py; loopback only, random host port.
+    ports:
+      - "127.0.0.1::3000"
     environment: &tree-bot-env
       NODE_PATH: /work/bot/node_modules
       MC_HOST: minecraft

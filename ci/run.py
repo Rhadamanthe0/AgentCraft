@@ -5,10 +5,14 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
+import struct
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import uuid
 
 from trees import arena_origins, bot_services, levels, probe_names, run_levels
@@ -56,13 +60,84 @@ def main():
     def compose(*argv, **kwargs):
         return command(base + list(argv), **kwargs)
 
+    # Direct RCON over the loopback port published by compose: one TCP
+    # connection shared by all level threads (lock), instead of one
+    # `docker compose exec` (~1 s on Windows) per fixture command.
+    rcon_state = {'sock': None, 'id': 0}
+    rcon_lock = threading.Lock()
+    endpoints = {}
+
+    def endpoint(service, port):
+        key = (service, port)
+        if key not in endpoints:
+            out = compose('port', service, str(port), timeout=30).stdout.strip().splitlines()[-1]
+            host, _, mapped = out.rpartition(':')
+            endpoints[key] = (host.strip('[]') or '127.0.0.1', int(mapped))
+        return endpoints[key]
+
+    def rcon_packet(sock, kind, body):
+        rcon_state['id'] += 1
+        payload = struct.pack('<ii', rcon_state['id'], kind) + body.encode('utf-8') + b'\x00\x00'
+        sock.sendall(struct.pack('<i', len(payload)) + payload)
+
+        def read(n):
+            data = b''
+            while len(data) < n:
+                chunk = sock.recv(n - len(data))
+                if not chunk:
+                    raise ConnectionError('RCON closed')
+                data += chunk
+            return data
+        size = struct.unpack('<i', read(4))[0]
+        packet = read(size)
+        request_id = struct.unpack('<i', packet[:4])[0]
+        if request_id == -1:
+            raise RuntimeError('RCON authentication refused')
+        return packet[8:-2].decode('utf-8', 'replace')
+
+    def rcon_direct(text):
+        with rcon_lock:
+            for attempt in range(2):
+                try:
+                    if rcon_state['sock'] is None:
+                        sock = socket.create_connection(endpoint('minecraft', 25575), timeout=30)
+                        rcon_packet(sock, 3, 'disposable-ci-only')
+                        rcon_state['sock'] = sock
+                    return rcon_packet(rcon_state['sock'], 2, text)
+                except (OSError, ConnectionError):
+                    try:
+                        rcon_state['sock'] and rcon_state['sock'].close()
+                    except OSError:
+                        pass
+                    rcon_state['sock'] = None
+                    if attempt:
+                        raise
+
     def rcon(text):
-        value = compose('exec', '-T', 'minecraft', 'rcon-cli', text).stdout.strip()
+        try:
+            value = rcon_direct(text).strip()
+        except Exception:
+            value = compose('exec', '-T', 'minecraft', 'rcon-cli', text).stdout.strip()
         if any(word in value.lower() for word in ['incorrect argument', 'unknown command', 'not loaded']):
             raise RuntimeError('Fixture command rejected: ' + value)
         return value
 
     def http(service, port, route, body=None, method=None):
+        try:
+            host, mapped = endpoint(service, port)
+        except Exception:
+            return http_exec(service, port, route, body, method)
+        data = None if body is None else json.dumps(body).encode('utf-8')
+        request = urllib.request.Request(f'http://{host}:{mapped}{route}', data=data,
+                                         method=method or ('GET' if body is None else 'POST'),
+                                         headers={'content-type': 'application/json'})
+        try:
+            with urllib.request.urlopen(request, timeout=45) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f'{service}{route}: HTTP {error.code} {error.read().decode("utf-8", "replace")[:300]}')
+
+    def http_exec(service, port, route, body=None, method=None):
         script = """const [port, route, method, body] = process.argv.slice(1);
 fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'application/json'},body} : {method})
 .then(async r=>{const s=await r.text();if(!r.ok)throw Error(s);console.log(s)})
@@ -184,6 +259,27 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     raise RuntimeError('Expected tree bots in survival without ops: ' + json.dumps(modes))
                 report['botSurvivalProof'] = {'ops': ops, 'playerGameType': modes}
                 level_results = run_levels(output, rcon, bot_api)
+                # Planner cost per bot: latency, prompt cache hit rate, reasoning tokens.
+                stats = {}
+                for service, username in bot_services():
+                    try:
+                        p = bot_api(service, '/api/status').get('planner') or {}
+                    except Exception:
+                        continue
+                    stats[username] = {k: p.get(k) for k in ('appels', 'etapes_servies', 'echecs', 'moyenne_ms',
+                                                              'jetons_total', 'jetons_en_cache_total',
+                                                              'jetons_sortie_total', 'jetons_raisonnement_total')}
+                report['plannerStats'] = stats
+                calls = sum(v.get('appels') or 0 for v in stats.values())
+                prompt = sum(v.get('jetons_total') or 0 for v in stats.values())
+                cached = sum(v.get('jetons_en_cache_total') or 0 for v in stats.values())
+                report['plannerSummary'] = {
+                    'appels': calls,
+                    'moyenne_ms': round(sum((v.get('moyenne_ms') or 0) * (v.get('appels') or 0) for v in stats.values()) / calls) if calls else None,
+                    'cache_ratio': round(cached / prompt, 3) if prompt else None,
+                    'jetons_raisonnement': sum(v.get('jetons_raisonnement_total') or 0 for v in stats.values()),
+                    'jetons_sortie': sum(v.get('jetons_sortie_total') or 0 for v in stats.values()),
+                }
             else:
                 level_results = [{'test': level, 'success': False,
                                   'error': 'PLANNER_API_KEY absent : secret GitHub du depot non configure'}
@@ -224,6 +320,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                              f"Result: {'PASS' if report['success'] else 'FAIL'}", '',
                              *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '') + detail(t)
                                for t in report['tests']],
+                             *([f"Planificateur : {report['plannerSummary']}"] if report.get('plannerSummary') else []),
                              *report['errors']]) + '\n'
         (output / 'summary.md').write_text(summary, encoding='utf-8')
         if os.environ.get('GITHUB_STEP_SUMMARY'):

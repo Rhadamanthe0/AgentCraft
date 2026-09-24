@@ -294,6 +294,11 @@ const stats = {
   moyenne_ms: null,
   derniers_jetons: null,
   jetons_en_cache: null,
+  // Cumuls pour juger le cache de prompt et le cout du raisonnement.
+  jetons_total: 0,
+  jetons_en_cache_total: 0,
+  jetons_sortie_total: 0,
+  jetons_raisonnement_total: 0,
   // Miroir du profil pour /api/status.planner (index.js etale ...stats sans
   // changer de code) : l endpoint historique affiche ainsi l effectif, pas une
   // promesse de pilote quand le repli DeepSeek est actif.
@@ -1100,7 +1105,12 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   stats.derniers_jetons = response.usage?.prompt_tokens ?? null
   // DeepSeek nomme ainsi la part servie depuis son cache ; Ollama ne renseigne
   // rien, son gain se lit dans la latence.
-  stats.jetons_en_cache = response.usage?.prompt_cache_hit_tokens ?? null
+  stats.jetons_en_cache = response.usage?.prompt_cache_hit_tokens ??
+    response.usage?.prompt_tokens_details?.cached_tokens ?? null
+  stats.jetons_total += response.usage?.prompt_tokens ?? 0
+  stats.jetons_en_cache_total += stats.jetons_en_cache ?? 0
+  stats.jetons_sortie_total += response.usage?.completion_tokens ?? 0
+  stats.jetons_raisonnement_total += response.usage?.completion_tokens_details?.reasoning_tokens ?? 0
 
   if (DEBUG) {
     console.log(

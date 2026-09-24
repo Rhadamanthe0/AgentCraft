@@ -80,6 +80,12 @@
   `digToward` de dernier recours. La descente d echafaudage s arrete au premier
   bloc qui n est plus une colonne isolee (la dirt du sol sous un pilier n est
   jamais creusee ; vu sur join/leaf-pillar).
+- Vitesse du banc : `ci/run.py` parle RCON en direct (TCP, port loopback
+  publie `127.0.0.1::25575`, une connexion partagee sous verrou) et HTTP en
+  direct aux bots/harness (`127.0.0.1::3000`/`3101`, `docker compose port`) ;
+  repli `docker compose exec` si le port manque. Avant : >1 600 exec a ~1 s.
+  Le rapport porte `plannerSummary` (latence moyenne, part de prompt en cache,
+  jetons de raisonnement) : cumuls `jetons_*_total` dans `planner.stats`.
 - Pilier dans la couronne : `isPillarBlock` ne compte plus feuilles/buches
   voisines comme sol naturel ; si `navWithDescent` laisse le bot perche sur
   l echafaudage, `digToward` jusqu au sol (20 s) puis re-tente le trajet.
