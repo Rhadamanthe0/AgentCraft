@@ -120,6 +120,10 @@ fournir une authentification limitee a ce depot, avec **Actions: read** et
 l'environnement distant, jamais dans Git). Autoriser les domaines GitHub API
 et ceux du telechargement d'artefacts dans sa configuration reseau.
 
+Dans l'environnement Claude Code Web actuel, `GH_TOKEN` est fourni mais `gh`
+n'est pas preinstalle : `apt-get install -y gh` suffit (gh 2.45). Pour ne pas
+le refaire a chaque session, l'ajouter au script de setup de l'environnement.
+
 Apres chaque push, Claude peut attendre le resultat du SHA exact :
 
 ```bash
