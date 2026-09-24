@@ -63,6 +63,11 @@
   la terre naturelle au-dessus de la tete (bot enterre, puits), pose un bloc
   sous soi, reprend de la terre aux parois si le stock tombe a 0. Banc tour 2 :
   `join/shaft`, `join/tall-cliff` (8), `join/buried`, `join/ravine-detour`.
+- Banc CI par types de mission (docs/remote-minecraft-tests.md, « Types de
+  mission du banc ») : un type ajoute et valide a la fois, ~10 niveaux chacun,
+  de plus en plus durs. Groupe fixe de 16 bots (`POOL_SIZE`) qui enchainent
+  les niveaux (stop + memoire videe entre deux), une sonde muette par bot ;
+  tests unitaires et scenarios de navigation en parallele des missions.
 - Pilier dans la couronne : `isPillarBlock` ne compte plus feuilles/buches
   voisines comme sol naturel ; si `navWithDescent` laisse le bot perche sur
   l echafaudage, `digToward` jusqu au sol (20 s) puis re-tente le trajet.
