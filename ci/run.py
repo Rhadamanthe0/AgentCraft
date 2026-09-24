@@ -143,13 +143,13 @@ def main():
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as error:
             raise RuntimeError(f'{service}:{port}{route}: HTTP {error.code} {error.read().decode("utf-8", "replace")[:300]}')
-        except (ConnectionRefusedError, ConnectionResetError, RemoteDisconnected):
+        except (ConnectionError, RemoteDisconnected):
             # The request never reached a listener (e.g. a process bound to the
             # container's 127.0.0.1 only): switch this endpoint to docker exec.
             unreachable.add((service, port))
             return http_exec(service, port, route, body, method)
         except urllib.error.URLError as error:
-            if isinstance(error.reason, (ConnectionRefusedError, ConnectionResetError)):
+            if isinstance(error.reason, ConnectionError):
                 unreachable.add((service, port))
                 return http_exec(service, port, route, body, method)
             raise
