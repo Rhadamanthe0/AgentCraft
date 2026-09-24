@@ -1211,7 +1211,10 @@ async function startObjectiveDurable (objective, requester, opts = {}) {
     say(proposal.question)
     return { ok: true, arbitration: true, question: proposal.question, objective: proposal.objective, mode: proposalMode }
   }
-  say('Je note ta demande, je la traiterai apres celle en cours.')
+  // Une question d arbitrage attend encore sa reponse : la reposer clairement
+  // plutot que d annoncer une file que le joueur ne comprend pas.
+  if (proposal.question) say('J attends d abord ta reponse : dis « remplace » pour abandonner l ancienne tache, ou « reprends apres » pour la garder.')
+  else say('Je note ta demande, je la traiterai apres celle en cours.')
   return { ok: true, queued: true, status: proposal.status, objective: proposal.objective, mode: proposalMode }
 }
 
@@ -1278,9 +1281,18 @@ const conversation = createConversation({
         missionRunner.stop('arbitrage remplacement')
         say(`J abandonne l ancien pour « ${out.objective.texte} ».`)
       }
-      missionRunner.start(out.objective.texte, out.objective.auteur, { objectiveId: out.objective.id, mode: out.objective.mode }).catch(err => {
-        console.error(`[arbitrage] demarrage impossible : ${err.message}`)
-      })
+      // Le resultat {ok:false} n etait jamais lu : un echec de lecture laissait
+      // le bot immobile et muet apres « remplace ». On le dit au joueur.
+      missionRunner.start(out.objective.texte, out.objective.auteur, { objectiveId: out.objective.id, mode: out.objective.mode })
+        .then(result => {
+          if (result && result.ok === false && !/annule/.test(String(result.error))) {
+            say(`Je ne peux pas lancer « ${out.objective.texte} » : ${result.error}. Redis-le moi.`)
+          }
+        })
+        .catch(err => {
+          console.error(`[arbitrage] demarrage impossible : ${err.message}`)
+          say(`Je ne peux pas lancer « ${out.objective.texte} » : ${err.message}. Redis-le moi.`)
+        })
     }
     return out
   },

@@ -791,13 +791,49 @@ function createMissionRunner (host, injected = {}) {
   // planches) sous ses pieds, attend l atterrissage, et recommence tant que
   // le bot est plus d un bloc et demi au-dessus de `targetY`. S arrete sur tout
   // autre bloc (sol naturel, feuilles) : jamais de puits.
-  async function descendScaffold (targetY) {
+  async function stepOnto (item) {
+    const bot = host.getBot()
+    if (!bot?.entity || !item?.position) return false
+    const here = bot.entity.position
+    if (Math.abs(item.position.y - here.y) > 0.6) return false
+    const support = bot.blockAt(item.position.offset(0, -0.5, 0))
+    if (!support || support.boundingBox !== 'block') return false
+    try {
+      await bot.lookAt(item.position.offset(0, 1.6, 0), true)
+      bot.setControlState('forward', true)
+      const until = Date.now() + 1500
+      while (Date.now() < until && item.isValid !== false) {
+        const p = host.getBot()?.entity?.position
+        if (!p || Math.hypot(p.x - item.position.x, p.z - item.position.z) < 0.6) break
+        await sleep(50)
+      }
+    } catch (_) {
+      return false
+    } finally {
+      try { host.getBot()?.setControlState('forward', false) } catch (_) {}
+    }
+    await sleep(300)
+    return true
+  }
+
+  // Colonne isolee : les quatre voisins du bloc porteur sont vides. C est ce
+  // qui distingue un pilier pose par le bot d un sol naturel en terre, qu il
+  // ne faut jamais creuser sous ses pieds.
+  function isPillarBlock (bot, block) {
+    return [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => {
+      const side = bot.blockAt(block.position.offset(dx, 0, dz))
+      return !side || side.boundingBox !== 'block'
+    })
+  }
+
+  async function descendScaffold (targetY = -Infinity, { pillarOnly = false } = {}) {
     let removed = 0
     for (let i = 0; i < PILER_MAX + 2 && !mission.cancelled; i += 1) {
       const bot = host.getBot()
       if (!bot?.entity || bot.entity.position.y - targetY <= 1.5) break
       const below = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
       if (!below || !(PILER_DIRT.test(below.name) || /_planks$/.test(below.name))) break
+      if (pillarOnly && !isPillarBlock(bot, below)) break
       try {
         await withTimeout(bot.lookAt(below.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
         await withTimeout(bot.dig(below), 6000, 'creusage trop long')
@@ -811,6 +847,22 @@ function createMissionRunner (host, injected = {}) {
       removed += 1
     }
     return removed
+  }
+
+  // Trajet vers un joueur ou une position : perche sur son propre pilier, le
+  // navigateur refuse la chute (> 2 blocs) et repond no_path. On defait alors
+  // le pilier (seulement une colonne isolee) puis on re-tente une fois.
+  async function navWithDescent (call) {
+    let result = await call()
+    const bloque = !result?.reached && ['no_path', 'stuck', 'timeout'].includes(result?.code)
+    if (bloque && !mission?.cancelled) {
+      const removed = await descendScaffold(-Infinity, { pillarOnly: true })
+      if (removed > 0) {
+        console.log(`[mission] pilier defait (${removed} bloc(s)) avant de repartir`)
+        result = await call()
+      }
+    }
+    return result
   }
 
   // Feuilles dans le couloir a hauteur du corps (pieds et tete) entre le bot
@@ -2171,7 +2223,8 @@ function createMissionRunner (host, injected = {}) {
       mission.pendingJoin = true
       // Token proprietaire prive (objet opaque) : la sous-etape nav s execute
       // DANS le slot de l etape, sans reacquerir (busy permanent sinon).
-      const result = await host.navigateToPlayer(mission.requester, { signal: mission.navigationAbort.signal, __owner: stepToken })
+      const result = await navWithDescent(() =>
+        host.navigateToPlayer(mission.requester, { signal: mission.navigationAbort.signal, __owner: stepToken }))
       // Conserve l obligation non satisfaite : un "dire" au tour suivant ne
       // transforme pas un deplacement echoue en geste accompli.
       mission.pendingJoin = !result.reached
@@ -2349,7 +2402,8 @@ function createMissionRunner (host, injected = {}) {
         : 0
       // Use the same supported pickup post as navigation, including height:
       // an item nearby in XZ can still be two floors below the bot.
-      const distant = items.filter(
+      let pasCourt = false
+      let distant = items.filter(
         item => !itemInPickupRange(bot, bot.entity.position, item.position, ITEM_AUTO_PICKUP))
 
       if (distant.length === 0) {
@@ -2362,10 +2416,11 @@ function createMissionRunner (host, injected = {}) {
         if (autoDirt > 0) {
           return { resultat: `${items.length} objet(s) a portee, +${autoDirt} dirt secondaire dans l inventaire (ramassage automatique, carburant de pilier)` }
         }
-        return {
-          resultat: `${items.length} objet(s) a portee mais +0 ${mission.resource} dans l inventaire : rien de la matiere visee`,
-          echec: true
-        }
+        // Juge « a portee » mais rien n est entre : le ramassage du jeu est
+        // plus court (~1,3 bloc) que ce seuil. Marcher dessus au lieu d echouer
+        // (vu : buche a 1,6 bloc jamais ramassee, mission bloquee).
+        distant = items
+        pasCourt = true
       }
 
       let atteints = 0
@@ -2390,6 +2445,9 @@ function createMissionRunner (host, injected = {}) {
         // sol. On casse la feuille qui le porte, s il est a portee, pour qu il
         // tombe ; seule cette feuille est touchee.
         await dropFromLeaves(item)
+        // Objet deja « proche » mais pas ramasse : un pas droit dessus, sur sol
+        // plat seulement (meme niveau, appui solide), jamais vers un vide.
+        if (pasCourt) await stepOnto(item)
         // Meme navigateur que l approche de ressource, mais jusqu au rayon
         // de collecte. Pas de succes sans gain d inventaire plus bas.
         const walk = await host.navigateToPosition(item.position, {
@@ -4328,8 +4386,8 @@ function createMissionRunner (host, injected = {}) {
       // rejoindre/retour/sous_arbre (nav sous-etape) passent DANS le slot.
       const courseHost = {
         ...host,
-        navigateToPlayer: (username, options = {}) => host.navigateToPlayer(username, { ...options, __owner: courseToken }),
-        navigateToPosition: (position, options = {}) => host.navigateToPosition(position, { ...options, __owner: courseToken })
+        navigateToPlayer: (username, options = {}) => navWithDescent(() => host.navigateToPlayer(username, { ...options, __owner: courseToken })),
+        navigateToPosition: (position, options = {}) => navWithDescent(() => host.navigateToPosition(position, { ...options, __owner: courseToken }))
       }
       const runCourse = () => movementTask.executeTask(current.movementTask, courseHost, current.requester,
         controller.signal, task => {
@@ -4423,7 +4481,11 @@ function createMissionRunner (host, injected = {}) {
     preparation = preparing
     preparing.reporter.update('brief', 'Je verifie les etapes et les capacites necessaires pour ta demande.')
     opts.signal?.addEventListener('abort', abortRequest, { once: true })
-    if (loopPromise) await loopPromise.catch(() => {})
+    if (loopPromise) {
+      const waitStarted = Date.now()
+      await loopPromise.catch(() => {})
+      if (Date.now() - waitStarted > 2000) console.log(`[mission] ancienne boucle terminee apres ${Date.now() - waitStarted} ms`)
+    }
     if (generation !== startGeneration || request.signal.aborted) {
       preparing.reporter.finish('cancelled')
       if (preparation === preparing) preparation = null
@@ -4433,7 +4495,16 @@ function createMissionRunner (host, injected = {}) {
 
     let brief
     try {
-      brief = await brain().readBrief(text, { signal: request.signal })
+      try {
+        brief = await brain().readBrief(text, { signal: request.signal })
+      } catch (first) {
+        // Un echec isole (reponse tronquee deux fois, panne passagere) laissait
+        // le bot immobile sans rien dire, surtout apres un arbitrage : un
+        // nouvel essai, sauf annulation.
+        if (request.signal.aborted) throw first
+        console.log(`[mission] lecture de l objectif echouee (${first.message}), nouvel essai`)
+        brief = await brain().readBrief(text, { signal: request.signal })
+      }
     } catch (err) {
       return { ok: false, error: `lecture de l objectif impossible : ${err.message}` }
     } finally {

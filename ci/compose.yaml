@@ -65,7 +65,7 @@ services:
       PLANNER_API_KEY: "${PLANNER_API_KEY:-}"
       PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot1
       # Bots must not take each other's chat for orders (shared server).
-      CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TestProbe1
+      CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TreeBot9,TestProbe1
       PLANNER_USER_AGENT: minecraft-bot/1.0
       PLANNER_TIMEOUT_MS: "20000"
       PLANNER_MAX_TOKENS: "2000"
@@ -132,5 +132,11 @@ services:
       <<: *tree-bot-env
       BOT_USERNAME: TreeBot8
       PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot8
+  tree-bot-9:
+    <<: *tree-bot
+    environment:
+      <<: *tree-bot-env
+      BOT_USERNAME: TreeBot9
+      PLANNER_SESSION_ID: minecraft-bot-ci-TreeBot9
 # No published ports, host mounts, Docker socket or production data. The only
 # API key is the planner key passed to the bot service for tree missions.
