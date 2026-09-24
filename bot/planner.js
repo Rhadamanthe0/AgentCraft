@@ -404,6 +404,17 @@ async function callWithProfile (system, user, { image = null, signal = null, max
         return markSuccess(res2, FALLBACK_MODEL)
       }
     }
+    // Modele unique (deepseek) : son raisonnement compte dans max_tokens et
+    // epuise parfois le budget. UN reessai a budget double, meme delai et meme
+    // signal ; trois troncatures d affilee faisaient echouer la mission.
+    if (target0 !== PILOT_MODEL && isTruncationError(err, signal)) {
+      stats.troncatures += 1
+      stats.reessais += 1
+      const retryBudget = Math.max(4000, 2 * (Number.isFinite(maxTokens) ? maxTokens : 2000))
+      console.log(`[planner] reponse tronquee, reessai a ${retryBudget} jetons (delai inchange)`)
+      const resRetry = await doCall(target0, proto0, retryBudget)
+      return markSuccess(resRetry, target0)
+    }
     if (!isAvailabilityError(err, signal)) throw err
     if (target0 !== PILOT_MODEL || !isProfileEnabled()) throw err
     _profile.fallbackActive = true

@@ -20,6 +20,9 @@
   l echafaudage (dirt/planches) sous ses pieds jusqu au niveau de l objet.
 - Buche tombee sur des feuilles (bout de branche) : `ramasser` casse la
   seule feuille qui la porte (en s en approchant si besoin) pour la faire tomber.
+- Reponse tronquee (max_tokens) du modele unique : `callWithProfile` rejoue
+  UNE fois a budget double (>= 4000), meme delai ; avant, trois troncatures
+  d affilee faisaient echouer la mission (vu sur trees/bent).
 - `llm.call` rejoue UNE fois une panne passagere du gateway (5xx, 429, 400
   « Upstream request failed »), dans le meme delai.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
