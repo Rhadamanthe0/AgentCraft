@@ -16,6 +16,7 @@ import urllib.error
 import urllib.request
 import uuid
 
+from cleanup import paper_image
 from trees import BOTS_SERVICE, PROBES_SERVICE, arena_origins, bot_services, levels, probe_names, run_levels
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +35,9 @@ def main():
     marker.write_text(json.dumps({'project': project}), encoding='utf-8')
     # One test image per run, shared by every service and removed at the end.
     image = f'minebot-ci:{project}'
-    env = dict(os.environ, COMPOSE_DISABLE_ENV_FILE='1', MSYS_NO_PATHCONV='1', CI_TAG=project)
+    # Paper image: stable tag per content of ci/paper/ (kept between runs).
+    paper = paper_image()
+    env = dict(os.environ, COMPOSE_DISABLE_ENV_FILE='1', MSYS_NO_PATHCONV='1', CI_TAG=project, PAPER_IMAGE=paper)
     # Ignore inherited Compose settings; the CLI pins file, directory and project.
     for key in list(env):
         if key.startswith('COMPOSE_') and key != 'COMPOSE_DISABLE_ENV_FILE':
@@ -43,7 +46,13 @@ def main():
             '--project-directory', str(ROOT / 'ci'), '-f', str(ROOT / 'ci/compose.yaml'), '-p', project]
     report = {'schemaVersion': 1, 'project': project, 'image': image, 'suite': args.suite,
               'startedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-              'sha': None, 'dirty': None, 'success': False, 'tests': [], 'errors': []}
+              'sha': None, 'dirty': None, 'success': False, 'tests': [], 'errors': [],
+              'phases': {}}
+    run_started = time.monotonic()
+
+    def phase(name, started):
+        # Wall time of one bench phase, in seconds (report.json and summary).
+        report['phases'][name] = round(time.monotonic() - started, 1)
     try:
         report['sha'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
                                                 stderr=subprocess.DEVNULL, text=True).strip()
@@ -51,11 +60,16 @@ def main():
     except (OSError, subprocess.CalledProcessError):
         pass  # An exported source directory is supported, but never claims a tested SHA.
 
+    log_lock = threading.Lock()
+
     def command(argv, timeout=60, check=True):
+        started = time.monotonic()
         result = subprocess.run(argv, cwd=ROOT, env=env, capture_output=True,
                                 text=True, encoding='utf-8', errors='replace', timeout=timeout)
-        with (output / 'commands.log').open('a', encoding='utf-8') as log:
-            log.write('\n$ ' + ' '.join(argv) + '\n' + result.stdout + result.stderr)
+        # Start offset (s since the run began) and duration: where the time goes.
+        stamp = f'[+{started - run_started:.1f}s, {time.monotonic() - started:.1f}s] '
+        with log_lock, (output / 'commands.log').open('a', encoding='utf-8') as log:
+            log.write('\n' + stamp + '$ ' + ' '.join(argv) + '\n' + result.stdout + result.stderr)
         if check and result.returncode:
             raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(argv[:8])}; see commands.log")
         return result
@@ -69,6 +83,20 @@ def main():
     rcon_state = {'sock': None, 'id': 0}
     rcon_lock = threading.Lock()
     endpoints = {}
+
+    def load_endpoints():
+        # Every published port of the project in ONE call (a `compose port`
+        # costs ~1 s on Windows, and there are 18 of them).
+        out = compose('ps', '--format', 'json', timeout=30, check=False).stdout.strip()
+        try:
+            rows = json.loads(out) if out.startswith('[') else [json.loads(line) for line in out.splitlines() if line.strip()]
+        except ValueError:
+            return  # endpoint() falls back to `compose port`.
+        for row in rows:
+            for pub in row.get('Publishers') or []:
+                if pub.get('PublishedPort') and pub.get('URL') in ('127.0.0.1', '0.0.0.0'):
+                    endpoints.setdefault((row.get('Service'), int(pub['TargetPort'])),
+                                         ('127.0.0.1', int(pub['PublishedPort'])))
 
     def endpoint(service, port):
         key = (service, port)
@@ -197,6 +225,33 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 'totalCpuPercent': round(sum(r['cpuPercent'] for r in rows), 1),
                 'totalMemMB': round(sum(r['memMB'] or 0 for r in rows))}
 
+    def resource_peaks(samples):
+        # Peak (max over samples) and mean per container, plus peak totals.
+        peaks = {}
+        for sample in samples:
+            for row in sample['containers']:
+                name = (row['container'] or '').replace(project + '-', '')
+                entry = peaks.setdefault(name, {'memPeakMB': 0, 'cpuPeakPercent': 0, 'cpu': []})
+                entry['memPeakMB'] = round(max(entry['memPeakMB'], row['memMB'] or 0))
+                entry['cpuPeakPercent'] = round(max(entry['cpuPeakPercent'], row['cpuPercent']), 1)
+                entry['cpu'].append(row['cpuPercent'])
+        for entry in peaks.values():
+            cpu = entry.pop('cpu')
+            entry['cpuMeanPercent'] = round(sum(cpu) / len(cpu), 1)
+        return {'samples': len(samples), 'containers': peaks,
+                'totalMemPeakMB': max((s['totalMemMB'] for s in samples), default=None),
+                'totalCpuPeakPercent': max((s['totalCpuPercent'] for s in samples), default=None),
+                'totalCpuMeanPercent': round(sum(s['totalCpuPercent'] for s in samples) / len(samples), 1) if samples else None}
+
+    def gc_summary(text):
+        # Paper's -Xlog:gc lines: "GC(12) Pause Young (...) 812M->143M(3072M) 9.1ms".
+        found = [(int(a), int(b), int(c)) for a, b, c in
+                 re.findall(r'minecraft-1\s*\|.*?GC\(\d+\) Pause.*?(\d+)M->(\d+)M\((\d+)M\)', text)]
+        if not found:
+            return None
+        return {'collections': len(found), 'heapBeforeMaxMB': max(f[0] for f in found),
+                'liveAfterMaxMB': max(f[1] for f in found), 'committedMaxMB': max(f[2] for f in found)}
+
     def fixture(start, blocks):
         rcon('fill 0 200 0 32 208 32 air')
         for block in blocks:
@@ -217,16 +272,22 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         compose('config', '--quiet')
         print(f'Building test image {image} (shared by every service)...', flush=True)
         # Only `harness` has a build section; `bots` and `probes` reuse its image.
-        compose('build', 'harness', timeout=600)
+        started = time.monotonic()
+        # The Paper image is built only when its content tag is missing.
+        missing = command(['docker', 'image', 'inspect', '--format', '{{.Id}}', paper], timeout=60, check=False).returncode
+        compose('build', 'harness', *(['minecraft'] if missing else []), timeout=900)
+        phase('build', started)
         # Everything independent runs at once: offline unit tests start while
         # Paper boots, navigation scenarios run beside the mission levels.
         unit_results, nav_results = [], []
 
         def run_unit():
+            unit_started = time.monotonic()
             result = compose('run', '--rm', '--no-deps', 'harness', 'node', '--test',
                              *['tmp/' + name for name in UNIT], timeout=180, check=False)
             (output / 'unit.log').write_text(result.stdout + result.stderr, encoding='utf-8')
             unit_results.append({'test': 'unit/navigation-regression', 'success': result.returncode == 0})
+            phase('unit', unit_started)
 
         unit_thread = None
         if args.suite in ('unit', 'all'):
@@ -235,25 +296,48 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             unit_thread.start()
         if args.suite in ('minecraft', 'trees', 'all'):
             print('Starting isolated Paper server...', flush=True)
+            started = time.monotonic()
             compose('up', '-d', '--wait', '--wait-timeout', '240', 'minecraft', timeout=270)
+            phase('paper', started)
+            started = time.monotonic()
+            load_endpoints()
             rcon('forceload add 0 0 32 32')
-            for x0 in arena_origins():  # Tree arenas and their block-count scratch areas.
-                rcon(f'forceload add {x0 - 1} -1 {x0 + 37} 37')  # Arena and its fence.
-                rcon(f'forceload add {x0} 200 {x0 + 36} 236')
             rcon('fill 0 199 0 32 199 32 stone')
             rcon('fill 0 200 0 32 208 32 air')
             rcon('setworldspawn 2 200 2')
+            phase('forceload', started)
+            started = time.monotonic()
+
+            def forceload_arenas():
+                # Tree arenas and their block-count scratch areas (~6 s of RCON,
+                # each `forceload add` loads its chunks): only the levels need
+                # them, so this runs while the players start. Joined before the levels.
+                arena_started = time.monotonic()
+                try:
+                    for x0 in arena_origins():
+                        rcon(f'forceload add {x0 - 1} -1 {x0 + 37} 37')  # Arena and its fence.
+                        rcon(f'forceload add {x0} 200 {x0 + 36} 236')
+                except Exception as error:
+                    arena_errors.append(error)
+                phase('forceloadArenas', arena_started)
+            arena_errors = []
+            arena_thread = threading.Thread(target=forceload_arenas, daemon=True)
+            if args.suite in ('trees', 'all') and os.environ.get('PLANNER_API_KEY'):
+                arena_thread.start()
             bots_wanted = args.suite in ('trees', 'all') and bool(os.environ.get('PLANNER_API_KEY'))
             # Two containers host all pool bots and all probe players.
             extra = [BOTS_SERVICE, PROBES_SERVICE] if bots_wanted else []
             compose('up', '-d', '--wait', '--wait-timeout', '240', 'harness', *extra, timeout=290)
+            load_endpoints()
             ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
             mode = rcon('data get entity TestProbe1 playerGameType')
             if ops or not re.search(r':\s*0\s*$', mode):
                 raise RuntimeError('Expected empty ops.json and survival mode: ' + mode)
             report['survivalProof'] = {'ops': ops, 'playerGameType': mode}
+            phase('players', started)
 
         def run_navigation():
+            nav_started = time.monotonic()
             scenarios = [
                 ('navigation/simple-obstacle', (2.5, 200, 2.5), (14.5, 200, 2.5),
                  ['fill 8 200 0 8 202 6 stone'], None),
@@ -284,6 +368,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     nav_results.append(dict(test=name, success=bool(passed), **value))
                 except Exception as error:
                     nav_results.append({'test': name, 'success': False, 'error': str(error)})
+            phase('navigation', nav_started)
 
         nav_thread = None
         if args.suite in ('minecraft', 'all'):
@@ -292,6 +377,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         if args.suite in ('trees', 'all'):
             if os.environ.get('PLANNER_API_KEY'):
                 # The probes healthcheck only proves the process: wait until each one is in the world.
+                started = time.monotonic()
                 until = time.monotonic() + 60
                 while not all(re.search(r':\s*0\s*$', rcon(f'data get entity {name} playerGameType')) for name in probe_names()):
                     if time.monotonic() > until:
@@ -303,20 +389,39 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 if ops or not all(re.search(r':\s*0\s*$', mode) for mode in modes.values()):
                     raise RuntimeError('Expected tree bots in survival without ops: ' + json.dumps(modes))
                 report['botSurvivalProof'] = {'ops': ops, 'playerGameType': modes}
-                # Footprint sample ~60 s into the levels (sooner if they all end).
+                phase('probesJoined', started)
+                arena_thread.join()
+                if arena_errors:
+                    raise arena_errors[0]
+                # Footprint all through the levels: one `docker stats` sample
+                # every ~5 s (peaks, means), and the first sample taken >= 60 s
+                # in as `resourceSnapshot` (the single sample of older reports).
                 levels_done = threading.Event()
+                samples = []
+                levels_started = time.monotonic()
 
                 def sample():
-                    levels_done.wait(60)
-                    try:
-                        report['resourceSnapshot'] = resource_snapshot()
-                    except Exception as error:
-                        report['resourceSnapshot'] = {'error': str(error)}
+                    while not levels_done.is_set():
+                        try:
+                            snap = resource_snapshot()
+                            snap['atS'] = round(time.monotonic() - levels_started, 1)
+                            samples.append(snap)
+                            if 'resourceSnapshot' not in report and snap['atS'] >= 60:
+                                report['resourceSnapshot'] = snap
+                        except Exception as error:
+                            report.setdefault('resourceErrors', []).append(str(error))
+                        levels_done.wait(5)
                 sampler = threading.Thread(target=sample, daemon=True)
                 sampler.start()
                 level_results = run_levels(output, rcon, bot_api)
+                phase('levels', levels_started)
                 levels_done.set()
                 sampler.join(90)
+                report['resourcePeaks'] = resource_peaks(samples)
+                report['resourceSamples'] = [{'atS': s['atS'], 'totalMemMB': s['totalMemMB'],
+                                              'totalCpuPercent': s['totalCpuPercent'],
+                                              'containers': {(r['container'] or '').replace(project + '-', ''): [round(r['memMB'] or 0), r['cpuPercent']]
+                                                             for r in s['containers']}} for s in samples]
                 # Planner cost per bot: latency, prompt cache hit rate, reasoning tokens.
                 stats = {}
                 for service, username in bot_services():
@@ -353,9 +458,14 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
     finally:
         # Only the generated project and the explicit ci/compose.yaml are addressed.
         # Anonymous test volumes are removed with their containers; no global prune.
+        started = time.monotonic()
         try:
             logs = compose('logs', '--no-color', timeout=30, check=False)
             (output / 'containers.log').write_text(logs.stdout + logs.stderr, encoding='utf-8')
+            report['paperGc'] = gc_summary(logs.stdout)
+            # Everything is disposable and its logs are saved: no graceful
+            # stop (Paper would save a world nobody reads).
+            compose('kill', timeout=60, check=False)
             compose('rm', '--stop', '--force', '--volumes', timeout=60)
             compose('down', '--remove-orphans', timeout=60)
             # `--rmi local` skips images with an explicit name: remove this
@@ -366,6 +476,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             marker.unlink(missing_ok=True)
         except Exception as error:
             report['errors'].append('Cleanup failed: ' + str(error))
+        phase('teardown', started)
+        report['phases']['total'] = round(time.monotonic() - run_started, 1)
         report['success'] = bool(report['tests']) and all(t['success'] for t in report['tests']) and not report['errors']
         report['finishedAt'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         (output / 'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
@@ -384,6 +496,14 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                              *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '') + detail(t)
                                for t in report['tests']],
                              *([f"Planificateur : {report['plannerSummary']}"] if report.get('plannerSummary') else []),
+                             f"Phases (s) : {report['phases']}",
+                             *([f"Pics (docker stats toutes les ~5 s pendant les niveaux, {report['resourcePeaks']['samples']} mesures) : "
+                                f"memoire totale {report['resourcePeaks']['totalMemPeakMB']} MB, CPU total max {report['resourcePeaks']['totalCpuPeakPercent']} % "
+                                f"(moyenne {report['resourcePeaks']['totalCpuMeanPercent']} %) ; "
+                                + ', '.join(f"{k} {v['memPeakMB']} MB / {v['cpuPeakPercent']} % (moy. {v['cpuMeanPercent']} %)"
+                                            for k, v in sorted(report['resourcePeaks']['containers'].items()))]
+                               if (report.get('resourcePeaks') or {}).get('samples') else []),
+                             *([f"Tas Java de Paper (-Xlog:gc) : {report['paperGc']}"] if report.get('paperGc') else []),
                              *([f"Ressources (docker stats, ~60 s apres le debut des niveaux) : "
                                 f"{report['resourceSnapshot']['totalMemMB']} MB, CPU {report['resourceSnapshot']['totalCpuPercent']} % "
                                 f"sur {len(report['resourceSnapshot']['containers'])} conteneurs"]
