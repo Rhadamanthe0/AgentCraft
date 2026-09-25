@@ -339,6 +339,27 @@ def levels():
             'kind': 'gather', 'give': [('oak_log', 3)], 'instruction': 'Fabrique une hache en bois', 'items': ['wooden_axe'],
             'target': 1, 'leaves': [], 'logs': [], 'rules': {},
         },
+        # Build levels: materials given by RCON (fixture), then « Construis ... » ;
+        # placed blocks counted in the arena by RCON; see run_build_script.
+        {
+            'name': 'build/dirt-box',
+            'about': '64 terre en inventaire, « Construis une maison en terre de 3 par 3 par 3 » : 20 blocs poses au moins.',
+            'kind': 'build', 'give': [('dirt', 64)], 'instruction': 'Construis une maison en terre de 3 par 3 par 3',
+            'blocks': ['minecraft:dirt'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'build/door',
+            'about': '64 terre et une porte, « ... de 3 par 3 par 3 avec une porte » : boite et porte posee.',
+            'kind': 'build', 'give': [('dirt', 64), ('oak_door', 1)],
+            'instruction': 'Construis une maison en terre de 3 par 3 par 3 avec une porte',
+            'blocks': ['minecraft:dirt'], 'target': 20, 'door': True, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'build/planks',
+            'about': '64 planches, « Construis une cabane en bois de 3 par 3 par 3 » : 20 planches posees au moins.',
+            'kind': 'build', 'give': [('oak_planks', 64)], 'instruction': 'Construis une cabane en bois de 3 par 3 par 3',
+            'blocks': ['#minecraft:planks'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
+        },
         {
             'name': 'trees/tall',
             'about': 'Tronc de 8 buches (Y+0 a Y+7), couronne au-dessus : il faut un pilier de 4 blocs ou plus.',
@@ -436,6 +457,64 @@ def run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, tim
         'arbitration': arbitration, 'answers': {k: {kk: v.get(kk) for kk in ('relation', 'choice', 'arbitration', 'queued', 'error')}
                                                  for k, v in answers.items()},
         'damageTaken': damage, 'botFinalPosition': final.get('position'),
+    }
+
+
+BUILD_CAP_S = 300
+
+
+def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count):
+    """Materials given by RCON, then « Construis ... » from the silent probe;
+    blocks placed above the floor are counted in the arena by RCON. The bot
+    must place `target` blocks, the door if asked, end the mission by itself
+    and take no damage."""
+    rcon(f'tp {probe_name} {x0 + 4.5} 200 {32.5}')
+    for item, amount in level.get('give', []):
+        rcon(f'give {username} minecraft:{item} {amount}')
+    above = f'{x0} 200 0 {x0 + SIZE} {TOP_Y} {SIZE}'
+    placed = lambda: sum(count(above, block) for block in level['blocks'])
+    before = placed()
+    started = time.monotonic()
+    timeline = []
+    answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
+    seen, end_reason, last_count_at, now_placed = False, f'plafond de {BUILD_CAP_S} s', 0, before
+    while time.monotonic() - started < BUILD_CAP_S:
+        s = bot_api(bot, '/api/status')
+        running = bool(s.get('missionRunning'))
+        seen = seen or running
+        if time.monotonic() - last_count_at >= 5:
+            now_placed, last_count_at = placed(), time.monotonic()
+        timeline.append({'t': round(time.monotonic() - started, 1), 'pos': s.get('position'), 'running': running,
+                         'placed': now_placed - before, 'etat': (s.get('mission') or {}).get('etat')})
+        if seen and not running:
+            m = s.get('mission') or {}
+            end_reason = f"mission terminee par le bot ({m.get('etat')} : {m.get('raison')})"
+            break
+        if not seen and time.monotonic() - started > START_TIMEOUT_S:
+            end_reason = 'aucune mission lancee'
+            break
+        time.sleep(1)
+    built = placed() - before
+    doors = count(above, '#minecraft:doors')
+    damage_answer = rcon(f'scoreboard players get {username} degats')
+    match = re.search(r'has (\d+)', damage_answer)
+    damage = int(match.group(1)) if match else None
+    final = bot_api(bot, '/api/status')
+    if final.get('missionRunning'):
+        bot_api(bot, '/api/stop', {})
+    checks = {'blocs_poses': built >= level['target'], 'aucun_degat': damage == 0,
+              'mission_terminee': end_reason.startswith('mission terminee')}
+    if level.get('door'):
+        checks['porte_posee'] = doors >= 2  # a door is two blocks
+    (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
+        json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
+    failed = [k for k, v in checks.items() if not v]
+    return {
+        'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
+        'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
+        'blocksPlaced': built, 'target': level['target'], 'doorBlocks': doors,
+        'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
+        'botFinalPosition': final.get('position'), 'probe': probe_name,
     }
 
 
@@ -785,7 +864,7 @@ def arena_origins():
 
 
 def mission_type(name):
-    return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre', 'gather': 'ramasser', 'craft': 'fabriquer'}.get(name.split('/')[0], name.split('/')[0])
+    return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre', 'gather': 'ramasser', 'craft': 'fabriquer', 'build': 'construire'}.get(name.split('/')[0], name.split('/')[0])
 
 
 def wood(inventory, placed_planks=0):
@@ -858,6 +937,8 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
             return run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_name)
         if level.get('kind') == 'join':
             return run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name)
+        if level.get('kind') == 'build':
+            return run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count)
         if level.get('kind') == 'gather':
             return run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_name)
         if level.get('kind') == 'follow':
