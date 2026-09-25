@@ -86,7 +86,8 @@ const EFFECTIVE_MAX_TOKENS = Math.max(Number.isFinite(MAX_TOKENS) ? MAX_TOKENS :
 // Raisonnement du modele unique (chat) : `PLANNER_THINKING=disabled` envoie
 // `thinking: {type: 'disabled'}` (deja utilise par le mode dual). Mesure CI :
 // 86 % des jetons produits etaient du raisonnement, ~3,9 s par plan. Un 400
-// du gateway sur ce champ le retire pour la suite (une seule fois, annonce).
+// du gateway sur ce champ le retire pour la suite (une seule fois, annonce),
+// sauf « Upstream request failed », panne passagere relancee telle quelle.
 let THINKING = (process.env.PLANNER_THINKING || '').trim().toLowerCase()
 const PILOT_MAX_TOKENS = Number(process.env.PLANNER_PILOT_MAX_TOKENS || 4096)
 const PILOT_RETRY_MAX_TOKENS = Number(process.env.PLANNER_PILOT_RETRY_MAX_TOKENS || 8192)
@@ -360,6 +361,10 @@ async function callWithProfile (system, user, { image = null, signal = null, max
         })
       } catch (err) {
         if (!(err?.code === 'LLM_HTTP' && err?.status === 400)) throw err
+        // « Upstream request failed » est une panne passagere du gateway, pas
+        // un refus du champ : le retirer laissait le raisonnement actif pour
+        // toute la session (troncatures, delais de 30 s ; vu sur trees/bent).
+        if (/upstream request failed/i.test(String(err.message))) throw err
         THINKING = ''
         console.log(`[planner] champ thinking refuse par le gateway (${String(err.message).slice(0, 80)}) : raisonnement laisse actif`)
       }
