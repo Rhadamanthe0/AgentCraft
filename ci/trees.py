@@ -514,7 +514,7 @@ def base_levels():
             'name': 'craft/stone-pickaxe',
             'about': 'Inventaire vide, un arbre et un rocher : « Fabrique une pioche en pierre » (bois, pioche en bois, pierre).',
             'kind': 'gather', 'instruction': 'Fabrique une pioche en pierre', 'items': ['stone_pickaxe'],
-            'target': 1, 'cap': 300,
+            'target': 1, 'cap': 300, 'variants': [sans('solveur')],
             'terrain': [(26, 200, 6, 28, 201, 8, 'stone')],
             'leaves': [(6, 204, 26, 10, 205, 30)], 'logs': _logs(*[(8, 200 + i, 28) for i in range(4)]), 'rules': {},
         },
@@ -522,9 +522,29 @@ def base_levels():
             'name': 'craft/torches',
             'about': 'Inventaire vide, un arbre, un rocher avec un minerai de charbon : « Fabrique 4 torches ».',
             'kind': 'gather', 'instruction': 'Fabrique 4 torches', 'items': ['torch'],
-            'target': 4, 'cap': 300,
+            'target': 4, 'cap': 300, 'variants': [sans('solveur')],
             'terrain': [(4, 200, 4, 6, 201, 6, 'stone'), (6, 200, 5, 6, 200, 5, 'coal_ore')],
             'leaves': [(24, 204, 24, 28, 205, 28)], 'logs': _logs(*[(26, 200 + i, 26) for i in range(4)]), 'rules': {},
+        },
+        {
+            'name': 'craft/furnace',
+            'about': 'Inventaire vide, un bouleau et une falaise de pierre : « Fabrique un four » (8 pierres, pioche en bois d abord).',
+            'kind': 'gather', 'instruction': 'Fabrique un four', 'items': ['furnace'],
+            'target': 1, 'cap': 300, 'variants': [sans('solveur')],
+            'terrain': [(28, 200, 20, 34, 202, 22, 'stone')],
+            'leaves': [(2, 204, 4, 6, 205, 8)], 'logs': [((4, 200 + i, 6), 'birch_log') for i in range(4)], 'rules': {},
+        },
+        {
+            # Informatif : le bot ne sait pas cuire au four. Ce qui est mesure,
+            # c est s il le comprend et le dit (fin de mission par lui-meme)
+            # au lieu d errer jusqu au plafond.
+            'name': 'craft/iron-pickaxe',
+            'about': 'Inventaire vide, arbre, pierre, minerai de fer : « Fabrique une pioche en fer » (cuisson impossible : fin honnete attendue).',
+            'kind': 'gather', 'instruction': 'Fabrique une pioche en fer', 'items': ['iron_pickaxe'],
+            'target': 0, 'cap': 240, 'informative': True, 'variants': [sans('solveur')],
+            'terrain': [(20, 200, 26, 24, 201, 30, 'stone'), (22, 201, 26, 22, 201, 26, 'iron_ore'),
+                        (23, 201, 26, 23, 201, 26, 'iron_ore'), (24, 201, 27, 24, 201, 27, 'iron_ore')],
+            'leaves': [(6, 204, 6, 10, 205, 10)], 'logs': _logs(*[(8, 200 + i, 8) for i in range(4)]), 'rules': {},
         },
     ]
 
@@ -1466,6 +1486,7 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             result['features'] = level['features']
         if level.get('informative'):
             result['informative'] = True
+        if level.get('variantOf'):
             result['variantOf'] = level['variantOf']
         results[index] = result
         print(f'{level["name"]} finished in {result.get("elapsedS")} s', flush=True)

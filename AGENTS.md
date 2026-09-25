@@ -433,7 +433,9 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   cuisson est planifiee mais signalee non geree (`bloque`). Servi au modele
   dans `environnement.prerequis` ; `harvestResource()` fait viser a `casser`
   la matiere de la premiere recolte du plan (bois puis pierre). Niveaux CI
-  `craft/stone-pickaxe` et `craft/torches` (inventaire vide).
+  `craft/stone-pickaxe`, `craft/torches`, `craft/furnace` (inventaire vide)
+  et `craft/iron-pickaxe` (informatif : cuisson impossible, fin honnete
+  attendue), chacun joue aussi `~sans-solveur` (interrupteur `solveur`).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

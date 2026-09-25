@@ -786,7 +786,9 @@ function createMissionRunner (host, injected = {}) {
   // (recolter, fabriquer, outil exige par un bloc, etabli) ; le modele decide
   // quoi en faire. Recalcule quand l inventaire ou l etabli proche changent.
   function acquisition () {
-    if (!mission?.fabricationCible) return null
+    // Interrupteur A/B `solveur` : coupe, la mission retombe sur la seule
+    // matiere du brief et le modele remonte seul la chaine.
+    if (!mission?.fabricationCible || !featureOn('solveur')) return null
     const bot = host.getBot()
     const registry = craft.getDataset(bot)
     if (!bot?.entity || !registry?.itemsByName) return null
