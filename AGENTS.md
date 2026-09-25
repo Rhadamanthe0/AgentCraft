@@ -137,12 +137,26 @@
   `context` sans mission active ne relance plus l objectif precedent ;
   « ... et rapporte moi le bois » (objectif avec rapport/ramene/apporte/livre,
   demandeur en jeu) => arbre fini puis `rejoindre_demandeur` avant la cloture.
+  La demande se lit aussi dans les precisions du demandeur (relation
+  `context`), pas seulement dans l objectif. `ramasser` : trajet refuse vers un
+  objet a <= 3 blocs au meme niveau => un pas droit dessus (`stepOnto`).
 - Quota et « arbre entier » se lisent sur l objectif SANS coordonnees
   (`sansCoordonnees`) : un objectif reecrit citant « x:2330.5, y:200 »
   devenait un quota de 5 buches (chat/join-then-tree).
+- `PLANNER_THINKING=disabled` : un 400 « Upstream request failed » (panne
+  passagere Zen) ne retire plus le champ thinking pour la session ; avant, le
+  raisonnement se rallumait (troncatures, delais de 30 s ; trees/bent).
+- `piler` a court de terre : collecte bornee (`gatherDirt` 25 s,
+  `collectScaffoldDrops` 15 s, trajets 8 s max) ; sans borne, un bot tombe
+  dans son propre trou sautait sur place plus de 2 min (chat/replace-and-join).
 - Prompt/doc de `piler` : stock court => choisir piler quand meme, l action
   recupere la terre (la hauteur demandee n est jamais rabotee). Avant, le
   modele cassait de la dirt hors de portee depuis son pilier (trees/tall).
+- Banc suivre (`follow/*`, `run_follow_script`) : la sonde marche par tp RCON
+  (~3,3 blocs/s a plat, 0,6 s par marche montee comme un saut de joueur) ;
+  ecart <= 8 blocs pendant la marche, <= 3 a la fin. Essai rejete : sauter
+  les marches en marchant (sans arret) gagnait 20 % dans `tmp/stairs-bench.js`
+  (simulateur) mais cassait `navigation/stairs` sur le vrai serveur.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
