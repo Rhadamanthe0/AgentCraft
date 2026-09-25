@@ -729,7 +729,10 @@ function createMissionRunner (host, injected = {}) {
     try { dropped = item.getDroppedItem?.() } catch (_) {}
     if (!dropped || !TREE_LOG.test(dropped.name)) return false
     const support = bot.blockAt(item.position.offset(0, -0.2, 0))
-    if (!support || !/_leaves$/.test(support.name)) return false
+    // Feuilles, ou colonne d echafaudage du bot (vu sur trees/tall : derniere
+    // buche posee au sommet d un ancien pilier, sans chemin depuis l autre).
+    const colonne = support && (PILER_DIRT.test(support.name) || /_planks$/.test(support.name)) && isPillarBlock(bot, support)
+    if (!support || !(/_leaves$/.test(support.name) || colonne)) return false
     const center = support.position.offset(0.5, 0.5, 0.5)
     if (bot.entity.position.offset(0, 1.62, 0).distanceTo(center) > REACH) {
       const nav = await host.navigateToPosition(center, {
@@ -744,8 +747,11 @@ function createMissionRunner (host, injected = {}) {
     } catch (_) {
       return false
     }
-    mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
+    if (!colonne) mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
     await sleep(600)
+    // L objet retombe sur le bloc suivant de la colonne : recommencer tant que
+    // c est encore de l echafaudage (jamais le sol naturel, jamais un puits).
+    if (colonne && item.isValid !== false) await dropFromLeaves(item)
     return true
   }
 

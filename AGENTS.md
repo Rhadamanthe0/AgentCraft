@@ -20,6 +20,8 @@
   l echafaudage (dirt/planches) sous ses pieds jusqu au niveau de l objet.
 - Buche tombee sur des feuilles (bout de branche) : `ramasser` casse la
   seule feuille qui la porte (en s en approchant si besoin) pour la faire tomber.
+  Meme geste pour une buche posee au sommet d une colonne d echafaudage du
+  bot (dirt/planches isolees) : bloc casse, repete tant que c est la colonne.
 - Reponse tronquee (max_tokens) du modele unique : `callWithProfile` rejoue
   UNE fois a budget double (>= 4000), meme delai ; avant, trois troncatures
   d affilee faisaient echouer la mission (vu sur trees/bent).
