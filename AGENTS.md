@@ -140,6 +140,9 @@
 - Quota et « arbre entier » se lisent sur l objectif SANS coordonnees
   (`sansCoordonnees`) : un objectif reecrit citant « x:2330.5, y:200 »
   devenait un quota de 5 buches (chat/join-then-tree).
+- `piler` a court de terre : collecte bornee (`gatherDirt` 25 s,
+  `collectScaffoldDrops` 15 s, trajets 8 s max) ; sans borne, un bot tombe
+  dans son propre trou sautait sur place plus de 2 min (chat/replace-and-join).
 - Prompt/doc de `piler` : stock court => choisir piler quand meme, l action
   recupere la terre (la hauteur demandee n est jamais rabotee). Avant, le
   modele cassait de la dirt hors de portee depuis son pilier (trees/tall).

@@ -753,10 +753,11 @@ function createMissionRunner (host, injected = {}) {
   // Prend de la terre dans le relief voisin (a hauteur des pieds et au-dessus,
   // jamais sous les pieds) jusqu a en avoir `besoin` en stock d echafaudage.
   // `epargne(x, z)` exclut des colonnes a garder intactes (le rebord vise).
-  async function gatherDirt (besoin, epargne = () => false, { sol = false } = {}) {
+  async function gatherDirt (besoin, epargne = () => false, { sol = false, budgetMs = Infinity } = {}) {
     const bot = host.getBot()
     let creuses = 0
-    for (let i = 0; i < besoin + 4 && scaffoldingStock(bot).total < besoin && !mission.cancelled; i += 1) {
+    const deadline = Date.now() + budgetMs
+    for (let i = 0; i < besoin + 4 && scaffoldingStock(bot).total < besoin && !mission.cancelled && Date.now() < deadline; i += 1) {
       const here = bot.entity.position
       const feetY = Math.floor(here.y + 0.01)
       const eye = here.offset(0, 1.62, 0)
@@ -988,8 +989,9 @@ function createMissionRunner (host, injected = {}) {
 
   // Ramasse la terre tombee pres du bot (un bloc creuse dans une paroi lache
   // son objet hors du rayon de collecte) : trajet de ramassage vers chacun.
-  async function collectScaffoldDrops (owner) {
-    for (let i = 0; i < 8 && !mission.cancelled; i += 1) {
+  async function collectScaffoldDrops (owner, { budgetMs = Infinity } = {}) {
+    const deadline = Date.now() + budgetMs
+    for (let i = 0; i < 8 && !mission.cancelled && Date.now() < deadline; i += 1) {
       const bot = host.getBot()
       const here = bot.entity.position
       const drop = Object.values(bot.entities).find(e => {
@@ -1000,7 +1002,8 @@ function createMissionRunner (host, injected = {}) {
       })
       if (!drop) return
       const nav = await host.navigateToPosition(drop.position, {
-        signal: mission.navigationAbort.signal, __owner: owner, pickup: true, radius: 1.2, distanceBudget: 10
+        signal: mission.navigationAbort.signal, __owner: owner, pickup: true, radius: 1.2, distanceBudget: 10,
+        ...(Number.isFinite(budgetMs) ? { timeoutMs: Math.max(1000, Math.min(8000, deadline - Date.now())) } : {})
       })
       await sleep(400)
       if (!nav?.reached && drop.isValid !== false) {
@@ -3140,13 +3143,15 @@ function createMissionRunner (host, injected = {}) {
         const under = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
         if (under && isPillarBlock(bot, under)) {
           await descendScaffold(-Infinity, { pillarOnly: true })
-          await collectScaffoldDrops(stepToken)
+          await collectScaffoldDrops(stepToken, { budgetMs: 15000 })
         }
         const redescendu = Math.max(0, Math.round(yHaut - host.getBot().entity.position.y))
         hauteurVisee = Math.min(PILER_MAX, hauteur + redescendu)
         if (scaffoldingStock(bot).total < hauteurVisee) {
-          await gatherDirt(hauteurVisee, () => false, { sol: true })
-          await collectScaffoldDrops(stepToken)
+          // Bornes de temps : vu sur chat/replace-and-join, bot tombe dans un
+          // trou qu il venait de creuser et l action ne rendait plus la main.
+          await gatherDirt(hauteurVisee, () => false, { sol: true, budgetMs: 25000 })
+          await collectScaffoldDrops(stepToken, { budgetMs: 15000 })
         }
         available = scaffoldingStock(bot)
         recupere = ` (terre obtenue sur place : ${available.total} bloc(s)` +
