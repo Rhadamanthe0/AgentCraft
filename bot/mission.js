@@ -761,10 +761,14 @@ function createMissionRunner (host, injected = {}) {
       const here = bot.entity.position
       const feetY = Math.floor(here.y + 0.01)
       const eye = here.offset(0, 1.62, 0)
+      // Perche sur son pilier : le sol est deux niveaux plus bas (vu sur
+      // trees/tall : rien a creuser a -1, piler echouait faute de terre).
+      const sous = bot.blockAt(here.offset(0, -0.5, 0))
+      const perche = sol && Boolean(sous) && (PILER_DIRT.test(sous.name) || /_planks$/.test(sous.name)) && isPillarBlock(bot, sous)
       let best = null
       for (let dx = -3; dx <= 3; dx += 1) {
         for (let dz = -3; dz <= 3; dz += 1) {
-          for (let dy = sol ? -1 : 0; dy <= 2; dy += 1) {
+          for (let dy = sol ? (perche ? -2 : -1) : 0; dy <= 2; dy += 1) {
             // Le sol n est pris qu a cote du bot, jamais sous ses pieds.
             if (dy < 0 && Math.abs(dx) + Math.abs(dz) < 2) continue
             const block = bot.blockAt(new Vec3(Math.floor(here.x) + dx, feetY + dy, Math.floor(here.z) + dz))
@@ -989,7 +993,8 @@ function createMissionRunner (host, injected = {}) {
 
   // Ramasse la terre tombee pres du bot (un bloc creuse dans une paroi lache
   // son objet hors du rayon de collecte) : trajet de ramassage vers chacun.
-  async function collectScaffoldDrops (owner, { budgetMs = Infinity } = {}) {
+  async function collectScaffoldDrops (owner, { budgetMs = Infinity, pattern = PILER_DIRT } = {}) {
+    if (!pattern) return
     const deadline = Date.now() + budgetMs
     for (let i = 0; i < 8 && !mission.cancelled && Date.now() < deadline; i += 1) {
       const bot = host.getBot()
@@ -998,7 +1003,7 @@ function createMissionRunner (host, injected = {}) {
         if (e.name !== 'item' || !e.position || e.position.distanceTo(here) > 6) return false
         let item = null
         try { item = e.getDroppedItem?.() } catch (_) {}
-        return item && PILER_DIRT.test(item.name)
+        return item && pattern.test(item.name)
       })
       if (!drop) return
       const nav = await host.navigateToPosition(drop.position, {
@@ -1020,8 +1025,14 @@ function createMissionRunner (host, injected = {}) {
     const bot = host.getBot()
     if (!bot?.entity || !cible) return null
     const feetY = Math.floor(bot.entity.position.y + 0.01)
-    const hauteur = standingLevel(cible) - feetY
+    const pied = standingLevel(cible)
+    const hauteur = pied - feetY
     if (hauteur < 2 || hauteur > PILER_MAX) return null
+    // Seulement pour un arbre pose sur un relief : sous son pied, un vrai sol.
+    // Une buche restee en l air (tronc coupe par le bas) n est pas une falaise
+    // (vu sur trees/pillar : pilier de 5 construit sous elle, chute, degats).
+    const sol = bot.blockAt(new Vec3(cible.position.x, pied - 1, cible.position.z))
+    if (!sol || sol.boundingBox !== 'block' || /_leaves$|_log$|_wood$/.test(sol.name)) return null
     const creuses = await gatherDirt(hauteur)
     if (scaffoldingStock(bot).total < hauteur) return null
     const pile = await ACTIONS.piler(null, { hauteur })
@@ -2669,6 +2680,15 @@ function createMissionRunner (host, injected = {}) {
 
       // Laisse les objets tomber et entrer dans l inventaire avant l etat suivant.
       await sleep(400)
+      // Hors bois (dont le ramassage est deja pilote par l arbre) : l objet
+      // casse a distance reste au sol ; le prendre aussitot (vu sur
+      // gather/flowers : 4 fleurs cassees, 2 en inventaire, mission close).
+      let ramasses = 0
+      if (!secondaire && mission.resource !== 'bois') {
+        const avant = countResourceItems()
+        await collectScaffoldDrops(stepToken, { budgetMs: 8000, pattern: skills.RESOURCES[mission.resource]?.items })
+        ramasses = Math.max(0, countResourceItems() - avant)
+      }
 
       const ecoule = Math.round((Date.now() - started) / 100) / 10
       return {
@@ -2678,7 +2698,8 @@ function createMissionRunner (host, injected = {}) {
             (refusal ? `, arret : ${refusal}` : '') + ' — quota bois inchange'
           : `${broken} bloc(s) casse(s) en ${ecoule} s (total ${mission.broken})` +
             (dureeSec === null ? '' : ` sur ${dureeSec} s demandee`) +
-            (refusal ? `, arret : ${refusal}` : '')
+            (refusal ? `, arret : ${refusal}` : '') +
+            (ramasses ? `, ${ramasses} objet(s) ramasse(s) aussitot` : '')
       }
     },
 
@@ -4400,6 +4421,15 @@ function createMissionRunner (host, injected = {}) {
       return { ok: true }
     }
 
+    // Quantite dite par le joueur : jugee sur l inventaire, pas sur les blocs
+    // casses (des fleurs cassees mais laissees au sol ne sont pas cueillies).
+    // L herbe garde ses unites (une graine pour huit touffes, piege 9).
+    if (mission.quotaExplicite && !['herbe', 'graines'].includes(mission.resource)) {
+      const tenus = collected()
+      return tenus >= mission.quota
+        ? { ok: true }
+        : { ok: false, why: `${tenus} en inventaire sur ${mission.quota} demande(s) : ramasser ce qui est tombe ou recolter encore` }
+    }
     const got = state.progression?.unites_recoltees ?? 0
     const quota = mission.quota ?? DEFAULT_QUOTA
     return got >= quota
@@ -4639,6 +4669,15 @@ function createMissionRunner (host, injected = {}) {
       // Arbre entier demande : sa fin se mesure (0 buche debout, 0 au sol), elle
       // ne depend pas d un « fini » du modele, qui voulait parfois chercher un
       // demandeur absent ou le quota par defaut apres le dernier ramassage.
+      // Quantite explicite atteinte en inventaire (recolte simple) : clore.
+      // Vu sur gather/flowers : 3 fleurs en inventaire des 67 s, le modele
+      // perdait le compte et cherchait encore des fleurs jusqu au plafond.
+      if (mission.kind === 'recolte' && mission.quotaExplicite && !mission.wholeTree &&
+        !mission.fabricationCible && collected() >= mission.quota) {
+        finish('done', `quantite demandee en inventaire (${collected()}/${mission.quota})`)
+        return
+      }
+
       // « ... et rapporte moi le bois » : l arbre fini, rejoindre d abord le
       // demandeur (s il est en jeu), puis clore ; un echec de trajet laisse la
       // boucle continuer (pendingJoin). Vu sur chat/tree-then-bring : mission
@@ -4685,6 +4724,16 @@ function createMissionRunner (host, injected = {}) {
       // (voir CLAUDE.md, piege 17).
       if (outcome.fin) {
         const allowed = finishAllowed(buildState())
+        // Quantite explicite pas encore en inventaire : meme refus reinjecte
+        // que pour `fini` (3 au plus), au lieu de clore la mission en echec.
+        if (!allowed.ok && mission.quotaExplicite && mission.finishRefused < REFUSALS_BEFORE_YIELD) {
+          mission.finishRefused += 1
+          mission.refusalNote = allowed.why
+          mission.queue = []
+          abortPrefetch('arret refuse')
+          console.log(`[mission] terminer refuse (${mission.finishRefused}/${REFUSALS_BEFORE_YIELD}) : ${allowed.why}`)
+          continue
+        }
         finish(allowed.ok ? 'done' : 'failed', allowed.ok ? 'le planificateur a clos la mission' : allowed.why)
         return
       }
@@ -5006,6 +5055,9 @@ function createMissionRunner (host, injected = {}) {
       // arret premature. En fabrication, le quota recolte ne sert pas : la
       // preuve est l objet cible (fabricationCible/Quantite ci-dessous).
       quota: build.parseQuota(sansCoordonnees(text), { allowBlockUnits: kind === 'recolte' && !fabricationCible }) ?? DEFAULT_QUOTA,
+      // Quantite dite par le joueur (« 3 fleurs ») : sa fin se mesure, comme
+      // l arbre entier. Le quota par defaut (16) ne clot rien tout seul.
+      quotaExplicite: build.parseQuota(sansCoordonnees(text), { allowBlockUnits: kind === 'recolte' && !fabricationCible }) !== null,
       // « coupe (moi) un arbre » : le travail est UN arbre entier, pas le quota
       // par defaut. L arbre est fixe par la premiere buche coupee ; la fin est
       // jugee sur ses buches restantes et son bois au sol (finishAllowed).

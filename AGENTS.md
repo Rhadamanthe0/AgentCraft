@@ -155,9 +155,14 @@
 - Quota et « arbre entier » se lisent sur l objectif SANS coordonnees
   (`sansCoordonnees`) : un objectif reecrit citant « x:2330.5, y:200 »
   devenait un quota de 5 buches (chat/join-then-tree).
-- `PLANNER_THINKING=disabled` : un 400 « Upstream request failed » (panne
-  passagere Zen) ne retire plus le champ thinking pour la session ; avant, le
-  raisonnement se rallumait (troncatures, delais de 30 s ; trees/bent).
+- `PLANNER_THINKING=disabled` : un 400 avec le champ thinking rejoue l appel
+  aussitot SANS lui ; deux refus suivis d un succes retirent le champ pour la
+  session. Un fournisseur aiguille par session peut le refuser en « Upstream
+  request failed: Invalid request parameters » (vu : un bot sur 16, muet).
+- `climbToward` (falaise) exige un vrai sol sous le pied de l arbre : une
+  buche restee en l air (tronc coupe par le bas) declenchait un pilier de 5
+  puis une chute (trees/pillar). `gatherDirt(..., { sol })` perche sur son
+  pilier vise aussi le sol deux niveaux plus bas (trees/tall).
 - `piler` a court de terre : collecte bornee (`gatherDirt` 25 s,
   `collectScaffoldDrops` 15 s, trajets 8 s max) ; sans borne, un bot tombe
   dans son propre trou sautait sur place plus de 2 min (chat/replace-and-join).
@@ -169,6 +174,15 @@
   ecart <= 8 blocs pendant la marche, <= 3 a la fin. Essai rejete : sauter
   les marches en marchant (sans arret) gagnait 20 % dans `tmp/stairs-bench.js`
   (simulateur) mais cassait `navigation/stairs` sur le vrai serveur.
+- Banc ramasser (`gather/*`, `run_gather_script`) : objets comptes par RCON
+  (`clear <bot> <objet> 0`), pas de puits, 0 degat, mission close d elle-meme.
+  Recolte avec quantite EXPLICITE (`mission.quotaExplicite`, « 3 fleurs ») :
+  close des que l inventaire l atteint (vu : 3 fleurs a 67 s, modele encore
+  a leur recherche au plafond de 180 s). Le quota par defaut ne clot rien.
+  Quantite explicite (hors herbe/graines) : `finishAllowed` juge sur
+  l inventaire, pas sur les blocs casses ; `terminer` trop tot est refuse et
+  reinjecte (3 fois) comme `fini`. `casser` hors bois ramasse aussitot ce
+  qu il vient de faire tomber (8 s max) : 4 fleurs cassees, 2 en poche.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
