@@ -21,7 +21,8 @@ from trees import BOTS_SERVICE, PROBES_SERVICE, arena_origins, bot_services, lev
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
-        'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js']
+        'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js',
+        'blueprint.test.js']
 
 
 def compare_variants(tests):

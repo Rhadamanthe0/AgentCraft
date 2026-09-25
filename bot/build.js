@@ -290,6 +290,128 @@ function planHouse ({ origin, width, depth, height }) {
 }
 
 // ---------------------------------------------------------------------------
+// Plan libre (APT / MineCEraft) : le modele propose une forme en elements
+// (paves pleins, creux, vides), le code la compile et la VERIFIE avant toute
+// pose : bornes, blocs flottants (relies au sol face a face), porte au bord
+// avec son ouverture. Les modeles posent des toits sans appui et des blocs en
+// l air (MineCEraft) : ici un plan qui ne tient pas est refuse avec la raison,
+// jamais pose a moitie. L ordre de pose suit la distance au sol dans la
+// structure : chaque bloc a un voisin deja pose (ou le sol) quand vient son tour.
+// ---------------------------------------------------------------------------
+
+const BLUEPRINT_MAX_SIZE = 12
+const BLUEPRINT_MAX_BLOCKS = 300
+
+function compileBlueprint (bp) {
+  const errors = []
+  const size = (v, name) => {
+    const n = Math.round(Number(v))
+    if (!Number.isFinite(n) || n < 1 || n > BLUEPRINT_MAX_SIZE) {
+      errors.push(`${name} doit valoir 1 a ${BLUEPRINT_MAX_SIZE} (recu ${v})`)
+      return null
+    }
+    return n
+  }
+  const width = size(bp?.largeur, 'largeur')
+  const depth = size(bp?.profondeur, 'profondeur')
+  const height = size(bp?.hauteur, 'hauteur')
+  const elements = Array.isArray(bp?.elements) ? bp.elements.slice(0, 40) : []
+  if (elements.length === 0) errors.push('aucun element')
+  if (errors.length) return { ok: false, errors }
+
+  const key = (x, y, z) => `${x},${y},${z}`
+  const cells = new Map()
+  const point = (p, what) => {
+    if (!Array.isArray(p) || p.length !== 3 || p.some(v => !Number.isFinite(Number(v)))) {
+      errors.push(`${what} doit etre [x,y,z]`)
+      return null
+    }
+    return p.map(v => Math.round(Number(v)))
+  }
+  elements.forEach((el, i) => {
+    const type = el?.type
+    if (!['plein', 'creux', 'vide'].includes(type)) { errors.push(`element ${i} : type plein, creux ou vide`); return }
+    const a = point(el.de, `element ${i}.de`)
+    const b = point(el.a ?? el.de, `element ${i}.a`)
+    if (!a || !b) return
+    const [x0, x1] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])]
+    const [y0, y1] = [Math.min(a[1], b[1]), Math.max(a[1], b[1])]
+    const [z0, z1] = [Math.min(a[2], b[2]), Math.max(a[2], b[2])]
+    if (x0 < 0 || y0 < 0 || z0 < 0 || x1 >= width || y1 >= height || z1 >= depth) {
+      errors.push(`element ${i} sort du volume ${width}x${depth}x${height} (x 0..${width - 1}, y 0..${height - 1}, z 0..${depth - 1})`)
+      return
+    }
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
+        for (let z = z0; z <= z1; z++) {
+          const shell = x === x0 || x === x1 || y === y0 || y === y1 || z === z0 || z === z1
+          if (type === 'vide') cells.delete(key(x, y, z))
+          else if (type === 'plein' || shell) cells.set(key(x, y, z), { x, y, z })
+        }
+      }
+    }
+  })
+
+  let door = null
+  if (Array.isArray(bp?.porte) && bp.porte.length >= 2) {
+    const [dx, dz] = bp.porte.map(v => Math.round(Number(v)))
+    const onEdge = dx === 0 || dz === 0 || dx === width - 1 || dz === depth - 1
+    if (!onEdge || dx < 0 || dz < 0 || dx >= width || dz >= depth) {
+      errors.push(`porte [${dx},${dz}] : doit etre sur le bord du volume`)
+    } else {
+      // L ouverture (y 1 et 2) est degagee d office ; il faut un bloc dessous.
+      cells.delete(key(dx, 1, dz))
+      cells.delete(key(dx, 2, dz))
+      if (!cells.has(key(dx, 0, dz))) errors.push(`porte [${dx},${dz}] : aucun bloc de sol sous elle (y 0)`)
+      door = { x: dx, z: dz }
+    }
+  }
+  if (cells.size === 0) errors.push('forme vide')
+  if (cells.size > BLUEPRINT_MAX_BLOCKS) errors.push(`${cells.size} blocs : ${BLUEPRINT_MAX_BLOCKS} au plus`)
+  if (errors.length) return { ok: false, errors }
+
+  // Relie au sol : parcours en largeur depuis la couche y 0 (posee sur le sol).
+  const dist = new Map()
+  const queue = []
+  for (const c of cells.values()) if (c.y === 0) { dist.set(key(c.x, c.y, c.z), 0); queue.push(c) }
+  for (let i = 0; i < queue.length; i++) {
+    const c = queue[i]
+    const d = dist.get(key(c.x, c.y, c.z))
+    for (const [ox, oy, oz] of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
+      const k = key(c.x + ox, c.y + oy, c.z + oz)
+      const n = cells.get(k)
+      if (n && !dist.has(k)) { dist.set(k, d + 1); queue.push(n) }
+    }
+  }
+  const floating = [...cells.values()].filter(c => !dist.has(key(c.x, c.y, c.z)))
+  if (floating.length) {
+    const ex = floating[0]
+    return { ok: false, errors: [`${floating.length} bloc(s) flottant(s), relies au sol par aucun bloc (ex : [${ex.x},${ex.y},${ex.z}]) : ajoute un appui (pilier, mur) ou retire-les`] }
+  }
+  const ordered = [...cells.values()].sort((a, b) =>
+    dist.get(key(a.x, a.y, a.z)) - dist.get(key(b.x, b.y, b.z)) || a.y - b.y)
+  return { ok: true, errors: [], width, depth, height, cells: ordered, door }
+}
+
+function planFromBlueprint (compiled, origin) {
+  const top = Math.max(...compiled.cells.map(c => c.y))
+  const blocks = compiled.cells.map(c => ({
+    position: new Vec3(origin.x + c.x, origin.y + c.y, origin.z + c.z),
+    role: c.y === 0 ? 'sol' : (c.y === top ? 'toit' : 'mur'),
+    ring: 0
+  }))
+  let door = null
+  let doorApproach = null
+  if (compiled.door) {
+    const { x, z } = compiled.door
+    door = { position: new Vec3(origin.x + x, origin.y + 1, origin.z + z) }
+    const out = z === 0 ? [0, -1.5] : z === compiled.depth - 1 ? [0, 1.5] : x === 0 ? [-1.5, 0] : [1.5, 0]
+    doorApproach = new Vec3(origin.x + x + 0.5 + out[0], origin.y, origin.z + z + 0.5 + out[1])
+  }
+  return { origin, width: compiled.width, depth: compiled.depth, height: compiled.height, blocks, door, doorApproach, libre: true }
+}
+
+// ---------------------------------------------------------------------------
 // Choix du terrain
 // ---------------------------------------------------------------------------
 
@@ -746,6 +868,8 @@ module.exports = {
   parseDimensions,
   parseQuota,
   planHouse,
+  compileBlueprint,
+  planFromBlueprint,
   findSite,
   placeOne,
   placeDoor,

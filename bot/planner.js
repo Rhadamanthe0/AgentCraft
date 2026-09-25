@@ -1304,6 +1304,47 @@ function pick (value, criteria, fallback) {
   return Object.prototype.hasOwnProperty.call(criteria, name) ? name : fallback
 }
 
+// Conception d un plan de construction (APT / MineCEraft) : le modele propose
+// une forme, build.compileBlueprint la verifie. Consignes propres a la
+// construction : generiques (« reflechis etape par etape ») n aident pas.
+function blueprintPrompt () {
+  const key = 'blueprint'
+  if (!prompts.has(key)) {
+    prompts.set(key, `Tu concois la forme d une construction Minecraft demandee par un joueur. Le code la verifiera puis la posera bloc par bloc, en survie, avec les blocs de l inventaire.
+
+Tu recois {"objectif", "dimensions_lues", "matiere", "porte_demandee", "erreurs_precedentes"} et tu rends du JSON, rien d autre.
+
+Deux reponses possibles :
+1. {"forme": "boite"} : une maison ordinaire, boite creuse (sol, 4 murs, toit plat, porte au milieu d un mur). Le code sait la faire : choisis-la des que la demande ne precise rien d autre qu une maison, une cabane ou un abri de taille donnee.
+2. {"forme": "libre", "largeur": W, "profondeur": D, "hauteur": H, "elements": [...], "porte": [x, z] ou null} pour toute autre forme (tour, mur, pont, pilier, fenetres, etage, escalier, arche, pyramide...).
+
+Repere local : x de 0 a W-1, z de 0 a D-1, y de 0 a H-1 ; y 0 est la premiere couche, posee SUR le sol. W, D, H de 1 a 12 ; 300 blocs au plus.
+Chaque element est un pave {"type": "plein" | "creux" | "vide", "de": [x,y,z], "a": [x,y,z]} applique dans l ordre :
+- "plein" remplit le pave ; "creux" n en pose que l enveloppe (sol, murs, plafond) ;
+- "vide" retire des blocs deja mis (fenetre, passage, interieur).
+"porte" [x, z] : case du bord ou poser la porte ; le code degage son ouverture (y 1 et 2) et exige un bloc en y 0 dessous. Mets-la si porte_demandee est vrai.
+
+Regles de construction, verifiees par le code :
+- Tout bloc doit etre relie au sol par des blocs voisins (face contre face) : pas de bloc flottant, pas de toit sans murs ou piliers qui le portent.
+- Les appuis avant ce qu ils portent : un toit repose sur des murs ou des piliers de toute la hauteur.
+- Respecte les dimensions dites par le joueur (dimensions_lues) quand elles existent ; sinon reste petit et economique.
+- erreurs_precedentes non vide : ta forme precedente a ete refusee pour ces raisons, corrige-les.
+
+Exemples :
+"construis une tour de 6 blocs de haut" -> {"forme":"libre","largeur":3,"profondeur":3,"hauteur":6,"elements":[{"type":"creux","de":[0,0,0],"a":[2,5,2]}],"porte":null}
+"fais un mur de 7 de long et 3 de haut" -> {"forme":"libre","largeur":7,"profondeur":1,"hauteur":3,"elements":[{"type":"plein","de":[0,0,0],"a":[6,2,0]}],"porte":null}
+"une maison de 5 par 5 avec des fenetres" -> {"forme":"libre","largeur":5,"profondeur":5,"hauteur":4,"elements":[{"type":"creux","de":[0,0,0],"a":[4,3,4]},{"type":"vide","de":[0,2,2],"a":[0,2,2]},{"type":"vide","de":[4,2,2],"a":[4,2,2]}],"porte":[2,0]}
+"construis une maison en terre de 3 par 3 par 3" -> {"forme":"boite"}`)
+  }
+  return prompts.get(key)
+}
+
+async function designBlueprint (input, opts = {}) {
+  if (!isEnabled()) return null
+  const response = await call(blueprintPrompt(), JSON.stringify(input), null, { ...opts, task: 'designBlueprint' })
+  return parseJson(response.content)
+}
+
 async function readBrief (objective, opts = {}) {
   if (!isEnabled()) return null
 
@@ -1461,6 +1502,7 @@ module.exports = {
   plan,
   classify,
   readBrief,
+  designBlueprint,
   interpretMessage,
   compact,
   systemPrompt,

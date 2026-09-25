@@ -345,7 +345,7 @@ def base_levels():
             'name': 'build/dirt-box',
             'about': '64 terre en inventaire, « Construis une maison en terre de 3 par 3 par 3 » : 20 blocs poses au moins.',
             'kind': 'build', 'give': [('dirt', 64)], 'instruction': 'Construis une maison en terre de 3 par 3 par 3',
-            'blocks': ['minecraft:dirt'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
+            'blocks': ['minecraft:dirt'], 'target': 20, 'variants': [sans('plans')], 'leaves': [], 'logs': [], 'rules': {},
         },
         {
             'name': 'build/door',
@@ -505,6 +505,37 @@ def base_levels():
             'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
             'logs': _logs(*trunk3),
             'rules': {},
+        },
+        # Plans libres : forme concue par le modele, verifiee par le code.
+        {
+            'name': 'build/tower',
+            'about': '64 terre, « Construis une tour en terre de 6 blocs de haut » : un bloc pose a la 6e couche au moins.',
+            'kind': 'build', 'give': [('dirt', 64)], 'instruction': 'Construis une tour en terre de 6 blocs de haut',
+            'blocks': ['minecraft:dirt', 'minecraft:grass_block'], 'target': 12, 'minTop': 6,
+            'variants': [sans('plans')], 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'build/wall',
+            'about': '64 planches, « Construis un mur en bois de 7 blocs de long et 3 de haut » : 18 planches posees, 3e couche atteinte.',
+            'kind': 'build', 'give': [('oak_planks', 64)], 'instruction': 'Construis un mur en bois de 7 blocs de long et 3 de haut',
+            'blocks': ['#minecraft:planks'], 'target': 18, 'minTop': 3,
+            'variants': [sans('plans')], 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'build/arch',
+            'about': '64 pierres, « Construis une arche en pierre de 5 blocs de large et 4 de haut » : 4e couche atteinte, passage laisse (moins de 18 blocs).',
+            'kind': 'build', 'give': [('cobblestone', 64)],
+            'instruction': 'Construis une arche en pierre de 5 blocs de large et 4 de haut',
+            'blocks': ['minecraft:cobblestone'], 'target': 8, 'maxTarget': 17, 'minTop': 4,
+            'variants': [sans('plans')], 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'build/windows',
+            'about': '64 planches et une porte, « Construis une cabane en bois de 5 par 5 avec des fenetres et une porte » : 30 planches, porte posee.',
+            'kind': 'build', 'give': [('oak_planks', 64), ('oak_door', 1)],
+            'instruction': 'Construis une cabane en bois de 5 par 5 avec des fenetres et une porte',
+            'blocks': ['#minecraft:planks'], 'target': 30, 'door': True,
+            'variants': [sans('plans')], 'leaves': [], 'logs': [], 'rules': {},
         },
     ]
 
@@ -697,6 +728,13 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
               'mission_terminee': end_reason.startswith('mission terminee')}
     if level.get('door'):
         checks['porte_posee'] = doors >= 2  # a door is two blocks
+    if level.get('maxTarget'):
+        # Openings asked (arch, passage): a solid block of the same size fails.
+        checks['forme_ouverte'] = built <= level['maxTarget']
+    if level.get('minTop'):
+        # Free-form shape: something must reach that layer (tower, wall).
+        layer = 200 + level['minTop'] - 1
+        checks['hauteur_atteinte'] = sum(count(f'{x0} {layer} 0 {x0 + SIZE} {layer} {SIZE}', b) for b in level['blocks']) > 0
     (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
         json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
     failed = [k for k, v in checks.items() if not v]

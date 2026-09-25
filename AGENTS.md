@@ -258,6 +258,16 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
 - `interpretMessage` : relation new/amend avec objectif vide (vu : « Rejoins
   moi », join/pit) => le message du joueur sert d objectif, au lieu de
   « objectif de chat vide » et d un bot muet.
+- Plans de construction libres (APT / MineCEraft) : `choisir_terrain` demande
+  une forme au modele (`planner.designBlueprint`) : « boite » (planHouse du
+  code) ou « libre » en paves plein/creux/vide. `build.compileBlueprint`
+  verifie bornes (12, 300 blocs), blocs flottants (relies au sol face a face),
+  porte au bord avec sol dessous ; refus renvoye au modele une fois, puis
+  repli sur la boite. Ordre de pose = distance au sol dans la structure
+  (chaque bloc a un voisin pose). Interrupteur `plans` (coupe : toujours la
+  boite). Niveaux A/B `build/tower`, `build/wall`, `build/arch` (`maxTarget` :
+  passage laisse), `build/windows` (fenetres + porte) et `build/dirt-box`
+  (non-regression de la maison simple) ; `minTop` = couche a atteindre.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
