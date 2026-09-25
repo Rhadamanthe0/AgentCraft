@@ -130,6 +130,19 @@
   terre, aucune action n en obtenait depuis le haut).
 - Banc bois tour 2 : `trees/tall` (8 buches), `trees/double` (2x2, 16),
   `terrain/moat` (ile entouree d eau).
+- Banc chat tour 2 (`run_chat_script`, ci/trees.py) : stop-tree,
+  question-keeps-mission, chatter-ignored, join-then-tree, tree-then-bring.
+  Correctifs associes : `stop`/`pauseWork` appellent `bot.stopDigging()` (un
+  coup en cours coupait encore une buche apres « Stop ») ; une remarque
+  `context` sans mission active ne relance plus l objectif precedent ;
+  « ... et rapporte moi le bois » (objectif avec rapport/ramene/apporte/livre,
+  demandeur en jeu) => arbre fini puis `rejoindre_demandeur` avant la cloture.
+- Quota et « arbre entier » se lisent sur l objectif SANS coordonnees
+  (`sansCoordonnees`) : un objectif reecrit citant « x:2330.5, y:200 »
+  devenait un quota de 5 buches (chat/join-then-tree).
+- Prompt/doc de `piler` : stock court => choisir piler quand meme, l action
+  recupere la terre (la hauteur demandee n est jamais rabotee). Avant, le
+  modele cassait de la dirt hors de portee depuis son pilier (trees/tall).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
