@@ -258,6 +258,13 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
 - `interpretMessage` : relation new/amend avec objectif vide (vu : « Rejoins
   moi », join/pit) => le message du joueur sert d objectif, au lieu de
   « objectif de chat vide » et d un bot muet.
+- Reflexes (`bot/reflexes.js`, modes de Mindcraft) : entre deux etapes, dans
+  le slot de l etape et sans le modele, `reflexPass` (mission.js) degage une
+  tete prise dans un bloc, s ecarte d un bloc qui tombe / du feu / de la lave,
+  fuit un monstre hostile, fait un pas de cote si un joueur est colle, et
+  ramasse les objets au sol a <= 4 blocs au meme niveau (jamais apres `donner`
+  ni pendant une livraison ; un objet rate est ignore ensuite ; 4 s max).
+  Journal servi au modele : `environnement.reflexes_recents`.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

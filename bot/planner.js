@@ -813,6 +813,10 @@ Ce que l etat impose, et qui n est pas negociable :
   fabrications_possibles est vide ou ne contient pas la cible, recolte d abord
   la matiere brute (casser/ramasser) puis fabrique. Ne conclus jamais sur un
   quota de recolte ni sur un seul plan : seul l objet cible compte.
+- environnement.reflexes_recents = gestes faits sans toi entre deux etapes
+  (ramassage d objets tout pres, mise a l abri, pas de cote, fuite). Ta
+  position ou ton inventaire ont pu changer : repars de l etat, ne refais
+  pas ce geste.
 - etat.plan_ajuste present => une etape de ton plan precedent a ete rejetee par
   le code (nom d action inconnu, valeur hors bornes, plan trop long). Tiens-en
   compte au lieu de redemander la meme chose telle quelle.

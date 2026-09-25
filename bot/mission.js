@@ -21,6 +21,7 @@
 const skills = require('./skills')
 const build = require('./build')
 const craft = require('./craft')
+const reflexes = require('./reflexes')
 const delivery = require('./delivery')
 const Vec3 = require('vec3').Vec3
 const jev = require('./jev')
@@ -1058,6 +1059,74 @@ function createMissionRunner (host, injected = {}) {
       if (!nav?.reached && drop.isValid !== false) {
         if (!await stepOnto(drop)) return
       }
+    }
+  }
+
+  // Reflexes (reflexes.js, modes de Mindcraft) : entre deux etapes, dans le
+  // slot de l etape, sans le modele. Danger (bloc qui tombe, feu/lave, tete
+  // prise), monstre, joueur colle, objets au sol tout pres. Chaque geste est
+  // journalise dans mission.reflexes et servi au modele (reflexes_recents).
+  async function reflexPass (owner, lastAction) {
+    const bot = host.getBot()
+    if (!mission || mission.cancelled || !bot?.entity || lastAction === 'terminer') return
+    const myMission = mission
+    const note = (reflexe, detail) => {
+      myMission.reflexes = (myMission.reflexes ?? []).concat({ apres_etape: myMission.steps + 1, reflexe, detail }).slice(-6)
+      console.log(`[reflexe] ${reflexe} : ${detail}`)
+    }
+    const move = (target, timeoutMs) => host.navigateToPosition(target, {
+      signal: myMission.navigationAbort?.signal, __owner: owner, radius: 1.2, distanceBudget: 14, timeoutMs
+    })
+    try {
+      const danger = reflexes.detectDanger(bot)
+      if (danger?.type === 'etouffement') {
+        const head = bot.blockAt(bot.entity.position.floored().offset(0, 1, 0))
+        if (head && head.diggable !== false) {
+          await craft.equipForBlock(bot, head).catch(() => {})
+          await withTimeout(bot.dig(head), 4000, 'creusage trop long')
+          note('degagement', `tete prise dans ${danger.bloc} : bloc casse`)
+        }
+      } else if (danger) {
+        const r = await move(reflexes.awayFrom(bot.entity.position, danger.source, 3), 4000)
+        note('mise_a_l_abri', `${danger.type} (${danger.bloc}) : ${r?.reached ? 'ecarte de 3 blocs' : 'ecart tente'}`)
+      }
+      if (myMission.cancelled) return
+      const hostile = reflexes.detectHostile(bot)
+      if (hostile) {
+        const r = await move(reflexes.awayFrom(bot.entity.position, hostile.entity.position, 10), 5000)
+        note('fuite', `${hostile.entity.name ?? 'monstre'} a ${hostile.distance.toFixed(1)} bloc(s) : ${r?.reached ? 'eloigne' : 'eloignement tente'}`)
+      }
+      if (myMission.cancelled || myMission.kind === 'geste') return
+      const crowd = reflexes.detectCrowding(bot)
+      if (crowd) {
+        await move(reflexes.awayFrom(bot.entity.position, crowd.position, 1.5), 2000)
+        note('place', `${crowd.joueur} colle au bot : un pas de cote`)
+      }
+      // Jamais apres un don ni pendant une livraison : le bot reprendrait
+      // ce qu il vient de poser aux pieds du joueur.
+      if (myMission.cancelled || lastAction === 'donner' || deliveryLedgersFor(myMission).length > 0) return
+      // Objet deja tente sans succes : ignore ensuite (pas 4 s par etape).
+      myMission.reflexSkip = myMission.reflexSkip ?? new Set()
+      const drops = reflexes.detectDrops(bot).filter(e => !myMission.reflexSkip.has(e.id)).slice(0, 3)
+      if (drops.length > 0) {
+        const count = () => bot.inventory.items().reduce((n, it) => n + it.count, 0)
+        const before = count()
+        const deadline = Date.now() + 4000
+        for (const drop of drops) {
+          if (myMission.cancelled || Date.now() > deadline || drop.isValid === false) continue
+          const nav = await host.navigateToPosition(drop.position, {
+            signal: myMission.navigationAbort?.signal, __owner: owner, pickup: true, radius: 1.2, distanceBudget: 8,
+            timeoutMs: Math.max(1000, Math.min(3000, deadline - Date.now()))
+          })
+          await sleep(300)
+          if (!nav?.reached && drop.isValid !== false) await stepOnto(drop)
+          if (drop.isValid !== false) myMission.reflexSkip.add(drop.id)
+        }
+        const gained = count() - before
+        if (gained > 0) note('ramassage', `${gained} objet(s) au sol ramasse(s) a proximite`)
+      }
+    } catch (err) {
+      console.warn(`[reflexe] ${err.message}`)
     }
   }
 
@@ -2202,6 +2271,9 @@ function createMissionRunner (host, injected = {}) {
         // utile existe (la hache, ou planches/batons/etabli vers elle). Le code
         // mesure la faisabilite, le modele decide de l ordre.
         hache_recommandee: hacheRecommandee(),
+        // Gestes faits par les reflexes (sans toi) depuis peu : ramassage,
+        // mise a l abri, pas de cote. Tiens-en compte, ne les refais pas.
+        reflexes_recents: (mission.reflexes ?? []).slice(-3),
         // Dirt secondaire admise : mission bois avec cible_haute et stock de
         // dirt insuffisant pour piler. Autorise `casser` sur de la dirt au sol
         // sans toucher au quota bois.
@@ -4752,7 +4824,11 @@ function createMissionRunner (host, injected = {}) {
             try {
               envelope = await exec.run(
                 { id: stepId, kind: 'work' },
-                async () => run(decision.scale, decision.choices))
+                async () => {
+                  const value = await run(decision.scale, decision.choices)
+                  await reflexPass(token, decision.step)
+                  return value
+                })
             } catch (refus) {
               outcome = { resultat: `action refusee (${refus.code || 'refus'}) : ${refus.message}`, echec: true, code: refus.code || 'refused' }
             }
@@ -4775,6 +4851,7 @@ function createMissionRunner (host, injected = {}) {
           // Repli heritage/tests sans executeur : execution directe. En prod
           // l executeur est exige (index.runPhysical fail-closed).
           outcome = await run(decision.scale, decision.choices)
+          await reflexPass(null, decision.step)
         }
       } catch (err) {
         outcome = { resultat: `erreur : ${err.message}`, echec: true }
