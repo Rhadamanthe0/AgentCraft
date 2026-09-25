@@ -99,8 +99,8 @@ commence que quand le precedent est entierement vert.
 | Type | Niveaux | Etat |
 | --- | --- | --- |
 | rejoindre (« Rejoins moi ») | `join/*` : 10 | vert |
-| bois (« coupe moi un arbre ») | `trees/*`, `terrain/*` : 11 (tour 2 : `trees/tall`, `trees/double`, `terrain/moat`) | en validation |
-| chat (arbitrage, arret) | `chat/*` : 1 | a completer |
+| bois (« coupe moi un arbre ») | `trees/*`, `terrain/*` : 11 (tour 2 : `trees/tall`, `trees/double`, `terrain/moat`) | vert |
+| chat (arbitrage, arret, questions) | `chat/*` : 6 (tour 2 : `stop-tree`, `question-keeps-mission`, `chatter-ignored`, `join-then-tree`, `tree-then-bring`) | en validation |
 | suivre (« suis moi ») | - | a venir |
 | ramasser (terre, herbe, sable) | - | a venir |
 | fabriquer (planches, etabli, hache) | - | a venir |

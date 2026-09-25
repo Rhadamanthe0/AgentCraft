@@ -218,6 +218,38 @@ def levels():
             'logs': _logs(*trunk3),
             'rules': {},
         },
+        # Chat levels (tour 2): a silent probe player talks to the bot through the
+        # same routing as in-game chat; see run_chat_script.
+        {
+            'name': 'chat/stop-tree',
+            'about': 'Le joueur demande un arbre puis dit « Stop » apres la premiere buche : le bot s arrete net.',
+            'kind': 'chat_script', 'script': 'stop_tree', 'probeAt': (4.5, 200, 18.5),
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)], 'logs': _logs(*trunk3), 'rules': {},
+        },
+        {
+            'name': 'chat/question-keeps-mission',
+            'about': 'Pendant la coupe, le joueur pose une question : la mission continue jusqu a l arbre entier.',
+            'kind': 'chat_script', 'script': 'question_keeps', 'probeAt': (4.5, 200, 18.5),
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)], 'logs': _logs(*trunk3), 'rules': {},
+        },
+        {
+            'name': 'chat/chatter-ignored',
+            'about': 'Le joueur bavarde sans rien demander : aucune mission, le bot ne bouge pas.',
+            'kind': 'chat_script', 'script': 'chatter', 'probeAt': (4.5, 200, 18.5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'chat/join-then-tree',
+            'about': '« Rejoins moi » puis, en route, « Laisse tomber, coupe plutot un arbre » : remplacement sans question, arbre entier.',
+            'kind': 'chat_script', 'script': 'join_then_tree', 'probeAt': (30.5, 200, 30.5), 'start': (6.5, 200, 6.5),
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)], 'logs': _logs(*trunk3), 'rules': {},
+        },
+        {
+            'name': 'chat/tree-then-bring',
+            'about': 'Arbre demande, puis precision « et rapporte moi le bois » : arbre entier et bot revenu pres du joueur.',
+            'kind': 'chat_script', 'script': 'tree_then_bring', 'probeAt': (4.5, 200, 30.5),
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)], 'logs': _logs(*trunk3), 'rules': {},
+        },
         {
             'name': 'trees/tall',
             'about': 'Tronc de 8 buches (Y+0 a Y+7), couronne au-dessus : il faut un pilier de 4 blocs ou plus.',
@@ -315,6 +347,119 @@ def run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, tim
         'arbitration': arbitration, 'answers': {k: {kk: v.get(kk) for kk in ('relation', 'choice', 'arbitration', 'queued', 'error')}
                                                  for k, v in answers.items()},
         'damageTaken': damage, 'botFinalPosition': final.get('position'),
+    }
+
+
+CHAT_SCRIPT_CAP_S = 180
+
+
+def run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, probe_name):
+    """A silent probe player talks to the bot (same routing as in-game chat)
+    following one of a few scripts; every check is measured in the world or in
+    the bot status, never taken from what the bot says."""
+    local = level['probeAt']
+    probe = (x0 + local[0], local[1], local[2])
+    rcon(f'tp {probe_name} ' + ' '.join(map(str, probe)))
+    time.sleep(1)
+    started = time.monotonic()
+    timeline, answers = [], {}
+    expected = len(level['logs'])
+
+    def say(key, text):
+        answers[key] = bot_api(bot, '/api/instruction', {'message': text, 'requester': probe_name})
+
+    def status():
+        s = bot_api(bot, '/api/status')
+        timeline.append({'t': round(time.monotonic() - started, 1), 'pos': s.get('position'), 'onGround': s.get('onGround'),
+                         'running': s.get('missionRunning'), 'etat': (s.get('mission') or {}).get('etat'),
+                         'objectif': (s.get('mission') or {}).get('objectif'),
+                         'arbitration': bool((s.get('objectifs') or {}).get('arbitration'))})
+        return s
+
+    def wait(predicate, timeout):
+        until = time.monotonic() + timeout
+        while time.monotonic() < until:
+            s = status()
+            if predicate(s):
+                return True
+            time.sleep(1)
+        return False
+
+    def logs_left():
+        return measure()['logs']
+
+    def near_probe(s):
+        p = s.get('position') or {}
+        return bool(p) and s.get('onGround') and math.hypot(p['x'] - probe[0], p['z'] - probe[2]) <= 3 and abs(p['y'] - probe[1]) <= 1
+
+    def tree_done(s):
+        return not s.get('missionRunning') and logs_left() == 0
+
+    checks = {}
+    arbitration_seen = False
+    script = level['script']
+    if script == 'stop_tree':
+        say('tree', INSTRUCTION)
+        checks['premiere_buche_coupee'] = wait(lambda s: logs_left() < expected, 90)
+        say('stop', 'Stop')
+        checks['mission_arretee_en_5_s'] = wait(lambda s: not s.get('missionRunning'), 5)
+        time.sleep(2)
+        still_logs, s0 = logs_left(), status()
+        time.sleep(12)
+        s1 = status()
+        p0, p1 = s0.get('position') or {}, s1.get('position') or {}
+        checks['plus_rien_coupe_apres_stop'] = logs_left() == still_logs
+        checks['bot_immobile_apres_stop'] = bool(p0 and p1) and math.dist((p0['x'], p0['y'], p0['z']), (p1['x'], p1['y'], p1['z'])) < 1
+    elif script == 'question_keeps':
+        say('tree', INSTRUCTION)
+        checks['premiere_buche_coupee'] = wait(lambda s: logs_left() < expected, 90)
+        say('question', 'Tu as combien de buches pour l instant ?')
+        checks['arbre_entier_coupe'] = wait(tree_done, 150)
+    elif script == 'chatter':
+        before = status().get('position') or {}
+        say('chatter', 'Salut tout le monde, il fait beau aujourd hui')
+        time.sleep(3)
+        say('chatter2', 'Je vais aller miner un peu plus tard')
+        started_any = wait(lambda s: bool(s.get('missionRunning')), 20)
+        after = status().get('position') or {}
+        checks['aucune_mission_lancee'] = not started_any
+        checks['bot_immobile'] = bool(before and after) and math.dist((before['x'], before['z']), (after['x'], after['z'])) < 1
+    elif script == 'join_then_tree':
+        say('join', 'Rejoins moi')
+        wait(lambda s: bool(s.get('missionRunning')), 20)
+        time.sleep(4)
+        say('tree', 'Laisse tomber, coupe plutot un arbre')
+        arbitration_seen = wait(lambda s: bool((s.get('objectifs') or {}).get('arbitration')), 8)
+        checks['aucune_question'] = not arbitration_seen
+        checks['arbre_entier_coupe'] = wait(tree_done, 160)
+    elif script == 'tree_then_bring':
+        say('tree', INSTRUCTION)
+        checks['premiere_buche_coupee'] = wait(lambda s: logs_left() < expected, 90)
+        say('bring', 'Et rapporte moi le bois quand tu as fini')
+        checks['arbre_entier_coupe'] = wait(lambda s: logs_left() == 0, 150)
+        checks['revenu_pres_du_joueur'] = wait(near_probe, 60)
+    else:
+        raise RuntimeError('Unknown chat script: ' + script)
+    final = bot_api(bot, '/api/status')
+    if expected and script != 'stop_tree':
+        checks['tout_le_bois_ramasse'] = wood(final.get('inventory'), measure().get('planks', 0)) >= expected
+    damage_answer = rcon(f'scoreboard players get {username} degats')
+    match = re.search(r'has (\d+)', damage_answer)
+    damage = int(match.group(1)) if match else None
+    checks['aucun_degat'] = damage == 0
+    if final.get('missionRunning'):
+        bot_api(bot, '/api/stop', {})
+    (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
+        json.dumps({'bot': username, 'answers': answers, 'timeline': timeline}, indent=1), encoding='utf-8')
+    failed = [k for k, v in checks.items() if not v]
+    return {
+        'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
+        'checks': checks, 'endReason': 'script termine' if not failed else 'echec : ' + ', '.join(failed),
+        'expectedLogs': expected, 'logsInInventory': wood(final.get('inventory')),
+        'elapsedS': round(time.monotonic() - started, 1), 'arbitration': arbitration_seen,
+        'answers': {k: {kk: v.get(kk) for kk in ('relation', 'kind', 'choice', 'arbitration', 'queued', 'error')}
+                    for k, v in answers.items()},
+        'damageTaken': damage, 'botFinalPosition': final.get('position'), 'probe': probe_name,
     }
 
 
@@ -462,6 +607,8 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
             return run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_name)
         if level.get('kind') == 'join':
             return run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name)
+        if level.get('kind') == 'chat_script':
+            return run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, probe_name)
         answer = bot_api(bot, '/api/instruction', {'message': INSTRUCTION, 'requester': REQUESTER})
         started = time.monotonic()
         peak_standing = start[1]
