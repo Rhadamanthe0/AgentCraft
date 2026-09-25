@@ -747,19 +747,17 @@ Ce que l etat impose, et qui n est pas negociable :
   reellement visible et a portee depuis un pilier de hauteur_min, avec appui
   et colonne verifies. Cet indice est distinct de cible_haute : une branche
   masquee peut devenir accessible en montant meme si son denivele est faible.
-  Tu peux choisir piler de hauteur_min si stock couvre cette hauteur (manque=0),
-  puis reobserver avant de casser. Si manque est positif, obtiens et ramasse
-  le manque seulement si la consigne l autorise, puis reobserve ; ne demande
-  pas une montee partielle. L indice n autorise aucun degagement de feuilles.
+  Choisis piler de hauteur_min, puis reobserve avant de casser. Si manque est
+  positif, piler obtient lui-meme la terre manquante (il defait son propre
+  pilier et prend la terre a cote, jamais sous ses pieds) ; ne demande pas une
+  montee partielle. L indice n autorise aucun degagement de feuilles.
 - environnement.cible_haute non null => un bloc de la matiere est proche mais
   trop haut pour etre casse depuis le sol (denivele au-dessus de toi, distance
   horizontale) : monte avec piler (hauteur = denivele - 1 au plus, 1 a 6),
-  puis reobserve depuis le haut. Avant de choisir piler, compare la hauteur
-  demandee a inventaire.echafaudage.total : il faut deja disposer d au moins
-  ce nombre de blocs. Si le stock manque pour la hauteur choisie, obtiens et
-  ramasse les blocs manquants, puis reobserve l inventaire avant de monter.
-  Ne propose pas une hauteur superieure au stock en comptant sur une montee
-  partielle. inventaire.echafaudage.materiaux detaille les blocs utilisables :
+  puis reobserve depuis le haut. Si inventaire.echafaudage.total est sous la
+  hauteur choisie, choisis quand meme piler : l action va chercher elle-meme
+  la terre manquante (pilier defait puis refait, terre prise a cote), meme
+  perche en haut d un pilier. Ne casse pas de dirt hors de portee pour cela. inventaire.echafaudage.materiaux detaille les blocs utilisables :
   dirt/coarse_dirt en priorite, puis planches solides du registre. Des planches
   deja presentes permettent de monter sans fabriquer d outil ni chercher de
   dirt inutilement. Sable, gravier et feuilles ne servent jamais a piler.

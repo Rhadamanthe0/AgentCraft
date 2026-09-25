@@ -124,7 +124,7 @@ test('cible seulement en hauteur : avancer refuse sans controle ni navigation, s
     assert.equal(step.echec, true)
     assert.match(step.resultat, /\+5/)
     assert.match(step.resultat, new RegExp(`${stock} dirt`))
-    assert.match(step.resultat, stock ? /piler.*si.*(?:appui|espace)/ : /stock manquant/)
+    assert.match(step.resultat, stock ? /piler.*si.*(?:appui|espace)/ : /stock court/)
     assert.deepEqual(f.controls, [])
     assert.deepEqual(f.navigation, [])
     assert.equal(f.looks, 0)

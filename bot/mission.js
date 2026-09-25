@@ -95,6 +95,11 @@ const REACH = 4
 const LEAF_CLEAR_MAX = Number(process.env.MISSION_LEAF_CLEAR_MAX || 12)
 // « un arbre », « l arbre », « cet arbre » : un arbre entier est demande.
 const WHOLE_TREE_TEXT = /\b(?:un|1|cet|ce|l'|l )\s*arbre\b/i
+// Un objectif reecrit par le modele cite souvent la position du joueur
+// (« x:2330.5, y:200 ») : ces nombres ne sont pas une quantite (vu sur
+// chat/join-then-tree : « un arbre » devenu un quota, bot parti en chercher
+// d autres une fois l arbre fini).
+const sansCoordonnees = text => String(text ?? '').replace(/\b[xyz]\s*[:=]\s*-?\d+(?:[.,]\d+)?/gi, '')
 // Volume de l arbre commence, autour de sa premiere buche coupee : branches
 // jusqu a 4 blocs de cote, cime jusqu a 14 blocs plus haut.
 const TREE_RADIUS = 4
@@ -2949,7 +2954,7 @@ function createMissionRunner (host, injected = {}) {
         const dirt = craft.countOf(host.getBot(), PILER_DIRT)
         const next = stock > 0
           ? 'piler peut aider si l appui et l espace au-dessus sont libres ; la pose reste a verifier'
-          : 'stock manquant pour piler ; il faut obtenir du materiau autorise avant de monter'
+          : 'stock court : piler recupere lui-meme la terre manquante (pilier defait puis refait, terre prise a cote)'
         return {
           resultat: `cible haute ${high.cible} a ${high.distance} bloc(s), +${high.denivele} en hauteur, ` +
             `${stock} blocs d echafaudage (${dirt} dirt) en inventaire : ${next}. Avancer au sol ne resout pas ce denivele.`,
@@ -4622,9 +4627,22 @@ function createMissionRunner (host, injected = {}) {
       // Arbre entier demande : sa fin se mesure (0 buche debout, 0 au sol), elle
       // ne depend pas d un « fini » du modele, qui voulait parfois chercher un
       // demandeur absent ou le quota par defaut apres le dernier ramassage.
+      // « ... et rapporte moi le bois » : l arbre fini, rejoindre d abord le
+      // demandeur (s il est en jeu), puis clore ; un echec de trajet laisse la
+      // boucle continuer (pendingJoin). Vu sur chat/tree-then-bring : mission
+      // close au pied de l arbre, bois jamais rapporte.
       if (mission.wholeTree && treeStatus()?.termine) {
-        finish('done', 'arbre entier coupe et ramasse')
-        return
+        const livrer = /rapport|ram[eè]n|apport|livr/i.test(mission.objective ?? '') &&
+          Boolean(host.getBot()?.players?.[mission.requester]?.entity)
+        if (livrer && !mission.livraison) {
+          mission.livraison = true
+          abortPrefetch('arbre fini, bois a rapporter au demandeur')
+          mission.queue = [{ action: 'rejoindre_demandeur', scale: 0.5, scaleLevel: null, choices: {} }]
+          console.log(`[mission] arbre fini : bois a rapporter a ${mission.requester}`)
+        } else if (!livrer || mission.pendingJoin === false) {
+          finish('done', livrer ? 'arbre entier coupe, bois rapporte au demandeur' : 'arbre entier coupe et ramasse')
+          return
+        }
       }
 
       // Une aide obtenue enrichit la documentation des actions : la generation
@@ -4970,12 +4988,12 @@ function createMissionRunner (host, injected = {}) {
       // jamais demandee au modele. `finishAllowed` s en sert pour refuser un
       // arret premature. En fabrication, le quota recolte ne sert pas : la
       // preuve est l objet cible (fabricationCible/Quantite ci-dessous).
-      quota: build.parseQuota(text, { allowBlockUnits: kind === 'recolte' && !fabricationCible }) ?? DEFAULT_QUOTA,
+      quota: build.parseQuota(sansCoordonnees(text), { allowBlockUnits: kind === 'recolte' && !fabricationCible }) ?? DEFAULT_QUOTA,
       // « coupe (moi) un arbre » : le travail est UN arbre entier, pas le quota
       // par defaut. L arbre est fixe par la premiere buche coupee ; la fin est
       // jugee sur ses buches restantes et son bois au sol (finishAllowed).
       wholeTree: kind === 'recolte' && resource === 'bois' && !fabricationCible &&
-        build.parseQuota(text, { allowBlockUnits: true }) === null && WHOLE_TREE_TEXT.test(text),
+        build.parseQuota(sansCoordonnees(text), { allowBlockUnits: true }) === null && WHOLE_TREE_TEXT.test(text),
       tree: null,
       // Fabrication generique : cible validee registre + quantite codee,
       // persistee et servie dans buildState (consigne.fabrication_cible).
@@ -5154,6 +5172,9 @@ function createMissionRunner (host, injected = {}) {
     // Couper le deplacement en cours fait rejeter le goto de l action courante,
     // donc la boucle reprend la main au lieu d attendre son delai.
     try { host.stopPathfinding() } catch (_) {}
+    // Un coup de pioche en cours irait sinon a son terme apres l arret (vu
+    // sur chat/stop-tree : une buche coupee apres « Stop »).
+    try { host.getBot()?.stopDigging() } catch (_) {}
     // Passe par finish(), point de fin unique : le commit de la memoire long
     // terme est fait la, pour un arret comme pour une fin naturelle.
     // Contexte conserve : l objet mission reste lisible via status().
@@ -5171,6 +5192,7 @@ function createMissionRunner (host, injected = {}) {
     mission.cancelled = true
     try { host.stopPathfinding() } catch (_) {}
     try { host.getBot()?.clearControlStates() } catch (_) {}
+    try { host.getBot()?.stopDigging() } catch (_) {}
     abortPrefetch('pause du travail')
     try { mission.navigationAbort.abort() } catch (_) {}
     mission.state = 'paused'

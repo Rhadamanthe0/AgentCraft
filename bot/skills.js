@@ -443,7 +443,7 @@ const ACTIONS = {
     scale: 'hauteur du pilier, de 1 a 6 blocs',
     secondes: 1.5,
     parBloc: true,
-    intent: "Une cible proche est TROP HAUTE (environnement.cible_haute), ou environnement.acces_par_montee mesure une hauteur_min qui rend la cible masquee accessible : monter en pilier avec dirt/coarse_dirt en priorite puis planches solides du registre. Utiliser hauteur_min pour acces_par_montee, sinon denivele - 1 au plus, sans depasser inventaire.echafaudage.total ; inventaire.echafaudage.materiaux detaille le stock. Obtenir et ramasser le manque avant de demander cette hauteur si la consigne le permet. Sable, gravier et feuilles exclus. Chaque montee impose une reobservation avant la suite ; une pose partielle reste un echec mesure. Ne pile pas quand bloc_cible_a_portee est vrai (casse directement), ni dans un liquide, ni sans cible_haute ou acces_par_montee. Cet indice n autorise pas a casser des feuilles",
+    intent: "Une cible proche est TROP HAUTE (environnement.cible_haute), ou environnement.acces_par_montee mesure une hauteur_min qui rend la cible masquee accessible : monter en pilier avec dirt/coarse_dirt en priorite puis planches solides du registre. Utiliser hauteur_min pour acces_par_montee, sinon denivele - 1 au plus ; inventaire.echafaudage.materiaux detaille le stock. Stock court : l action obtient elle-meme la terre manquante (pilier defait puis refait, terre prise a cote), meme perche. Sable, gravier et feuilles exclus. Chaque montee impose une reobservation avant la suite ; une pose partielle reste un echec mesure. Ne pile pas quand bloc_cible_a_portee est vrai (casse directement), ni dans un liquide, ni sans cible_haute ou acces_par_montee. Cet indice n autorise pas a casser des feuilles",
     params: {
       hauteur: {
         json: { kind: 'number', min: 1, max: 6 },
@@ -1200,7 +1200,7 @@ const ACTION_CONTRE_EXEMPLES = {
   avancer: ['environnement.navigation.a_portee vrai -> ne plus avancer, casser sans depasser la cible'],
   piler: [
     'environnement.bloc_cible_a_portee vrai -> ne pas piler, casser directement',
-    'inventaire.echafaudage.total inferieur a la hauteur choisie -> ne pas piler cette hauteur, obtenir et ramasser le manque d abord'
+    'perche sur son pilier sans terre, cible encore trop haute -> ne pas casser de dirt hors de portee : piler directement, l action recupere la terre manquante'
   ],
   construire: ['chantier.materiau_en_inventaire a 0 -> ne pas construire, casser ou fabriquer d abord'],
   terminer: ['progression.unites_recoltees sous le quota -> ne pas terminer, continuer le travail'],

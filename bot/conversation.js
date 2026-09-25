@@ -223,6 +223,11 @@ function createConversation (host) {
     }
     if (relation === 'question') {
       host.say(decision.response)
+    } else if (relation === 'context' && !active && !(before?.etat === 'failed' && decision.clearanceBlocks !== undefined)) {
+      // Une remarque sans mission en cours n est pas un ordre : avant, elle
+      // relancait l objectif precedent (vu sur chat/chatter-ignored : « Je vais
+      // aller miner plus tard » redemarrait un ancien « Rejoins moi »).
+      if (decision.response) host.say(decision.response)
     } else if (!active && before?.etat === 'failed' && ['context', 'amend'].includes(relation) &&
       decision.clearanceBlocks !== undefined && before.parcours?.steps?.some(s => s.type === 'sous_arbre' && s.state === 'failed')) {
       // Une permission arrive souvent APRES le refus de passage. Reprendre
