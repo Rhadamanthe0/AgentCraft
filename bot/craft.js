@@ -710,8 +710,13 @@ async function make (bot, targetName, wanted = 1) {
         const start2 = Date.now()
         await bot.craft(retry.recipe, 1, retryTable)
         ackMs += Date.now() - start2
-        await sleep(250)
-        const after2 = countOf(bot, new RegExp(`^${escapeRegExp(op.target.name)}$`))
+        // Meme attente que le premier essai : produit tardif sous charge.
+        let after2 = beforeTarget
+        for (let waited = 0; waited < 2000; waited += 100) {
+          await sleep(100)
+          after2 = countOf(bot, new RegExp(`^${escapeRegExp(op.target.name)}$`))
+          if (after2 > beforeTarget) break
+        }
         if (after2 - beforeTarget > 0) {
           executedRepeats += 1
           lastError = null

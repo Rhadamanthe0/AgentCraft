@@ -2804,6 +2804,9 @@ function createMissionRunner (host, injected = {}) {
         // « le bot a bouge ». Un trajet bloque loin de l objet ne compte pas.
         if (itemInPickupRange(host.getBot(), after, item.position, ITEM_AUTO_PICKUP)) {
           atteints += 1
+          // A portee mais toujours au sol (vu sur trees/tall : 1/1 atteint,
+          // +0 en inventaire, cinq fois) : un pas droit dessus.
+          if (item.isValid !== false && host.getBot()?.entities?.[item.id]) await stepOnto(item)
         }
       }
 
@@ -2852,6 +2855,21 @@ function createMissionRunner (host, injected = {}) {
       const wanted = Number.isFinite(Number(params.quantite))
         ? Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Math.round(Number(params.quantite))))
         : scaled(scale, CRAFT_MIN, CRAFT_MAX)
+
+      // Un etabli deja pose tout pres suffit : en refaire un pour une autre
+      // cible gaspille 4 planches (vu sur craft/axe : deux etablis, plus de
+      // planches pour la hache). Sauf si l etabli est lui-meme demande.
+      if (target === 'etabli' && mission.fabricationCible && mission.fabricationCible !== 'etabli') {
+        const tableId = bot.registry?.blocksByName?.crafting_table?.id
+        const posee = tableId ? bot.findBlock({ matching: tableId, maxDistance: 6 }) : null
+        if (posee) {
+          return {
+            resultat: `un etabli est deja pose a ${bot.entity.position.distanceTo(posee.position).toFixed(1)} bloc(s) : ` +
+              `fabrique directement ${mission.fabricationCible}, l etabli pose sera utilise`,
+            echec: true
+          }
+        }
+      }
 
       try {
         const made = await craft.make(bot, target, wanted)
@@ -3485,7 +3503,12 @@ function createMissionRunner (host, injected = {}) {
 
         try {
           const result = await withTimeout(
-            build.placeOne(bot, entry.position, material),
+            build.placeOne(bot, entry.position, material, {
+              accept: mission.buildMatch,
+              move: async stand => (await host.navigateToPosition(stand, {
+                signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.35, timeoutMs: 10000
+              }))?.reached === true
+            }),
             PLACE_ONE_TIMEOUT_MS,
             'pose trop longue'
           )

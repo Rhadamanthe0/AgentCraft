@@ -650,14 +650,19 @@ async function clearOfTarget (bot, target) {
   bot.setControlState('forward', false)
 }
 
-async function placeOne (bot, target, itemName) {
+// `accept` : blocs deja bons a cette place (la terre posee pres de l herbe
+// devient grass_block ; sans cela le bot la cassait pour la reposer).
+// `move` : trajet vers le poste de tir (le navigateur partage de la mission),
+// l ancien `moveTo` en gestes restant le repli.
+async function placeOne (bot, target, itemName, { accept = null, move = null } = {}) {
   const existing = bot.blockAt(target)
-  if (existing && existing.name === itemName) return 'deja'
+  if (existing && (existing.name === itemName || accept?.test(existing.name))) return 'deja'
 
   const vantage = findVantage(bot, target)
   if (!vantage) throw new Error('aucun poste de tir au sol a portee')
 
-  await moveTo(bot, vantage.stand)
+  const arrived = move ? await move(vantage.stand).catch(() => false) : false
+  if (!arrived) await moveTo(bot, vantage.stand)
   // moveTo s arrete a ARRIVE_XZ (0,8) du poste : le corps reel (0,6 de large)
   // peut alors deborder sur la case visee et le serveur refuse la pose
   // (« the block is still air », piege 11 ; vu sur build/dirt-box, bot en
