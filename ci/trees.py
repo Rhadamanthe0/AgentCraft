@@ -360,6 +360,33 @@ def levels():
             'kind': 'build', 'give': [('oak_planks', 64)], 'instruction': 'Construis une cabane en bois de 3 par 3 par 3',
             'blocks': ['#minecraft:planks'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
         },
+        # Route levels: a spoken itinerary (go to the player, come back, twice,
+        # under a tree), positions sampled twice a second; see run_route_script.
+        {
+            'name': 'route/go-and-back',
+            'about': '« Viens me voir puis retourne a ta place » : joueur a 16 blocs, retour au point de depart.',
+            'kind': 'route', 'instruction': 'Viens me voir puis retourne a ta place', 'probeAt': (26.5, 200, 18.5),
+            'visits': 1, 'back': True, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'route/two-trips',
+            'about': '« Fais deux allers-retours entre toi et moi » : deux passages pres du joueur, fin au depart.',
+            'kind': 'route', 'instruction': 'Fais deux allers-retours entre toi et moi', 'probeAt': (26.5, 200, 18.5),
+            'visits': 2, 'back': True, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'route/under-tree',
+            'about': '« Va sous l arbre » : finir sous la couronne (5x5), au sol, sans casser l arbre.',
+            'kind': 'route', 'instruction': 'Va sous l arbre', 'probeAt': (4.5, 200, 32.5), 'underTree': True,
+            'visits': 0, 'back': False, 'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)], 'logs': _logs(*trunk3), 'rules': {},
+        },
+        {
+            'name': 'route/around-wall',
+            'about': 'Aller-retour vers un joueur derriere un mur de pierre de 3 de haut (ouvert d un cote).',
+            'kind': 'route', 'instruction': 'Viens me voir puis retourne a ta place', 'probeAt': (26.5, 200, 18.5),
+            'terrain': [(18, 200, 4, 18, 202, SIZE, 'stone')],
+            'visits': 1, 'back': True, 'leaves': [], 'logs': [], 'rules': {},
+        },
         {
             'name': 'trees/tall',
             'about': 'Tronc de 8 buches (Y+0 a Y+7), couronne au-dessus : il faut un pilier de 4 blocs ou plus.',
@@ -457,6 +484,73 @@ def run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, tim
         'arbitration': arbitration, 'answers': {k: {kk: v.get(kk) for kk in ('relation', 'choice', 'arbitration', 'queued', 'error')}
                                                  for k, v in answers.items()},
         'damageTaken': damage, 'botFinalPosition': final.get('position'),
+    }
+
+
+ROUTE_CAP_S = 150
+
+
+def run_route_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count):
+    """A spoken itinerary from the silent probe. Positions are sampled twice a
+    second: a visit is the bot arriving within 3 blocks of the player after
+    having been more than 6 away; `back` asks to end within 1.5 of the start;
+    `underTree` asks to end on the ground under the 5x5 crown, tree intact."""
+    local = level['probeAt']
+    probe = (x0 + local[0], local[1], local[2])
+    rcon(f'tp {probe_name} ' + ' '.join(map(str, probe)))
+    time.sleep(1)
+    s0 = bot_api(bot, '/api/status')
+    start = s0.get('position') or {}
+    logs_before = count(f'{x0} 200 0 {x0 + SIZE} {TOP_Y} {SIZE}', '#minecraft:logs')
+    started = time.monotonic()
+    timeline = []
+    answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
+    visits, far, seen, end_reason = 0, True, False, f'plafond de {ROUTE_CAP_S} s'
+    while time.monotonic() - started < ROUTE_CAP_S:
+        s = bot_api(bot, '/api/status')
+        p = s.get('position') or {}
+        running = bool(s.get('missionRunning'))
+        seen = seen or running
+        if p:
+            d = math.hypot(p['x'] - probe[0], p['z'] - probe[2])
+            if far and d <= 3 and abs(p['y'] - probe[1]) <= 1:
+                visits, far = visits + 1, False
+            elif d > 6:
+                far = True
+        timeline.append({'t': round(time.monotonic() - started, 1), 'pos': p, 'running': running, 'visits': visits})
+        if seen and not running:
+            m = s.get('mission') or {}
+            end_reason = f"mission terminee par le bot ({m.get('etat')} : {m.get('raison')})"
+            break
+        if not seen and time.monotonic() - started > START_TIMEOUT_S:
+            end_reason = 'aucune mission lancee'
+            break
+        time.sleep(.5)
+    final = bot_api(bot, '/api/status')
+    p = final.get('position') or {}
+    damage_answer = rcon(f'scoreboard players get {username} degats')
+    match = re.search(r'has (\d+)', damage_answer)
+    damage = int(match.group(1)) if match else None
+    if final.get('missionRunning'):
+        bot_api(bot, '/api/stop', {})
+    checks = {'aucun_degat': damage == 0, 'mission_terminee': end_reason.startswith('mission terminee')}
+    if level['visits']:
+        checks['joueur_rejoint_assez'] = visits >= level['visits']
+    if level['back']:
+        checks['revenu_au_depart'] = bool(p and start) and math.hypot(p['x'] - start['x'], p['z'] - start['z']) <= 1.5
+    if level.get('underTree'):
+        cx, cz = x0 + TX + .5, TZ + .5
+        checks['sous_la_couronne'] = bool(p) and final.get('onGround') and max(abs(p['x'] - cx), abs(p['z'] - cz)) <= 2.5 \
+            and abs(p['y'] - 200) < .6
+        checks['arbre_intact'] = count(f'{x0} 200 0 {x0 + SIZE} {TOP_Y} {SIZE}', '#minecraft:logs') == logs_before
+    (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
+        json.dumps({'bot': username, 'answer': answer, 'start': start, 'timeline': timeline}, indent=1), encoding='utf-8')
+    failed = [k for k, v in checks.items() if not v]
+    return {
+        'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
+        'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
+        'visits': visits, 'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
+        'botStart': start, 'botFinalPosition': p, 'probe': probe_name,
     }
 
 
@@ -864,7 +958,7 @@ def arena_origins():
 
 
 def mission_type(name):
-    return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre', 'gather': 'ramasser', 'craft': 'fabriquer', 'build': 'construire'}.get(name.split('/')[0], name.split('/')[0])
+    return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre', 'gather': 'ramasser', 'craft': 'fabriquer', 'build': 'construire', 'route': 'parcours'}.get(name.split('/')[0], name.split('/')[0])
 
 
 def wood(inventory, placed_planks=0):
@@ -937,6 +1031,8 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
             return run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_name)
         if level.get('kind') == 'join':
             return run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name)
+        if level.get('kind') == 'route':
+            return run_route_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count)
         if level.get('kind') == 'build':
             return run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count)
         if level.get('kind') == 'gather':
