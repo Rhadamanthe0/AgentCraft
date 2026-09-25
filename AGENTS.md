@@ -188,6 +188,27 @@
   a 200 ms sous charge => « consommation incertaine », mission bloquee).
   `normalizeFabricationTarget` garde un outil a matiere nommee exact
   (`wooden_axe`) : la famille « hache » essayait la pierre d abord.
+- Banc construire (`build/*`, `run_build_script`, blocs comptes par RCON).
+  `build.placeOne` : `moveTo` s arrete a 0,8 du poste, le corps pouvait
+  deborder sur la case visee (« block is still air », piege 11 : 90 etapes,
+  0 bloc) ; `clearOfTarget` recule par petites poussees avant la pose.
+- `craft.make` : recette sur etabli sans etabli pose (4 blocs) ni en poche =>
+  etabli fabrique D ABORD par le planificateur complet, puis nouveau plan.
+  Avant, `ensureTable` consommait 4 planches hors plan (craft/axe : 2 etablis,
+  plus de planches pour la hache).
+- Construction : terre posee devenue `grass_block` acceptee (`buildMatch`
+  terre inclut l herbe ; avant, le bot la cassait pour la reposer, total en
+  baisse) ; trajet vers le poste de tir par le navigateur partage
+  (`placeOne(..., { move })`), `build.moveTo` en repli (« trajet trop long »).
+- `fabriquer etabli` refuse quand un etabli est deja pose a 6 blocs et que la
+  cible est autre chose ; nouvelle tentative de craft attendue 2 s aussi.
+- Cible de fabrication fixee : `fabriquer` refuse ce qui n est ni la cible
+  (ou sa famille), ni planches/batons/etabli (`fabricationUtile` ; vu : pioche
+  fabriquee a la place de la hache). `choisir_terrain` refuse un nouveau
+  chantier une fois le premier commence (vu : 23/24 puis maison refaite).
+- `ramasser` : objet a portee mais encore au sol apres le trajet => `stepOnto`.
+- `piler` au bord d un trou (case sous le centre vide) : un pas vers la case
+  voisine appuyee la plus proche avant de monter (trees/tall).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

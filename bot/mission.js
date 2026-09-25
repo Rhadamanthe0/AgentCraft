@@ -181,6 +181,18 @@ function fabTargetName (raw) {
   return name
 }
 
+// Une fabrication sert-elle la cible du brief ? La cible elle-meme (ou un
+// objet de sa famille : wooden_axe pour « hache »), ou un intermediaire commun.
+const FAMILLES_FAB = { hache: /_axe$/, pioche: /_pickaxe$/, pelle: /_shovel$/, porte: /_door$/, planches: /_planks$/, batons: /^stick$/, etabli: /^crafting_table$/ }
+function fabricationUtile (target, cible) {
+  if (!target || !cible || target === cible) return true
+  if (['planches', 'batons', 'etabli'].includes(target) || /_planks$|^stick$|^crafting_table$/.test(target)) return true
+  const famille = FAMILLES_FAB[cible]
+  if (famille && famille.test(target)) return true
+  const autre = FAMILLES_FAB[target]
+  return Boolean(autre && autre.test(cible))
+}
+
 // Comptage generique de la cible de fabrication dans l inventaire REEL
 // (le code compte, jamais le modele). Cibles FR : motifs d items ; item
 // direct : nom exact. Aucune recette hardcodee par phrase.
@@ -2804,6 +2816,9 @@ function createMissionRunner (host, injected = {}) {
         // « le bot a bouge ». Un trajet bloque loin de l objet ne compte pas.
         if (itemInPickupRange(host.getBot(), after, item.position, ITEM_AUTO_PICKUP)) {
           atteints += 1
+          // A portee mais toujours au sol (vu sur trees/tall : 1/1 atteint,
+          // +0 en inventaire, cinq fois) : un pas droit dessus.
+          if (item.isValid !== false && host.getBot()?.entities?.[item.id]) await stepOnto(item)
         }
       }
 
@@ -2852,6 +2867,32 @@ function createMissionRunner (host, injected = {}) {
       const wanted = Number.isFinite(Number(params.quantite))
         ? Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Math.round(Number(params.quantite))))
         : scaled(scale, CRAFT_MIN, CRAFT_MAX)
+
+      // Cible de fabrication fixee : seuls la cible et ses intermediaires
+      // (planches, batons, etabli) sont utiles. Vu sur craft/axe : une pioche
+      // fabriquee a la place de la hache, planches et batons consommes.
+      if (mission.fabricationCible && !fabricationUtile(target, mission.fabricationCible)) {
+        return {
+          resultat: `${target} n est pas utile pour ${mission.fabricationCible} : fabrique ${mission.fabricationCible} ` +
+            'ou ses ingredients (planches, batons, etabli), rien d autre',
+          echec: true
+        }
+      }
+
+      // Un etabli deja pose tout pres suffit : en refaire un pour une autre
+      // cible gaspille 4 planches (vu sur craft/axe : deux etablis, plus de
+      // planches pour la hache). Sauf si l etabli est lui-meme demande.
+      if (target === 'etabli' && mission.fabricationCible && mission.fabricationCible !== 'etabli') {
+        const tableId = bot.registry?.blocksByName?.crafting_table?.id
+        const posee = tableId ? bot.findBlock({ matching: tableId, maxDistance: 6 }) : null
+        if (posee) {
+          return {
+            resultat: `un etabli est deja pose a ${bot.entity.position.distanceTo(posee.position).toFixed(1)} bloc(s) : ` +
+              `fabrique directement ${mission.fabricationCible}, l etabli pose sera utilise`,
+            echec: true
+          }
+        }
+      }
 
       try {
         const made = await craft.make(bot, target, wanted)
@@ -3191,6 +3232,31 @@ function createMissionRunner (host, injected = {}) {
           echec: true, code: 'stock_echafaudage_insuffisant' }
       }
 
+      // Au bord d un trou (souvent celui ou la terre vient d etre prise) : la
+      // case sous le centre du bot est vide. Un pas vers la case voisine la
+      // plus proche qui a un appui et deux blocs libres (vu sur trees/tall :
+      // trois refus « plus d appui solide sous les pieds »).
+      {
+        const here = bot.entity.position
+        const pied = here.floored()
+        if (!estSolide(bot.blockAt(pied.offset(0, -1, 0)))) {
+          let poste = null
+          for (let dx = -1; dx <= 1; dx += 1) {
+            for (let dz = -1; dz <= 1; dz += 1) {
+              const c = pied.offset(dx, 0, dz)
+              if (!estSolide(bot.blockAt(c.offset(0, -1, 0))) || estSolide(bot.blockAt(c)) || estSolide(bot.blockAt(c.offset(0, 1, 0)))) continue
+              const d = Math.hypot(c.x + 0.5 - here.x, c.z + 0.5 - here.z)
+              if (!poste || d < poste.d) poste = { c, d }
+            }
+          }
+          if (poste) {
+            await host.navigateToPosition(poste.c.offset(0.5, 0, 0.5), {
+              signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.3, distanceBudget: 3, timeoutMs: 4000
+            })
+          }
+        }
+      }
+
       // Un objectif de pathfinder en cours se battrait avec le saut.
       host.stopPathfinding()
 
@@ -3360,6 +3426,19 @@ function createMissionRunner (host, injected = {}) {
       const bot = host.getBot()
       const dims = mission.dimensions
 
+      // Chantier deja commence : en ouvrir un autre recommence la maison
+      // ailleurs (vu sur build/dirt-box : 23/24 poses, nouveau terrain, 23
+      // blocs de plus). On continue le chantier en cours.
+      if (mission.plan) {
+        const progres = buildProgress()
+        if (progres.done > 0) {
+          return {
+            resultat: `chantier deja commence (${progres.done}/${progres.total} poses) : construire la suite, pas de nouveau terrain`,
+            echec: true
+          }
+        }
+      }
+
       // Ou poser le chantier : aupres du repere demande, ou sur place.
       let near = bot.entity.position
       if (mission.landmarkResource) {
@@ -3460,7 +3539,12 @@ function createMissionRunner (host, injected = {}) {
 
         try {
           const result = await withTimeout(
-            build.placeOne(bot, entry.position, material),
+            build.placeOne(bot, entry.position, material, {
+              accept: mission.buildMatch,
+              move: async stand => (await host.navigateToPosition(stand, {
+                signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.35, timeoutMs: 10000
+              }))?.reached === true
+            }),
             PLACE_ONE_TIMEOUT_MS,
             'pose trop longue'
           )

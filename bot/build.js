@@ -629,14 +629,45 @@ async function equipMaterial (bot, itemName) {
 }
 
 // Renvoie 'pose' ou 'deja', ou leve avec une cause lisible.
-async function placeOne (bot, target, itemName) {
+// Le corps du bot (demi-largeur 0,3) recouvre-t-il la case `target` ?
+function standsIn (position, target) {
+  return Math.abs(position.x - (target.x + 0.5)) < 0.8 &&
+    Math.abs(position.z - (target.z + 0.5)) < 0.8 &&
+    position.y < target.y + 1 && position.y + 1.8 > target.y
+}
+
+// Petites poussees en s eloignant du centre de la case, 1,5 s au plus.
+async function clearOfTarget (bot, target) {
+  for (let i = 0; i < 20 && bot?.entity && standsIn(bot.entity.position, target); i += 1) {
+    const p = bot.entity.position
+    const dx = p.x - (target.x + 0.5)
+    const dz = p.z - (target.z + 0.5)
+    try { await bot.look(Math.atan2(-dx, -dz), 0, true) } catch (_) {}
+    bot.setControlState('forward', true)
+    await new Promise(resolve => setTimeout(resolve, 75))
+    bot.setControlState('forward', false)
+  }
+  bot.setControlState('forward', false)
+}
+
+// `accept` : blocs deja bons a cette place (la terre posee pres de l herbe
+// devient grass_block ; sans cela le bot la cassait pour la reposer).
+// `move` : trajet vers le poste de tir (le navigateur partage de la mission),
+// l ancien `moveTo` en gestes restant le repli.
+async function placeOne (bot, target, itemName, { accept = null, move = null } = {}) {
   const existing = bot.blockAt(target)
-  if (existing && existing.name === itemName) return 'deja'
+  if (existing && (existing.name === itemName || accept?.test(existing.name))) return 'deja'
 
   const vantage = findVantage(bot, target)
   if (!vantage) throw new Error('aucun poste de tir au sol a portee')
 
-  await moveTo(bot, vantage.stand)
+  const arrived = move ? await move(vantage.stand).catch(() => false) : false
+  if (!arrived) await moveTo(bot, vantage.stand)
+  // moveTo s arrete a ARRIVE_XZ (0,8) du poste : le corps reel (0,6 de large)
+  // peut alors deborder sur la case visee et le serveur refuse la pose
+  // (« the block is still air », piege 11 ; vu sur build/dirt-box, bot en
+  // 3712.87 pour une case en 3713, 90 etapes sans un bloc).
+  await clearOfTarget(bot, target)
 
   const current = bot.blockAt(target)
   if (current && !isFree(current)) await bot.dig(current)

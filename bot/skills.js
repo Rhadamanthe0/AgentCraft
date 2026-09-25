@@ -770,7 +770,7 @@ const RESOURCES = {
     // On ne batit pas en herbe : en survie elle ne lache que des graines. Une
     // construction demandee « en herbe » se fait donc en terre.
     build: 'dirt',
-    buildMatch: /^(dirt|coarse_dirt)$/,
+    buildMatch: /^(dirt|coarse_dirt|grass_block)$/,
     raw: /^(dirt|coarse_dirt)$/
   },
   // Fix 2 : « ramasse 5 graines » nomme le PRODUIT (wheat_seeds), pas la source.
@@ -783,7 +783,7 @@ const RESOURCES = {
     blocks: ['short_grass', 'tall_grass', 'fern', 'large_fern'],
     items: /^wheat_seeds$/,
     build: 'dirt',
-    buildMatch: /^(dirt|coarse_dirt)$/,
+    buildMatch: /^(dirt|coarse_dirt|grass_block)$/,
     raw: /^(dirt|coarse_dirt)$/
   },
   bois: {
@@ -815,7 +815,7 @@ const RESOURCES = {
     items: /_leaves$|_sapling$|^(apple|stick)$/,
     // Les feuilles ne tombent qu a la cisaille : on batit en terre a la place.
     build: 'dirt',
-    buildMatch: /^(dirt|coarse_dirt)$/,
+    buildMatch: /^(dirt|coarse_dirt|grass_block)$/,
     raw: /^(dirt|coarse_dirt)$/
   },
   fleur: {
@@ -827,7 +827,7 @@ const RESOURCES = {
     ],
     items: /^(dandelion|poppy|blue_orchid|allium|azure_bluet|.*_tulip|oxeye_daisy|cornflower|lily_of_the_valley|torchflower|pink_petals)$/,
     build: 'dirt',
-    buildMatch: /^(dirt|coarse_dirt)$/,
+    buildMatch: /^(dirt|coarse_dirt|grass_block)$/,
     raw: /^(dirt|coarse_dirt)$/
   },
   pierre: {
@@ -845,7 +845,7 @@ const RESOURCES = {
     items: /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mud|hanging_roots)$/,
     // Un bloc d herbe casse lache de la terre : c est elle qu on pose.
     build: 'dirt',
-    buildMatch: /^(dirt|coarse_dirt)$/,
+    buildMatch: /^(dirt|coarse_dirt|grass_block)$/,
     raw: /^(dirt|coarse_dirt|rooted_dirt)$/
   },
   sable: {
@@ -882,7 +882,7 @@ const RESOURCES = {
     blocks: [],
     items: /^$/,
     build: 'dirt',
-    buildMatch: /^(dirt|coarse_dirt)$/,
+    buildMatch: /^(dirt|coarse_dirt|grass_block)$/,
     raw: /^(dirt|coarse_dirt)$/
   }
 }
