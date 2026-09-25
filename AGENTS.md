@@ -155,9 +155,14 @@
 - Quota et « arbre entier » se lisent sur l objectif SANS coordonnees
   (`sansCoordonnees`) : un objectif reecrit citant « x:2330.5, y:200 »
   devenait un quota de 5 buches (chat/join-then-tree).
-- `PLANNER_THINKING=disabled` : un 400 « Upstream request failed » (panne
-  passagere Zen) ne retire plus le champ thinking pour la session ; avant, le
-  raisonnement se rallumait (troncatures, delais de 30 s ; trees/bent).
+- `PLANNER_THINKING=disabled` : un 400 avec le champ thinking rejoue l appel
+  aussitot SANS lui ; deux refus suivis d un succes retirent le champ pour la
+  session. Un fournisseur aiguille par session peut le refuser en « Upstream
+  request failed: Invalid request parameters » (vu : un bot sur 16, muet).
+- `climbToward` (falaise) exige un vrai sol sous le pied de l arbre : une
+  buche restee en l air (tronc coupe par le bas) declenchait un pilier de 5
+  puis une chute (trees/pillar). `gatherDirt(..., { sol })` perche sur son
+  pilier vise aussi le sol deux niveaux plus bas (trees/tall).
 - `piler` a court de terre : collecte bornee (`gatherDirt` 25 s,
   `collectScaffoldDrops` 15 s, trajets 8 s max) ; sans borne, un bot tombe
   dans son propre trou sautait sur place plus de 2 min (chat/replace-and-join).

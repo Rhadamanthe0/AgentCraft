@@ -761,10 +761,14 @@ function createMissionRunner (host, injected = {}) {
       const here = bot.entity.position
       const feetY = Math.floor(here.y + 0.01)
       const eye = here.offset(0, 1.62, 0)
+      // Perche sur son pilier : le sol est deux niveaux plus bas (vu sur
+      // trees/tall : rien a creuser a -1, piler echouait faute de terre).
+      const sous = bot.blockAt(here.offset(0, -0.5, 0))
+      const perche = sol && Boolean(sous) && (PILER_DIRT.test(sous.name) || /_planks$/.test(sous.name)) && isPillarBlock(bot, sous)
       let best = null
       for (let dx = -3; dx <= 3; dx += 1) {
         for (let dz = -3; dz <= 3; dz += 1) {
-          for (let dy = sol ? -1 : 0; dy <= 2; dy += 1) {
+          for (let dy = sol ? (perche ? -2 : -1) : 0; dy <= 2; dy += 1) {
             // Le sol n est pris qu a cote du bot, jamais sous ses pieds.
             if (dy < 0 && Math.abs(dx) + Math.abs(dz) < 2) continue
             const block = bot.blockAt(new Vec3(Math.floor(here.x) + dx, feetY + dy, Math.floor(here.z) + dz))
@@ -1020,8 +1024,14 @@ function createMissionRunner (host, injected = {}) {
     const bot = host.getBot()
     if (!bot?.entity || !cible) return null
     const feetY = Math.floor(bot.entity.position.y + 0.01)
-    const hauteur = standingLevel(cible) - feetY
+    const pied = standingLevel(cible)
+    const hauteur = pied - feetY
     if (hauteur < 2 || hauteur > PILER_MAX) return null
+    // Seulement pour un arbre pose sur un relief : sous son pied, un vrai sol.
+    // Une buche restee en l air (tronc coupe par le bas) n est pas une falaise
+    // (vu sur trees/pillar : pilier de 5 construit sous elle, chute, degats).
+    const sol = bot.blockAt(new Vec3(cible.position.x, pied - 1, cible.position.z))
+    if (!sol || sol.boundingBox !== 'block' || /_leaves$|_log$|_wood$/.test(sol.name)) return null
     const creuses = await gatherDirt(hauteur)
     if (scaffoldingStock(bot).total < hauteur) return null
     const pile = await ACTIONS.piler(null, { hauteur })
