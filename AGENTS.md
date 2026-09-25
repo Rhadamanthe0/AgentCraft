@@ -188,6 +188,16 @@
   a 200 ms sous charge => « consommation incertaine », mission bloquee).
   `normalizeFabricationTarget` garde un outil a matiere nommee exact
   (`wooden_axe`) : la famille « hache » essayait la pierre d abord.
+- Banc construire (`build/*`, `run_build_script`, blocs comptes par RCON).
+  `build.placeOne` : `moveTo` s arrete a 0,8 du poste, le corps pouvait
+  deborder sur la case visee (« block is still air », piege 11 : 90 etapes,
+  0 bloc) ; `clearOfTarget` recule par petites poussees avant la pose.
+- `craft.make` : recette sur etabli sans etabli pose (4 blocs) ni en poche =>
+  etabli fabrique D ABORD par le planificateur complet, puis nouveau plan.
+  Avant, `ensureTable` consommait 4 planches hors plan (craft/axe : 2 etablis,
+  plus de planches pour la hache).
+- `piler` au bord d un trou (case sous le centre vide) : un pas vers la case
+  voisine appuyee la plus proche avant de monter (trees/tall).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

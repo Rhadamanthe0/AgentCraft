@@ -3191,6 +3191,31 @@ function createMissionRunner (host, injected = {}) {
           echec: true, code: 'stock_echafaudage_insuffisant' }
       }
 
+      // Au bord d un trou (souvent celui ou la terre vient d etre prise) : la
+      // case sous le centre du bot est vide. Un pas vers la case voisine la
+      // plus proche qui a un appui et deux blocs libres (vu sur trees/tall :
+      // trois refus « plus d appui solide sous les pieds »).
+      {
+        const here = bot.entity.position
+        const pied = here.floored()
+        if (!estSolide(bot.blockAt(pied.offset(0, -1, 0)))) {
+          let poste = null
+          for (let dx = -1; dx <= 1; dx += 1) {
+            for (let dz = -1; dz <= 1; dz += 1) {
+              const c = pied.offset(dx, 0, dz)
+              if (!estSolide(bot.blockAt(c.offset(0, -1, 0))) || estSolide(bot.blockAt(c)) || estSolide(bot.blockAt(c.offset(0, 1, 0)))) continue
+              const d = Math.hypot(c.x + 0.5 - here.x, c.z + 0.5 - here.z)
+              if (!poste || d < poste.d) poste = { c, d }
+            }
+          }
+          if (poste) {
+            await host.navigateToPosition(poste.c.offset(0.5, 0, 0.5), {
+              signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.3, distanceBudget: 3, timeoutMs: 4000
+            })
+          }
+        }
+      }
+
       // Un objectif de pathfinder en cours se battrait avec le saut.
       host.stopPathfinding()
 

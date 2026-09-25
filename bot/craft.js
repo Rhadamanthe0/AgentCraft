@@ -592,6 +592,21 @@ async function make (bot, targetName, wanted = 1) {
     }
   }
 
+  // Recette sur etabli sans etabli pose ni en poche : ensureTable en
+  // fabriquait un en cours d execution (4 planches) sans que le plan l ait
+  // compte ; la recette suivante manquait alors de planches (vu sur craft/axe :
+  // deux etablis, hache impossible). L etabli d abord, par le planificateur
+  // complet, puis nouveau plan sur l inventaire reel.
+  const needsTable = bestPlan.operations.some(op => op.requiresTable)
+  if (needsTable && bestItem !== 'crafting_table' && !findItem(bot, 'crafting_table')) {
+    const tableId = bot.registry?.blocksByName?.crafting_table?.id
+    const placed = tableId && typeof bot.findBlock === 'function' ? bot.findBlock({ matching: tableId, maxDistance: 4 }) : null
+    if (!placed) {
+      await make(bot, 'crafting_table', 1)
+      return make(bot, targetName, wanted)
+    }
+  }
+
   const finalItem = bestPlan.operations.length > 0
     ? bestPlan.operations[bestPlan.operations.length - 1].target.name
     : bestItem
