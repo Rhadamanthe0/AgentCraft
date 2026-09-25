@@ -1231,7 +1231,8 @@ Objectifs autorises :
 - {"type":"retour"} : revenir exactement pres du depart initial du bot.
 - {"type":"regarder"} : regarder le demandeur.
 - {"type":"sous_arbre"} : se placer sous la couronne d un arbre proche du bot.
-  "mets-toi sous un arbre" (meme mal orthographie "abre") est un POSITIONNEMENT,
+  "mets-toi sous un arbre", "va sous l arbre" (meme mal orthographie "abre")
+  sont un POSITIONNEMENT,
   parcours [{"type":"sous_arbre"}], pas une recolte de bois ni un craft de hache.
   Le code choisit un emplacement libre, verifie le couvert et y navigue.
 - {"type":"aller_retour","repetitions":2} : deux allers complets vers le

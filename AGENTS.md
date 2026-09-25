@@ -20,6 +20,12 @@
   l echafaudage (dirt/planches) sous ses pieds jusqu au niveau de l objet.
 - Buche tombee sur des feuilles (bout de branche) : `ramasser` casse la
   seule feuille qui la porte (en s en approchant si besoin) pour la faire tomber.
+  Meme geste pour une buche posee au sommet d une colonne d echafaudage du
+  bot (dirt/planches isolees) : bloc casse, repete tant que c est la colonne.
+  Jamais la colonne sous les pieds du bot. Pont de recolte (`avancer`) sur
+  liquide seulement (`gapToward(..., { liquidOnly })`) : perche, le vide
+  alentour passait pour un fosse (pont en l air). `descendScaffold` ne casse
+  un bloc que s il y a un appui dessous (chute d un bloc au plus).
 - Reponse tronquee (max_tokens) du modele unique : `callWithProfile` rejoue
   UNE fois a budget double (>= 4000), meme delai ; avant, trois troncatures
   d affilee faisaient echouer la mission (vu sur trees/bent).
@@ -200,8 +206,8 @@
   terre inclut l herbe ; avant, le bot la cassait pour la reposer, total en
   baisse) ; trajet vers le poste de tir par le navigateur partage
   (`placeOne(..., { move })`), `build.moveTo` en repli (« trajet trop long »).
-- `fabriquer etabli` refuse quand un etabli est deja pose a 6 blocs et que la
-  cible est autre chose ; nouvelle tentative de craft attendue 2 s aussi.
+- `fabriquer etabli` refuse quand un etabli est deja pose a 6 blocs, ou deja
+  en inventaire, et que la cible est autre chose ; nouvelle tentative de craft attendue 2 s aussi.
 - Cible de fabrication fixee : `fabriquer` refuse ce qui n est ni la cible
   (ou sa famille), ni planches/batons/etabli (`fabricationUtile` ; vu : pioche
   fabriquee a la place de la hache). `choisir_terrain` refuse un nouveau
@@ -209,6 +215,10 @@
 - `ramasser` : objet a portee mais encore au sol apres le trajet => `stepOnto`.
 - `piler` au bord d un trou (case sous le centre vide) : un pas vers la case
   voisine appuyee la plus proche avant de monter (trees/tall).
+- Banc parcours (`route/*`, `run_route_script`) : aller-retour, deux
+  allers-retours, sous l arbre, autour d un mur. « Va sous l arbre » lu en
+  simple deplacement sans parcours => le code retient [sous_arbre] (et le
+  prompt porte l exemple) ; sinon le bot cherchait l arbre sans s y placer.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

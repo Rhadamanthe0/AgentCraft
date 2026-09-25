@@ -729,7 +729,14 @@ function createMissionRunner (host, injected = {}) {
     try { dropped = item.getDroppedItem?.() } catch (_) {}
     if (!dropped || !TREE_LOG.test(dropped.name)) return false
     const support = bot.blockAt(item.position.offset(0, -0.2, 0))
-    if (!support || !/_leaves$/.test(support.name)) return false
+    // Feuilles, ou colonne d echafaudage du bot (vu sur trees/tall : derniere
+    // buche posee au sommet d un ancien pilier, sans chemin depuis l autre).
+    // Jamais la colonne ou le bot se tient : la casser le ferait chuter (vu :
+    // degats sur trees/tall et trees/bent au premier essai de ce geste).
+    const pieds = bot.entity.position.floored()
+    const colonne = support && (PILER_DIRT.test(support.name) || /_planks$/.test(support.name)) && isPillarBlock(bot, support) &&
+      !(support.position.x === pieds.x && support.position.z === pieds.z)
+    if (!support || !(/_leaves$/.test(support.name) || colonne)) return false
     const center = support.position.offset(0.5, 0.5, 0.5)
     if (bot.entity.position.offset(0, 1.62, 0).distanceTo(center) > REACH) {
       const nav = await host.navigateToPosition(center, {
@@ -744,8 +751,11 @@ function createMissionRunner (host, injected = {}) {
     } catch (_) {
       return false
     }
-    mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
+    if (!colonne) mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
     await sleep(600)
+    // L objet retombe sur le bloc suivant de la colonne : recommencer tant que
+    // c est encore de l echafaudage (jamais le sol naturel, jamais un puits).
+    if (colonne && item.isValid !== false) await dropFromLeaves(item)
     return true
   }
 
@@ -907,7 +917,7 @@ function createMissionRunner (host, injected = {}) {
 
   // Eau, lave ou vide au niveau du sol sur la ligne droite (axe dominant)
   // vers `target`, a 12 cases au plus : un pont est necessaire.
-  function gapToward (target) {
+  function gapToward (target, { liquidOnly = false } = {}) {
     const bot = host.getBot()
     if (!bot?.entity || !target) return false
     const start = bot.entity.position.floored()
@@ -925,7 +935,7 @@ function createMissionRunner (host, injected = {}) {
       const p = start.plus(dir.scaled(i))
       const sol = bot.blockAt(p.offset(0, -1, 0))
       if (liquide(sol)) return true
-      if (!plusBas && vide(sol) && vide(bot.blockAt(p.offset(0, -2, 0))) && vide(bot.blockAt(p.offset(0, -3, 0)))) return true
+      if (!liquidOnly && !plusBas && vide(sol) && vide(bot.blockAt(p.offset(0, -2, 0))) && vide(bot.blockAt(p.offset(0, -3, 0)))) return true
     }
     return false
   }
@@ -981,8 +991,8 @@ function createMissionRunner (host, injected = {}) {
   // Par tours : terre prise derriere la tete de pont (un trou au bord de l eau
   // agrandirait la riviere), retour a la tete de pont, blocs poses tant qu il
   // en reste ; jusqu a l autre rive. Rend vrai si plus aucun trou ne barre.
-  async function bridgeRounds (goal, owner) {
-    for (let tour = 0; tour < 4 && gapToward(goal) && !mission?.cancelled; tour += 1) {
+  async function bridgeRounds (goal, owner, { liquidOnly = false } = {}) {
+    for (let tour = 0; tour < 4 && gapToward(goal, { liquidOnly }) && !mission?.cancelled; tour += 1) {
       const tete = host.getBot().entity.position.clone()
       if (scaffoldingStock(host.getBot()).total < 3) {
         // Terre prise derriere soi seulement : un trou au bord de l eau se
@@ -1000,7 +1010,7 @@ function createMissionRunner (host, injected = {}) {
       console.log(`[mission] pont : ${bridged ?? 'rien pose'}`)
       if (!bridged) break
     }
-    return !gapToward(goal)
+    return !gapToward(goal, { liquidOnly })
   }
 
   // Ramasse la terre tombee pres du bot (un bloc creuse dans une paroi lache
@@ -1102,6 +1112,9 @@ function createMissionRunner (host, injected = {}) {
       const below = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
       if (!below || !(PILER_DIRT.test(below.name) || /_planks$/.test(below.name))) break
       if (pillarOnly && !isPillarBlock(bot, below)) break
+      // Chute d un bloc au plus : il faut un appui sous le bloc casse.
+      const dessous = bot.blockAt(below.position.offset(0, -1, 0))
+      if (!dessous || dessous.boundingBox !== 'block') break
       try {
         await withTimeout(bot.lookAt(below.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
         await withTimeout(bot.dig(below), 6000, 'creusage trop long')
@@ -2892,6 +2905,15 @@ function createMissionRunner (host, injected = {}) {
             echec: true
           }
         }
+        // Deja en poche : il sera pose tout seul par la fabrication de la cible
+        // (vu sur craft/axe : deux etablis d affilee, plus de bois pour la hache).
+        if (craft.countOf(bot, /^crafting_table$/) > 0) {
+          return {
+            resultat: `un etabli est deja dans l inventaire : fabrique directement ${mission.fabricationCible}, ` +
+              'l etabli sera pose automatiquement',
+            echec: true
+          }
+        }
       }
 
       try {
@@ -3133,8 +3155,11 @@ function createMissionRunner (host, injected = {}) {
       // entrait, et le bot ne ressort pas de l eau en 26.1 (vu sur
       // terrain/moat). Pont de terre pose a la main, sinon echec franc.
       let noye = false
-      if (result.code === 'no_path' && mission.kind === 'recolte' && !mission.cancelled && gapToward(cible.position)) {
-        const bridged = await bridgeRounds(cible.position, stepToken)
+      // Eau seulement : perche sur un pilier, le vide alentour n est pas un
+      // fosse (vu sur trees/tall : pont pose en l air depuis le pilier, puis
+      // chute de 4 blocs en le defaisant).
+      if (result.code === 'no_path' && mission.kind === 'recolte' && !mission.cancelled && gapToward(cible.position, { liquidOnly: true })) {
+        const bridged = await bridgeRounds(cible.position, stepToken, { liquidOnly: true })
         if (bridged) {
           degage += ' (pont de terre pose)'
           result = await approach()
@@ -5072,6 +5097,14 @@ function createMissionRunner (host, injected = {}) {
     // valide au registre (craft.TARGETS ou itemsByName). Quantite lue par le
     // code (brief indicatif, sinon parseQuota, sinon 1). Revision : un amend
     // qui ne restate pas la cible la conserve.
+    // « Va sous l arbre » lu en simple deplacement vers un repere arbre (vu sur
+    // route/under-tree : le bot cherchait l arbre sans jamais s y placer) :
+    // c est le parcours sous_arbre, que le code sait verifier.
+    if (!brief.route && brief.kind !== 'recolte' && !brief.fabrication &&
+      /\bsous\s+(?:l['’ ]\s*|un\s+|cet\s+|le\s+)?arbre\b/i.test(text)) {
+      console.log('[mission] « sous l arbre » sans parcours : parcours [sous_arbre] retenu')
+      brief = { ...brief, route: [{ type: 'sous_arbre' }] }
+    }
     let kind = brief.route ? 'geste' : (skills.KINDS[brief.kind] ? brief.kind : 'recolte')
     const landmark = skills.LANDMARKS[brief.landmark] ? brief.landmark : 'ici'
     const dimensions = build.parseDimensions(text)
