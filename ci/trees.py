@@ -313,6 +313,31 @@ def base_levels():
                         (TX-1, 199, TZ-1, TX+1, 199, TZ+1, 'sand')],
             'target': 4, 'leaves': [], 'logs': [], 'rules': {},
         },
+        # Reflexes (mode `reflexes`, A/B) : situations ou un geste sans le
+        # modele devrait aider ; chaque niveau joue aussi sans reflexes.
+        {
+            'name': 'reflex/buried-head',
+            'about': 'Tete du bot prise dans la terre au depart (eboulement), « Cueille 3 fleurs » : degats mesures, pas bloquants.',
+            'kind': 'gather', 'instruction': 'Cueille 3 fleurs', 'items': ['poppy'], 'headBlock': 'dirt',
+            'terrain': [(p[0], 200, p[1], p[0], 200, p[1], 'poppy') for p in ((20, 8), (26, 22), (6, 30), (30, 30))],
+            'target': 3, 'allowDamage': True, 'variants': [sans('reflexes')], 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'reflex/lava-flowers',
+            'about': '« Cueille 3 fleurs » : quatre tulipes chacune au bord d une coulee de lave (au niveau du sol) ; 0 degat.',
+            'kind': 'gather', 'instruction': 'Cueille 3 fleurs', 'items': ['orange_tulip'],
+            'terrain': [(4, 199, 12, 30, 199, 12, 'lava')] +
+                       [(x, 200, 11, x, 200, 11, 'orange_tulip') for x in (8, 15, 22, 28)],
+            'target': 3, 'variants': [sans('reflexes')], 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'reflex/scattered-loot',
+            'about': '« Cueille 2 fleurs » avec six objets par terre sur le chemin (pain, pommes, batons) : objets ramasses en plus mesures.',
+            'kind': 'gather', 'instruction': 'Cueille 2 fleurs', 'items': ['cornflower'],
+            'terrain': [(p[0], 200, p[1], p[0], 200, p[1], 'cornflower') for p in ((24, 18), (28, 20))],
+            'loot': [('bread', 13, 18), ('apple', 15, 19), ('stick', 17, 17), ('bread', 19, 18), ('apple', 21, 19), ('stick', 23, 17)],
+            'target': 2, 'variants': [sans('reflexes')], 'leaves': [], 'logs': [], 'rules': {},
+        },
         # Craft levels: same runner as gather/* ; `give` stocks the bot by RCON
         # before the order (fixture only, like the arena itself).
         {
@@ -719,9 +744,23 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     rcon(f'tp {probe_name} {x0 + 4.5} 200 {32.5}')
     for item, amount in level.get('give', []):
         rcon(f'give {username} minecraft:{item} {amount}')
+    # Reflex fixtures: a block in the bot's head (buried by a fall), objects
+    # lying around (not asked for: picking them up is a reflex, not the task).
+    start = level.get('start', LOCAL_START)
+    if level.get('headBlock'):
+        rcon(f"setblock {x0 + int(start[0])} {int(start[1]) + 1} {int(start[2])} {level['headBlock']}")
+    for item, dx, dz in level.get('loot', []):
+        rcon(f'summon item {x0 + dx} 200.2 {dz} {{Item:{{id:"minecraft:{item}",count:1}}}}')
     started = time.monotonic()
     timeline = []
     answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
+
+    def bonus():
+        total = 0
+        for item in {i for i, _, _ in level.get('loot', [])}:
+            match = re.search(r'Found (\d+)', rcon(f'clear {username} minecraft:{item} 0'))
+            total += int(match.group(1)) if match else 0
+        return total
 
     def held():
         total = 0
@@ -760,7 +799,7 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         bot_api(bot, '/api/stop', {})
     checks = {'quantite_en_inventaire': count >= level['target'],
               # Feet on the floor block (199) at worst: one dug block, never a pit.
-              'pas_de_puits': lowest >= 198.9, 'aucun_degat': damage == 0,
+              'pas_de_puits': lowest >= 198.9, 'aucun_degat': damage == 0 or bool(level.get('allowDamage')),
               # The bot must know it is done, not run until the cap.
               'mission_terminee': end_reason.startswith('mission terminee')}
     (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
@@ -770,6 +809,7 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
         'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
         'itemsHeld': count, 'target': level['target'], 'lowestStandingY': round(lowest, 2),
+        **({'bonusItems': bonus()} if level.get('loot') else {}),
         'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
         'botFinalPosition': final.get('position'), 'probe': probe_name,
     }

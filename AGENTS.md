@@ -265,6 +265,10 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   ramasse les objets au sol a <= 4 blocs au meme niveau (jamais apres `donner`
   ni pendant une livraison ; un objet rate est ignore ensuite ; 4 s max).
   Journal servi au modele : `environnement.reflexes_recents`.
+  Interrupteur `reflexes` ; niveaux A/B `reflex/buried-head` (tete dans la
+  terre au depart, degats mesures), `reflex/lava-flowers` (fleurs au bord
+  d une coulee de lave, 0 degat), `reflex/scattered-loot` (objets par terre,
+  `bonusItems` = objets non demandes ramasses).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

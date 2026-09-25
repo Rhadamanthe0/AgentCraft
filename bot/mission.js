@@ -1069,6 +1069,8 @@ function createMissionRunner (host, injected = {}) {
   async function reflexPass (owner, lastAction) {
     const bot = host.getBot()
     if (!mission || mission.cancelled || !bot?.entity || lastAction === 'terminer') return
+    // Interrupteur A/B `reflexes` : coupe, aucun geste hors du modele.
+    if (!featureOn('reflexes')) return
     const myMission = mission
     const note = (reflexe, detail) => {
       myMission.reflexes = (myMission.reflexes ?? []).concat({ apres_etape: myMission.steps + 1, reflexe, detail }).slice(-6)
