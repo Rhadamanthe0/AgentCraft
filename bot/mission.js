@@ -181,6 +181,18 @@ function fabTargetName (raw) {
   return name
 }
 
+// Une fabrication sert-elle la cible du brief ? La cible elle-meme (ou un
+// objet de sa famille : wooden_axe pour « hache »), ou un intermediaire commun.
+const FAMILLES_FAB = { hache: /_axe$/, pioche: /_pickaxe$/, pelle: /_shovel$/, porte: /_door$/, planches: /_planks$/, batons: /^stick$/, etabli: /^crafting_table$/ }
+function fabricationUtile (target, cible) {
+  if (!target || !cible || target === cible) return true
+  if (['planches', 'batons', 'etabli'].includes(target) || /_planks$|^stick$|^crafting_table$/.test(target)) return true
+  const famille = FAMILLES_FAB[cible]
+  if (famille && famille.test(target)) return true
+  const autre = FAMILLES_FAB[target]
+  return Boolean(autre && autre.test(cible))
+}
+
 // Comptage generique de la cible de fabrication dans l inventaire REEL
 // (le code compte, jamais le modele). Cibles FR : motifs d items ; item
 // direct : nom exact. Aucune recette hardcodee par phrase.
@@ -2856,6 +2868,17 @@ function createMissionRunner (host, injected = {}) {
         ? Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Math.round(Number(params.quantite))))
         : scaled(scale, CRAFT_MIN, CRAFT_MAX)
 
+      // Cible de fabrication fixee : seuls la cible et ses intermediaires
+      // (planches, batons, etabli) sont utiles. Vu sur craft/axe : une pioche
+      // fabriquee a la place de la hache, planches et batons consommes.
+      if (mission.fabricationCible && !fabricationUtile(target, mission.fabricationCible)) {
+        return {
+          resultat: `${target} n est pas utile pour ${mission.fabricationCible} : fabrique ${mission.fabricationCible} ` +
+            'ou ses ingredients (planches, batons, etabli), rien d autre',
+          echec: true
+        }
+      }
+
       // Un etabli deja pose tout pres suffit : en refaire un pour une autre
       // cible gaspille 4 planches (vu sur craft/axe : deux etablis, plus de
       // planches pour la hache). Sauf si l etabli est lui-meme demande.
@@ -3402,6 +3425,19 @@ function createMissionRunner (host, injected = {}) {
     async choisir_terrain () {
       const bot = host.getBot()
       const dims = mission.dimensions
+
+      // Chantier deja commence : en ouvrir un autre recommence la maison
+      // ailleurs (vu sur build/dirt-box : 23/24 poses, nouveau terrain, 23
+      // blocs de plus). On continue le chantier en cours.
+      if (mission.plan) {
+        const progres = buildProgress()
+        if (progres.done > 0) {
+          return {
+            resultat: `chantier deja commence (${progres.done}/${progres.total} poses) : construire la suite, pas de nouveau terrain`,
+            echec: true
+          }
+        }
+      }
 
       // Ou poser le chantier : aupres du repere demande, ou sur place.
       let near = bot.entity.position
