@@ -508,6 +508,23 @@ def base_levels():
             'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
             'logs': _logs(*trunk3),
             'rules': {},
+        },        # Tour 4 : chaines de prerequis calculees par le code (acquire-plan.js).
+        # Rien en poche : il faut trouver seul la chaine bois -> outil -> pierre.
+        {
+            'name': 'craft/stone-pickaxe',
+            'about': 'Inventaire vide, un arbre et un rocher : « Fabrique une pioche en pierre » (bois, pioche en bois, pierre).',
+            'kind': 'gather', 'instruction': 'Fabrique une pioche en pierre', 'items': ['stone_pickaxe'],
+            'target': 1, 'cap': 300,
+            'terrain': [(26, 200, 6, 28, 201, 8, 'stone')],
+            'leaves': [(6, 204, 26, 10, 205, 30)], 'logs': _logs(*[(8, 200 + i, 28) for i in range(4)]), 'rules': {},
+        },
+        {
+            'name': 'craft/torches',
+            'about': 'Inventaire vide, un arbre, un rocher avec un minerai de charbon : « Fabrique 4 torches ».',
+            'kind': 'gather', 'instruction': 'Fabrique 4 torches', 'items': ['torch'],
+            'target': 4, 'cap': 300,
+            'terrain': [(4, 200, 4, 6, 201, 6, 'stone'), (6, 200, 5, 6, 200, 5, 'coal_ore')],
+            'leaves': [(24, 204, 24, 28, 205, 28)], 'logs': _logs(*[(26, 200 + i, 26) for i in range(4)]), 'rules': {},
         },
     ]
 
@@ -826,7 +843,9 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
 
     lowest, seen, count, end_reason = 200.0, False, 0, f'plafond de {GATHER_CAP_S} s'
     last_count_at = 0
-    while time.monotonic() - started < GATHER_CAP_S:
+    cap = level.get('cap', GATHER_CAP_S)
+    end_reason = f'plafond de {cap} s'
+    while time.monotonic() - started < cap:
         s = bot_api(bot, '/api/status')
         p = s.get('position') or {}
         running = bool(s.get('missionRunning'))

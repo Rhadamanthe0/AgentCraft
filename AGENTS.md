@@ -425,6 +425,15 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   rejeu 16384 (plafond, pas un delai). Mesure CPU de l agent MINIPC-CLEM : CI a
   199 % en moyenne, 400 % seulement au demarrage (build, Paper, connexions),
   182 % ensuite ; 0 evenement memoire ; 16 bots gardes.
+- Solveur de prerequis (`bot/acquire-plan.js`, idee GITM / Mindcraft, table
+  de cuisson reprise de Mindcraft, MIT) : pour une fabrication, calcule depuis
+  l inventaire reel la chaine recolter / fabriquer / cuire, l outil exige par
+  chaque bloc source (`harvestTools`), l etabli d abord, la variante preferee
+  (bois, pierre) et les voies alternatives (charbon mine plutot que cuit). La
+  cuisson est planifiee mais signalee non geree (`bloque`). Servi au modele
+  dans `environnement.prerequis` ; `harvestResource()` fait viser a `casser`
+  la matiere de la premiere recolte du plan (bois puis pierre). Niveaux CI
+  `craft/stone-pickaxe` et `craft/torches` (inventaire vide).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

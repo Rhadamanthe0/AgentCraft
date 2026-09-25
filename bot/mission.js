@@ -21,6 +21,7 @@
 const skills = require('./skills')
 const build = require('./build')
 const craft = require('./craft')
+const acquirePlan = require('./acquire-plan')
 const delivery = require('./delivery')
 const Vec3 = require('vec3').Vec3
 const jev = require('./jev')
@@ -777,7 +778,51 @@ function createMissionRunner (host, injected = {}) {
   }
 
   function targetBlockIds () {
-    return mission ? blockIdsFor(mission.resource) : []
+    return mission ? blockIdsFor(harvestResource()) : []
+  }
+
+  // Solveur de prerequis (acquire-plan.js, idee GITM/Mindcraft) : en
+  // fabrication, le code calcule la chaine complete depuis l inventaire reel
+  // (recolter, fabriquer, outil exige par un bloc, etabli) ; le modele decide
+  // quoi en faire. Recalcule quand l inventaire ou l etabli proche changent.
+  function acquisition () {
+    if (!mission?.fabricationCible) return null
+    const bot = host.getBot()
+    const registry = craft.getDataset(bot)
+    if (!bot?.entity || !registry?.itemsByName) return null
+    const inv = craft.inventoryMap(bot)
+    const now = Date.now()
+    const cache = mission.acquisition
+    let tableNearby = cache?.tableNearby ?? false
+    if (!cache || now - cache.tableAt > 2000) {
+      const tableId = bot.registry?.blocksByName?.crafting_table?.id
+      try { tableNearby = Boolean(tableId && bot.findBlock({ matching: tableId, maxDistance: 6 })) } catch (_) {}
+    }
+    const key = JSON.stringify([mission.fabricationCible, mission.fabricationQuantite, inv, tableNearby])
+    if (cache?.key === key) return cache.plan
+    // Alias FR (pioche, hache...) : le candidat au plan le plus court.
+    const alias = craft.TARGETS[mission.fabricationCible]
+    const candidates = alias ? alias.resolve(bot) : [mission.fabricationCible]
+    const wanted = Math.max(1, (mission.fabricationQuantite ?? 1) - fabricationProduced())
+    let best = null
+    for (const target of candidates) {
+      let plan
+      try {
+        plan = acquirePlan.planAcquire({ registry, target, count: wanted, inventory: inv, resources: skills.RESOURCES, tableNearby })
+      } catch (_) { continue }
+      if (!best || (plan.ok && !best.ok) || (plan.ok === best.ok && plan.etapes.length < best.etapes.length)) best = plan
+    }
+    mission.acquisition = { key, plan: best, tableNearby, tableAt: cache && now - cache.tableAt <= 2000 ? cache.tableAt : now }
+    return best
+  }
+
+  // Matiere a recolter maintenant : en fabrication, celle de la premiere
+  // recolte du plan (bois, puis pierre pour une pioche en pierre) ; sinon la
+  // matiere du brief.
+  function harvestResource () {
+    if (!mission) return null
+    const step = acquisition()?.etapes.find(s => s.op === 'recolter' && s.matiere)
+    return step ? step.matiere : mission.resource
   }
 
   // Le meilleur bloc de la matiere visee a travailler : ni le bloc qui porte le
@@ -790,7 +835,7 @@ function createMissionRunner (host, injected = {}) {
   // en jeu entre 2,7 et 10,8 blocs de l arbre.
   async function dropFromLeaves (item) {
     const bot = host.getBot()
-    if (mission?.resource !== 'bois' || !bot?.entity) return false
+    if (harvestResource() !== 'bois' || !bot?.entity) return false
     let dropped = null
     try { dropped = item.getDroppedItem?.() } catch (_) {}
     if (!dropped || !TREE_LOG.test(dropped.name)) return false
@@ -1448,7 +1493,7 @@ function createMissionRunner (host, injected = {}) {
   // jamais touche : l appelant compte ces blocs a part (mission.dirtSecondaire).
   function findSecondaryDirtBlock () {
     const bot = host.getBot()
-    if (!mission || mission.resource !== 'bois') return null
+    if (!mission || harvestResource() !== 'bois') return null
     if (!bot?.entity || !bot.registry) return null
 
     let positions
@@ -1498,7 +1543,7 @@ function createMissionRunner (host, injected = {}) {
   // harvesting remains available when no tool is required.
   function hacheRecommandee () {
     const bot = host.getBot()
-    if (!mission || mission.resource !== 'bois') return false
+    if (!mission || harvestResource() !== 'bois') return false
     if (!bot?.inventory) return false
     if (craft.bestToolOfKind(bot, 'axe')) return false
     let possibles = []
@@ -1517,7 +1562,7 @@ function createMissionRunner (host, injected = {}) {
   // mesure le besoin, le modele decide de casser de la dirt au sol.
   function dirtSecondaireAdmise (cibleHaute) {
     const bot = host.getBot()
-    if (!mission || mission.resource !== 'bois') return false
+    if (!mission || harvestResource() !== 'bois') return false
     if (!bot?.inventory) return false
     if (!cibleHaute) return false
     return scaffoldingStock(bot).total < PILER_MAX
@@ -1565,7 +1610,7 @@ function createMissionRunner (host, injected = {}) {
   // debut de la mission plutot que de faire confiance aux evenements de ramassage.
   function countResourceItems () {
     const bot = host.getBot()
-    const pattern = mission && skills.RESOURCES[mission.resource]?.items
+    const pattern = mission && skills.RESOURCES[harvestResource()]?.items
     if (!bot?.inventory || !pattern) return 0
 
     return bot.inventory.items()
@@ -1706,7 +1751,7 @@ function createMissionRunner (host, injected = {}) {
 
     const snapshot = craft.snapshot(bot)
     const material = buildItem()
-    const raw = skills.RESOURCES[mission.resource]?.raw
+    const raw = skills.RESOURCES[harvestResource()]?.raw
 
     return {
       materiau_de_construction: material,
@@ -1964,7 +2009,7 @@ function createMissionRunner (host, injected = {}) {
   // avec avancer (15 echecs a 0.0 bloc) malgre cible_haute et dirt en stock.
   function conseilPilier () {
     try {
-      if (!mission || mission.resource !== 'bois') return ''
+      if (!mission || harvestResource() !== 'bois') return ''
       const bot = host.getBot()
       if (!bot?.entity) return ''
       const hint = highTargetHint()
@@ -2246,6 +2291,14 @@ function createMissionRunner (host, injected = {}) {
         // utile existe (la hache, ou planches/batons/etabli vers elle). Le code
         // mesure la faisabilite, le modele decide de l ordre.
         hache_recommandee: hacheRecommandee(),
+        // Fabrication : chaine de prerequis calculee par le code depuis
+        // l inventaire reel (recolter / fabriquer / outil exige, etabli).
+        // La premiere etape est la prochaine chose utile ; `bloque` dit ce
+        // que le bot ne sait pas faire (cuisson...). Nul hors fabrication.
+        prerequis: (() => {
+          const plan = acquisition()
+          return plan ? { ...acquirePlan.summarize(plan), matiere_a_recolter: harvestResource() } : null
+        })(),
         // Dirt secondaire admise : mission bois avec cible_haute et stock de
         // dirt insuffisant pour piler. Autorise `casser` sur de la dirt au sol
         // sans toucher au quota bois.
@@ -2695,7 +2748,7 @@ function createMissionRunner (host, injected = {}) {
       // plutot que d echouer sur « bloc trop loin ». Comptee a part
       // (mission.dirtSecondaire), jamais dans le quota bois. Passe par
       // run()/outcome comme toute action : un echec vide la file.
-      const secondaireAutorise = mission.resource === 'bois' &&
+      const secondaireAutorise = harvestResource() === 'bois' &&
         dirtSecondaireAdmise(highTargetHint())
       const findBloc = secondaire =>
         secondaire ? findSecondaryDirtBlock() : findTargetBlock()
@@ -2792,9 +2845,9 @@ function createMissionRunner (host, injected = {}) {
       // casse a distance reste au sol ; le prendre aussitot (vu sur
       // gather/flowers : 4 fleurs cassees, 2 en inventaire, mission close).
       let ramasses = 0
-      if (!secondaire && mission.resource !== 'bois') {
+      if (!secondaire && harvestResource() !== 'bois') {
         const avant = countResourceItems()
-        await collectScaffoldDrops(stepToken, { budgetMs: 8000, pattern: skills.RESOURCES[mission.resource]?.items })
+        await collectScaffoldDrops(stepToken, { budgetMs: 8000, pattern: skills.RESOURCES[harvestResource()]?.items })
         ramasses = Math.max(0, countResourceItems() - avant)
       }
 
@@ -2834,7 +2887,7 @@ function createMissionRunner (host, injected = {}) {
       // le pilier restait a sec malgre la dirt cassee. La dirt compte ici
       // comme un succes, sans jamais entrer dans le quota bois (collecte
       // et `countResourceItems` restent bois seul).
-      const dirtVisee = mission?.resource === 'bois'
+      const dirtVisee = harvestResource() === 'bois'
       const beforeDirt = dirtVisee ? craft.countOf(bot, PILER_DIRT) : 0
       // La dirt n est un progres que s il manquait du carburant au debut de
       // l action (stock sous PILER_MAX) : sinon elle ne doit pas masquer un
@@ -2967,7 +3020,11 @@ function createMissionRunner (host, injected = {}) {
       // Cible de fabrication fixee : seuls la cible et ses intermediaires
       // (planches, batons, etabli) sont utiles. Vu sur craft/axe : une pioche
       // fabriquee a la place de la hache, planches et batons consommes.
-      if (mission.fabricationCible && !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
+      // Un objet de la chaine de prerequis calculee (pioche en bois pour une
+      // pioche en pierre) est utile lui aussi.
+      const dansLePlan = (acquisition()?.etapes ?? []).some(e => e.op === 'fabriquer' &&
+        (e.objet === target || FAMILLES_FAB[target]?.test(e.objet)))
+      if (mission.fabricationCible && !dansLePlan && !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
         return {
           resultat: `${target} n est pas utile pour ${mission.fabricationCible} : fabrique ${mission.fabricationCible} ` +
             'ou ses ingredients (planches, batons, etabli), rien d autre',
@@ -3226,7 +3283,7 @@ function createMissionRunner (host, injected = {}) {
       // aucune action ne pouvait ouvrir le passage. On casse seulement les
       // feuilles du couloir a hauteur du corps, puis on re-tente l approche.
       let feuilles = 0
-      while (result.code === 'no_path' && mission.resource === 'bois' && !mission.cancelled &&
+      while (result.code === 'no_path' && harvestResource() === 'bois' && !mission.cancelled &&
         feuilles < LEAF_CLEAR_MAX) {
         const cleared = await clearLeavesToward(cible, LEAF_CLEAR_MAX - feuilles)
         if (cleared === 0) break
