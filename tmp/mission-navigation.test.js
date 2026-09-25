@@ -357,7 +357,7 @@ test('terminer ne transforme plus un quota non atteint en succes', async () => {
   await f.r.start(`casse ${quantity} bloc de sable`, 'human')
   const result = await finished(f.r)
   assert.equal(result.etat, 'failed')
-  assert.match(result.raison, /0 unite.*recoltee.*sur 1 demandee/)
+  assert.match(result.raison, /0 (unite.*recoltee|en inventaire) sur 1 demande/)
   assert.ok(f.messages.some(t => /pas pu terminer/.test(t)))
   }
 })

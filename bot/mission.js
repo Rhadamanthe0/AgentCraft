@@ -993,7 +993,8 @@ function createMissionRunner (host, injected = {}) {
 
   // Ramasse la terre tombee pres du bot (un bloc creuse dans une paroi lache
   // son objet hors du rayon de collecte) : trajet de ramassage vers chacun.
-  async function collectScaffoldDrops (owner, { budgetMs = Infinity } = {}) {
+  async function collectScaffoldDrops (owner, { budgetMs = Infinity, pattern = PILER_DIRT } = {}) {
+    if (!pattern) return
     const deadline = Date.now() + budgetMs
     for (let i = 0; i < 8 && !mission.cancelled && Date.now() < deadline; i += 1) {
       const bot = host.getBot()
@@ -1002,7 +1003,7 @@ function createMissionRunner (host, injected = {}) {
         if (e.name !== 'item' || !e.position || e.position.distanceTo(here) > 6) return false
         let item = null
         try { item = e.getDroppedItem?.() } catch (_) {}
-        return item && PILER_DIRT.test(item.name)
+        return item && pattern.test(item.name)
       })
       if (!drop) return
       const nav = await host.navigateToPosition(drop.position, {
@@ -2679,6 +2680,15 @@ function createMissionRunner (host, injected = {}) {
 
       // Laisse les objets tomber et entrer dans l inventaire avant l etat suivant.
       await sleep(400)
+      // Hors bois (dont le ramassage est deja pilote par l arbre) : l objet
+      // casse a distance reste au sol ; le prendre aussitot (vu sur
+      // gather/flowers : 4 fleurs cassees, 2 en inventaire, mission close).
+      let ramasses = 0
+      if (!secondaire && mission.resource !== 'bois') {
+        const avant = countResourceItems()
+        await collectScaffoldDrops(stepToken, { budgetMs: 8000, pattern: skills.RESOURCES[mission.resource]?.items })
+        ramasses = Math.max(0, countResourceItems() - avant)
+      }
 
       const ecoule = Math.round((Date.now() - started) / 100) / 10
       return {
@@ -2688,7 +2698,8 @@ function createMissionRunner (host, injected = {}) {
             (refusal ? `, arret : ${refusal}` : '') + ' — quota bois inchange'
           : `${broken} bloc(s) casse(s) en ${ecoule} s (total ${mission.broken})` +
             (dureeSec === null ? '' : ` sur ${dureeSec} s demandee`) +
-            (refusal ? `, arret : ${refusal}` : '')
+            (refusal ? `, arret : ${refusal}` : '') +
+            (ramasses ? `, ${ramasses} objet(s) ramasse(s) aussitot` : '')
       }
     },
 
@@ -4410,6 +4421,15 @@ function createMissionRunner (host, injected = {}) {
       return { ok: true }
     }
 
+    // Quantite dite par le joueur : jugee sur l inventaire, pas sur les blocs
+    // casses (des fleurs cassees mais laissees au sol ne sont pas cueillies).
+    // L herbe garde ses unites (une graine pour huit touffes, piege 9).
+    if (mission.quotaExplicite && !['herbe', 'graines'].includes(mission.resource)) {
+      const tenus = collected()
+      return tenus >= mission.quota
+        ? { ok: true }
+        : { ok: false, why: `${tenus} en inventaire sur ${mission.quota} demande(s) : ramasser ce qui est tombe ou recolter encore` }
+    }
     const got = state.progression?.unites_recoltees ?? 0
     const quota = mission.quota ?? DEFAULT_QUOTA
     return got >= quota
@@ -4704,6 +4724,16 @@ function createMissionRunner (host, injected = {}) {
       // (voir CLAUDE.md, piege 17).
       if (outcome.fin) {
         const allowed = finishAllowed(buildState())
+        // Quantite explicite pas encore en inventaire : meme refus reinjecte
+        // que pour `fini` (3 au plus), au lieu de clore la mission en echec.
+        if (!allowed.ok && mission.quotaExplicite && mission.finishRefused < REFUSALS_BEFORE_YIELD) {
+          mission.finishRefused += 1
+          mission.refusalNote = allowed.why
+          mission.queue = []
+          abortPrefetch('arret refuse')
+          console.log(`[mission] terminer refuse (${mission.finishRefused}/${REFUSALS_BEFORE_YIELD}) : ${allowed.why}`)
+          continue
+        }
         finish(allowed.ok ? 'done' : 'failed', allowed.ok ? 'le planificateur a clos la mission' : allowed.why)
         return
       }
