@@ -847,6 +847,8 @@ EXPECTED_S = {
     'chat/question-keeps-mission': 27, 'chat/stop-tree': 27, 'join/tall-cliff': 26, 'terrain/dirt-wall': 25,
     'join/shaft': 23, 'join/pit': 21, 'trees/reachable': 21, 'trees/leaves': 20, 'join/ravine-detour': 20,
     'join/buried': 19, 'join/cliff-up': 18, 'join/cliff-down': 11, 'join/leaf-pillar': 10, 'join/closed-room': 7,
+    # follow/*: run 36109916130 (712eb71).
+    'follow/corner': 26, 'follow/stop': 19, 'follow/stairs': 12, 'follow/straight': 11,
 }
 NEW_LEVEL_S = 90
 
