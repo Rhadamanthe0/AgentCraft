@@ -313,6 +313,32 @@ def levels():
                         (TX-1, 199, TZ-1, TX+1, 199, TZ+1, 'sand')],
             'target': 4, 'leaves': [], 'logs': [], 'rules': {},
         },
+        # Craft levels: same runner as gather/* ; `give` stocks the bot by RCON
+        # before the order (fixture only, like the arena itself).
+        {
+            'name': 'craft/planks',
+            'about': '2 buches en inventaire, « Fabrique 8 planches » : 8 planches de chene.',
+            'kind': 'gather', 'give': [('oak_log', 2)], 'instruction': 'Fabrique 8 planches', 'items': ['oak_planks'],
+            'target': 8, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'craft/sticks',
+            'about': '2 buches en inventaire, « Fabrique 4 batons » : planches puis batons.',
+            'kind': 'gather', 'give': [('oak_log', 2)], 'instruction': 'Fabrique 4 batons', 'items': ['stick'],
+            'target': 4, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'craft/table',
+            'about': '1 buche en inventaire, « Fabrique un etabli » : planches puis etabli.',
+            'kind': 'gather', 'give': [('oak_log', 1)], 'instruction': 'Fabrique un etabli', 'items': ['crafting_table'],
+            'target': 1, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'craft/axe',
+            'about': '3 buches en inventaire, « Fabrique une hache en bois » : planches, batons, etabli pose, hache.',
+            'kind': 'gather', 'give': [('oak_log', 3)], 'instruction': 'Fabrique une hache en bois', 'items': ['wooden_axe'],
+            'target': 1, 'leaves': [], 'logs': [], 'rules': {},
+        },
         {
             'name': 'trees/tall',
             'about': 'Tronc de 8 buches (Y+0 a Y+7), couronne au-dessus : il faut un pilier de 4 blocs ou plus.',
@@ -421,6 +447,8 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     items (counted by RCON, `clear <bot> <item> 0` removes nothing), never
     stand below the floor (no pit) and take no damage."""
     rcon(f'tp {probe_name} {x0 + 4.5} 200 {32.5}')
+    for item, amount in level.get('give', []):
+        rcon(f'give {username} minecraft:{item} {amount}')
     started = time.monotonic()
     timeline = []
     answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
@@ -757,7 +785,7 @@ def arena_origins():
 
 
 def mission_type(name):
-    return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre', 'gather': 'ramasser'}.get(name.split('/')[0], name.split('/')[0])
+    return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre', 'gather': 'ramasser', 'craft': 'fabriquer'}.get(name.split('/')[0], name.split('/')[0])
 
 
 def wood(inventory, placed_planks=0):
