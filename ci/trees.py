@@ -284,6 +284,35 @@ def levels():
             'path': [(9.5, 200, 8.5), (9.5, 200, 30.5)],
             'leaves': [], 'logs': [], 'rules': {},
         },
+        # Gather levels: « ramasse N ... » ; items counted in the bot's inventory
+        # by RCON (`clear <bot> <item> 0` only counts); see run_gather_script.
+        {
+            'name': 'gather/dirt',
+            'about': '« Ramasse 8 blocs de terre » sur un pre plat : 8 terre en inventaire, pas de puits, 0 degat.',
+            'kind': 'gather', 'instruction': 'Ramasse 8 blocs de terre', 'items': ['dirt', 'coarse_dirt', 'grass_block'],
+            'target': 8, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'gather/sand',
+            'about': '« Ramasse 6 blocs de sable » : carre de sable 4x4 a 16 blocs du bot.',
+            'kind': 'gather', 'instruction': 'Ramasse 6 blocs de sable', 'items': ['sand'],
+            'terrain': [(26, 199, 16, 29, 199, 19, 'sand')], 'target': 6, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'gather/flowers',
+            'about': '« Cueille 3 fleurs » : cinq pissenlits disperses dans l arene.',
+            'kind': 'gather', 'instruction': 'Cueille 3 fleurs', 'items': ['dandelion'],
+            'terrain': [(p[0], 200, p[1], p[0], 200, p[1], 'dandelion') for p in ((14, 10), (22, 26), (28, 14), (8, 28), (24, 6))],
+            'target': 3, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'gather/sand-walled',
+            'about': '« Ramasse 4 blocs de sable » : sable 3x3 enferme dans un mur de terre de 3 de haut.',
+            'kind': 'gather', 'instruction': 'Ramasse 4 blocs de sable', 'items': ['sand'],
+            'terrain': [(TX-3, 200, TZ-3, TX+3, 202, TZ+3, 'dirt'), (TX-2, 200, TZ-2, TX+2, 202, TZ+2, 'air'),
+                        (TX-1, 199, TZ-1, TX+1, 199, TZ+1, 'sand')],
+            'target': 4, 'leaves': [], 'logs': [], 'rules': {},
+        },
         {
             'name': 'trees/tall',
             'about': 'Tronc de 8 buches (Y+0 a Y+7), couronne au-dessus : il faut un pilier de 4 blocs ou plus.',
@@ -381,6 +410,68 @@ def run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, tim
         'arbitration': arbitration, 'answers': {k: {kk: v.get(kk) for kk in ('relation', 'choice', 'arbitration', 'queued', 'error')}
                                                  for k, v in answers.items()},
         'damageTaken': damage, 'botFinalPosition': final.get('position'),
+    }
+
+
+GATHER_CAP_S = 180
+
+
+def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_name):
+    """« Ramasse N ... » from a silent probe player; the bot must hold N of the
+    items (counted by RCON, `clear <bot> <item> 0` removes nothing), never
+    stand below the floor (no pit) and take no damage."""
+    rcon(f'tp {probe_name} {x0 + 4.5} 200 {32.5}')
+    started = time.monotonic()
+    timeline = []
+    answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
+
+    def held():
+        total = 0
+        for item in level['items']:
+            match = re.search(r'Found (\d+)', rcon(f'clear {username} minecraft:{item} 0'))
+            total += int(match.group(1)) if match else 0
+        return total
+
+    lowest, seen, count, end_reason = 200.0, False, 0, f'plafond de {GATHER_CAP_S} s'
+    last_count_at = 0
+    while time.monotonic() - started < GATHER_CAP_S:
+        s = bot_api(bot, '/api/status')
+        p = s.get('position') or {}
+        running = bool(s.get('missionRunning'))
+        seen = seen or running
+        if s.get('onGround') and p.get('y') is not None:
+            lowest = min(lowest, p['y'])
+        if time.monotonic() - last_count_at >= 3:
+            count, last_count_at = held(), time.monotonic()
+        timeline.append({'t': round(time.monotonic() - started, 1), 'pos': p, 'running': running, 'count': count,
+                         'etat': (s.get('mission') or {}).get('etat')})
+        if seen and not running:
+            m = s.get('mission') or {}
+            end_reason = f"mission terminee par le bot ({m.get('etat')} : {m.get('raison')})"
+            break
+        if not seen and time.monotonic() - started > START_TIMEOUT_S:
+            end_reason = 'aucune mission lancee'
+            break
+        time.sleep(1)
+    count = held()
+    damage_answer = rcon(f'scoreboard players get {username} degats')
+    match = re.search(r'has (\d+)', damage_answer)
+    damage = int(match.group(1)) if match else None
+    final = bot_api(bot, '/api/status')
+    if final.get('missionRunning'):
+        bot_api(bot, '/api/stop', {})
+    checks = {'quantite_en_inventaire': count >= level['target'],
+              # Feet on the floor block (199) at worst: one dug block, never a pit.
+              'pas_de_puits': lowest >= 198.9, 'aucun_degat': damage == 0}
+    (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
+        json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
+    failed = [k for k, v in checks.items() if not v]
+    return {
+        'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
+        'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
+        'itemsHeld': count, 'target': level['target'], 'lowestStandingY': round(lowest, 2),
+        'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
+        'botFinalPosition': final.get('position'), 'probe': probe_name,
     }
 
 
@@ -664,7 +755,7 @@ def arena_origins():
 
 
 def mission_type(name):
-    return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre'}.get(name.split('/')[0], name.split('/')[0])
+    return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre', 'gather': 'ramasser'}.get(name.split('/')[0], name.split('/')[0])
 
 
 def wood(inventory, placed_planks=0):
@@ -737,6 +828,8 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
             return run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_name)
         if level.get('kind') == 'join':
             return run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name)
+        if level.get('kind') == 'gather':
+            return run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_name)
         if level.get('kind') == 'follow':
             return run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_name)
         if level.get('kind') == 'chat_script':

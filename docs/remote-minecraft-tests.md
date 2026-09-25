@@ -101,8 +101,8 @@ commence que quand le precedent est entierement vert.
 | rejoindre (« Rejoins moi ») | `join/*` : 10 | vert |
 | bois (« coupe moi un arbre ») | `trees/*`, `terrain/*` : 11 (tour 2 : `trees/tall`, `trees/double`, `terrain/moat`) | vert |
 | chat (arbitrage, arret, questions) | `chat/*` : 6 (tour 2 : `stop-tree`, `question-keeps-mission`, `chatter-ignored`, `join-then-tree`, `tree-then-bring`) | vert |
-| suivre (« suis moi ») | `follow/*` : 4 (ligne droite, contournement d un mur, escalier, stop) | en validation |
-| ramasser (terre, herbe, sable) | - | a venir |
+| suivre (« suis moi ») | `follow/*` : 4 (ligne droite, contournement d un mur, escalier, stop) | vert |
+| ramasser (terre, sable, fleurs) | `gather/*` : 4 (terre, sable, fleurs dispersees, sable emmure) | en validation |
 | fabriquer (planches, etabli, hache) | - | a venir |
 | construire (maison de terre) | - | a venir |
 | parcours (allers-retours, aller sous un arbre) | - | a venir |
