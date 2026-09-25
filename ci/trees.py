@@ -428,6 +428,62 @@ def levels():
             'kind': 'route', 'instruction': 'Viens me voir, attends 3 secondes, puis retourne a ta place', 'probeAt': (26.5, 200, 18.5),
             'visits': 1, 'back': True, 'leaves': [], 'logs': [], 'rules': {},
         },
+        # Tour 3 : chat, suivre, ramasser, construire, parcours.
+        {
+            'name': 'chat/stop-resume',
+            'about': 'Arbre demande, « Stop » apres la premiere buche, puis « Reprends » : arbre entier au final.',
+            'kind': 'chat_script', 'script': 'stop_resume', 'probeAt': (4.5, 200, 18.5),
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)], 'logs': _logs(*trunk3), 'rules': {},
+        },
+        {
+            'name': 'follow/ledge-down',
+            'about': 'Le joueur descend d un plateau de 2 blocs puis continue : le bot suit sans degat.',
+            'kind': 'follow', 'start': (6.5, 202, 18.5),
+            'terrain': [(0, 200, 0, 20, 201, SIZE, 'dirt')],
+            'path': [(9.5, 202, 18.5), (19.5, 202, 18.5), (21.5, 200, 18.5), (32.5, 200, 18.5)],
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'gather/gravel',
+            'about': '« Ramasse 4 blocs de gravier » : carre de gravier 3x3 a 16 blocs.',
+            'kind': 'gather', 'instruction': 'Ramasse 4 blocs de gravier', 'items': ['gravel', 'flint'],
+            'terrain': [(26, 199, 16, 28, 199, 18, 'gravel')], 'target': 4, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'gather/flowers-island',
+            'about': '« Cueille 2 fleurs » : trois pissenlits sur une ile entouree d un fosse d eau de 2 blocs.',
+            'kind': 'gather', 'instruction': 'Cueille 2 fleurs', 'items': ['dandelion'],
+            'terrain': [(22, 199, 16, 30, 199, 24, 'water'), (24, 199, 18, 28, 199, 22, 'grass_block'),
+                        (25, 200, 19, 25, 200, 19, 'dandelion'), (27, 200, 21, 27, 200, 21, 'dandelion'),
+                        (26, 200, 20, 26, 200, 20, 'dandelion')],
+            'target': 2, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'build/planks-door',
+            'about': '64 planches et une porte, « Construis une cabane en bois de 3 par 3 par 3 avec une porte ».',
+            'kind': 'build', 'give': [('oak_planks', 64), ('oak_door', 1)],
+            'instruction': 'Construis une cabane en bois de 3 par 3 par 3 avec une porte',
+            'blocks': ['#minecraft:planks'], 'target': 20, 'door': True, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'build/no-materials',
+            'about': 'Inventaire vide, « Construis une maison en terre de 3 par 3 par 3 » : creuser la terre d abord.',
+            'kind': 'build', 'instruction': 'Construis une maison en terre de 3 par 3 par 3',
+            'blocks': ['minecraft:dirt', 'minecraft:grass_block'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'route/three-trips',
+            'about': '« Fais trois allers-retours entre toi et moi » : trois passages, fin au depart.',
+            'kind': 'route', 'instruction': 'Fais trois allers-retours entre toi et moi', 'probeAt': (26.5, 200, 18.5),
+            'visits': 3, 'back': True, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'route/under-far-tree',
+            'about': '« Va sous l arbre » depuis un coin de l arene, a 22 blocs, un mur de pierre entre les deux.',
+            'kind': 'route', 'instruction': 'Va sous l arbre', 'probeAt': (4.5, 200, 32.5), 'underTree': True,
+            'start': (2.5, 200, 2.5), 'terrain': [(8, 200, 0, 8, 202, 14, 'stone')],
+            'visits': 0, 'back': False, 'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)], 'logs': _logs(*trunk3), 'rules': {},
+        },
         {
             'name': 'trees/tall',
             'about': 'Tronc de 8 buches (Y+0 a Y+7), couronne au-dessus : il faut un pilier de 4 blocs ou plus.',
@@ -875,6 +931,15 @@ def run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, pr
         p0, p1 = s0.get('position') or {}, s1.get('position') or {}
         checks['plus_rien_coupe_apres_stop'] = logs_left() == still_logs
         checks['bot_immobile_apres_stop'] = bool(p0 and p1) and math.dist((p0['x'], p0['y'], p0['z']), (p1['x'], p1['y'], p1['z'])) < 1
+    elif script == 'stop_resume':
+        say('tree', INSTRUCTION)
+        checks['premiere_buche_coupee'] = wait(lambda s: logs_left() < expected, 90)
+        say('stop', 'Stop')
+        checks['mission_arretee_en_5_s'] = wait(lambda s: not s.get('missionRunning'), 5)
+        time.sleep(3)
+        say('resume', 'Reprends')
+        checks['mission_reprise'] = wait(lambda s: bool(s.get('missionRunning')), 15)
+        checks['arbre_entier_coupe'] = wait(tree_done, 150)
     elif script == 'question_keeps':
         say('tree', INSTRUCTION)
         checks['premiere_buche_coupee'] = wait(lambda s: logs_left() < expected, 90)

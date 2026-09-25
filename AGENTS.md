@@ -215,6 +215,10 @@
   (ou sa famille), ni planches/batons/etabli (`fabricationUtile` ; vu : pioche
   fabriquee a la place de la hache). `choisir_terrain` refuse un nouveau
   chantier une fois le premier commence (vu : 23/24 puis maison refaite).
+- Mission construction : `findTargetBlock` ignore l emprise du chantier
+  (+1 autour) pour la terre a creuser (build/no-materials : sol du chantier
+  creuse, plus d appui). Craft sur etabli en echec silencieux : fenetre
+  fermee, pause, deux nouvelles tentatives (raté intermittent sous charge).
 - `ramasser` : objet a portee mais encore au sol apres le trajet => `stepOnto`.
 - `piler` au bord d un trou (case sous le centre vide) : un pas vers la case
   voisine appuyee la plus proche avant de monter (trees/tall).
@@ -222,6 +226,9 @@
   allers-retours, sous l arbre, autour d un mur. « Va sous l arbre » lu en
   simple deplacement sans parcours => le code retient [sous_arbre] (et le
   prompt porte l exemple) ; sinon le bot cherchait l arbre sans s y placer.
+- `interpretMessage` : relation new/amend avec objectif vide (vu : « Rejoins
+  moi », join/pit) => le message du joueur sert d objectif, au lieu de
+  « objectif de chat vide » et d un bot muet.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

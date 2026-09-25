@@ -1423,7 +1423,10 @@ async function interpretMessage (message, context, opts = {}) {
   const value = parseJson(response.content)
   const relation = value?.relation
   if (!['new', 'amend', 'context', 'question', 'stop'].includes(relation)) throw new Error('relation de chat invalide')
-  const objective = String(value.objective ?? '').trim().slice(0, 1000)
+  // Objectif vide sur new/amend (vu : « Rejoins moi ») : le message du joueur
+  // est lui-meme l objectif, plutot que d echouer et de laisser le bot muet.
+  let objective = String(value.objective ?? '').trim().slice(0, 1000)
+  if (['new', 'amend'].includes(relation) && !objective) objective = String(message ?? '').trim().slice(0, 1000)
   const answer = String(value.response ?? '').trim().slice(0, 240)
   if (['new', 'amend'].includes(relation) && !objective) throw new Error('objectif de chat vide')
   if (relation === 'question' && !answer) throw new Error('reponse de chat vide')

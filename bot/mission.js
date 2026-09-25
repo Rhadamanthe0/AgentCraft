@@ -1305,9 +1305,20 @@ function createMissionRunner (host, injected = {}) {
     // falaise), pas pour la casser d ici. Les bornes verticales ci-dessous
     // restent celles de `casser`.
     const anyHeight = opts.anyHeight === true
+    // Chantier en cours : ne jamais creuser son emprise (+1 autour), ni le sol
+    // dessous ni la maison deja posee (vu sur build/no-materials : terre prise
+    // sous le chantier, « aucun appui »).
+    const emprise = mission?.kind === 'construction' && mission.plan?.blocks?.length ? (() => {
+      const xs = mission.plan.blocks.map(b => b.position.x)
+      const zs = mission.plan.blocks.map(b => b.position.z)
+      const ys = mission.plan.blocks.map(b => b.position.y)
+      return { x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, z0: Math.min(...zs) - 1, z1: Math.max(...zs) + 1, y: Math.min(...ys) }
+    })() : null
 
     const candidates = []
     for (const position of positions) {
+      if (emprise && position.x >= emprise.x0 && position.x <= emprise.x1 &&
+        position.z >= emprise.z0 && position.z <= emprise.z1) continue
       if (!anyHeight && position.y < feetY - MAX_DIG_DEPTH) continue
       // Trop haut pour etre atteint depuis le sol : passer a la cible suivante
       // plutot que de s acharner sur le haut d un tronc.

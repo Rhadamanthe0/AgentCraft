@@ -692,7 +692,11 @@ async function make (bot, targetName, wanted = 1) {
         stoppedUncertain = true
         break
       }
-      // Sans consommation : une seule retentative sûre (réouverture table).
+      // Sans consommation : retentatives sûres (réouverture table). Sous charge,
+      // la fenetre de l etabli rate parfois (vu sur craft/axe) : on ferme ce
+      // qui reste ouvert et on laisse le serveur souffler avant de rejouer.
+      try { if (bot.currentWindow) bot.closeWindow(bot.currentWindow) } catch (_) {}
+      await sleep(600)
       try {
         let retryTable = tableForOp ?? table ?? null
         if (op.requiresTable) {
@@ -721,6 +725,24 @@ async function make (bot, targetName, wanted = 1) {
           executedRepeats += 1
           lastError = null
           continue
+        }
+        // Deuxieme et derniere retentative, meme precaution.
+        try { if (bot.currentWindow) bot.closeWindow(bot.currentWindow) } catch (_) {}
+        await sleep(800)
+        const retry3 = recipeFor(bot, op.target.name, retryTable)
+        if (retry3) {
+          await bot.craft(retry3.recipe, 1, retryTable)
+          let after3 = beforeTarget
+          for (let waited = 0; waited < 2000; waited += 100) {
+            await sleep(100)
+            after3 = countOf(bot, new RegExp(`^${escapeRegExp(op.target.name)}$`))
+            if (after3 > beforeTarget) break
+          }
+          if (after3 > beforeTarget) {
+            executedRepeats += 1
+            lastError = null
+            continue
+          }
         }
         lastError = new Error(`${op.target.name} non fabrique (echec silencieux sans consommation)`)
         break

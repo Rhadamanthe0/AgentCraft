@@ -100,12 +100,12 @@ commence que quand le precedent est entierement vert.
 | --- | --- | --- |
 | rejoindre (« Rejoins moi ») | `join/*` : 10 | vert |
 | bois (« coupe moi un arbre ») | `trees/*`, `terrain/*` : 11 (tour 2 : `trees/tall`, `trees/double`, `terrain/moat`) | vert |
-| chat (arbitrage, arret, questions) | `chat/*` : 6 (tour 2 : `stop-tree`, `question-keeps-mission`, `chatter-ignored`, `join-then-tree`, `tree-then-bring`) | vert |
-| suivre (« suis moi ») | `follow/*` : 5 (ligne droite, mur, escalier, stop, zigzag) | tour 2 en validation |
-| ramasser (terre, sable, fleurs) | `gather/*` : 5 (terre, sable, fleurs, sable emmure, sable sur un plateau) | tour 2 en validation |
-| fabriquer (planches, etabli, hache) | `craft/*` : 6 (planches, batons, etabli, hache, porte, planches depuis un arbre) | tour 2 en validation |
-| construire (maison de terre) | `build/*` : 4 (boite 3x3x3, avec porte, cabane en planches, boite 4x4x4) | tour 2 en validation |
-| parcours (allers-retours, aller sous un arbre) | `route/*` : 5 (aller-retour, deux allers-retours, sous l arbre, autour d un mur, attente) | tour 2 en validation |
+| chat (arbitrage, arret, questions) | `chat/*` : 7 (tour 3 : `stop-resume`) | tour 3 en validation |
+| suivre (« suis moi ») | `follow/*` : 6 (ligne droite, mur, escalier, stop, zigzag, descente d un plateau) | tour 3 en validation |
+| ramasser (terre, sable, fleurs) | `gather/*` : 7 (terre, sable, fleurs, sable emmure, plateau, gravier, fleurs sur une ile) | tour 3 en validation |
+| fabriquer (planches, etabli, hache) | `craft/*` : 6 (planches, batons, etabli, hache, porte, planches depuis un arbre) | vert |
+| construire (maison de terre) | `build/*` : 6 (boite 3x3x3, avec porte, cabane en planches, 4x4x4, cabane avec porte, sans materiaux) | tour 3 en validation |
+| parcours (allers-retours, aller sous un arbre) | `route/*` : 7 (aller-retour, deux et trois allers-retours, sous l arbre proche et lointain, mur, attente) | tour 3 en validation |
 
 Les blocs sont comptes par RCON (`clone ... filtered` vers une zone de
 comptage eloignee) toutes les 3 s ; la hauteur est echantillonnee chaque
