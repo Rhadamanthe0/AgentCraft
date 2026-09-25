@@ -83,7 +83,7 @@ const DEFAULT_QUOTA = Number(process.env.MISSION_DEFAULT_QUOTA || 16)
 // est strictement celui d avant. Une seule capture toutes N etapes : l image
 // coute des jetons d entree et un peu de latence, donc on ne la paie pas a
 // chaque tour. `RAYON` est la demi-cote de la carte, en blocs.
-const SCREENSHOT_ON = process.env.MISSION_SCREENSHOT === '1'
+const SCREENSHOT_DEFAULT = process.env.MISSION_SCREENSHOT === '1'
 
 // Interrupteurs A/B du banc : chaque nouveau mode peut etre coupe (ou la vue
 // allumee) pour mesurer ce qu il apporte, sans redemarrer le bot. Priorite :
@@ -105,6 +105,12 @@ function setFeatures (changes = {}) {
     if (key !== 'reset' && /^[a-z_]{1,24}$/.test(key) && typeof value === 'boolean') featureOverrides[key] = value
   }
   return { ...featureOverrides }
+}
+
+// Vue (mini-carte jointe au planificateur) : eteinte par defaut, interrupteur
+// A/B `vue` (ou MISSION_SCREENSHOT=1).
+function screenshotOn () {
+  return featureOn('vue', SCREENSHOT_DEFAULT)
 }
 const SCREENSHOT_EVERY = Math.max(1, Number(process.env.MISSION_SCREENSHOT_EVERY || 5))
 const SCREENSHOT_RAYON = Math.max(1, Number(process.env.MISSION_SCREENSHOT_RAYON || 16))
@@ -4205,7 +4211,7 @@ function createMissionRunner (host, injected = {}) {
   // repli texte silencieux. **Ne leve jamais** : une capture impossible ne doit
   // pas couter la mission.
   function capturePourPlan () {
-    if (!SCREENSHOT_ON) return null
+    if (!screenshotOn()) return null
     if (mission.steps % SCREENSHOT_EVERY !== 0) return null
     if (mission.lastCaptureStep === mission.steps) return null
 
@@ -4341,7 +4347,7 @@ function createMissionRunner (host, injected = {}) {
     }
     if (planner.selectPlanRoute?.(snap)?.role === 'strategy') return
     const capture = capturePourPlan()
-    if (SCREENSHOT_ON && snap.environnement) {
+    if (screenshotOn() && snap.environnement) {
       snap.environnement.capture_presente = Boolean(capture)
     }
 
@@ -4409,7 +4415,7 @@ function createMissionRunner (host, injected = {}) {
         // argument. Desactive, `capture` est null et rien ne change.
         const capture = capturePourPlan()
         mission.activity?.update('planning', 'Je prepare la suite a partir de ce que je vois dans le jeu.')
-        if (SCREENSHOT_ON && state.environnement) {
+        if (screenshotOn() && state.environnement) {
           state.environnement.capture_presente = Boolean(capture)
         }
         const revision = mission.planRevision

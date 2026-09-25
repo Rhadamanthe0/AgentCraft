@@ -77,6 +77,7 @@ def base_levels():
         },
         {
             'name': 'trees/bent',
+            'variants': [avec('vue')],
             'about': 'Arbre tordu : tronc qui se decale deux fois, branche horizontale, couronne decalee.',
             'leaves': [(TX-1, 206, TZ-1, TX+3, 207, TZ+3), (TX+3, 203, TZ-1, TX+3, 204, TZ+1)],
             'logs': _logs(*bent[:3]) + _logs(*bent[3:5], axis='x') + _logs(*bent[5:]),
@@ -164,6 +165,7 @@ def base_levels():
         },
         {
             'name': 'join/ravine-detour',
+            'variants': [avec('vue')],
             'about': 'Ravin de 3 de large et 6 de profondeur entre le bot et le joueur ; un pont de terre 20 blocs plus loin.',
             'kind': 'join',
             'terrain': [(0, 200, 0, SIZE, 204, SIZE, 'dirt'), (0, 205, 0, SIZE, 205, SIZE, 'grass_block'),
@@ -209,6 +211,7 @@ def base_levels():
         },
         {
             'name': 'terrain/hedge-pit',
+            'variants': [avec('vue')],
             'about': 'Trou de 5 blocs entoure d une haie de feuilles : ouvrir la haie puis descendre sans chute.',
             'terrain': [(0, 200, 0, SIZE, 203, SIZE, 'dirt'), (0, 204, 0, SIZE, 204, SIZE, 'grass_block'),
                         (TX-3, 200, TZ-3, TX+3, 204, TZ+3, 'air'),
@@ -312,6 +315,26 @@ def base_levels():
             'terrain': [(TX-3, 200, TZ-3, TX+3, 202, TZ+3, 'dirt'), (TX-2, 200, TZ-2, TX+2, 202, TZ+2, 'air'),
                         (TX-1, 199, TZ-1, TX+1, 199, TZ+1, 'sand')],
             'target': 4, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        # Vue (mode `vue`, eteint par defaut, A/B) : un repere que seule
+        # l image montre (couleur), puis des niveaux existants rejoues avec vue.
+        # Informatifs tous les deux : on mesure, on ne bloque pas.
+        {
+            'name': 'vision/red-block',
+            'about': 'Quatre piliers de laine (rouge, bleu, jaune, blanc) a 10-14 blocs, « Va a cote du bloc rouge » : fin a 3 blocs du rouge.',
+            'kind': 'goto_block', 'instruction': 'Va a cote du bloc rouge', 'target': (26, 200, 28),
+            'terrain': [(26, 200, 28, 26, 201, 28, 'red_wool'), (26, 200, 8, 26, 201, 8, 'blue_wool'),
+                        (4, 200, 30, 4, 201, 30, 'yellow_wool'), (24, 200, 18, 24, 201, 18, 'white_wool')],
+            'informative': True, 'variants': [avec('vue')], 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'vision/between-trees',
+            'about': 'Deux arbres a 10 blocs l un de l autre, « Mets-toi entre les deux arbres » : fin a 3 blocs du milieu.',
+            'kind': 'goto_block', 'instruction': 'Mets-toi entre les deux arbres', 'target': (22, 200, 8),
+            'terrain': [],
+            'leaves': [(16, 204, 6, 18, 205, 10), (26, 204, 6, 28, 205, 10)],
+            'logs': _logs(*[(17, 200 + i, 8) for i in range(4)], *[(27, 200 + i, 8) for i in range(4)]),
+            'informative': True, 'variants': [avec('vue')], 'rules': {},
         },
         # Craft levels: same runner as gather/* ; `give` stocks the bot by RCON
         # before the order (fixture only, like the arena itself).
@@ -418,6 +441,7 @@ def base_levels():
         },
         {
             'name': 'build/big-box',
+            'variants': [avec('vue')],
             'about': '128 terre, « Construis une maison en terre de 4 par 4 par 4 » : 40 blocs poses au moins.',
             'kind': 'build', 'give': [('dirt', 64), ('dirt', 64)], 'instruction': 'Construis une maison en terre de 4 par 4 par 4',
             'blocks': ['minecraft:dirt', 'minecraft:grass_block'], 'target': 40, 'leaves': [], 'logs': [], 'rules': {},
@@ -706,6 +730,55 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         'blocksPlaced': built, 'target': level['target'], 'doorBlocks': doors,
         'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
         'botFinalPosition': final.get('position'), 'probe': probe_name,
+    }
+
+
+GOTO_CAP_S = 120
+
+
+def run_goto_block_script(level, x0, bot, username, output, rcon, bot_api, probe_name):
+    """« Va a cote du bloc rouge » : a landmark no measured hint names (not a
+    resource, not a player). The bot must end, by itself, within `radius`
+    blocks of the target block. Measures what the view brings."""
+    rcon(f'tp {probe_name} {x0 + 4.5} 200 {32.5}')
+    tx, ty, tz = level['target']
+    target = (x0 + tx + .5, ty, tz + .5)
+    started = time.monotonic()
+    timeline = []
+    answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
+    seen, end_reason = False, f'plafond de {GOTO_CAP_S} s'
+    while time.monotonic() - started < GOTO_CAP_S:
+        s = bot_api(bot, '/api/status')
+        running = bool(s.get('missionRunning'))
+        seen = seen or running
+        timeline.append({'t': round(time.monotonic() - started, 1), 'pos': s.get('position'), 'running': running})
+        if seen and not running:
+            m = s.get('mission') or {}
+            end_reason = f"mission terminee par le bot ({m.get('etat')} : {m.get('raison')})"
+            break
+        if not seen and time.monotonic() - started > START_TIMEOUT_S:
+            end_reason = 'aucune mission lancee'
+            break
+        time.sleep(1)
+    final = bot_api(bot, '/api/status')
+    if final.get('missionRunning'):
+        bot_api(bot, '/api/stop', {})
+    p = final.get('position') or {}
+    distance = math.hypot(p.get('x', 1e9) - target[0], p.get('z', 1e9) - target[2]) if p else None
+    damage_answer = rcon(f'scoreboard players get {username} degats')
+    match = re.search(r'has (\d+)', damage_answer)
+    damage = int(match.group(1)) if match else None
+    checks = {'pres_du_bloc': distance is not None and distance <= level.get('radius', 3),
+              'aucun_degat': damage == 0, 'mission_terminee': end_reason.startswith('mission terminee')}
+    (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
+        json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
+    failed = [k for k, v in checks.items() if not v]
+    return {
+        'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
+        'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
+        'distanceToTarget': round(distance, 2) if distance is not None else None,
+        'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
+        'botFinalPosition': p, 'probe': probe_name,
     }
 
 
@@ -1168,6 +1241,8 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
             return run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_name)
         if level.get('kind') == 'follow':
             return run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_name)
+        if level.get('kind') == 'goto_block':
+            return run_goto_block_script(level, x0, bot, username, output, rcon, bot_api, probe_name)
         if level.get('kind') == 'chat_script':
             return run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, probe_name)
         answer = bot_api(bot, '/api/instruction', {'message': INSTRUCTION, 'requester': REQUESTER})

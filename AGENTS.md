@@ -258,6 +258,13 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
 - `interpretMessage` : relation new/amend avec objectif vide (vu : « Rejoins
   moi », join/pit) => le message du joueur sert d objectif, au lieu de
   « objectif de chat vide » et d un bot muet.
+- Vue en A/B : `MISSION_SCREENSHOT` devient le defaut de l interrupteur `vue`
+  (`screenshotOn()`), eteint par defaut. La mini-carte colore les blocs
+  teints (laine, beton, terre cuite, vitre : `TEINTES`), sinon gris inconnu.
+  Niveaux informatifs `vision/red-block` (repere de couleur) et
+  `vision/between-trees` (runner `goto_block` : fin a 3 blocs de la cible),
+  plus `trees/bent`, `join/ravine-detour`, `terrain/hedge-pit`, `build/big-box`
+  rejoues `~avec-vue`.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

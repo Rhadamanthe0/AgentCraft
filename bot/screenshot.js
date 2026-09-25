@@ -40,6 +40,16 @@ const COULEURS = {
   feuilles: [63, 122, 47]
 }
 
+// Blocs teints (laine, beton, terre cuite, vitre...) : la couleur du nom,
+// sinon un repere colore (« va pres du bloc rouge ») serait gris inconnu.
+const TEINTES = {
+  white: [233, 236, 236], orange: [240, 118, 19], magenta: [189, 68, 179], light_blue: [58, 175, 217],
+  yellow: [248, 197, 39], lime: [112, 185, 25], pink: [237, 141, 172], gray: [62, 68, 71],
+  light_gray: [142, 142, 134], cyan: [21, 137, 145], purple: [121, 42, 172], blue: [53, 57, 157],
+  brown: [114, 71, 40], green: [84, 109, 27], red: [161, 39, 34], black: [20, 21, 25]
+}
+const TEINTE = /^(light_blue|light_gray|white|orange|magenta|yellow|lime|pink|gray|cyan|purple|blue|brown|green|red|black)_(wool|concrete|concrete_powder|terracotta|glazed_terracotta|stained_glass|carpet)$/
+
 // Un nom inconnu (bloc d un mod, variante non listee) tombe sur un gris moyen.
 const GRIS_INCONNU = [128, 128, 128]
 
@@ -50,6 +60,8 @@ function couleurDe (nom) {
   if (!nom || typeof nom !== 'string') return GRIS_INCONNU
 
   if (nom === 'air' || nom === 'cave_air' || nom === 'void_air') return COULEURS.air
+  const teinte = TEINTE.exec(nom)
+  if (teinte) return TEINTES[teinte[1]]
   if (nom === 'water' || nom.indexOf('water') !== -1) return COULEURS.eau
   if (nom === 'lava' || nom.indexOf('lava') !== -1) return COULEURS.lave
   if (nom === 'grass_block' || nom === 'grass' || nom === 'grass_path') return COULEURS.herbe
