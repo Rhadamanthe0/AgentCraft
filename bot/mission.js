@@ -5072,6 +5072,14 @@ function createMissionRunner (host, injected = {}) {
     // valide au registre (craft.TARGETS ou itemsByName). Quantite lue par le
     // code (brief indicatif, sinon parseQuota, sinon 1). Revision : un amend
     // qui ne restate pas la cible la conserve.
+    // « Va sous l arbre » lu en simple deplacement vers un repere arbre (vu sur
+    // route/under-tree : le bot cherchait l arbre sans jamais s y placer) :
+    // c est le parcours sous_arbre, que le code sait verifier.
+    if (!brief.route && brief.kind !== 'recolte' && !brief.fabrication &&
+      /\bsous\s+(?:l['’ ]\s*|un\s+|cet\s+|le\s+)?arbre\b/i.test(text)) {
+      console.log('[mission] « sous l arbre » sans parcours : parcours [sous_arbre] retenu')
+      brief = { ...brief, route: [{ type: 'sous_arbre' }] }
+    }
     let kind = brief.route ? 'geste' : (skills.KINDS[brief.kind] ? brief.kind : 'recolte')
     const landmark = skills.LANDMARKS[brief.landmark] ? brief.landmark : 'ici'
     const dimensions = build.parseDimensions(text)

@@ -209,6 +209,10 @@
 - `ramasser` : objet a portee mais encore au sol apres le trajet => `stepOnto`.
 - `piler` au bord d un trou (case sous le centre vide) : un pas vers la case
   voisine appuyee la plus proche avant de monter (trees/tall).
+- Banc parcours (`route/*`, `run_route_script`) : aller-retour, deux
+  allers-retours, sous l arbre, autour d un mur. « Va sous l arbre » lu en
+  simple deplacement sans parcours => le code retient [sous_arbre] (et le
+  prompt porte l exemple) ; sinon le bot cherchait l arbre sans s y placer.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
