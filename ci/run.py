@@ -460,7 +460,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         # Anonymous test volumes are removed with their containers; no global prune.
         started = time.monotonic()
         try:
-            logs = compose('logs', '--no-color', timeout=30, check=False)
+            logs = compose('logs', '--no-color', '--timestamps', timeout=30, check=False)
             (output / 'containers.log').write_text(logs.stdout + logs.stderr, encoding='utf-8')
             report['paperGc'] = gc_summary(logs.stdout)
             # Everything is disposable and its logs are saved: no graceful
