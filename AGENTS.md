@@ -215,6 +215,10 @@
   (ou sa famille), ni planches/batons/etabli (`fabricationUtile` ; vu : pioche
   fabriquee a la place de la hache). `choisir_terrain` refuse un nouveau
   chantier une fois le premier commence (vu : 23/24 puis maison refaite).
+- Mission construction : `findTargetBlock` ignore l emprise du chantier
+  (+1 autour) pour la terre a creuser (build/no-materials : sol du chantier
+  creuse, plus d appui). Craft sur etabli en echec silencieux : fenetre
+  fermee, pause, deux nouvelles tentatives (raté intermittent sous charge).
 - `ramasser` : objet a portee mais encore au sol apres le trajet => `stepOnto`.
 - `piler` au bord d un trou (case sous le centre vide) : un pas vers la case
   voisine appuyee la plus proche avant de monter (trees/tall).
