@@ -34,6 +34,15 @@
   `ci/cleanup.py` balaie conteneurs/reseaux/volumes/images `mc-ci-*` et
   `minebot-ci:*` (jamais de prune). `report.resourceSnapshot` = docker stats.
   Une IP pour 16 bots : `ci/paper/bukkit.yml` coupe le `connection-throttle`.
+- Banc CI allege (2026-09-25, docs/remote-minecraft-tests.md « Vitesse et
+  empreinte ») : image Paper pre-patchee `minebot-ci-paper:<hash du
+  Dockerfile>` (`ci/paper/Dockerfile`, `TYPE=CUSTOM`, aucun telechargement ;
+  gardee par cleanup.py) ; tas Paper 1G..2G (vivant <= 690 MB) ;
+  `--max-semi-space-size=4` pour bots/sondes ; sondes de sante 1 s au
+  demarrage puis 30 s ; bots toutes les 300 ms ; forceload des arenes en fond ;
+  arret par `kill`. Mesure : niveaux lances a 32 s au lieu de 62 s, pic
+  memoire 6,6 -> 3,2 Go (Paper 3,7 -> 1,6 ; bots 2,6 -> 1,3). `report.json` :
+  `phases`, `resourcePeaks` (docker stats / 5 s), `paperGc`.
 - Banc `terrain/*` (meme suite, 8 bots en parallele) : arbre derriere un mur
   de terre, au fond d un trou de 5, sur une falaise de 5, trou entoure d une
   haie. Chaque niveau exige 0 degat (scoreboard `damage_taken`).

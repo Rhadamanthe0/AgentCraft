@@ -146,7 +146,7 @@ Une execution ne construit **qu'une image**, `minebot-ci:<projet>` (section
 
 | Service | Contenu |
 | --- | --- |
-| `minecraft` | Paper 26.1.2, `MAX_PLAYERS` 48, RCON sur port loopback |
+| `minecraft` | `minebot-ci-paper:<hash>` (Paper 26.1.2-74 pre-patche, voir plus bas), tas 1 a 2 Go, `MAX_PLAYERS` 48, RCON sur port loopback |
 | `harness` | `TestProbe1` + scenarios de navigation (`ci/harness.js`) |
 | `bots` | `ci/multi-bot.js` : 16 processus `node index.js` (un par bot, `bot/index.js` etant un singleton), `TreeBotN` sur l'API `3000+N`, etat sous `/data/botN/`, tas V8 borne a `BOT_MAX_OLD_SPACE_MB` (256), `mem_limit` 6g |
 | `probes` | `ci/probes.js` : les 16 sondes muettes `TestProbe2..17` dans **un seul** processus (un registre minecraft-data partage au lieu de ~100 Mo par processus), `mem_limit` 768m |
@@ -155,7 +155,7 @@ Tous les bots partagent l'IP du conteneur `bots` (et les sondes celle de
 `probes`) : le `connection-throttle` de Paper (4 s par IP) en refuserait la
 plupart. `ci/paper/bukkit.yml` (copie dans `/data` par `COPY_CONFIG_DEST`)
 le desactive, pour le banc seulement. Filets : les processus des bots
-demarrent a 1 s d'intervalle et `bot/index.js` se reconnecte seul (3 s) ;
+demarrent a 300 ms d'intervalle (`CONNECT_STAGGER_MS`) et `bot/index.js` se reconnecte seul (3 s) ;
 une sonde refusee **avant** son premier spawn retente sa connexion 4 fois
 (journalise), jamais apres.
 
@@ -164,15 +164,88 @@ lisible), transmet SIGTERM et ne relance **jamais** un bot mort : il le
 journalise, et le healthcheck (`node ci/multi-bot.js health` : tous vivants
 et `/api/status` `spawned=true` pour chacun) echoue. Une sonde deconnectee
 n'est pas reconnectee non plus. `ci/run.py` joint chaque bot par son port
-loopback (`127.0.0.1::3001..3016`, resolu par `docker compose port`), ou
+loopback (`127.0.0.1::3001..3016`, tous resolus par un seul `docker compose ps --format json`, `docker compose port` en repli), ou
 par `docker compose exec bots` sur le bon port en repli ; un port publie qui
 refuse la connexion (processus lie au 127.0.0.1 du conteneur) bascule sur ce
 repli. La preuve survie/ops porte toujours sur chaque pseudo.
 
-`report.json` contient `resourceSnapshot` : un `docker stats` des conteneurs
-du projet environ 60 s apres le debut des niveaux (CPU, memoire, PIDs), et
-`summary.md` son total, pour comparer l'empreinte d'une execution a l'autre.
-`MEMORY: 3G` de Paper n'a pas ete baisse faute de mesure.
+`report.json` contient, pour comparer une execution a l'autre :
+
+- `phases` : duree (s) de `build`, `unit`, `paper`, `forceload`,
+  `forceloadArenas` (en fond), `players`, `probesJoined`, `navigation`,
+  `levels`, `teardown` et `total` ; `commands.log` horodate chaque commande
+  (`[+debut, duree]`) et `containers.log` chaque ligne (`--timestamps`) ;
+- `resourcePeaks` : un `docker stats` toutes les ~5 s pendant les niveaux,
+  pic de memoire et de CPU et CPU moyen par conteneur, pics totaux
+  (`resourceSamples` garde chaque mesure) ; `resourceSnapshot` reste la
+  premiere mesure prise >= 60 s apres le debut des niveaux ;
+- `paperGc` : resume du `-Xlog:gc` de Paper (collections, tas avant GC, tas
+  vivant apres GC, tas engage).
+
+`summary.md` en reprend les totaux.
+
+### Vitesse et empreinte du banc (25 septembre 2026)
+
+Mesure avant/apres sur le meme code (main `16354fd`, 27 niveaux, 33 tests),
+PC du proprietaire : reference = main + instrumentation seule (run
+36106543538), apres = `claude/ci-optimisation-2` (run 36106584183), tous
+deux verts.
+
+| Phase (s) | Avant | Apres |
+| --- | --- | --- |
+| build (image de test) | 5,0 | 4,8 |
+| paper (conteneur sain) | 31,4 | 16,1 |
+| forceload | 3,0 | 0,7 (+2,9 en fond) |
+| players (harness, 16 bots, 16 sondes) | 21,9 | 10,3 |
+| debut des niveaux (depuis le lancement) | 61,9 | 32,0 |
+| levels (depend du modele distant : 1,8 s puis 2,5 s par appel) | 133,6 | 145,0 |
+| teardown | 6,6 | 3,3 |
+| total `ci/run.py` | 202,2 | 182,5 |
+
+| Pics pendant les niveaux (docker stats / ~5 s) | Avant | Apres |
+| --- | --- | --- |
+| minecraft | 3677 MB, CPU moy. 55,8 % | 1553 MB, CPU moy. 59,2 % |
+| bots (16 processus) | 2594 MB, CPU moy. 121,4 % | 1331 MB, CPU moy. 119,6 % |
+| probes | 207 MB, CPU moy. 11,4 % | 181 MB, CPU moy. 9,8 % |
+| harness | 130 MB, CPU moy. 9,5 % | 133 MB, CPU moy. 1,7 % |
+| total | 6601 MB, CPU moy. 198 % | 3180 MB, CPU moy. 190 % |
+
+Ce qui a ete garde, et pourquoi :
+
+- **Image Paper pre-patchee** (`ci/paper/Dockerfile`) : Paper 26.1.2-74
+  telecharge et patche (`-Dpaperclip.patchonly=true`) a la construction ;
+  `TYPE=CUSTOM` au demarrage, sans aucun acces reseau. Avant, chaque banc
+  telechargeait le jar Paper, quatre configs par defaut (GitHub) et
+  `mojang_26.1.2.jar`, puis appliquait les patchs : ~15 s. Les configs que
+  Paper ecrit lui-meme ne different des telechargees que par l'ordre des cles
+  et des cles nouvelles a leur defaut. Tag stable par contenu du Dockerfile
+  (`minebot-ci-paper:<sha256[:12]>`), construit seulement s'il manque, garde
+  par `ci/cleanup.py` (qui retire les tags d'un ancien Dockerfile). Le monde
+  reste cree a neuf a chaque banc.
+- **Tas Paper 1G..2G** (`INIT_MEMORY`/`MAX_MEMORY`, 3G fixes avant) : tas
+  vivant apres GC 646 MB (avant) / 684 MB (apres) au pire ; le tas engage
+  est reste a 1 Go, pauses Young <= 116 ms (<= 105 ms avant), 700 ms de pause
+  cumulee sur le banc (514 ms avant). -2,1 Go.
+- **`--max-semi-space-size=4`** pour `bots` et `probes` : la jeune
+  generation V8 par defaut coutait ~50 Mo par processus. Mesure locale, 16
+  bots au repos : 1,98 Go -> 1,10 Go ; en CI -1,26 Go, CPU inchange.
+  (2 Mo : meme memoire ; 8 Mo : +130 Mo.)
+- **Sondes de sante** : `start_interval: 1s` pendant le demarrage (Paper :
+  5 s par defaut de l'image), puis 30 s. Avant, une verification (un processus
+  node) toutes les 2-3 s pendant tout le banc : harness 9,5 % -> 1,7 % de CPU.
+- **Bots lances toutes les 300 ms** (1000 ms avant) et **forceload des 27
+  arenes en fond** pendant le demarrage des joueurs (seuls les niveaux en ont
+  besoin ; attendu avant eux).
+- **Ports publies** lus en un seul `docker compose ps --format json`.
+- **Arret par `docker compose kill`** : journaux deja sauves, rien a
+  enregistrer (Paper sauvait un monde jete) : 6,6 s -> 3,3 s.
+
+Essaye et ecarte : RCON n'est pas un goulot (mesure locale : 2 ms par
+commande simple, 13 ms par `fill`/`clone` d'arene, une seule connexion) ;
+`viewDistance` du client mineflayer (le serveur plafonne deja a 4, et un
+chunk de monde plat coute peu) ; `--optimize-for-size` refuse dans
+`NODE_OPTIONS`. La phase `levels` depend du modele distant (latence par
+appel, nombre d'appels) et varie de +-15 s d'un banc a l'autre a code egal.
 
 En fin d'execution, `docker compose down` puis `docker image rm
 minebot-ci:<projet>` (le `--rmi local` d'avant ignore les images nommees).
@@ -190,8 +263,8 @@ Le compose de production n'est jamais utilise. Les seuls ports publies le
 sont sur `127.0.0.1`, en port hote aleatoire (RCON jetable, API des bots,
 harness) ; aucune cle `.env` ni volume de production n'est monte. Les
 conteneurs de test, leurs volumes anonymes et l'image `minebot-ci:<projet>`
-sont supprimes en fin d'execution. Les caches de construction Docker peuvent
-rester. Apres une interruption brutale :
+sont supprimes en fin d'execution. Les caches de construction Docker et
+l'image Paper `minebot-ci-paper:<hash>` restent. Apres une interruption brutale :
 
 ```powershell
 python ci/cleanup.py
