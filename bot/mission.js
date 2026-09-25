@@ -956,6 +956,31 @@ function createMissionRunner (host, injected = {}) {
     return poses > 0 ? `${poses} bloc(s) poses, ${pas} pas` : null
   }
 
+  // Par tours : terre prise derriere la tete de pont (un trou au bord de l eau
+  // agrandirait la riviere), retour a la tete de pont, blocs poses tant qu il
+  // en reste ; jusqu a l autre rive. Rend vrai si plus aucun trou ne barre.
+  async function bridgeRounds (goal, owner) {
+    for (let tour = 0; tour < 4 && gapToward(goal) && !mission?.cancelled; tour += 1) {
+      const tete = host.getBot().entity.position.clone()
+      if (scaffoldingStock(host.getBot()).total < 3) {
+        // Terre prise derriere soi seulement : un trou au bord de l eau se
+        // remplirait et agrandirait la riviere.
+        const vx = goal.x - tete.x
+        const vz = goal.z - tete.z
+        const derriere = (x, z) => (x + 0.5 - tete.x) * vx + (z + 0.5 - tete.z) * vz > -1.5 * Math.hypot(vx, vz)
+        const pris = await gatherDirt(6, derriere, { sol: true })
+        await collectScaffoldDrops(owner)
+        await host.navigateToPosition(tete, { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.5, distanceBudget: 12 })
+        console.log(`[mission] pont : ${pris} bloc(s) de terre creuses, stock ${scaffoldingStock(host.getBot()).total}`)
+      }
+      if (scaffoldingStock(host.getBot()).total < 1) break
+      const bridged = await bridgeToward(goal, owner)
+      console.log(`[mission] pont : ${bridged ?? 'rien pose'}`)
+      if (!bridged) break
+    }
+    return !gapToward(goal)
+  }
+
   // Ramasse la terre tombee pres du bot (un bloc creuse dans une paroi lache
   // son objet hors du rayon de collecte) : trajet de ramassage vers chacun.
   async function collectScaffoldDrops (owner) {
@@ -1124,27 +1149,8 @@ function createMissionRunner (host, injected = {}) {
         // Eau ou vide en ligne droite vers la cible : pont de terre pose a la
         // main (le pathfinder s y prend mal et le bot ne ressort pas de l eau).
         // La terre n est prise que dans ce cas (des trous dans le sol perdaient
-        // le pathfinder), puis retour au point de depart.
-        // Par tours : terre prise a cote de la tete de pont, retour a la tete
-        // de pont, blocs poses tant qu il en reste ; jusqu a l autre rive.
-        for (let tour = 0; tour < 4 && gapToward(goal2) && !mission?.cancelled; tour += 1) {
-          const tete = host.getBot().entity.position.clone()
-          if (scaffoldingStock(host.getBot()).total < 3) {
-            // Terre prise derriere soi seulement : un trou au bord de l eau se
-            // remplirait et agrandirait la riviere.
-            const vx = goal2.x - tete.x
-            const vz = goal2.z - tete.z
-            const derriere = (x, z) => (x + 0.5 - tete.x) * vx + (z + 0.5 - tete.z) * vz > -1.5 * Math.hypot(vx, vz)
-            const pris = await gatherDirt(6, derriere, { sol: true })
-            await collectScaffoldDrops(owner)
-            await host.navigateToPosition(tete, { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.5, distanceBudget: 12 })
-            console.log(`[mission] pont : ${pris} bloc(s) de terre creuses, stock ${scaffoldingStock(host.getBot()).total}`)
-          }
-          if (scaffoldingStock(host.getBot()).total < 1) break
-          const bridged = await bridgeToward(goal2, owner)
-          console.log(`[mission] pont : ${bridged ?? 'rien pose'}`)
-          if (!bridged) break
-        }
+        // le pathfinder), puis retour au point de depart (bridgeRounds).
+        await bridgeRounds(goal2, owner)
         if (!gapToward(goal2)) result = await call()
         else if (!result?.reached) {
           // Le pathfinder qui creuse entrerait dans l eau, dont le bot ne
@@ -3046,8 +3052,22 @@ function createMissionRunner (host, injected = {}) {
           result = await approach()
         }
       }
+      // Eau entre le bot et l arbre (ile, fosse) : le pathfinder qui creuse y
+      // entrait, et le bot ne ressort pas de l eau en 26.1 (vu sur
+      // terrain/moat). Pont de terre pose a la main, sinon echec franc.
+      let noye = false
+      if (result.code === 'no_path' && mission.kind === 'recolte' && !mission.cancelled && gapToward(cible.position)) {
+        const bridged = await bridgeRounds(cible.position, stepToken)
+        if (bridged) {
+          degage += ' (pont de terre pose)'
+          result = await approach()
+        } else {
+          noye = true
+          degage += ' (eau vers la cible, pont inacheve : trouver de la terre)'
+        }
+      }
       const farAbove = result.code === 'needs_height' && Number(result.horizontalDistance) > REACH
-      if ((result.code === 'no_path' || farAbove) && mission.kind === 'recolte' && !mission.cancelled &&
+      if ((result.code === 'no_path' || farAbove) && !noye && mission.kind === 'recolte' && !mission.cancelled &&
         typeof host.digToward === 'function') {
         const dug = await host.digToward(cible.position.offset(0.5, 0.5, 0.5), {
           signal: mission.navigationAbort.signal
@@ -3103,9 +3123,33 @@ function createMissionRunner (host, injected = {}) {
         return { resultat: `${cible.name} deja a portee : casser directement, pas de pilier`, echec: true }
       }
 
-      const available = scaffoldingStock(bot)
-      if (available.total < hauteur) {
-        return { resultat: `stock d echafaudage insuffisant : ${available.total}/${hauteur} blocs disponibles, obtenir le manque avant de monter`,
+      let available = scaffoldingStock(bot)
+      // Stock court : aller chercher le manque soi-meme plutot que d echouer
+      // en boucle (vu sur trees/tall : perche a +2 sans terre, aucune action
+      // ne pouvait en obtenir depuis le haut). Defaire son propre pilier rend
+      // ses blocs ; la hauteur visee reste la meme (pilier refait plus haut).
+      let hauteurVisee = hauteur
+      let recupere = ''
+      if (available.total < hauteur && !mission.cancelled) {
+        const yHaut = bot.entity.position.y
+        const under = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+        if (under && isPillarBlock(bot, under)) {
+          await descendScaffold(-Infinity, { pillarOnly: true })
+          await collectScaffoldDrops(stepToken)
+        }
+        const redescendu = Math.max(0, Math.round(yHaut - host.getBot().entity.position.y))
+        hauteurVisee = Math.min(PILER_MAX, hauteur + redescendu)
+        if (scaffoldingStock(bot).total < hauteurVisee) {
+          await gatherDirt(hauteurVisee, () => false, { sol: true })
+          await collectScaffoldDrops(stepToken)
+        }
+        available = scaffoldingStock(bot)
+        recupere = ` (terre obtenue sur place : ${available.total} bloc(s)` +
+          (redescendu ? `, pilier de ${redescendu} defait puis refait` : '') + ')'
+        if (redescendu && available.total < hauteurVisee) hauteurVisee = Math.max(redescendu, available.total)
+      }
+      if (available.total < hauteurVisee) {
+        return { resultat: `stock d echafaudage insuffisant : ${available.total}/${hauteurVisee} blocs disponibles, obtenir le manque avant de monter`,
           echec: true, code: 'stock_echafaudage_insuffisant' }
       }
 
@@ -3116,7 +3160,7 @@ function createMissionRunner (host, injected = {}) {
       let poses = 0
       let failure = null
 
-      for (let niveau = 0; niveau < hauteur; niveau += 1) {
+      for (let niveau = 0; niveau < hauteurVisee; niveau += 1) {
         if (mission.cancelled) break
         const live = host.getBot()
         if (!live?.entity) {
@@ -3266,10 +3310,10 @@ function createMissionRunner (host, injected = {}) {
         return { resultat: `pilier impossible : ${failure ?? 'aucun bloc pose'}`, echec: true }
       }
       return {
-        resultat: `pilier de ${poses}/${hauteur} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)` +
+        resultat: `pilier de ${poses}/${hauteurVisee} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)${recupere}` +
           (failure ? `, arret : ${failure}` : ', reobserver depuis le haut'),
-        echec: poses !== hauteur || Boolean(failure),
-        code: poses === hauteur && !failure ? 'pilier_pose' : 'pilier_partiel',
+        echec: poses !== hauteurVisee || Boolean(failure),
+        code: poses === hauteurVisee && !failure ? 'pilier_pose' : 'pilier_partiel',
         reobserver: true
       }
     },

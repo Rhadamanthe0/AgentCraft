@@ -128,6 +128,10 @@ function createNavigator (getBot, options = {}) {
     movements.canDig = false
     movements.allow1by1towers = false
     movements.allowParkour = false
+    // Ce navigateur ne pose rien : sans cela, un bot porteur de terre recevait
+    // des chemins a poser (pont sur l eau) refuses en unsupported_move, en
+    // boucle (vu sur terrain/moat apres le pont de terre).
+    movements.scafoldingBlocks = []
     // Pathfinder 2.4.5 compte jusqu au BLOC d appui, pas jusqu aux pieds :
     // 3 permits two blocks down; WalkingMovements also checks actual surfaces.
     movements.maxDropDown = 3
@@ -153,6 +157,7 @@ function createNavigator (getBot, options = {}) {
     let lostAt = null
     let travelled = 0
     let approachingHigh = false
+    let emptyReplans = 0
     let heightEvidence = null
     let measuredAt = bot.entity.position.clone()
     const startedAt = Date.now()
@@ -304,7 +309,17 @@ function createNavigator (getBot, options = {}) {
           route.shift()
           touchedPoint = null
         }
-        if (!route.length) continue
+        if (!route.length) {
+          // Chemin deja consomme sans bouger (le bot est sur la seule case du
+          // chemin mais pas arrive) : replanifier donnait le meme chemin, en
+          // boucle synchrone, jusqu a la deconnexion par le serveur (vu sur
+          // trees/pillar). Rendre la main, et abandonner apres trois fois.
+          emptyReplans += 1
+          if (emptyReplans >= 3) { code = 'no_path'; break }
+          await sleep(50)
+          continue
+        }
+        emptyReplans = 0
         const point = route[0]
         recording.target(point)
         if (point.toBreak?.length || point.toPlace?.length || point.parkour) {
