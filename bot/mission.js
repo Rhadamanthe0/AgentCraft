@@ -2768,7 +2768,14 @@ function createMissionRunner (host, injected = {}) {
           signal: mission.navigationAbort.signal, __owner: stepToken,
           radius: ITEM_AUTO_PICKUP, pickup: true, timeoutMs: 10000
         })
-        if (!walk.reached) bloqueVu = true
+        if (!walk.reached) {
+          bloqueVu = true
+          // Trajet refuse alors que l objet est tout pres et au meme niveau :
+          // un pas droit dessus (vu sur trees/double : buche a 1,6 bloc dans
+          // l emprise du tronc abattu, ramasser 0/1 cinq fois de suite).
+          const p = host.getBot()?.entity?.position
+          if (p && Math.hypot(p.x - item.position.x, p.z - item.position.z) <= 3) await stepOnto(item)
+        }
         await sleep(300)
         const after = host.getBot()?.entity?.position
         if (!after) break
@@ -4637,7 +4644,12 @@ function createMissionRunner (host, injected = {}) {
       // boucle continuer (pendingJoin). Vu sur chat/tree-then-bring : mission
       // close au pied de l arbre, bois jamais rapporte.
       if (mission.wholeTree && treeStatus()?.termine) {
-        const livrer = /rapport|ram[eè]n|apport|livr/i.test(mission.objective ?? '') &&
+        // La demande vient de l objectif (revision) ou d une precision
+        // ajoutee en cours de route (vu : « et rapporte moi le bois » classe
+        // en precision, objectif inchange, bois jamais rapporte).
+        const textes = [mission.objective ?? '', ...(mission.instructions ?? [])
+          .filter(entry => entry?.de === mission.requester).map(entry => entry.message ?? '')]
+        const livrer = textes.some(texte => /rapport|ram[eè]n|apport|livr/i.test(texte)) &&
           Boolean(host.getBot()?.players?.[mission.requester]?.entity)
         if (livrer && !mission.livraison) {
           mission.livraison = true
