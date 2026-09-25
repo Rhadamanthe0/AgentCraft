@@ -210,6 +210,24 @@ deux verts.
 | harness | 130 MB, CPU moy. 9,5 % | 133 MB, CPU moy. 1,7 % |
 | total | 6601 MB, CPU moy. 198 % | 3180 MB, CPU moy. 190 % |
 
+Apres fusion de main `b8947cb` (31 niveaux, 36 tests, bancs chat et suivre),
+tout ordre compris (LPT) : reference main `712eb71` (run 36109916130, vert,
+sans instrumentation : total de `ci/run.py` et un seul `docker stats` a 60 s)
+contre `claude/ci-optimisation-2` `00c8841` (run 36140670602, vert).
+
+| | main 712eb71 | branche 00c8841 |
+| --- | --- | --- |
+| total `ci/run.py` | 254,5 s | 140,1 s |
+| job GitHub complet | 4 min 31 s | 2 min 37 s |
+| phase `levels` | ~190 s (plus long niveau 164 s, `terrain/plateau`) | 104,6 s (plus long niveau 97,7 s) |
+| memoire (pic sur 15 mesures pour la branche) | 6348 MB a 60 s | 3152 MB au pic |
+| minecraft / bots | 3680 / 2355 MB | 1532 / 1311 MB |
+| CPU total | 205 % a 60 s | moy. 223 %, pic 596 % |
+| tas vivant Paper | - | <= 770 MB (engage 1039 MB sur 2 G) |
+
+Le CPU total ne baisse pas : le travail (16 bots, Paper, modele distant) est le
+meme, fait en moins de temps ; le CPU cumule du banc baisse avec sa duree.
+
 Ce qui a ete garde, et pourquoi :
 
 - **Image Paper pre-patchee** (`ci/paper/Dockerfile`) : Paper 26.1.2-74
