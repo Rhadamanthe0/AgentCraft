@@ -387,6 +387,47 @@ def levels():
             'terrain': [(18, 200, 4, 18, 202, SIZE, 'stone')],
             'visits': 1, 'back': True, 'leaves': [], 'logs': [], 'rules': {},
         },
+        # Tour 2 des types suivre, ramasser, fabriquer, construire, parcours.
+        {
+            'name': 'follow/winding',
+            'about': 'Suivi sur 45 blocs en zigzag entre deux murs de pierre (passages alternes).',
+            'kind': 'follow', 'start': (4.5, 200, 4.5),
+            'terrain': [(10, 200, 0, 10, 202, 26, 'stone'), (20, 200, 10, 20, 202, SIZE, 'stone')],
+            'path': [(6.5, 200, 4.5), (6.5, 200, 30.5), (15.5, 200, 30.5), (15.5, 200, 5.5), (26.5, 200, 5.5), (26.5, 200, 30.5)],
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'gather/sand-plateau',
+            'about': '« Ramasse 4 blocs de sable » : sable au sommet d un plateau de terre de 4 de haut.',
+            'kind': 'gather', 'instruction': 'Ramasse 4 blocs de sable', 'items': ['sand'],
+            'terrain': [(22, 200, 12, 30, 202, 24, 'dirt'), (22, 203, 12, 30, 203, 24, 'grass_block'),
+                        (25, 203, 16, 27, 203, 20, 'sand')],
+            'target': 4, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'craft/door',
+            'about': '3 buches en inventaire, « Fabrique une porte en bois » : planches, etabli pose, porte.',
+            'kind': 'gather', 'give': [('oak_log', 3)], 'instruction': 'Fabrique une porte en bois', 'items': ['oak_door'],
+            'target': 1, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'craft/from-tree',
+            'about': 'Inventaire vide, un arbre a 8 blocs, « Fabrique 8 planches » : couper du bois d abord.',
+            'kind': 'gather', 'instruction': 'Fabrique 8 planches', 'items': ['oak_planks'],
+            'target': 8, 'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)], 'logs': _logs(*trunk3), 'rules': {},
+        },
+        {
+            'name': 'build/big-box',
+            'about': '128 terre, « Construis une maison en terre de 4 par 4 par 4 » : 40 blocs poses au moins.',
+            'kind': 'build', 'give': [('dirt', 64), ('dirt', 64)], 'instruction': 'Construis une maison en terre de 4 par 4 par 4',
+            'blocks': ['minecraft:dirt', 'minecraft:grass_block'], 'target': 40, 'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'route/wait-and-back',
+            'about': '« Viens me voir, attends 3 secondes, puis retourne a ta place ».',
+            'kind': 'route', 'instruction': 'Viens me voir, attends 3 secondes, puis retourne a ta place', 'probeAt': (26.5, 200, 18.5),
+            'visits': 1, 'back': True, 'leaves': [], 'logs': [], 'rules': {},
+        },
         {
             'name': 'trees/tall',
             'about': 'Tronc de 8 buches (Y+0 a Y+7), couronne au-dessus : il faut un pilier de 4 blocs ou plus.',

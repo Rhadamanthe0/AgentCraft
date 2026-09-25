@@ -101,11 +101,11 @@ commence que quand le precedent est entierement vert.
 | rejoindre (« Rejoins moi ») | `join/*` : 10 | vert |
 | bois (« coupe moi un arbre ») | `trees/*`, `terrain/*` : 11 (tour 2 : `trees/tall`, `trees/double`, `terrain/moat`) | vert |
 | chat (arbitrage, arret, questions) | `chat/*` : 6 (tour 2 : `stop-tree`, `question-keeps-mission`, `chatter-ignored`, `join-then-tree`, `tree-then-bring`) | vert |
-| suivre (« suis moi ») | `follow/*` : 4 (ligne droite, contournement d un mur, escalier, stop) | vert |
-| ramasser (terre, sable, fleurs) | `gather/*` : 4 (terre, sable, fleurs dispersees, sable emmure) | vert |
-| fabriquer (planches, etabli, hache) | `craft/*` : 4 (planches, batons, etabli, hache en bois ; buches donnees par RCON) | vert |
-| construire (maison de terre) | `build/*` : 3 (boite 3x3x3 en terre, avec porte, cabane en planches ; materiaux donnes par RCON) | vert |
-| parcours (allers-retours, aller sous un arbre) | `route/*` : 4 (aller-retour, deux allers-retours, sous l arbre, aller-retour autour d un mur) | en validation |
+| suivre (« suis moi ») | `follow/*` : 5 (ligne droite, mur, escalier, stop, zigzag) | tour 2 en validation |
+| ramasser (terre, sable, fleurs) | `gather/*` : 5 (terre, sable, fleurs, sable emmure, sable sur un plateau) | tour 2 en validation |
+| fabriquer (planches, etabli, hache) | `craft/*` : 6 (planches, batons, etabli, hache, porte, planches depuis un arbre) | tour 2 en validation |
+| construire (maison de terre) | `build/*` : 4 (boite 3x3x3, avec porte, cabane en planches, boite 4x4x4) | tour 2 en validation |
+| parcours (allers-retours, aller sous un arbre) | `route/*` : 5 (aller-retour, deux allers-retours, sous l arbre, autour d un mur, attente) | tour 2 en validation |
 
 Les blocs sont comptes par RCON (`clone ... filtered` vers une zone de
 comptage eloignee) toutes les 3 s ; la hauteur est echantillonnee chaque
