@@ -95,6 +95,11 @@ const REACH = 4
 const LEAF_CLEAR_MAX = Number(process.env.MISSION_LEAF_CLEAR_MAX || 12)
 // « un arbre », « l arbre », « cet arbre » : un arbre entier est demande.
 const WHOLE_TREE_TEXT = /\b(?:un|1|cet|ce|l'|l )\s*arbre\b/i
+// Un objectif reecrit par le modele cite souvent la position du joueur
+// (« x:2330.5, y:200 ») : ces nombres ne sont pas une quantite (vu sur
+// chat/join-then-tree : « un arbre » devenu un quota, bot parti en chercher
+// d autres une fois l arbre fini).
+const sansCoordonnees = text => String(text ?? '').replace(/\b[xyz]\s*[:=]\s*-?\d+(?:[.,]\d+)?/gi, '')
 // Volume de l arbre commence, autour de sa premiere buche coupee : branches
 // jusqu a 4 blocs de cote, cime jusqu a 14 blocs plus haut.
 const TREE_RADIUS = 4
@@ -4632,7 +4637,7 @@ function createMissionRunner (host, injected = {}) {
         if (livrer && !mission.livraison) {
           mission.livraison = true
           abortPrefetch('arbre fini, bois a rapporter au demandeur')
-          mission.queue = [{ action: 'rejoindre_demandeur', choices: {} }]
+          mission.queue = [{ action: 'rejoindre_demandeur', scale: 0.5, scaleLevel: null, choices: {} }]
           console.log(`[mission] arbre fini : bois a rapporter a ${mission.requester}`)
         } else if (!livrer || mission.pendingJoin === false) {
           finish('done', livrer ? 'arbre entier coupe, bois rapporte au demandeur' : 'arbre entier coupe et ramasse')
@@ -4983,12 +4988,12 @@ function createMissionRunner (host, injected = {}) {
       // jamais demandee au modele. `finishAllowed` s en sert pour refuser un
       // arret premature. En fabrication, le quota recolte ne sert pas : la
       // preuve est l objet cible (fabricationCible/Quantite ci-dessous).
-      quota: build.parseQuota(text, { allowBlockUnits: kind === 'recolte' && !fabricationCible }) ?? DEFAULT_QUOTA,
+      quota: build.parseQuota(sansCoordonnees(text), { allowBlockUnits: kind === 'recolte' && !fabricationCible }) ?? DEFAULT_QUOTA,
       // « coupe (moi) un arbre » : le travail est UN arbre entier, pas le quota
       // par defaut. L arbre est fixe par la premiere buche coupee ; la fin est
       // jugee sur ses buches restantes et son bois au sol (finishAllowed).
       wholeTree: kind === 'recolte' && resource === 'bois' && !fabricationCible &&
-        build.parseQuota(text, { allowBlockUnits: true }) === null && WHOLE_TREE_TEXT.test(text),
+        build.parseQuota(sansCoordonnees(text), { allowBlockUnits: true }) === null && WHOLE_TREE_TEXT.test(text),
       tree: null,
       // Fabrication generique : cible validee registre + quantite codee,
       // persistee et servie dans buildState (consigne.fabrication_cible).

@@ -137,6 +137,9 @@
   `context` sans mission active ne relance plus l objectif precedent ;
   « ... et rapporte moi le bois » (objectif avec rapport/ramene/apporte/livre,
   demandeur en jeu) => arbre fini puis `rejoindre_demandeur` avant la cloture.
+- Quota et « arbre entier » se lisent sur l objectif SANS coordonnees
+  (`sansCoordonnees`) : un objectif reecrit citant « x:2330.5, y:200 »
+  devenait un quota de 5 buches (chat/join-then-tree).
 - Prompt/doc de `piler` : stock court => choisir piler quand meme, l action
   recupere la terre (la hauteur demandee n est jamais rabotee). Avant, le
   modele cassait de la dirt hors de portee depuis son pilier (trees/tall).
