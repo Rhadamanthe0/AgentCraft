@@ -128,6 +128,10 @@ function createNavigator (getBot, options = {}) {
     movements.canDig = false
     movements.allow1by1towers = false
     movements.allowParkour = false
+    // Ce navigateur ne pose rien : sans cela, un bot porteur de terre recevait
+    // des chemins a poser (pont sur l eau) refuses en unsupported_move, en
+    // boucle (vu sur terrain/moat apres le pont de terre).
+    movements.scafoldingBlocks = []
     // Pathfinder 2.4.5 compte jusqu au BLOC d appui, pas jusqu aux pieds :
     // 3 permits two blocks down; WalkingMovements also checks actual surfaces.
     movements.maxDropDown = 3

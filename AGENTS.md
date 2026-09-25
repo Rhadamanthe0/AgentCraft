@@ -121,6 +121,13 @@
 - `avancer` vers un arbre derriere de l eau (`terrain/moat`) : `bridgeRounds`
   (pont de terre de `join/water-gap`, factorise) avant `digToward`, qui
   faisait entrer le bot dans le fosse ; pont inacheve => echec franc.
+- Le navigateur partage (`navigation.js`) ne pose jamais de bloc
+  (`scafoldingBlocks = []`) : porteur de terre, il recevait des chemins a
+  poser refuses en `unsupported_move` en boucle (terrain/moat).
+- `piler` a court de terre la cherche lui-meme : defait son propre pilier
+  (blocs recuperes), `gatherDirt` a cote (jamais sous les pieds), puis pile
+  hauteur demandee + hauteur defaite (vu sur trees/tall : perche a +2 sans
+  terre, aucune action n en obtenait depuis le haut).
 - Banc bois tour 2 : `trees/tall` (8 buches), `trees/double` (2x2, 16),
   `terrain/moat` (ile entouree d eau).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,

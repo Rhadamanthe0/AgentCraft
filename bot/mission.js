@@ -3123,9 +3123,33 @@ function createMissionRunner (host, injected = {}) {
         return { resultat: `${cible.name} deja a portee : casser directement, pas de pilier`, echec: true }
       }
 
-      const available = scaffoldingStock(bot)
-      if (available.total < hauteur) {
-        return { resultat: `stock d echafaudage insuffisant : ${available.total}/${hauteur} blocs disponibles, obtenir le manque avant de monter`,
+      let available = scaffoldingStock(bot)
+      // Stock court : aller chercher le manque soi-meme plutot que d echouer
+      // en boucle (vu sur trees/tall : perche a +2 sans terre, aucune action
+      // ne pouvait en obtenir depuis le haut). Defaire son propre pilier rend
+      // ses blocs ; la hauteur visee reste la meme (pilier refait plus haut).
+      let hauteurVisee = hauteur
+      let recupere = ''
+      if (available.total < hauteur && !mission.cancelled) {
+        const yHaut = bot.entity.position.y
+        const under = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+        if (under && isPillarBlock(bot, under)) {
+          await descendScaffold(-Infinity, { pillarOnly: true })
+          await collectScaffoldDrops(stepToken)
+        }
+        const redescendu = Math.max(0, Math.round(yHaut - host.getBot().entity.position.y))
+        hauteurVisee = Math.min(PILER_MAX, hauteur + redescendu)
+        if (scaffoldingStock(bot).total < hauteurVisee) {
+          await gatherDirt(hauteurVisee, () => false, { sol: true })
+          await collectScaffoldDrops(stepToken)
+        }
+        available = scaffoldingStock(bot)
+        recupere = ` (terre obtenue sur place : ${available.total} bloc(s)` +
+          (redescendu ? `, pilier de ${redescendu} defait puis refait` : '') + ')'
+        if (redescendu && available.total < hauteurVisee) hauteurVisee = Math.max(redescendu, available.total)
+      }
+      if (available.total < hauteurVisee) {
+        return { resultat: `stock d echafaudage insuffisant : ${available.total}/${hauteurVisee} blocs disponibles, obtenir le manque avant de monter`,
           echec: true, code: 'stock_echafaudage_insuffisant' }
       }
 
@@ -3136,7 +3160,7 @@ function createMissionRunner (host, injected = {}) {
       let poses = 0
       let failure = null
 
-      for (let niveau = 0; niveau < hauteur; niveau += 1) {
+      for (let niveau = 0; niveau < hauteurVisee; niveau += 1) {
         if (mission.cancelled) break
         const live = host.getBot()
         if (!live?.entity) {
@@ -3286,10 +3310,10 @@ function createMissionRunner (host, injected = {}) {
         return { resultat: `pilier impossible : ${failure ?? 'aucun bloc pose'}`, echec: true }
       }
       return {
-        resultat: `pilier de ${poses}/${hauteur} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)` +
+        resultat: `pilier de ${poses}/${hauteurVisee} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)${recupere}` +
           (failure ? `, arret : ${failure}` : ', reobserver depuis le haut'),
-        echec: poses !== hauteur || Boolean(failure),
-        code: poses === hauteur && !failure ? 'pilier_pose' : 'pilier_partiel',
+        echec: poses !== hauteurVisee || Boolean(failure),
+        code: poses === hauteurVisee && !failure ? 'pilier_pose' : 'pilier_partiel',
         reobserver: true
       }
     },
