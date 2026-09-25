@@ -4639,6 +4639,15 @@ function createMissionRunner (host, injected = {}) {
       // Arbre entier demande : sa fin se mesure (0 buche debout, 0 au sol), elle
       // ne depend pas d un « fini » du modele, qui voulait parfois chercher un
       // demandeur absent ou le quota par defaut apres le dernier ramassage.
+      // Quantite explicite atteinte en inventaire (recolte simple) : clore.
+      // Vu sur gather/flowers : 3 fleurs en inventaire des 67 s, le modele
+      // perdait le compte et cherchait encore des fleurs jusqu au plafond.
+      if (mission.kind === 'recolte' && mission.quotaExplicite && !mission.wholeTree &&
+        !mission.fabricationCible && collected() >= mission.quota) {
+        finish('done', `quantite demandee en inventaire (${collected()}/${mission.quota})`)
+        return
+      }
+
       // « ... et rapporte moi le bois » : l arbre fini, rejoindre d abord le
       // demandeur (s il est en jeu), puis clore ; un echec de trajet laisse la
       // boucle continuer (pendingJoin). Vu sur chat/tree-then-bring : mission
@@ -5006,6 +5015,9 @@ function createMissionRunner (host, injected = {}) {
       // arret premature. En fabrication, le quota recolte ne sert pas : la
       // preuve est l objet cible (fabricationCible/Quantite ci-dessous).
       quota: build.parseQuota(sansCoordonnees(text), { allowBlockUnits: kind === 'recolte' && !fabricationCible }) ?? DEFAULT_QUOTA,
+      // Quantite dite par le joueur (« 3 fleurs ») : sa fin se mesure, comme
+      // l arbre entier. Le quota par defaut (16) ne clot rien tout seul.
+      quotaExplicite: build.parseQuota(sansCoordonnees(text), { allowBlockUnits: kind === 'recolte' && !fabricationCible }) !== null,
       // « coupe (moi) un arbre » : le travail est UN arbre entier, pas le quota
       // par defaut. L arbre est fixe par la premiere buche coupee ; la fin est
       // jugee sur ses buches restantes et son bois au sol (finishAllowed).

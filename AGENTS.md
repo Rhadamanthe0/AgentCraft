@@ -157,6 +157,11 @@
   ecart <= 8 blocs pendant la marche, <= 3 a la fin. Essai rejete : sauter
   les marches en marchant (sans arret) gagnait 20 % dans `tmp/stairs-bench.js`
   (simulateur) mais cassait `navigation/stairs` sur le vrai serveur.
+- Banc ramasser (`gather/*`, `run_gather_script`) : objets comptes par RCON
+  (`clear <bot> <objet> 0`), pas de puits, 0 degat, mission close d elle-meme.
+  Recolte avec quantite EXPLICITE (`mission.quotaExplicite`, « 3 fleurs ») :
+  close des que l inventaire l atteint (vu : 3 fleurs a 67 s, modele encore
+  a leur recherche au plafond de 180 s). Le quota par defaut ne clot rien.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

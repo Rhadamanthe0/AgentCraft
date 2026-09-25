@@ -462,7 +462,9 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         bot_api(bot, '/api/stop', {})
     checks = {'quantite_en_inventaire': count >= level['target'],
               # Feet on the floor block (199) at worst: one dug block, never a pit.
-              'pas_de_puits': lowest >= 198.9, 'aucun_degat': damage == 0}
+              'pas_de_puits': lowest >= 198.9, 'aucun_degat': damage == 0,
+              # The bot must know it is done, not run until the cap.
+              'mission_terminee': end_reason.startswith('mission terminee')}
     (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
         json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
     failed = [k for k, v in checks.items() if not v]
