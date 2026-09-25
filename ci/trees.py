@@ -944,6 +944,8 @@ EXPECTED_S = {
     'join/buried': 19, 'join/cliff-up': 18, 'join/cliff-down': 11, 'join/leaf-pillar': 10, 'join/closed-room': 7,
     # follow/*: run 36109916130 (712eb71).
     'follow/corner': 26, 'follow/stop': 19, 'follow/stairs': 12, 'follow/straight': 11,
+    # gather/*: run 36140713444 (e8290a0) ; flowers ran to the 180 s cap then.
+    'gather/sand-walled': 75, 'gather/flowers': 70, 'gather/dirt': 44, 'gather/sand': 34,
 }
 NEW_LEVEL_S = 90
 
