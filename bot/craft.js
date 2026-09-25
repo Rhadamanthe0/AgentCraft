@@ -646,8 +646,15 @@ async function make (bot, targetName, wanted = 1) {
         break
       }
       ackMs += Date.now() - start
-      await sleep(200)
-      const afterTarget = countOf(bot, new RegExp(`^${escapeRegExp(op.target.name)}$`))
+      // Le produit peut arriver tard dans l inventaire (serveur charge : vu
+      // sur craft/table, etabli absent a 200 ms, planches deja consommees,
+      // arret « consommation incertaine »). Attendre jusqu a 2 s.
+      let afterTarget = beforeTarget
+      for (let waited = 0; waited < 2000; waited += 100) {
+        await sleep(100)
+        afterTarget = countOf(bot, new RegExp(`^${escapeRegExp(op.target.name)}$`))
+        if (afterTarget > beforeTarget) break
+      }
       if (afterTarget - beforeTarget > 0) {
         executedRepeats += 1
         lastError = null

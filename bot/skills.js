@@ -953,6 +953,10 @@ function normalizeFabricationTarget (input) {
   }
   if (/_planks$/.test(key)) return 'planches'
   if (/_door$/.test(key)) return 'porte'
+  // Un outil dont la matiere est nommee (wooden_axe) reste cet objet exact :
+  // la famille « hache » essaie d abord la pierre (vu sur craft/axe : « hache
+  // en bois » demandee, cobblestone reclamee, mission bloquee).
+  if (/^(wooden|stone|iron|golden|diamond|netherite)_(axe|pickaxe|shovel)$/.test(key)) return key
   if (/_axe$/.test(key)) return 'hache'
   if (/_pickaxe$/.test(key)) return 'pioche'
   if (/_shovel$/.test(key)) return 'pelle'

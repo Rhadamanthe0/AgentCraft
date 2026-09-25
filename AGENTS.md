@@ -183,6 +183,11 @@
   l inventaire, pas sur les blocs casses ; `terminer` trop tot est refuse et
   reinjecte (3 fois) comme `fini`. `casser` hors bois ramasse aussitot ce
   qu il vient de faire tomber (8 s max) : 4 fleurs cassees, 2 en poche.
+- Banc fabriquer (`craft/*`, meme executeur que gather + `give` RCON de
+  buches, fixture). `craft.make` attend le produit jusqu a 2 s (etabli absent
+  a 200 ms sous charge => « consommation incertaine », mission bloquee).
+  `normalizeFabricationTarget` garde un outil a matiere nommee exact
+  (`wooden_axe`) : la famille « hache » essayait la pierre d abord.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
