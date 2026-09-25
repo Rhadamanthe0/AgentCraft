@@ -114,6 +114,15 @@
   immobile sur son pilier apres un remplacement.
 - `ramasser` : objet juge a portee (1,6) mais non ramasse (jeu ~1,3) => trajet
   puis un pas droit dessus (`stepOnto`, sol plat appuye seulement).
+- `navigation.js` : un chemin A* deja consomme sans bouger (bot sur la seule
+  case du chemin, pas arrive) etait replanifie en boucle SYNCHRONE : bot fige,
+  « lost connection: Timed out » (vu sur trees/pillar). Rend la main a chaque
+  tour et repond `no_path` apres trois chemins vides d affilee.
+- `avancer` vers un arbre derriere de l eau (`terrain/moat`) : `bridgeRounds`
+  (pont de terre de `join/water-gap`, factorise) avant `digToward`, qui
+  faisait entrer le bot dans le fosse ; pont inacheve => echec franc.
+- Banc bois tour 2 : `trees/tall` (8 buches), `trees/double` (2x2, 16),
+  `terrain/moat` (ile entouree d eau).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

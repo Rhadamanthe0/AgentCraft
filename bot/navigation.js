@@ -153,6 +153,7 @@ function createNavigator (getBot, options = {}) {
     let lostAt = null
     let travelled = 0
     let approachingHigh = false
+    let emptyReplans = 0
     let heightEvidence = null
     let measuredAt = bot.entity.position.clone()
     const startedAt = Date.now()
@@ -304,7 +305,17 @@ function createNavigator (getBot, options = {}) {
           route.shift()
           touchedPoint = null
         }
-        if (!route.length) continue
+        if (!route.length) {
+          // Chemin deja consomme sans bouger (le bot est sur la seule case du
+          // chemin mais pas arrive) : replanifier donnait le meme chemin, en
+          // boucle synchrone, jusqu a la deconnexion par le serveur (vu sur
+          // trees/pillar). Rendre la main, et abandonner apres trois fois.
+          emptyReplans += 1
+          if (emptyReplans >= 3) { code = 'no_path'; break }
+          await sleep(50)
+          continue
+        }
+        emptyReplans = 0
         const point = route[0]
         recording.target(point)
         if (point.toBreak?.length || point.toPlace?.length || point.parkour) {
