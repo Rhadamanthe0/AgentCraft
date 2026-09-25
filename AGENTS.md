@@ -42,7 +42,9 @@
   demarrage puis 30 s ; bots toutes les 300 ms ; forceload des arenes en fond ;
   arret par `kill`. Mesure : niveaux lances a 32 s au lieu de 62 s, pic
   memoire 6,6 -> 3,2 Go (Paper 3,7 -> 1,6 ; bots 2,6 -> 1,3). `report.json` :
-  `phases`, `resourcePeaks` (docker stats / 5 s), `paperGc`.
+  `phases`, `resourcePeaks` (docker stats / 5 s), `paperGc`. File des niveaux
+  triee par duree attendue (`trees.EXPECTED_S`, LPT) : phase `levels` = plus
+  long niveau + ~7 s.
 - Banc `terrain/*` (meme suite, 8 bots en parallele) : arbre derriere un mur
   de terre, au fond d un trou de 5, sur une falaise de 5, trou entoure d une
   haie. Chaque niveau exige 0 degat (scoreboard `damage_taken`).

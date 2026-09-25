@@ -239,6 +239,14 @@ Ce qui a ete garde, et pourquoi :
 - **Ports publies** lus en un seul `docker compose ps --format json`.
 - **Arret par `docker compose kill`** : journaux deja sauves, rien a
   enregistrer (Paper sauvait un monde jete) : 6,6 s -> 3,3 s.
+- **Niveaux les plus longs d'abord** (`trees.EXPECTED_S`, ordre LPT) : 27
+  niveaux pour 16 bots, et la file donnait `trees/tall` et `trees/double`
+  (~100 s) au premier bot libere par un `join/*` court, ~25 s apres le debut.
+  Seul l'ordre change (memes niveaux, memes controles, `report.json` dans
+  l'ordre de `levels()`). Simulation sur les durees de reference : 126 s ->
+  102 s ; mesure (run 36108193120) : phase `levels` 126,7 s pour un plus long
+  niveau de 119,3 s (`trees/tall`), soit la duree du plus long niveau plus
+  ~7 s de mise en place. Un niveau absent de `EXPECTED_S` compte 90 s.
 
 Essaye et ecarte : RCON n'est pas un goulot (mesure locale : 2 ms par
 commande simple, 13 ms par `fill`/`clone` d'arene, une seule connexion) ;
