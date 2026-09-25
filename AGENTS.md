@@ -226,6 +226,9 @@
   allers-retours, sous l arbre, autour d un mur. « Va sous l arbre » lu en
   simple deplacement sans parcours => le code retient [sous_arbre] (et le
   prompt porte l exemple) ; sinon le bot cherchait l arbre sans s y placer.
+- `interpretMessage` : relation new/amend avec objectif vide (vu : « Rejoins
+  moi », join/pit) => le message du joueur sert d objectif, au lieu de
+  « objectif de chat vide » et d un bot muet.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
