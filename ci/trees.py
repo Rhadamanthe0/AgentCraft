@@ -46,7 +46,7 @@ def _logs(*positions, axis=None):
     return [(p, block) for p in positions]
 
 
-def levels():
+def base_levels():
     trunk3 = [(TX, 200 + i, TZ) for i in range(3)]
     trunk6 = [(TX, 200 + i, TZ) for i in range(6)]
     bent = [(TX, 200, TZ), (TX, 201, TZ), (TX, 202, TZ), (TX + 1, 203, TZ), (TX + 2, 203, TZ),
@@ -1063,6 +1063,29 @@ def arena_origins():
     return [FIRST_ARENA_X + i * ARENA_SPACING for i in range(len(levels()))]
 
 
+# A/B comparisons: a level with `variants` runs once as written (the gate)
+# and once per variant with its mode switched through /api/features. Variants
+# are informative: they measure what a mode brings, they never fail the run.
+def sans(mode):
+    return (f'sans-{mode}', {mode: False})
+
+
+def avec(mode):
+    return (f'avec-{mode}', {mode: True})
+
+
+def levels():
+    out = []
+    for level in base_levels():
+        out.append(level)
+        for suffix, features in level.get('variants', ()):
+            out.append(dict(level, name=f"{level['name']}~{suffix}", variants=(),
+                            features={**level.get('features', {}), **features},
+                            informative=True, variantOf=level['name'],
+                            about=f"[{suffix}] {level['about']}"))
+    return out
+
+
 def mission_type(name):
     return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre', 'gather': 'ramasser', 'craft': 'fabriquer', 'build': 'construire', 'route': 'parcours'}.get(name.split('/')[0], name.split('/')[0])
 
@@ -1275,11 +1298,18 @@ def run_levels(output, rcon, bot_api):
 
     def reset(bot):
         # Previous level's mission and working notes must not leak into the next one.
-        for route, body, method in (('/api/stop', {}, 'POST'), ('/api/memory', None, 'DELETE')):
+        for route, body, method in (('/api/stop', {}, 'POST'), ('/api/memory', None, 'DELETE'),
+                                    ('/api/features', {'reset': True}, 'POST')):
             try:
                 bot_api(bot, route, body, method=method)
             except Exception:
                 pass
+
+    def planner_calls(bot):
+        try:
+            return (bot_api(bot, '/api/status').get('planner') or {}).get('appels')
+        except Exception:
+            return None
 
     def worker(bot, username, probe):
         first = True
@@ -1293,8 +1323,19 @@ def run_levels(output, rcon, bot_api):
                 reset(bot)
             first = False
             print(f'{level["name"]} ({username}) started', flush=True)
+            if level.get('features'):
+                bot_api(bot, '/api/features', level['features'])
+            calls_before = planner_calls(bot)
             result = run_level(level, origins[index], bot, username, output, rcon, bot_api, probe)
             result['type'] = mission_type(level['name'])
+            calls_after = planner_calls(bot)
+            if calls_before is not None and calls_after is not None:
+                result['plannerCalls'] = calls_after - calls_before
+            if level.get('features'):
+                result['features'] = level['features']
+            if level.get('informative'):
+                result['informative'] = True
+                result['variantOf'] = level['variantOf']
             results[index] = result
             print(f'{level["name"]} finished in {result.get("elapsedS")} s', flush=True)
 

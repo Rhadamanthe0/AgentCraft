@@ -1,5 +1,34 @@
 # CLAUDE.md
 
+## Objectif final : l autonomie, pas la repetition (2026-09-25, prioritaire sur tout)
+
+Demande du proprietaire : le but du projet est un bot **autonome qui s adapte**
+a une situation qu il n a jamais vue, pas un bot capable de rejouer une meme
+tache. Le banc CI **mesure** cette autonomie, il n est jamais une cible a
+optimiser (pas de « benchmaxing »). Regles qui en decoulent :
+
+- Aucun code, prompt ou exemple propre a un niveau du banc (coordonnees,
+  noms de niveau, sequence d actions attendue). Un correctif doit valoir pour
+  toute une famille de situations ; s il ne sert qu au niveau qui l a revele,
+  il est refuse.
+- Ne jamais reinjecter au modele des traces de missions reussies du banc
+  (bibliotheque d experiences a la JARVIS-1) : il apprendrait les niveaux, pas
+  le jeu. Ecarte le 2026-09-25 pour cette raison.
+- Preferer ce qui generalise : connaissances du jeu calculees par le code
+  (recettes, outils requis, sources des objets), reflexes generiques,
+  verification par les chiffres. Le modele decide, le code mesure.
+- Un nouveau niveau doit tester une situation nouvelle (terrain, prerequis,
+  imprevu), pas une variante deja reussie ; varier positions et decor quand
+  c est possible. Un niveau qui ne passe qu avec un correctif dedie signale un
+  manque de generalite a corriger ailleurs.
+- Tout nouveau mode se mesure en A/B : interrupteur `featureOn('<mode>')`
+  (mission.js, `/api/features`, variable `FEATURE_<MODE>`), et ses niveaux
+  portent `variants: [sans('<mode>')]` (ou `avec` pour un mode eteint par
+  defaut). Le banc joue le niveau tel quel (il decide PASS/FAIL) puis la
+  variante, informative (`INFO-PASS/FAIL`), et `report.comparisons` / le
+  resume donnent reussite, duree, appels au modele et degats cote a cote.
+  Un mode qui n apporte rien de mesurable n est pas garde.
+
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
 - Banc CI `trees` (`ci/trees.py`, docs/remote-minecraft-tests.md) : quatre

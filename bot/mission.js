@@ -84,6 +84,28 @@ const DEFAULT_QUOTA = Number(process.env.MISSION_DEFAULT_QUOTA || 16)
 // coute des jetons d entree et un peu de latence, donc on ne la paie pas a
 // chaque tour. `RAYON` est la demi-cote de la carte, en blocs.
 const SCREENSHOT_ON = process.env.MISSION_SCREENSHOT === '1'
+
+// Interrupteurs A/B du banc : chaque nouveau mode peut etre coupe (ou la vue
+// allumee) pour mesurer ce qu il apporte, sans redemarrer le bot. Priorite :
+// /api/features, puis la variable FEATURE_<NOM> ('0'/'1'), puis le defaut du
+// mode. Un processus = un bot, donc un etat par bot.
+const featureOverrides = {}
+function featureOn (name, fallback = true) {
+  if (Object.prototype.hasOwnProperty.call(featureOverrides, name)) return featureOverrides[name]
+  const env = process.env[`FEATURE_${name.toUpperCase()}`]
+  if (env === '0') return false
+  if (env === '1') return true
+  return fallback
+}
+function setFeatures (changes = {}) {
+  if (changes?.reset === true) {
+    for (const key of Object.keys(featureOverrides)) delete featureOverrides[key]
+  }
+  for (const [key, value] of Object.entries(changes ?? {})) {
+    if (key !== 'reset' && /^[a-z_]{1,24}$/.test(key) && typeof value === 'boolean') featureOverrides[key] = value
+  }
+  return { ...featureOverrides }
+}
 const SCREENSHOT_EVERY = Math.max(1, Number(process.env.MISSION_SCREENSHOT_EVERY || 5))
 const SCREENSHOT_RAYON = Math.max(1, Number(process.env.MISSION_SCREENSHOT_RAYON || 16))
 // Portee de casse cote serveur : ~4.5 blocs. On garde une marge.
@@ -5793,7 +5815,9 @@ function createMissionRunner (host, injected = {}) {
     status,
     isRunning,
     SUPPLY,
-    ACTION_NAMES: Object.keys(ACTIONS)
+    ACTION_NAMES: Object.keys(ACTIONS),
+    setFeatures,
+    featureOn
   }
 }
 
