@@ -22,6 +22,10 @@
   seule feuille qui la porte (en s en approchant si besoin) pour la faire tomber.
   Meme geste pour une buche posee au sommet d une colonne d echafaudage du
   bot (dirt/planches isolees) : bloc casse, repete tant que c est la colonne.
+  Jamais la colonne sous les pieds du bot. Pont de recolte (`avancer`) sur
+  liquide seulement (`gapToward(..., { liquidOnly })`) : perche, le vide
+  alentour passait pour un fosse (pont en l air). `descendScaffold` ne casse
+  un bloc que s il y a un appui dessous (chute d un bloc au plus).
 - Reponse tronquee (max_tokens) du modele unique : `callWithProfile` rejoue
   UNE fois a budget double (>= 4000), meme delai ; avant, trois troncatures
   d affilee faisaient echouer la mission (vu sur trees/bent).
