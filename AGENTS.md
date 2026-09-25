@@ -206,6 +206,9 @@
   terre inclut l herbe ; avant, le bot la cassait pour la reposer, total en
   baisse) ; trajet vers le poste de tir par le navigateur partage
   (`placeOne(..., { move })`), `build.moveTo` en repli (« trajet trop long »).
+  `placeOne` essaie les trois postes valides les plus proches du BOT (5 s
+  chacun) : enferme dans une maison 4x4x4, le poste le plus proche de la case
+  du toit etait dehors (40/54 poses puis blocage).
 - `fabriquer etabli` refuse quand un etabli est deja pose a 6 blocs, ou deja
   en inventaire, et que la cible est autre chose ; nouvelle tentative de craft attendue 2 s aussi.
 - Cible de fabrication fixee : `fabriquer` refuse ce qui n est ni la cible

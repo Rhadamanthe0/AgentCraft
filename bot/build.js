@@ -419,6 +419,29 @@ const VANTAGE_OFFSETS = (() => {
   return offsets
 })()
 
+// Tous les postes de tir valides pour cette case, les plus proches du BOT
+// d abord : enferme dans sa maison, le poste le plus proche de la cible est
+// souvent dehors et injoignable (vu sur build/big-box, toit en 4x4x4).
+function findVantages (bot, target) {
+  const center = target.offset(0.5, 0.5, 0.5)
+  const here = bot.entity?.position
+  const all = []
+  for (const [dx, dz] of VANTAGE_OFFSETS) {
+    const x = target.x + dx
+    const z = target.z + dz
+    for (let dy = 1; dy >= -4; dy -= 1) {
+      const y = target.y + dy
+      if (!standable(bot, x, y, z)) continue
+      const stand = new Vec3(x + 0.5, y, z + 0.5)
+      if (bodyOverlaps(stand, target)) continue
+      const distance = stand.offset(0, 1.62, 0).distanceTo(center)
+      if (distance > PLACE_REACH) continue
+      all.push({ stand, distance, fromBot: here ? here.distanceTo(stand) : distance })
+    }
+  }
+  return all.sort((a, b) => a.fromBot - b.fromBot)
+}
+
 // Le meilleur poste de tir pour cette case, ou null s il n y en a aucun.
 function findVantage (bot, target) {
   const center = target.offset(0.5, 0.5, 0.5)
@@ -658,10 +681,18 @@ async function placeOne (bot, target, itemName, { accept = null, move = null } =
   const existing = bot.blockAt(target)
   if (existing && (existing.name === itemName || accept?.test(existing.name))) return 'deja'
 
-  const vantage = findVantage(bot, target)
+  let vantage = findVantage(bot, target)
   if (!vantage) throw new Error('aucun poste de tir au sol a portee')
 
-  const arrived = move ? await move(vantage.stand).catch(() => false) : false
+  let arrived = false
+  if (move) {
+    // Navigateur partage sur les trois postes les plus proches du bot, puis
+    // repli sur l ancien trajet en gestes vers le meilleur poste.
+    for (const candidate of findVantages(bot, target).slice(0, 3)) {
+      arrived = await move(candidate.stand).catch(() => false)
+      if (arrived) { vantage = candidate; break }
+    }
+  }
   if (!arrived) await moveTo(bot, vantage.stand)
   // moveTo s arrete a ARRIVE_XZ (0,8) du poste : le corps reel (0,6 de large)
   // peut alors deborder sur la case visee et le serveur refuse la pose
@@ -719,6 +750,7 @@ module.exports = {
   placeOne,
   placeDoor,
   findVantage,
+  findVantages,
   moveTo,
   groundLevel,
   isFree,

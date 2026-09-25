@@ -3567,7 +3567,7 @@ function createMissionRunner (host, injected = {}) {
             build.placeOne(bot, entry.position, material, {
               accept: mission.buildMatch,
               move: async stand => (await host.navigateToPosition(stand, {
-                signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.35, timeoutMs: 10000
+                signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.35, timeoutMs: 5000
               }))?.reached === true
             }),
             PLACE_ONE_TIMEOUT_MS,
