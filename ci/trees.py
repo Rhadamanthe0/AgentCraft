@@ -250,6 +250,40 @@ def levels():
             'kind': 'chat_script', 'script': 'tree_then_bring', 'probeAt': (4.5, 200, 30.5),
             'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)], 'logs': _logs(*trunk3), 'rules': {},
         },
+        # Follow levels: the probe says « Suis moi » and walks a path (RCON tp,
+        # step by step, fixture only); see run_follow_script.
+        {
+            'name': 'follow/straight',
+            'about': '« Suis moi » puis le joueur marche 20 blocs en ligne droite : le bot suit sans decrocher.',
+            'kind': 'follow', 'start': (6.5, 200, 18.5),
+            'path': [(9.5, 200, 18.5), (30.5, 200, 18.5)],
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'follow/corner',
+            'about': 'Le joueur contourne un mur de pierre de 3 de haut (trajet en U) : le bot suit par le meme cote.',
+            'kind': 'follow', 'start': (6.5, 200, 8.5),
+            'terrain': [(18, 200, 0, 18, 202, 26, 'stone')],
+            'path': [(9.5, 200, 8.5), (9.5, 200, 31.5), (28.5, 200, 31.5), (28.5, 200, 8.5)],
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'follow/stairs',
+            'about': 'Le joueur monte un escalier de terre sur un plateau de 3 blocs : le bot monte derriere lui.',
+            'kind': 'follow', 'start': (6.5, 200, 18.5),
+            'terrain': [(17, 200, 14, 17, 200, 22, 'dirt'), (18, 200, 14, 18, 201, 22, 'dirt'),
+                        (19, 200, 14, 19, 202, 22, 'dirt'), (20, 200, 10, 34, 202, 26, 'dirt')],
+            'path': [(9.5, 200, 18.5), (16.5, 200, 18.5), (17.5, 201, 18.5), (18.5, 202, 18.5),
+                     (19.5, 203, 18.5), (30.5, 203, 18.5)],
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'follow/stop',
+            'about': '« Suis moi », 10 blocs de marche, puis « Stop » : le bot cesse de suivre alors que le joueur continue.',
+            'kind': 'follow', 'start': (6.5, 200, 8.5), 'stopAfter': 10,
+            'path': [(9.5, 200, 8.5), (9.5, 200, 30.5)],
+            'leaves': [], 'logs': [], 'rules': {},
+        },
         {
             'name': 'trees/tall',
             'about': 'Tronc de 8 buches (Y+0 a Y+7), couronne au-dessus : il faut un pilier de 4 blocs ou plus.',
@@ -347,6 +381,100 @@ def run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, tim
         'arbitration': arbitration, 'answers': {k: {kk: v.get(kk) for kk in ('relation', 'choice', 'arbitration', 'queued', 'error')}
                                                  for k, v in answers.items()},
         'damageTaken': damage, 'botFinalPosition': final.get('position'),
+    }
+
+
+FOLLOW_STEP_S = 0.3  # one block per 0.3 s: a walking player (~3.3 blocks/s)
+FOLLOW_LAG_MAX = 8
+FOLLOW_CATCH_UP_S = 15
+
+
+def run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_name):
+    """The probe says « Suis moi » then walks `path` (RCON tp one block at a
+    time). The bot must keep up (distance sampled every second) and end next to
+    the player; with `stopAfter`, « Stop » after that many blocks and the bot
+    must stay where it is while the player walks on."""
+    path = [(x0 + x, y, z) for x, y, z in level['path']]
+    rcon(f'tp {probe_name} ' + ' '.join(map(str, path[0])))
+    time.sleep(1)
+    started = time.monotonic()
+    timeline, answers = [], {}
+    answers['follow'] = bot_api(bot, '/api/instruction', {'message': 'Suis moi', 'requester': probe_name})
+    # Leave the bot time to accept the objective before the player walks away.
+    until = time.monotonic() + 20
+    while time.monotonic() < until and not bot_api(bot, '/api/status').get('missionRunning'):
+        time.sleep(.5)
+    time.sleep(2)
+    probe = list(path[0])
+    lags, walked, stop_at, stop_pos, drift = [], 0, None, None, 0.0
+    last_sample = 0
+
+    def sample():
+        s = bot_api(bot, '/api/status')
+        p = s.get('position') or {}
+        lag = math.hypot(p['x'] - probe[0], p['z'] - probe[2]) if p else None
+        timeline.append({'t': round(time.monotonic() - started, 1), 'pos': p, 'probe': list(probe), 'lag': lag,
+                         'running': s.get('missionRunning'), 'onGround': s.get('onGround')})
+        return s, p, lag
+
+    for a, b in zip(path, path[1:]):
+        steps = max(1, round(max(abs(b[0] - a[0]), abs(b[2] - a[2]))))
+        for i in range(1, steps + 1):
+            probe = [a[0] + (b[0] - a[0]) * i / steps, b[1] if i == steps or b[1] > a[1] else a[1],
+                     a[2] + (b[2] - a[2]) * i / steps]
+            rcon(f'tp {probe_name} ' + ' '.join(f'{v:.2f}' for v in probe))
+            walked += 1
+            time.sleep(FOLLOW_STEP_S)
+            if level.get('stopAfter') and walked == level['stopAfter']:
+                answers['stop'] = bot_api(bot, '/api/instruction', {'message': 'Stop', 'requester': probe_name})
+                time.sleep(2)
+                stop_at = time.monotonic()
+                stop_pos = sample()[1]
+            if time.monotonic() - last_sample >= 1:
+                last_sample = time.monotonic()
+                s, p, lag = sample()
+                if stop_pos and p:
+                    drift = max(drift, math.hypot(p['x'] - stop_pos['x'], p['z'] - stop_pos['z']))
+                elif lag is not None and time.monotonic() - started > 6:
+                    lags.append(lag)
+    checks = {}
+    if level.get('stopAfter'):
+        time.sleep(3)
+        s, p, _ = sample()
+        if stop_pos and p:
+            drift = max(drift, math.hypot(p['x'] - stop_pos['x'], p['z'] - stop_pos['z']))
+        checks['a_suivi_avant_stop'] = bool(lags) and max(lags) <= FOLLOW_LAG_MAX
+        checks['ne_suit_plus_apres_stop'] = stop_pos is not None and drift < 1.5
+        checks['mission_arretee'] = not s.get('missionRunning')
+    else:
+        checks['jamais_decroche'] = bool(lags) and max(lags) <= FOLLOW_LAG_MAX
+        end = path[-1]
+        caught = False
+        until = time.monotonic() + FOLLOW_CATCH_UP_S
+        while time.monotonic() < until:
+            s, p, lag = sample()
+            if p and s.get('onGround') and lag is not None and lag <= 3 and abs(p['y'] - end[1]) <= 1:
+                caught = True
+                break
+            time.sleep(1)
+        checks['arrive_pres_du_joueur'] = caught
+    damage_answer = rcon(f'scoreboard players get {username} degats')
+    match = re.search(r'has (\d+)', damage_answer)
+    damage = int(match.group(1)) if match else None
+    checks['aucun_degat'] = damage == 0
+    final = bot_api(bot, '/api/status')
+    if final.get('missionRunning'):
+        bot_api(bot, '/api/stop', {})
+    (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
+        json.dumps({'bot': username, 'answers': answers, 'timeline': timeline}, indent=1), encoding='utf-8')
+    failed = [k for k, v in checks.items() if not v]
+    return {
+        'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
+        'checks': checks, 'endReason': 'suivi termine' if not failed else 'echec : ' + ', '.join(failed),
+        'expectedLogs': 0, 'logsInInventory': 0, 'elapsedS': round(time.monotonic() - started, 1),
+        'maxLag': round(max(lags), 2) if lags else None, 'driftAfterStop': round(drift, 2) if stop_pos else None,
+        'answers': {k: {kk: v.get(kk) for kk in ('relation', 'kind', 'error')} for k, v in answers.items()},
+        'damageTaken': damage, 'botFinalPosition': final.get('position'), 'probe': probe_name,
     }
 
 
@@ -534,7 +662,7 @@ def arena_origins():
 
 
 def mission_type(name):
-    return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat'}.get(name.split('/')[0], name.split('/')[0])
+    return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre'}.get(name.split('/')[0], name.split('/')[0])
 
 
 def wood(inventory, placed_planks=0):
@@ -607,6 +735,8 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
             return run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_name)
         if level.get('kind') == 'join':
             return run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name)
+        if level.get('kind') == 'follow':
+            return run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_name)
         if level.get('kind') == 'chat_script':
             return run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, probe_name)
         answer = bot_api(bot, '/api/instruction', {'message': INSTRUCTION, 'requester': REQUESTER})
