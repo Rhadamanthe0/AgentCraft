@@ -29,6 +29,10 @@
 // de pilier, sortie de trou...), est `plannerOnly`. Vu en CI (join/*) : avec
 // Jev seul, avancer bute sur la paroi et le joueur n est jamais rejoint.
 //
+// Un tour en impasse (`blocage.detecte`, detectStuck) revient aussi au
+// planificateur : ses indices textuels (terre a obtenir, contournement...)
+// echappent a des questions fermees.
+//
 // Un echec de Jev (pas de cle, delai, erreur, action hors catalogue) ne bloque
 // jamais une mission : l appelant repasse ce tour au planificateur JSON
 // (`noteFallback`), journalise une fois par cause distincte. Apres plusieurs
@@ -85,6 +89,8 @@ const stats = {
   // Tours de missions `geste`/`deplacement` laisses au planificateur (hors
   // perimetre de Jev : leurs gestes utiles sont plannerOnly).
   geste_via_planner: 0,
+  // Tours en impasse (blocage detecte) rendus au planificateur JSON.
+  blocage_via_planner: 0,
   // Latence d une DECISION Jev (un ou deux appels), en ms.
   moyenne_ms_jev: null,
   dernier_ms_jev: null,
@@ -121,6 +127,10 @@ function wantsJev (kind) {
 
 function noteGeste () {
   stats.geste_via_planner += 1
+}
+
+function noteStuck () {
+  stats.blocage_via_planner += 1
 }
 
 function noteFallback (reason, now = Date.now) {
@@ -230,7 +240,7 @@ function snapshot () {
 }
 
 function _reset () {
-  for (const key of ['decisions_jev', 'appels_jev', 'echecs_jev', 'replis_planner', 'geste_via_planner']) stats[key] = 0
+  for (const key of ['decisions_jev', 'appels_jev', 'echecs_jev', 'replis_planner', 'geste_via_planner', 'blocage_via_planner']) stats[key] = 0
   for (const key of ['moyenne_ms_jev', 'dernier_ms_jev', 'derniere_erreur_jev']) stats[key] = null
   lastLoggedReason = null
   consecutiveFailures = 0
@@ -247,6 +257,7 @@ module.exports = {
   getMode,
   wantsJev,
   noteGeste,
+  noteStuck,
   noteFallback,
   chooseWithJev,
   adaptJevDecision,

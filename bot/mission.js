@@ -4331,7 +4331,13 @@ function createMissionRunner (host, injected = {}) {
     if (actionChooser.getMode() === 'jev' && !actionChooser.wantsJev(mission.kind)) actionChooser.noteGeste()
     // Une file heritee d un repli se consomme d abord : ses etapes sont
     // valides tant qu aucun echec ne l a videe.
-    if (actionChooser.wantsJev(mission.kind) && mission.queue.length === 0) {
+    // Impasse mesuree (detectStuck) : le tour revient au planificateur JSON,
+    // qui lit les indices en clair (« obtenir le manque avant de monter »...).
+    // Vu en CI (chat/replace-and-join, 4acbf77) : Jev alternait casser/piler
+    // sans terre pendant 20 tours, sans jamais changer de strategie.
+    const stuckTurn = actionChooser.wantsJev(mission.kind) && state.blocage?.detecte
+    if (stuckTurn) actionChooser.noteStuck()
+    if (actionChooser.wantsJev(mission.kind) && !stuckTurn && mission.queue.length === 0) {
       const decision = await decideByJev(state)
       if (decision) return decision
     }
