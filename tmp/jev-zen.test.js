@@ -102,6 +102,14 @@ describe('questions fermees via Zen', () => {
     await assert.rejects(chooser.chooseWithJev({ jev: zen, ...base }), /503/)
   })
 
+  test('ampleur donnee par le texte de l option : option retrouvee', async () => {
+    const rubric = skills.paramsFor('casser').ampleur.rubric ?? skills.SCALE_RUBRIC
+    script({ choix: 'casser', confiance: 0.7 }, { choix: rubric[1], confiance: 1 })
+    const d = await chooser.chooseWithJev({ jev: zen, ...base })
+    assert.equal(d.step, 'casser')
+    assert.equal(d.scaleLevel, 1)
+  })
+
   test('ampleur hors options ("7") : action gardee, echelle moyenne', async () => {
     script({ choix: 'avancer', confiance: 0.7 }, { choix: '7', confiance: 1 })
     const d = await chooser.chooseWithJev({ jev: zen, state: {}, kind: 'deplacement', supply: 'harvest' })

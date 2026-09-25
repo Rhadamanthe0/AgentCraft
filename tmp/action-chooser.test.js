@@ -67,10 +67,11 @@ describe('mode ACTION_CHOOSER', () => {
     assert.equal(chooser.getMode(), 'jev')
   })
 
-  test('les missions geste restent au planificateur', () => {
+  test('les missions geste et deplacement restent au planificateur', () => {
     assert.equal(chooser.wantsJev('recolte'), true)
     assert.equal(chooser.wantsJev('construction'), true)
-    assert.equal(chooser.wantsJev('deplacement'), true)
+    // rejoindre_demandeur est plannerOnly : Jev ne saurait pas rejoindre.
+    assert.equal(chooser.wantsJev('deplacement'), false)
     assert.equal(chooser.wantsJev('geste'), false)
   })
 })

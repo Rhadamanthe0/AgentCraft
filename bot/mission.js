@@ -4328,7 +4328,7 @@ function createMissionRunner (host, injected = {}) {
 
   async function decide (state) {
     if (!planner.isEnabled()) return decideFromJev(state)
-    if (actionChooser.getMode() === 'jev' && mission.kind === 'geste') actionChooser.noteGeste()
+    if (actionChooser.getMode() === 'jev' && !actionChooser.wantsJev(mission.kind)) actionChooser.noteGeste()
     // Une file heritee d un repli se consomme d abord : ses etapes sont
     // valides tant qu aucun echec ne l a videe.
     if (actionChooser.wantsJev(mission.kind) && mission.queue.length === 0) {

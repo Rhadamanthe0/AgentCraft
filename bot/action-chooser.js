@@ -24,7 +24,10 @@
 //
 // Une mission `geste` reste au planificateur : ses gestes (rejoindre_demandeur,
 // tourner_vers_demandeur, regarder, dire...) sont tous `plannerOnly`, Jev n y
-// aurait que avancer/sortir/attendre/terminer.
+// aurait que avancer/sortir/attendre/terminer. Meme chose pour une mission
+// `deplacement` : son action utile, `rejoindre_demandeur` (navigateur, descente
+// de pilier, sortie de trou...), est `plannerOnly`. Vu en CI (join/*) : avec
+// Jev seul, avancer bute sur la paroi et le joueur n est jamais rejoint.
 //
 // Un echec de Jev (pas de cle, delai, erreur, action hors catalogue) ne bloque
 // jamais une mission : l appelant repasse ce tour au planificateur JSON
@@ -79,7 +82,8 @@ const stats = {
   echecs_jev: 0,
   // Tours rendus au planificateur JSON apres un echec de Jev.
   replis_planner: 0,
-  // Missions `geste` laissees au planificateur (hors perimetre de Jev).
+  // Tours de missions `geste`/`deplacement` laisses au planificateur (hors
+  // perimetre de Jev : leurs gestes utiles sont plannerOnly).
   geste_via_planner: 0,
   // Latence d une DECISION Jev (un ou deux appels), en ms.
   moyenne_ms_jev: null,
@@ -109,8 +113,10 @@ function getMode () {
 
 // Jev est-il le choix voulu pour ce type de mission ? (independamment de sa
 // disponibilite : une cle absente est un repli, pas un changement de mode.)
+const PLANNER_KINDS = new Set(['geste', 'deplacement'])
+
 function wantsJev (kind) {
-  return mode === 'jev' && kind !== 'geste'
+  return mode === 'jev' && !PLANNER_KINDS.has(kind)
 }
 
 function noteGeste () {

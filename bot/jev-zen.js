@@ -98,7 +98,14 @@ async function ask (question, options, state, opts = {}) {
   } catch (err) {
     throw new Error(`Jev Zen illisible : ${err.message}`)
   }
-  const raw = typeof parsed?.choix === 'string' || typeof parsed?.choix === 'number' ? String(parsed.choix).trim() : ''
+  let raw = typeof parsed?.choix === 'string' || typeof parsed?.choix === 'number' ? String(parsed.choix).trim() : ''
+  // Vu en CI : le modele recopie parfois le TEXTE de l option (« Peu : cinq
+  // blocs ») au lieu de son nom (« 1 »). Un texte identique a une seule option
+  // designe cette option sans ambiguite ; tout le reste reste refuse.
+  if (!names.includes(raw)) {
+    const byText = names.filter(n => String(options[n]).trim() === raw)
+    if (byText.length === 1) raw = byText[0]
+  }
   if (!names.includes(raw)) {
     throw new Error(`Jev Zen hors options : ${JSON.stringify(raw).slice(0, 60)}`)
   }
