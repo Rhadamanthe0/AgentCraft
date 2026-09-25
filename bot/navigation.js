@@ -368,19 +368,18 @@ function createNavigator (getBot, options = {}) {
           continue
         }
         if (stepUp && bot.entity.onGround && Date.now() >= jumpUntil) {
-          // Sauter en marchant, comme un joueur : l arret complet avant chaque
-          // marche coutait ~0,6 s par marche (bot distance en suivant un joueur
-          // dans un escalier, vu sur follow/stairs).
+          bot.clearControlStates()
+          await sleep(150)
+          if (stopped()) break
           report({ event: 'jump', onGround: bot.entity.onGround, point, position: bot.entity.position.clone() })
           if (bot.entity.onGround) {
-            bot.setControlState('forward', true)
             bot.setControlState('jump', true)
             await sleep(100)
             if (stopped()) break
             bot.setControlState('jump', false)
             report({ event: 'jumped', onGround: bot.entity.onGround, position: bot.entity.position.clone() })
           }
-          jumpUntil = Date.now() + 400
+          jumpUntil = Date.now() + 600
           progressAt = Date.now()
         }
         bot.setControlState('forward', true)

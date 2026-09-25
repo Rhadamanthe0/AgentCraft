@@ -385,6 +385,7 @@ def run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, tim
 
 
 FOLLOW_STEP_S = 0.3  # one block per 0.3 s: a walking player (~3.3 blocks/s)
+FOLLOW_CLIMB_S = 0.6
 FOLLOW_LAG_MAX = 8
 FOLLOW_CATCH_UP_S = 15
 
@@ -424,7 +425,8 @@ def run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
                      a[2] + (b[2] - a[2]) * i / steps]
             rcon(f'tp {probe_name} ' + ' '.join(f'{v:.2f}' for v in probe))
             walked += 1
-            time.sleep(FOLLOW_STEP_S)
+            # A player climbs a step with a jump: ~0.6 s, not a flat stride.
+            time.sleep(FOLLOW_CLIMB_S if b[1] > a[1] and i == steps else FOLLOW_STEP_S)
             if level.get('stopAfter') and walked == level['stopAfter']:
                 answers['stop'] = bot_api(bot, '/api/instruction', {'message': 'Stop', 'requester': probe_name})
                 time.sleep(2)
