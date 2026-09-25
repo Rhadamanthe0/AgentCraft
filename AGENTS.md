@@ -143,6 +143,12 @@
 - Prompt/doc de `piler` : stock court => choisir piler quand meme, l action
   recupere la terre (la hauteur demandee n est jamais rabotee). Avant, le
   modele cassait de la dirt hors de portee depuis son pilier (trees/tall).
+- Banc suivre (`follow/*`, `run_follow_script`) : la sonde marche par tp RCON
+  (~3,3 blocs/s) ; ecart <= 8 blocs pendant la marche, <= 3 a la fin.
+  Navigateur : saut de marche EN MARCHANT (plus d arret + 150 ms avant chaque
+  marche) et fenetre de saut 400 ms au lieu de 600 : escalier de 3 marches
+  4,55 s -> 3,64 s (`tmp/stairs-bench.js`, vrai A* + vraie physique). Vu sur
+  follow/stairs : 10 blocs de retard dans l escalier.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
