@@ -218,6 +218,28 @@ def levels():
             'logs': _logs(*trunk3),
             'rules': {},
         },
+        {
+            'name': 'trees/tall',
+            'about': 'Tronc de 8 buches (Y+0 a Y+7), couronne au-dessus : il faut un pilier de 4 blocs ou plus.',
+            'leaves': [(TX-2, 208, TZ-2, TX+2, 209, TZ+2)],
+            'logs': _logs(*[(TX, 200 + i, TZ) for i in range(8)]),
+            'rules': {'standing_y_min': 203.9},
+        },
+        {
+            'name': 'trees/double',
+            'about': 'Tronc 2x2 de 4 buches de haut (16 buches), couronne au-dessus : un seul arbre, tout a couper.',
+            'leaves': [(TX-2, 204, TZ-2, TX+3, 205, TZ+3)],
+            'logs': _logs(*[(TX + dx, 200 + i, TZ + dz) for i in range(4) for dx in (0, 1) for dz in (0, 1)]),
+            'rules': {},
+        },
+        {
+            'name': 'terrain/moat',
+            'about': 'Arbre sur une ile de 5x5 entouree d un fosse d eau de 2 blocs de large (1 de profondeur).',
+            'terrain': [(TX-4, 199, TZ-4, TX+4, 199, TZ+4, 'water'), (TX-2, 199, TZ-2, TX+2, 199, TZ+2, 'grass_block')],
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
+            'logs': _logs(*trunk3),
+            'rules': {},
+        },
     ]
 
 

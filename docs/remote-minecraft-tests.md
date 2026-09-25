@@ -98,8 +98,8 @@ commence que quand le precedent est entierement vert.
 
 | Type | Niveaux | Etat |
 | --- | --- | --- |
-| rejoindre (« Rejoins moi ») | `join/*` : 10 | en validation |
-| bois (« coupe moi un arbre ») | `trees/*`, `terrain/*` : 8 | vert, a completer a 10 |
+| rejoindre (« Rejoins moi ») | `join/*` : 10 | vert |
+| bois (« coupe moi un arbre ») | `trees/*`, `terrain/*` : 11 (tour 2 : `trees/tall`, `trees/double`, `terrain/moat`) | en validation |
 | chat (arbitrage, arret) | `chat/*` : 1 | a completer |
 | suivre (« suis moi ») | - | a venir |
 | ramasser (terre, herbe, sable) | - | a venir |
