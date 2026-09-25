@@ -206,8 +206,8 @@
   terre inclut l herbe ; avant, le bot la cassait pour la reposer, total en
   baisse) ; trajet vers le poste de tir par le navigateur partage
   (`placeOne(..., { move })`), `build.moveTo` en repli (« trajet trop long »).
-- `fabriquer etabli` refuse quand un etabli est deja pose a 6 blocs et que la
-  cible est autre chose ; nouvelle tentative de craft attendue 2 s aussi.
+- `fabriquer etabli` refuse quand un etabli est deja pose a 6 blocs, ou deja
+  en inventaire, et que la cible est autre chose ; nouvelle tentative de craft attendue 2 s aussi.
 - Cible de fabrication fixee : `fabriquer` refuse ce qui n est ni la cible
   (ou sa famille), ni planches/batons/etabli (`fabricationUtile` ; vu : pioche
   fabriquee a la place de la hache). `choisir_terrain` refuse un nouveau

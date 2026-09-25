@@ -2905,6 +2905,15 @@ function createMissionRunner (host, injected = {}) {
             echec: true
           }
         }
+        // Deja en poche : il sera pose tout seul par la fabrication de la cible
+        // (vu sur craft/axe : deux etablis d affilee, plus de bois pour la hache).
+        if (craft.countOf(bot, /^crafting_table$/) > 0) {
+          return {
+            resultat: `un etabli est deja dans l inventaire : fabrique directement ${mission.fabricationCible}, ` +
+              'l etabli sera pose automatiquement',
+            echec: true
+          }
+        }
       }
 
       try {
