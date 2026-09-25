@@ -290,11 +290,13 @@ test('impossible missing : ni terminer ni fini ne peuvent done, pas de quota16',
 test('legacy recolte sans cible : quota et chemin inchanges', async () => {
   try {
     const brief = realShapeBrief({ kind: 'recolte', resource: 'sable', fabrication: null, _texte: 'casse 1 bloc de sable' })
-    const { status } = await runMission({ brief, stock: {}, plans: ['terminer'] })
+    // Quantite explicite : `terminer` trop tot est refuse trois fois (reinjecte)
+    // avant l echec, juge sur l inventaire.
+    const { status } = await runMission({ brief, stock: {}, plans: ['terminer', 'terminer', 'terminer', 'terminer'] })
     assert.equal(status.type, 'recolte')
     assert.equal(status.fabrication_cible, null)
     assert.equal(status.etat, 'failed')
-    assert.match(status.raison ?? '', /0 unite.*sur 1 demandee/)
+    assert.match(status.raison ?? '', /0 (unite.*|en inventaire )sur 1 demande/)
   } finally {
     restorePlanner()
     restoreCraft()
