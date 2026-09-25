@@ -1,7 +1,8 @@
 """Tree-harvest missions driven through the real bot and its remote planner.
 
 All levels run in parallel, each in its own arena with its own real bot
-(`tree-bot-N` service, fresh /data). `trees/*` vary the tree itself;
+(`TreeBotN`, one of the POOL_SIZE processes of the shared `bots` container,
+own API port and fresh /data/botN). `trees/*` vary the tree itself;
 `terrain/*` hide a simple tree behind terrain that must be dug through, dug
 down into or climbed, and every level checks by server scoreboard that the bot
 took no damage (a fall of more than three blocks hurts). Each level builds one tree by RCON
@@ -95,7 +96,7 @@ def levels():
         {
             'name': 'join/pit',
             'about': 'Bot au fond d un trou 3x3 de 3 blocs dans la terre ; le joueur est a 10 blocs, en haut.',
-            'kind': 'join', 'probe': 'TestProbe2',
+            'kind': 'join',
             'terrain': [(0, 200, 0, SIZE, 201, SIZE, 'dirt'), (0, 202, 0, SIZE, 202, SIZE, 'grass_block'),
                         (TX-1, 200, TZ-1, TX+1, 202, TZ+1, 'air')],
             'start': (TX + .5, 200, TZ + .5), 'probeAt': (TX + 10.5, 203, TZ + .5),
@@ -104,7 +105,7 @@ def levels():
         {
             'name': 'join/leaf-pillar',
             'about': 'Bot en haut de son pilier de terre (3 blocs) plante dans un buisson de feuilles ; le joueur est au sol a 10 blocs.',
-            'kind': 'join', 'probe': 'TestProbe3',
+            'kind': 'join',
             'terrain': [(TX-2, 201, TZ-2, TX+2, 204, TZ+2, LEAVES), (TX, 200, TZ, TX, 202, TZ, 'dirt'),
                         (TX, 203, TZ, TX, 204, TZ, 'air')],
             'start': (TX + .5, 203, TZ + .5), 'probeAt': (TX + 10.5, 200, TZ + .5),
@@ -113,7 +114,7 @@ def levels():
         {
             'name': 'join/cliff-down',
             'about': 'Bot en haut d une falaise de terre de 5 blocs ; le joueur est en bas : descendre sans chute de plus de deux blocs.',
-            'kind': 'join', 'probe': 'TestProbe4',
+            'kind': 'join',
             'terrain': [(TX-3, 200, TZ-3, TX+3, 204, TZ+3, 'dirt')],
             'start': (TX + .5, 205, TZ + .5), 'probeAt': (TX + 10.5, 200, TZ + .5),
             'leaves': [], 'logs': [], 'rules': {},
@@ -121,7 +122,7 @@ def levels():
         {
             'name': 'join/cliff-up',
             'about': 'Joueur en haut d une falaise de terre de 4 blocs ; le bot est en bas, sans rien en inventaire.',
-            'kind': 'join', 'probe': 'TestProbe5',
+            'kind': 'join',
             'terrain': [(TX-3, 200, TZ-3, TX+3, 203, TZ+3, 'dirt')],
             'start': (TX - 9.5, 200, TZ + .5), 'probeAt': (TX + .5, 204, TZ + .5),
             'leaves': [], 'logs': [], 'rules': {},
@@ -129,9 +130,53 @@ def levels():
         {
             'name': 'join/closed-room',
             'about': 'Bot enferme dans une piece de terre fermee (murs et toit) ; le joueur est dehors a 9 blocs.',
-            'kind': 'join', 'probe': 'TestProbe6',
+            'kind': 'join',
             'terrain': [(TX-2, 200, TZ-2, TX+2, 203, TZ+2, 'dirt'), (TX-1, 200, TZ-1, TX+1, 202, TZ+1, 'air')],
             'start': (TX + .5, 200, TZ + .5), 'probeAt': (TX + 9.5, 200, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        # Round 2 (harder): deeper, taller, buried, detour.
+        {
+            'name': 'join/shaft',
+            'about': 'Bot au fond d un puits 1x1 de 6 blocs dans la terre ; le joueur est en surface a 10 blocs.',
+            'kind': 'join',
+            'terrain': [(0, 200, 0, SIZE, 204, SIZE, 'dirt'), (0, 205, 0, SIZE, 205, SIZE, 'grass_block'),
+                        (TX, 200, TZ, TX, 205, TZ, 'air')],
+            'start': (TX + .5, 200, TZ + .5), 'probeAt': (TX + 10.5, 206, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'join/tall-cliff',
+            'about': 'Joueur en haut d une falaise de terre de 8 blocs (plus haut qu un pilier de 6) ; bot en bas, inventaire vide.',
+            'kind': 'join',
+            'terrain': [(TX-3, 200, TZ-3, TX+3, 207, TZ+3, 'dirt')],
+            'start': (TX - 9.5, 200, TZ + .5), 'probeAt': (TX + .5, 208, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'join/buried',
+            'about': 'Bot enterre dans une cavite 1x2 sous 3 blocs de terre ; le joueur est en surface a 10 blocs.',
+            'kind': 'join',
+            'terrain': [(0, 200, 0, SIZE, 203, SIZE, 'dirt'), (0, 204, 0, SIZE, 204, SIZE, 'grass_block'),
+                        (TX, 200, TZ, TX, 201, TZ, 'air')],
+            'start': (TX + .5, 200, TZ + .5), 'probeAt': (TX + 10.5, 205, TZ + .5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'join/ravine-detour',
+            'about': 'Ravin de 3 de large et 6 de profondeur entre le bot et le joueur ; un pont de terre 20 blocs plus loin.',
+            'kind': 'join',
+            'terrain': [(0, 200, 0, SIZE, 204, SIZE, 'dirt'), (0, 205, 0, SIZE, 205, SIZE, 'grass_block'),
+                        (TX-1, 200, 0, TX+1, 205, 29, 'air')],
+            'start': (TX - 6.5, 206, 8.5), 'probeAt': (TX + 7.5, 206, 8.5),
+            'leaves': [], 'logs': [], 'rules': {},
+        },
+        {
+            'name': 'join/water-gap',
+            'about': 'Riviere de 3 blocs de large sur toute l arene entre le bot et le joueur (eau peu profonde, 1 bloc).',
+            'kind': 'join',
+            'terrain': [(TX-1, 199, 0, TX+1, 199, SIZE, 'water')],
+            'start': (TX - 6.5, 200, TZ + .5), 'probeAt': (TX + 7.5, 200, TZ + .5),
             'leaves': [], 'logs': [], 'rules': {},
         },
         # Terrain levels: boxes (x1, y1, z1, x2, y2, z2, block) built before the tree.
@@ -173,25 +218,46 @@ def levels():
             'logs': _logs(*trunk3),
             'rules': {},
         },
+        {
+            'name': 'trees/tall',
+            'about': 'Tronc de 8 buches (Y+0 a Y+7), couronne au-dessus : il faut un pilier de 4 blocs ou plus.',
+            'leaves': [(TX-2, 208, TZ-2, TX+2, 209, TZ+2)],
+            'logs': _logs(*[(TX, 200 + i, TZ) for i in range(8)]),
+            'rules': {'standing_y_min': 203.9},
+        },
+        {
+            'name': 'trees/double',
+            'about': 'Tronc 2x2 de 4 buches de haut (16 buches), couronne au-dessus : un seul arbre, tout a couper.',
+            'leaves': [(TX-2, 204, TZ-2, TX+3, 205, TZ+3)],
+            'logs': _logs(*[(TX + dx, 200 + i, TZ + dz) for i in range(4) for dx in (0, 1) for dz in (0, 1)]),
+            'rules': {},
+        },
+        {
+            'name': 'terrain/moat',
+            'about': 'Arbre sur une ile de 5x5 entouree d un fosse d eau de 2 blocs de large (1 de profondeur).',
+            'terrain': [(TX-4, 199, TZ-4, TX+4, 199, TZ+4, 'water'), (TX-2, 199, TZ-2, TX+2, 199, TZ+2, 'grass_block')],
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
+            'logs': _logs(*trunk3),
+            'rules': {},
+        },
     ]
 
 
-PROBE = 'TestProbe1'  # Silent harness player acting as the human requester.
 PROBE_LOCAL = (4.5, 200, 32.5)
 
 
-def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure, timeline):
+def run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_player):
     """Interrupt a tree job while the bot stands on its pillar, then check that
     "Remplace et rejoins moi" is understood and that the bot reaches the
     player without taking damage (it must take its pillar down first)."""
     probe = (x0 + PROBE_LOCAL[0], PROBE_LOCAL[1], PROBE_LOCAL[2])
-    rcon(f'tp {PROBE} ' + ' '.join(map(str, probe)))
+    rcon(f'tp {probe_player} ' + ' '.join(map(str, probe)))
     started = time.monotonic()
     answers = {}
-    answers['tree'] = bot_api(service, '/api/instruction', {'message': INSTRUCTION, 'requester': PROBE})
+    answers['tree'] = bot_api(bot, '/api/instruction', {'message': INSTRUCTION, 'requester': probe_player})
 
     def status():
-        s = bot_api(service, '/api/status')
+        s = bot_api(bot, '/api/status')
         timeline.append({'t': round(time.monotonic() - started, 1), 'pos': s.get('position'),
                          'onGround': s.get('onGround'), 'running': s.get('missionRunning'),
                          'etat': (s.get('mission') or {}).get('etat'), 'objectif': (s.get('mission') or {}).get('objectif')})
@@ -207,17 +273,17 @@ def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure,
         time.sleep(1)
     # Same sequence as seen in game: stop first, so the tree job is paused and
     # the new request opens the "resume or replace?" question.
-    answers['stop'] = bot_api(service, '/api/instruction', {'message': 'Stop', 'requester': PROBE})
+    answers['stop'] = bot_api(bot, '/api/instruction', {'message': 'Stop', 'requester': probe_player})
     time.sleep(2)
-    answers['join'] = bot_api(service, '/api/instruction', {'message': 'Rejoins moi', 'requester': PROBE})
+    answers['join'] = bot_api(bot, '/api/instruction', {'message': 'Rejoins moi', 'requester': probe_player})
     # The arbitration question lives in the objective controller snapshot.
     arbitration = False
     until = time.monotonic() + 15
     while time.monotonic() < until and not arbitration:
-        arbitration = bool((bot_api(service, '/api/status').get('objectifs') or {}).get('arbitration'))
+        arbitration = bool((bot_api(bot, '/api/status').get('objectifs') or {}).get('arbitration'))
         time.sleep(1)
     if arbitration:
-        answers['replace'] = bot_api(service, '/api/instruction', {'message': 'Remplace et rejoins moi', 'requester': PROBE})
+        answers['replace'] = bot_api(bot, '/api/instruction', {'message': 'Remplace et rejoins moi', 'requester': probe_player})
     joined = False
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
@@ -230,9 +296,9 @@ def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure,
     damage_answer = rcon(f'scoreboard players get {username} degats')
     match = re.search(r'has (\d+)', damage_answer)
     damage = int(match.group(1)) if match else None
-    final = bot_api(service, '/api/status')
+    final = bot_api(bot, '/api/status')
     if final.get('missionRunning'):
-        bot_api(service, '/api/stop', {})
+        bot_api(bot, '/api/stop', {})
     checks = {'etait_sur_son_pilier': on_pillar, 'a_rejoint_le_joueur': joined, 'aucun_degat': damage == 0}
     # Since ARBITRATION_DEFAULT=remplacement, a new request replaces the
     # paused tree job directly: asking "resume or replace?" is a failure.
@@ -255,24 +321,19 @@ def run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure,
 JOIN_TIMEOUT_S = 150
 
 
-def probe_names():
-    return [level['probe'] for level in levels() if level.get('probe')]
-
-
-def run_join_steps(level, x0, service, username, output, rcon, bot_api):
+def run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name):
     """A probe player says "Rejoins moi" while the bot is trapped; the bot must
     reach it (XZ <= 3, same level) without damage, by whatever means."""
-    probe_name = level['probe']
     local = level['probeAt']
     probe = (x0 + local[0], local[1], local[2])
     rcon(f'tp {probe_name} ' + ' '.join(map(str, probe)))
     time.sleep(1)
     started = time.monotonic()
     timeline = []
-    answer = bot_api(service, '/api/instruction', {'message': 'Rejoins moi', 'requester': probe_name})
+    answer = bot_api(bot, '/api/instruction', {'message': 'Rejoins moi', 'requester': probe_name})
     joined = False
     while time.monotonic() - started < JOIN_TIMEOUT_S:
-        s = bot_api(service, '/api/status')
+        s = bot_api(bot, '/api/status')
         p = s.get('position') or {}
         timeline.append({'t': round(time.monotonic() - started, 1), 'pos': p, 'onGround': s.get('onGround'),
                          'running': s.get('missionRunning'), 'etat': (s.get('mission') or {}).get('etat')})
@@ -283,9 +344,9 @@ def run_join_steps(level, x0, service, username, output, rcon, bot_api):
     damage_answer = rcon(f'scoreboard players get {username} degats')
     match = re.search(r'has (\d+)', damage_answer)
     damage = int(match.group(1)) if match else None
-    final = bot_api(service, '/api/status')
+    final = bot_api(bot, '/api/status')
     if final.get('missionRunning'):
-        bot_api(service, '/api/stop', {})
+        bot_api(bot, '/api/stop', {})
     checks = {'a_rejoint_le_joueur': joined, 'aucun_degat': damage == 0}
     (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
         json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
@@ -297,16 +358,46 @@ def run_join_steps(level, x0, service, username, output, rcon, bot_api):
     }
 
 
+# A fixed pool of real bots shares the levels: each worker runs its queue of
+# levels one after another (fresh arena each time), all workers in parallel.
+# Worker i also owns a silent probe player (join and chat levels).
+POOL_SIZE = 16
+
+
+# All pool bots live in ONE compose service (`bots`, ci/multi-bot.js); each bot
+# is a process with its own API port. Keep in step with the `bots` service
+# (POOL_SIZE env and one published port per bot) in ci/compose.yaml.
+BOTS_SERVICE = 'bots'
+PROBES_SERVICE = 'probes'
+API_BASE_PORT = 3000
+
+
 def bot_services():
-    """(compose service, username) per level, in level order."""
-    return [(f'tree-bot-{i}', f'TreeBot{i}') for i in range(1, len(levels()) + 1)]
+    """(API port inside the `bots` container, username) per pool worker.
+
+    The port is the bot's identity for `bot_api(port, route)`."""
+    return [(API_BASE_PORT + i, f'TreeBot{i}') for i in range(1, POOL_SIZE + 1)]
+
+
+def probe_names():
+    return [f'TestProbe{i + 1}' for i in range(1, POOL_SIZE + 1)]
 
 
 def arena_origins():
+    """One arena per level (not per worker): a level never reuses a dirty arena."""
     return [FIRST_ARENA_X + i * ARENA_SPACING for i in range(len(levels()))]
 
 
-def run_level(level, x0, service, username, output, rcon, bot_api):
+def mission_type(name):
+    return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat'}.get(name.split('/')[0], name.split('/')[0])
+
+
+def wood(inventory, placed_planks=0):
+    inventory = inventory or {}
+    return inventory.get('buches', 0) + (inventory.get('planches', 0) + placed_planks) // 4
+
+
+def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
     name = level['name']
     x1, z0, z1 = x0 + SIZE, 0, SIZE
     local = level.get('start', LOCAL_START)
@@ -328,7 +419,8 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
                 # grass_block is not in #minecraft:dirt in 26.1; grass under a log also turns to dirt.
                 'floor': sum(count(f'{x0} {FLOOR_Y} {z0} {x1} {FLOOR_Y} {z1}', block)
                              for block in ('minecraft:grass_block', 'minecraft:dirt')),
-                'dirt_above_floor': count(f'{x0} 200 {z0} {x1} {TOP_Y} {z1}', 'minecraft:dirt')}
+                'dirt_above_floor': count(f'{x0} 200 {z0} {x1} {TOP_Y} {z1}', 'minecraft:dirt'),
+                'planks': count(f'{x0} 200 {z0} {x1} {TOP_Y} {z1}', '#minecraft:planks')}
 
     try:
         # Solid ground under the arena: a bot that digs down must hit stone, not
@@ -355,7 +447,7 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
         rcon(f'scoreboard players set {username} degats 0')
         until = time.monotonic() + 20
         while True:
-            s = bot_api(service, '/api/status')
+            s = bot_api(bot, '/api/status')
             p = s.get('position') or {}
             if s.get('onGround') and all(abs(p.get(k, -999) - v) < .2 for k, v in zip('xyz', start)):
                 break
@@ -367,10 +459,10 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
         if before['logs'] != expected_logs:
             raise RuntimeError(f"Fixture has {before['logs']} logs, expected {expected_logs}")
         if level.get('kind') == 'chat':
-            return run_chat_steps(level, x0, service, username, output, rcon, bot_api, measure, timeline)
+            return run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_name)
         if level.get('kind') == 'join':
-            return run_join_steps(level, x0, service, username, output, rcon, bot_api)
-        answer = bot_api(service, '/api/instruction', {'message': INSTRUCTION, 'requester': REQUESTER})
+            return run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name)
+        answer = bot_api(bot, '/api/instruction', {'message': INSTRUCTION, 'requester': REQUESTER})
         started = time.monotonic()
         peak_standing = start[1]
         world, last_world_check = before, 0
@@ -381,10 +473,10 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
         last_plan = None
         while time.monotonic() - started < LEVEL_CAP_S:
             now = time.monotonic()
-            s = bot_api(service, '/api/status')
+            s = bot_api(bot, '/api/status')
             m = s.get('mission') or {}
             p = s.get('position') or {}
-            inv = (s.get('inventory') or {}).get('buches', 0)
+            inv = wood(s.get('inventory'))
             running = bool(s.get('missionRunning'))
             if s.get('onGround') and p.get('y') is not None:
                 peak_standing = max(peak_standing, p['y'])
@@ -418,16 +510,18 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
                 break
             time.sleep(1)
         elapsed = round(time.monotonic() - started, 1)
-        final = bot_api(service, '/api/status')
-        mission = bot_api(service, '/api/mission')
+        final = bot_api(bot, '/api/status')
+        mission = bot_api(bot, '/api/mission')
         after = measure()
         damage_answer = rcon(f'scoreboard players get {username} degats')
         damage = int(re.search(r'has (\d+)', damage_answer).group(1)) if re.search(r'has (\d+)', damage_answer) else None
         items_left = rcon(f'execute as @e[type=item,x={x0},y={FLOOR_Y},z={z0},dx={SIZE},dy={TOP_Y - FLOOR_Y},dz={SIZE}]'
                           ' run data get entity @s Pos')
         if final.get('missionRunning'):
-            bot_api(service, '/api/stop', {})
-        inventory = (final.get('inventory') or {}).get('buches', 0)
+            bot_api(bot, '/api/stop', {})
+        # Planks the bot crafted from a log (scaffolding) still count as wood:
+        # 4 planks = 1 log, in inventory or left placed in the arena.
+        inventory = wood(final.get('inventory'), after.get('planks', 0))
         rules = level['rules']
         checks = {
             'toutes_les_buches_coupees': after['logs'] == 0,
@@ -467,16 +561,40 @@ def run_level(level, x0, service, username, output, rcon, bot_api):
 
 
 def run_levels(output, rcon, bot_api):
-    results = [None] * len(levels())
+    all_levels = levels()
+    results = [None] * len(all_levels)
+    origins = arena_origins()
     rcon('scoreboard objectives add degats minecraft.custom:minecraft.damage_taken')
+    queue = list(range(len(all_levels)))
+    lock = threading.Lock()
 
-    def worker(index, level, x0, service, username):
-        print(f'{level["name"]} ({username}) started', flush=True)
-        results[index] = run_level(level, x0, service, username, output, rcon, bot_api)
-        print(f'{level["name"]} finished in {results[index].get("elapsedS")} s', flush=True)
+    def reset(bot):
+        # Previous level's mission and working notes must not leak into the next one.
+        for route, body, method in (('/api/stop', {}, 'POST'), ('/api/memory', None, 'DELETE')):
+            try:
+                bot_api(bot, route, body, method=method)
+            except Exception:
+                pass
 
-    threads = [threading.Thread(target=worker, args=(i, level, x0, service, username))
-               for i, (level, x0, (service, username)) in enumerate(zip(levels(), arena_origins(), bot_services()))]
+    def worker(bot, username, probe):
+        first = True
+        while True:
+            with lock:
+                if not queue:
+                    return
+                index = queue.pop(0)
+            level = all_levels[index]
+            if not first:
+                reset(bot)
+            first = False
+            print(f'{level["name"]} ({username}) started', flush=True)
+            result = run_level(level, origins[index], bot, username, output, rcon, bot_api, probe)
+            result['type'] = mission_type(level['name'])
+            results[index] = result
+            print(f'{level["name"]} finished in {result.get("elapsedS")} s', flush=True)
+
+    threads = [threading.Thread(target=worker, args=(bot, username, probe))
+               for (bot, username), probe in zip(bot_services(), probe_names())]
     for thread in threads:
         thread.start()
     for thread in threads:

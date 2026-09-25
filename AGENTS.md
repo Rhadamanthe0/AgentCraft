@@ -25,6 +25,15 @@
   d affilee faisaient echouer la mission (vu sur trees/bent).
 - `llm.call` rejoue UNE fois une panne passagere du gateway (5xx, 429, 400
   « Upstream request failed »), dans le meme delai.
+- Banc CI mutualise (2026-09-24) : UNE image
+  `minebot-ci:<projet>` par execution (build du seul `harness`, supprimee par
+  `docker image rm` en fin de run ; `--rmi local` ignore les images nommees).
+  16 bots dans UN conteneur `bots` (`ci/multi-bot.js`, un processus
+  `index.js` par bot, API `3000+N`, `/data/botN/`, tas 256 Mo, jamais relance
+  en silence) ; 16 sondes dans UN processus (`ci/probes.js`).
+  `ci/cleanup.py` balaie conteneurs/reseaux/volumes/images `mc-ci-*` et
+  `minebot-ci:*` (jamais de prune). `report.resourceSnapshot` = docker stats.
+  Une IP pour 16 bots : `ci/paper/bukkit.yml` coupe le `connection-throttle`.
 - Banc `terrain/*` (meme suite, 8 bots en parallele) : arbre derriere un mur
   de terre, au fond d un trou de 5, sur une falaise de 5, trou entoure d une
   haie. Chaque niveau exige 0 degat (scoreboard `damage_taken`).
@@ -59,6 +68,33 @@
   construit (`BUILT_BLOCK` : planches, portes, vitres, coffres, buches...).
   Banc `join/*` : trou, pilier dans les feuilles, falaise en bas/en haut,
   piece fermee ; sondes muettes `TestProbe2..6`.
+- `climbOutToward` monte niveau par niveau (`MISSION_CLIMB_MAX`, 12) : creuse
+  la terre naturelle au-dessus de la tete (bot enterre, puits), pose un bloc
+  sous soi, reprend de la terre aux parois si le stock tombe a 0. Banc tour 2 :
+  `join/shaft`, `join/tall-cliff` (8), `join/buried`, `join/ravine-detour`.
+- Banc CI par types de mission (docs/remote-minecraft-tests.md, « Types de
+  mission du banc ») : un type ajoute et valide a la fois, ~10 niveaux chacun,
+  de plus en plus durs. Groupe fixe de 16 bots (`POOL_SIZE`) qui enchainent
+  les niveaux (stop + memoire videe entre deux), une sonde muette par bot ;
+  tests unitaires et scenarios de navigation en parallele des missions.
+- `piler` casse les feuilles au-dessus de la tete au lieu de s arreter sur
+  « plafond » (vu sur trees/bent : derniere buche dans la couronne).
+- Eau (join/water-gap) : en 26.1 le bot ne ressort pas d une eau d un bloc.
+  Avant `digToward` de dernier recours, `gatherDirt(6, ..., { sol: true })`
+  (sol pris a cote, jamais sous les pieds) pour que le pathfinder jette un
+  pont ; `joinDigMovements.liquidCost = 200`. CI : PLANNER_TIMEOUT_MS 30 s
+  (16 bots en parallele, deux delais de 20 s vus sur trees/bent).
+- `bridgeToward` (mission.js) : eau/lave/vide en ligne droite vers le joueur
+  => pont de terre pose a la main (bloc devant soi au niveau du sol), avant le
+  `digToward` de dernier recours. La descente d echafaudage s arrete au premier
+  bloc qui n est plus une colonne isolee (la dirt du sol sous un pilier n est
+  jamais creusee ; vu sur join/leaf-pillar).
+- Vitesse du banc : `ci/run.py` parle RCON en direct (TCP, port loopback
+  publie `127.0.0.1::25575`, une connexion partagee sous verrou) et HTTP en
+  direct aux bots/harness (`127.0.0.1::3000`/`3101`, `docker compose port`) ;
+  repli `docker compose exec` si le port manque. Avant : >1 600 exec a ~1 s.
+  Le rapport porte `plannerSummary` (latence moyenne, part de prompt en cache,
+  jetons de raisonnement) : cumuls `jetons_*_total` dans `planner.stats`.
 - Pilier dans la couronne : `isPillarBlock` ne compte plus feuilles/buches
   voisines comme sol naturel ; si `navWithDescent` laisse le bot perche sur
   l echafaudage, `digToward` jusqu au sol (20 s) puis re-tente le trajet.
@@ -78,6 +114,22 @@
   immobile sur son pilier apres un remplacement.
 - `ramasser` : objet juge a portee (1,6) mais non ramasse (jeu ~1,3) => trajet
   puis un pas droit dessus (`stepOnto`, sol plat appuye seulement).
+- `navigation.js` : un chemin A* deja consomme sans bouger (bot sur la seule
+  case du chemin, pas arrive) etait replanifie en boucle SYNCHRONE : bot fige,
+  « lost connection: Timed out » (vu sur trees/pillar). Rend la main a chaque
+  tour et repond `no_path` apres trois chemins vides d affilee.
+- `avancer` vers un arbre derriere de l eau (`terrain/moat`) : `bridgeRounds`
+  (pont de terre de `join/water-gap`, factorise) avant `digToward`, qui
+  faisait entrer le bot dans le fosse ; pont inacheve => echec franc.
+- Le navigateur partage (`navigation.js`) ne pose jamais de bloc
+  (`scafoldingBlocks = []`) : porteur de terre, il recevait des chemins a
+  poser refuses en `unsupported_move` en boucle (terrain/moat).
+- `piler` a court de terre la cherche lui-meme : defait son propre pilier
+  (blocs recuperes), `gatherDirt` a cote (jamais sous les pieds), puis pile
+  hauteur demandee + hauteur defaite (vu sur trees/tall : perche a +2 sans
+  terre, aucune action n en obtenait depuis le haut).
+- Banc bois tour 2 : `trees/tall` (8 buches), `trees/double` (2x2, 16),
+  `terrain/moat` (ile entouree d eau).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
@@ -1716,6 +1768,7 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `PLANNER_WARMUP_TIMEOUT_MS` | `180000` | Delai tant qu'aucune reponse n'est revenue. **Voir piege 16.** |
 | `PLANNER_KEEP_ALIVE` | `30m` | Reliquat Ollama : plus envoye qu'a un Ollama (`IS_OLLAMA`), donc inactif avec Zen. Le code le lit encore. |
 | `PLANNER_TEMPERATURE` | `0` | Un planificateur ne doit pas improviser. |
+| `PLANNER_THINKING` | vide | `disabled` envoie `thinking: {type: disabled}` au modele unique (chat) : mesure CI, 86 % des jetons produits etaient du raisonnement (~3,9 s/plan, cache de prompt deja a 91 %). Un 400 du gateway retire le champ pour la suite. Active dans le banc (A/B). |
 | `PLANNER_DEBUG` | vide | `1` trace chaque plan recu et chaque reponse rejetee. |
 | `PLANNER_MAX_TOKENS` | `2000` | Jetons maximaux de la reponse du planificateur. **Le raisonnement de deepseek compte dedans : ne pas descendre a 700.** |
 | `REPAIR_BASE_URL` | `https://opencode.ai/zen/go/v1` | Transport du reparateur (OpenAI `/chat/completions`), meme gateway que le planificateur. |

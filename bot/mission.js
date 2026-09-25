@@ -749,7 +749,7 @@ function createMissionRunner (host, injected = {}) {
   // Prend de la terre dans le relief voisin (a hauteur des pieds et au-dessus,
   // jamais sous les pieds) jusqu a en avoir `besoin` en stock d echafaudage.
   // `epargne(x, z)` exclut des colonnes a garder intactes (le rebord vise).
-  async function gatherDirt (besoin, epargne = () => false) {
+  async function gatherDirt (besoin, epargne = () => false, { sol = false } = {}) {
     const bot = host.getBot()
     let creuses = 0
     for (let i = 0; i < besoin + 4 && scaffoldingStock(bot).total < besoin && !mission.cancelled; i += 1) {
@@ -759,7 +759,9 @@ function createMissionRunner (host, injected = {}) {
       let best = null
       for (let dx = -3; dx <= 3; dx += 1) {
         for (let dz = -3; dz <= 3; dz += 1) {
-          for (let dy = 0; dy <= 2; dy += 1) {
+          for (let dy = sol ? -1 : 0; dy <= 2; dy += 1) {
+            // Le sol n est pris qu a cote du bot, jamais sous ses pieds.
+            if (dy < 0 && Math.abs(dx) + Math.abs(dz) < 2) continue
             const block = bot.blockAt(new Vec3(Math.floor(here.x) + dx, feetY + dy, Math.floor(here.z) + dz))
             if (!block || !/^(dirt|grass_block|coarse_dirt)$/.test(block.name)) continue
             if (epargne(block.position.x, block.position.z)) continue
@@ -782,32 +784,42 @@ function createMissionRunner (host, injected = {}) {
     return creuses
   }
 
-  // Sortie d un trou (ou pied d un mur) vers une cible plus haute de 2 a
-  // PILER_MAX blocs : choisit une case libre au pied d une paroi dont le haut
-  // est praticable, du cote de la cible, prend la terre ailleurs, s y place,
-  // pile jusqu au niveau du rebord. Le navigateur finit ensuite a pied.
+  // Sortie par le haut vers une cible plus haute de 2 a CLIMB_MAX blocs (fond
+  // de trou, puits, pied de falaise, bot enterre) : choisit une case au pied
+  // d une paroi dont le haut est praticable, du cote de la cible ; la colonne
+  // au-dessus peut etre de la terre (creusee en montant). Puis monte niveau par
+  // niveau : creuse ce qui gene au-dessus de la tete, pose un bloc sous soi.
+  // La terre creusee sert d echafaudage ; le reste est pris dans les parois.
+  const CLIMB_MAX = Number(process.env.MISSION_CLIMB_MAX || 12)
+  const TERRE_NATURELLE = /^(dirt|grass_block|coarse_dirt|rooted_dirt|podzol|mycelium|sand|red_sand|gravel|clay|[a-z_]*_leaves)$/
   async function climbOutToward (target, owner) {
     const bot = host.getBot()
     if (!bot?.entity || !target) return null
     const feetY = Math.floor(bot.entity.position.y + 0.01)
     const hauteur = Math.floor(target.y + 0.01) - feetY
-    if (hauteur < 2 || hauteur > PILER_MAX) return null
+    if (hauteur < 2 || hauteur > CLIMB_MAX) return null
     const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
     const libre = (x, y, z) => { const b = at(x, y, z); return !!b && b.boundingBox === 'empty' && !/water|lava/.test(b.name) }
+    const terre = (x, y, z) => { const b = at(x, y, z); return !!b && TERRE_NATURELLE.test(b.name) }
     const here = bot.entity.position.floored()
     let best = null
     for (let dx = -8; dx <= 8; dx += 1) {
       for (let dz = -8; dz <= 8; dz += 1) {
         const x = here.x + dx
         const z = here.z + dz
-        if (!estSolide(at(x, feetY - 1, z))) continue
+        if (!estSolide(at(x, feetY - 1, z)) || !libre(x, feetY, z) || !libre(x, feetY + 1, z)) continue
+        let aCreuser = 0
         let colonne = true
-        for (let y = feetY; y <= feetY + hauteur + 1; y += 1) if (!libre(x, y, z)) colonne = false
+        for (let y = feetY + 2; y <= feetY + hauteur + 1; y += 1) {
+          if (libre(x, y, z)) continue
+          if (terre(x, y, z)) aCreuser += 1
+          else colonne = false
+        }
         if (!colonne) continue
         for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           if (!estSolide(at(x + ox, feetY + hauteur - 1, z + oz))) continue
           if (!libre(x + ox, feetY + hauteur, z + oz) || !libre(x + ox, feetY + hauteur + 1, z + oz)) continue
-          const score = Math.hypot(x + ox + 0.5 - target.x, z + oz + 0.5 - target.z) + 0.5 * Math.hypot(dx, dz)
+          const score = Math.hypot(x + ox + 0.5 - target.x, z + oz + 0.5 - target.z) + 0.5 * Math.hypot(dx, dz) + aCreuser
           if (!best || score < best.score) best = { x, z, rx: x + ox, rz: z + oz, score }
         }
       }
@@ -817,32 +829,157 @@ function createMissionRunner (host, injected = {}) {
       return null
     }
     const poste = new Vec3(best.x + 0.5, feetY, best.z + 0.5)
-    const rejoindrePoste = async () => {
+    const auPoste = () => {
       const p = host.getBot().entity.position
-      if (Math.floor(p.x) === best.x && Math.floor(p.z) === best.z) return true
+      return Math.floor(p.x) === best.x && Math.floor(p.z) === best.z
+    }
+    const rejoindrePoste = async () => {
+      if (auPoste()) return true
       await host.navigateToPosition(poste, { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.4, distanceBudget: 24 })
-      const q = host.getBot().entity.position
-      return Math.floor(q.x) === best.x && Math.floor(q.z) === best.z
+      return auPoste()
     }
     if (!await rejoindrePoste()) {
       console.log('[mission] sortie par le haut : poste contre la paroi injoignable')
       return null
     }
     const epargne = (x, z) => (x === best.rx && z === best.rz) || (x === best.x && z === best.z)
-    const creuses = await gatherDirt(hauteur, epargne)
+    let creuses = await gatherDirt(Math.min(hauteur, 4), epargne)
     await collectScaffoldDrops(owner)
-    const stock = scaffoldingStock(host.getBot()).total
-    if (stock < hauteur || mission.cancelled) {
-      console.log(`[mission] sortie par le haut : ${stock}/${hauteur} blocs de terre`)
-      return null
-    }
     if (!await rejoindrePoste() || mission.cancelled) return null
-    const pile = await ACTIONS.piler(null, { hauteur })
-    if (pile?.echec) {
-      console.log(`[mission] sortie par le haut : pilier refuse (${pile.resultat})`)
-      return null
+    let montes = 0
+    for (let niveau = 0; niveau < hauteur && !mission.cancelled; niveau += 1) {
+      const live = host.getBot()
+      const pieds = live.entity.position.floored()
+      for (const dy of [2, 1]) {
+        const b = live.blockAt(pieds.offset(0, dy, 0))
+        if (!b || b.boundingBox === 'empty') continue
+        if (!TERRE_NATURELLE.test(b.name)) return null
+        try {
+          await withTimeout(live.lookAt(b.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+          await withTimeout(live.dig(b), 8000, 'creusage trop long')
+          creuses += 1
+        } catch (_) {
+          return null
+        }
+      }
+      await sleep(300)
+      if (scaffoldingStock(live).total < 1) {
+        creuses += await gatherDirt(Math.min(hauteur - niveau, 3), epargne)
+        if (scaffoldingStock(host.getBot()).total < 1) {
+          console.log(`[mission] sortie par le haut : plus de terre apres ${montes} niveau(x)`)
+          return null
+        }
+      }
+      let pile = await ACTIONS.piler(null, { hauteur: 1 })
+      if (pile?.echec && /atterrissage/.test(pile.resultat || '')) {
+        await sleep(400)
+        pile = await ACTIONS.piler(null, { hauteur: 1 })
+      }
+      if (pile?.echec) {
+        console.log(`[mission] sortie par le haut : pilier refuse au niveau ${niveau} (${pile.resultat})`)
+        return montes > 0 ? `${montes} niveau(x) montes sur ${hauteur}` : null
+      }
+      montes += 1
     }
-    return `${creuses} bloc(s) de terre pris, pilier de ${hauteur} contre la paroi`
+    return `${creuses} bloc(s) de terre creuses, monte de ${montes} contre la paroi`
+  }
+
+  // Eau, lave ou vide au niveau du sol sur la ligne droite (axe dominant)
+  // vers `target`, a 12 cases au plus : un pont est necessaire.
+  function gapToward (target) {
+    const bot = host.getBot()
+    if (!bot?.entity || !target) return false
+    const start = bot.entity.position.floored()
+    const ddx = target.x - (start.x + 0.5)
+    const ddz = target.z - (start.z + 0.5)
+    const dir = Math.abs(ddx) >= Math.abs(ddz) ? new Vec3(Math.sign(ddx), 0, 0) : new Vec3(0, 0, Math.sign(ddz))
+    if (dir.x === 0 && dir.z === 0) return false
+    const steps = Math.min(12, Math.floor(Math.max(Math.abs(ddx), Math.abs(ddz))))
+    const liquide = b => !!b && /water|lava/.test(b.name)
+    const vide = b => !b || (b.boundingBox === 'empty' && !liquide(b))
+    // Une cible plus basse se rejoint en descendant : seul un liquide est un
+    // obstacle (vu : pont suspendu construit depuis le haut d une falaise).
+    const plusBas = target.y < start.y - 1
+    for (let i = 1; i <= steps; i += 1) {
+      const p = start.plus(dir.scaled(i))
+      const sol = bot.blockAt(p.offset(0, -1, 0))
+      if (liquide(sol)) return true
+      if (!plusBas && vide(sol) && vide(bot.blockAt(p.offset(0, -2, 0))) && vide(bot.blockAt(p.offset(0, -3, 0)))) return true
+    }
+    return false
+  }
+
+  // Pont de terre en ligne droite vers `target` (axe dominant) : avance sur le
+  // sol ferme, et pose un bloc devant soi, au niveau du sol, a chaque case
+  // d eau, de lave ou de vide. S arrete a la terre ferme de l autre cote.
+  // Rend un resume, ou null si rien n a ete franchi.
+  async function bridgeToward (target, owner) {
+    const bot = host.getBot()
+    if (!bot?.entity || !target) return null
+    const start = bot.entity.position.floored()
+    const ddx = target.x - (start.x + 0.5)
+    const ddz = target.z - (start.z + 0.5)
+    const dir = Math.abs(ddx) >= Math.abs(ddz) ? new Vec3(Math.sign(ddx), 0, 0) : new Vec3(0, 0, Math.sign(ddz))
+    if (dir.x === 0 && dir.z === 0) return null
+    const trou = b => !b || b.boundingBox === 'empty' || /water|lava/.test(b.name)
+    if (!gapToward(target)) return null
+    let poses = 0
+    let pas = 0
+    for (let i = 0; i < 24 && !mission.cancelled; i += 1) {
+      const live = host.getBot()
+      const here = live.entity.position.floored()
+      const next = here.plus(dir)
+      const sol = live.blockAt(next.offset(0, -1, 0))
+      if (!trou(live.blockAt(next)) || !trou(live.blockAt(next.offset(0, 1, 0)))) break
+      if (trou(sol)) {
+        if (poses > 0 && Math.hypot(next.x + 0.5 - target.x, next.z + 0.5 - target.z) < 1) break
+        const stock = scaffoldingStock(live).materiaux[0]
+        const owned = stock && live.inventory.items().find(item => item.name === stock.nom)
+        if (!owned) break
+        try {
+          if (!live.heldItem || live.heldItem.name !== owned.name) await withTimeout(live.equip(owned, 'hand'), 4000, 'equipement trop long')
+          const appui = live.blockAt(here.offset(0, -1, 0))
+          await withTimeout(live.lookAt(next.offset(0.5, -0.5, 0.5), true), 3000, 'visee trop longue')
+          await withTimeout(live.placeBlock(appui, dir), 5000, 'pose trop longue')
+        } catch (_) {}
+        const posee = live.blockAt(next.offset(0, -1, 0))
+        if (trou(posee)) break
+        poses += 1
+      } else if (poses > 0) {
+        // Terre ferme de l autre cote : le trajet normal reprend.
+        break
+      }
+      await host.navigateToPosition(next.offset(0.5, 0, 0.5), { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.4, distanceBudget: 3 })
+      const now = host.getBot().entity.position.floored()
+      if (now.x !== next.x || now.z !== next.z) break
+      pas += 1
+    }
+    return poses > 0 ? `${poses} bloc(s) poses, ${pas} pas` : null
+  }
+
+  // Par tours : terre prise derriere la tete de pont (un trou au bord de l eau
+  // agrandirait la riviere), retour a la tete de pont, blocs poses tant qu il
+  // en reste ; jusqu a l autre rive. Rend vrai si plus aucun trou ne barre.
+  async function bridgeRounds (goal, owner) {
+    for (let tour = 0; tour < 4 && gapToward(goal) && !mission?.cancelled; tour += 1) {
+      const tete = host.getBot().entity.position.clone()
+      if (scaffoldingStock(host.getBot()).total < 3) {
+        // Terre prise derriere soi seulement : un trou au bord de l eau se
+        // remplirait et agrandirait la riviere.
+        const vx = goal.x - tete.x
+        const vz = goal.z - tete.z
+        const derriere = (x, z) => (x + 0.5 - tete.x) * vx + (z + 0.5 - tete.z) * vz > -1.5 * Math.hypot(vx, vz)
+        const pris = await gatherDirt(6, derriere, { sol: true })
+        await collectScaffoldDrops(owner)
+        await host.navigateToPosition(tete, { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.5, distanceBudget: 12 })
+        console.log(`[mission] pont : ${pris} bloc(s) de terre creuses, stock ${scaffoldingStock(host.getBot()).total}`)
+      }
+      if (scaffoldingStock(host.getBot()).total < 1) break
+      const bridged = await bridgeToward(goal, owner)
+      console.log(`[mission] pont : ${bridged ?? 'rien pose'}`)
+      if (!bridged) break
+    }
+    return !gapToward(goal)
   }
 
   // Ramasse la terre tombee pres du bot (un bloc creuse dans une paroi lache
@@ -972,11 +1109,15 @@ function createMissionRunner (host, injected = {}) {
       const bot = host.getBot()
       const under = bot?.entity ? bot.blockAt(bot.entity.position.offset(0, -0.5, 0)) : null
       if (!result?.reached && under && (PILER_DIRT.test(under.name) || /_planks$/.test(under.name)) &&
-        typeof host.digToward === 'function' && !mission?.cancelled) {
+        isPillarBlock(bot, under) && typeof host.digToward === 'function' && !mission?.cancelled) {
+        // Le sol est le premier bloc qui n est plus une colonne isolee
+        // d echafaudage : la terre du sol (souvent de la dirt sous un pilier)
+        // ne doit jamais etre creusee (vu : bot descendu dans le sol).
         let ground = under.position.y
         while (ground > under.position.y - 16) {
           const b = bot.blockAt(new Vec3(under.position.x, ground - 1, under.position.z))
-          if (b && b.boundingBox === 'block' && !PILER_DIRT.test(b.name) && !/_planks$/.test(b.name)) break
+          if (!b || b.boundingBox !== 'block') { ground -= 1; continue }
+          if (!(PILER_DIRT.test(b.name) || /_planks$/.test(b.name)) || !isPillarBlock(bot, b)) break
           ground -= 1
         }
         const down = await host.digToward(new Vec3(bot.entity.position.x, ground, bot.entity.position.z),
@@ -998,8 +1139,32 @@ function createMissionRunner (host, injected = {}) {
       // chute de deux blocs au plus, sans toucher a ce qu un joueur a construit.
       const goal2 = typeof target === 'function' ? target() : target
       if (!result?.reached && goal2 && typeof host.digToward === 'function' && !mission?.cancelled) {
+        // Feuilles autour du bot (buisson, couronne) : couloir ouvert a hauteur
+        // du corps vers la cible, plutot qu un tunnel sous le sol.
+        const feuilles = await clearLeavesToward({ position: new Vec3(Math.floor(goal2.x), Math.floor(goal2.y), Math.floor(goal2.z)) }, LEAF_CLEAR_MAX).catch(() => 0)
+        if (feuilles > 0) {
+          console.log(`[mission] ${feuilles} feuille(s) cassee(s) vers la cible`)
+          result = await call()
+          if (result?.reached) return result
+        }
+        // Eau ou vide en ligne droite vers la cible : pont de terre pose a la
+        // main (le pathfinder s y prend mal et le bot ne ressort pas de l eau).
+        // La terre n est prise que dans ce cas (des trous dans le sol perdaient
+        // le pathfinder), puis retour au point de depart (bridgeRounds).
+        await bridgeRounds(goal2, owner)
+        if (!gapToward(goal2)) result = await call()
+        else if (!result?.reached) {
+          // Le pathfinder qui creuse entrerait dans l eau, dont le bot ne
+          // ressort pas en 26.1 : echec franc plutot que noyade.
+          console.log('[mission] pont inacheve : pas de trajet en creusant a travers l eau')
+          return result
+        }
+      }
+      if (!result?.reached && goal2 && typeof host.digToward === 'function' && !mission?.cancelled) {
         const dug = await host.digToward(goal2, { signal: mission.navigationAbort.signal, range: 2, protectBuilt: true })
-        console.log(`[mission] trajet en creusant vers la cible : ${dug.code}`)
+        const here = host.getBot()?.entity?.position
+        console.log(`[mission] trajet en creusant vers la cible (${goal2.x.toFixed(1)} ${goal2.y.toFixed(1)} ${goal2.z.toFixed(1)}) : ${dug.code}` +
+          (here ? `, bot en ${here.x.toFixed(1)} ${here.y.toFixed(1)} ${here.z.toFixed(1)}` : ''))
         if (dug.reached) result = await call()
       }
     }
@@ -2888,8 +3053,22 @@ function createMissionRunner (host, injected = {}) {
           result = await approach()
         }
       }
+      // Eau entre le bot et l arbre (ile, fosse) : le pathfinder qui creuse y
+      // entrait, et le bot ne ressort pas de l eau en 26.1 (vu sur
+      // terrain/moat). Pont de terre pose a la main, sinon echec franc.
+      let noye = false
+      if (result.code === 'no_path' && mission.kind === 'recolte' && !mission.cancelled && gapToward(cible.position)) {
+        const bridged = await bridgeRounds(cible.position, stepToken)
+        if (bridged) {
+          degage += ' (pont de terre pose)'
+          result = await approach()
+        } else {
+          noye = true
+          degage += ' (eau vers la cible, pont inacheve : trouver de la terre)'
+        }
+      }
       const farAbove = result.code === 'needs_height' && Number(result.horizontalDistance) > REACH
-      if ((result.code === 'no_path' || farAbove) && mission.kind === 'recolte' && !mission.cancelled &&
+      if ((result.code === 'no_path' || farAbove) && !noye && mission.kind === 'recolte' && !mission.cancelled &&
         typeof host.digToward === 'function') {
         const dug = await host.digToward(cible.position.offset(0.5, 0.5, 0.5), {
           signal: mission.navigationAbort.signal
@@ -2945,9 +3124,33 @@ function createMissionRunner (host, injected = {}) {
         return { resultat: `${cible.name} deja a portee : casser directement, pas de pilier`, echec: true }
       }
 
-      const available = scaffoldingStock(bot)
-      if (available.total < hauteur) {
-        return { resultat: `stock d echafaudage insuffisant : ${available.total}/${hauteur} blocs disponibles, obtenir le manque avant de monter`,
+      let available = scaffoldingStock(bot)
+      // Stock court : aller chercher le manque soi-meme plutot que d echouer
+      // en boucle (vu sur trees/tall : perche a +2 sans terre, aucune action
+      // ne pouvait en obtenir depuis le haut). Defaire son propre pilier rend
+      // ses blocs ; la hauteur visee reste la meme (pilier refait plus haut).
+      let hauteurVisee = hauteur
+      let recupere = ''
+      if (available.total < hauteur && !mission.cancelled) {
+        const yHaut = bot.entity.position.y
+        const under = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+        if (under && isPillarBlock(bot, under)) {
+          await descendScaffold(-Infinity, { pillarOnly: true })
+          await collectScaffoldDrops(stepToken)
+        }
+        const redescendu = Math.max(0, Math.round(yHaut - host.getBot().entity.position.y))
+        hauteurVisee = Math.min(PILER_MAX, hauteur + redescendu)
+        if (scaffoldingStock(bot).total < hauteurVisee) {
+          await gatherDirt(hauteurVisee, () => false, { sol: true })
+          await collectScaffoldDrops(stepToken)
+        }
+        available = scaffoldingStock(bot)
+        recupere = ` (terre obtenue sur place : ${available.total} bloc(s)` +
+          (redescendu ? `, pilier de ${redescendu} defait puis refait` : '') + ')'
+        if (redescendu && available.total < hauteurVisee) hauteurVisee = Math.max(redescendu, available.total)
+      }
+      if (available.total < hauteurVisee) {
+        return { resultat: `stock d echafaudage insuffisant : ${available.total}/${hauteurVisee} blocs disponibles, obtenir le manque avant de monter`,
           echec: true, code: 'stock_echafaudage_insuffisant' }
       }
 
@@ -2958,7 +3161,7 @@ function createMissionRunner (host, injected = {}) {
       let poses = 0
       let failure = null
 
-      for (let niveau = 0; niveau < hauteur; niveau += 1) {
+      for (let niveau = 0; niveau < hauteurVisee; niveau += 1) {
         if (mission.cancelled) break
         const live = host.getBot()
         if (!live?.entity) {
@@ -2984,7 +3187,17 @@ function createMissionRunner (host, injected = {}) {
           failure = 'case occupee a hauteur des pieds'
           break
         }
-        // Plafond : un pilier sous un toit coince la tete du bot.
+        // Plafond : un pilier sous un toit coince la tete du bot. Des feuilles
+        // (couronne d un arbre) se cassent au lieu d arreter la montee.
+        for (const dy of [2, 1]) {
+          const haut = live.blockAt(ancre.offset(0, dy, 0))
+          if (!haut || !/_leaves$/.test(haut.name)) continue
+          try {
+            await withTimeout(live.lookAt(haut.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+            await withTimeout(live.dig(haut), 6000, 'creusage trop long')
+            mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
+          } catch (_) {}
+        }
         const dessus1 = live.blockAt(ancre.offset(0, 1, 0))
         const dessus2 = live.blockAt(ancre.offset(0, 2, 0))
         if ((dessus1 && estSolide(dessus1)) || (dessus2 && estSolide(dessus2))) {
@@ -3098,10 +3311,10 @@ function createMissionRunner (host, injected = {}) {
         return { resultat: `pilier impossible : ${failure ?? 'aucun bloc pose'}`, echec: true }
       }
       return {
-        resultat: `pilier de ${poses}/${hauteur} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)` +
+        resultat: `pilier de ${poses}/${hauteurVisee} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)${recupere}` +
           (failure ? `, arret : ${failure}` : ', reobserver depuis le haut'),
-        echec: poses !== hauteur || Boolean(failure),
-        code: poses === hauteur && !failure ? 'pilier_pose' : 'pilier_partiel',
+        echec: poses !== hauteurVisee || Boolean(failure),
+        code: poses === hauteurVisee && !failure ? 'pilier_pose' : 'pilier_partiel',
         reobserver: true
       }
     },

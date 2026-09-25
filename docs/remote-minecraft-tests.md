@@ -52,10 +52,10 @@ Le vrai bot (`bot/index.js`, conteneur `bot` jetable) recoit par
 et la traite avec son vrai planificateur distant (OpenCode Go,
 `deepseek-v4.1-flash`). Il faut donc le secret GitHub `PLANNER_API_KEY`
 (Settings > Secrets and variables > Actions) ; sans lui, ces quatre tests
-echouent avec `PLANNER_API_KEY absent`. La cle n'est passee qu'aux conteneurs
-`tree-bot-1..4`. Les quatre niveaux tournent **en parallele** : un vrai bot
-par niveau (`TreeBot1..4`, `/data` neuf), chacun dans sa propre arene, a 100
-blocs des autres (au-dela du rayon de recherche de 32). L'inventaire est vide
+echouent avec `PLANNER_API_KEY absent`. La cle n'est passee qu'au conteneur
+`bots`. Les niveaux tournent **en parallele**, chacun dans sa propre arene, a
+100 blocs des autres (au-dela du rayon de recherche de 32), sur un groupe de
+vrais bots (`TreeBot1..16`, voir « Conteneurs et images » plus bas). L'inventaire est vide
 et le bot place par RCON au debut ; les bots n'ont jamais RCON, ni op, ni
 creative (verifie : `playerGameType` 0, `ops.json` vide).
 
@@ -75,12 +75,37 @@ creative (verifie : `playerGameType` 0, `ops.json` vide).
 | join/cliff-down | bot en haut d une falaise de 5 ; `TestProbe4` en bas | joueur rejoint, 0 degat (descente en creusant) |
 | join/cliff-up | `TestProbe5` en haut d une falaise de 4 ; bot en bas, inventaire vide | joueur rejoint, 0 degat |
 | join/closed-room | bot enferme dans une piece de terre murs + toit ; `TestProbe6` dehors | joueur rejoint, 0 degat |
+| join/shaft | bot au fond d un puits 1x1 de 6 ; `TestProbe7` en surface | joueur rejoint, 0 degat |
+| join/tall-cliff | `TestProbe8` en haut d une falaise de 8 (plus qu un pilier de 6) ; bot en bas, inventaire vide | joueur rejoint, 0 degat |
+| join/buried | bot enterre dans une cavite 1x2 sous 3 blocs de terre ; `TestProbe9` en surface | joueur rejoint, 0 degat |
+| join/water-gap | riviere d eau de 3 de large (1 de profondeur) sur toute l arene | joueur rejoint, 0 degat |
+| join/ravine-detour | ravin 3x6 entre le bot et `TestProbe10`, pont de terre 20 blocs plus loin | joueur rejoint, 0 degat |
 
 Tous les niveaux verifient aussi `aucun_degat` : le scoreboard serveur
 `minecraft.custom:minecraft.damage_taken` du bot doit rester a 0 (une chute
-de plus de trois blocs blesse). Les quatorze niveaux tournent en parallele
-(`TreeBot1..14`) ; les joueurs des niveaux `join/*` sont des sondes muettes
-(`probe-2..6`, `TestProbe2..6`), jamais op.
+de plus de trois blocs blesse). Tous les niveaux tournent en parallele sur un groupe fixe de 16 vrais bots
+(`TreeBot1..16`) : chaque bot enchaine sa file de niveaux (arene neuve a chaque
+fois, mission arretee et memoire videe entre deux). Chaque bot a sa sonde
+muette (`TestProbe2..17`, jamais op) qui joue le joueur des niveaux `join/*`
+et `chat/*`. Les tests unitaires tournent pendant le demarrage de Paper et les
+scenarios de navigation pendant les missions.
+
+### Types de mission du banc
+
+La boucle de travail ajoute et valide **un type de mission a la fois**, une
+dizaine de niveaux par type, de plus en plus difficiles ; le type suivant ne
+commence que quand le precedent est entierement vert.
+
+| Type | Niveaux | Etat |
+| --- | --- | --- |
+| rejoindre (« Rejoins moi ») | `join/*` : 10 | vert |
+| bois (« coupe moi un arbre ») | `trees/*`, `terrain/*` : 11 (tour 2 : `trees/tall`, `trees/double`, `terrain/moat`) | en validation |
+| chat (arbitrage, arret) | `chat/*` : 1 | a completer |
+| suivre (« suis moi ») | - | a venir |
+| ramasser (terre, herbe, sable) | - | a venir |
+| fabriquer (planches, etabli, hache) | - | a venir |
+| construire (maison de terre) | - | a venir |
+| parcours (allers-retours, aller sous un arbre) | - | a venir |
 
 Les blocs sont comptes par RCON (`clone ... filtered` vers une zone de
 comptage eloignee) toutes les 3 s ; la hauteur est echantillonnee chaque
@@ -113,6 +138,47 @@ installees via `npm ci`. Une modification de `bot/package.json` impose de
 mettre a jour ce verrou. Les images Docker et Paper sont selectionnes par
 version ; ce n'est pas une garantie de reproduction bit a bit de leurs builds.
 
+### Conteneurs et images (depuis le 24 septembre 2026)
+
+Une execution ne construit **qu'une image**, `minebot-ci:<projet>` (section
+`build:` du seul service `harness`) ; tous les autres services la reprennent
+(`pull_policy: never`). Cinq conteneurs au lieu de ~35 :
+
+| Service | Contenu |
+| --- | --- |
+| `minecraft` | Paper 26.1.2, `MAX_PLAYERS` 48, RCON sur port loopback |
+| `harness` | `TestProbe1` + scenarios de navigation (`ci/harness.js`) |
+| `bots` | `ci/multi-bot.js` : 16 processus `node index.js` (un par bot, `bot/index.js` etant un singleton), `TreeBotN` sur l'API `3000+N`, etat sous `/data/botN/`, tas V8 borne a `BOT_MAX_OLD_SPACE_MB` (256), `mem_limit` 6g |
+| `probes` | `ci/probes.js` : les 16 sondes muettes `TestProbe2..17` dans **un seul** processus (un registre minecraft-data partage au lieu de ~100 Mo par processus), `mem_limit` 768m |
+
+Tous les bots partagent l'IP du conteneur `bots` (et les sondes celle de
+`probes`) : le `connection-throttle` de Paper (4 s par IP) en refuserait la
+plupart. `ci/paper/bukkit.yml` (copie dans `/data` par `COPY_CONFIG_DEST`)
+le desactive, pour le banc seulement. Filets : les processus des bots
+demarrent a 1 s d'intervalle et `bot/index.js` se reconnecte seul (3 s) ;
+une sonde refusee **avant** son premier spawn retente sa connexion 4 fois
+(journalise), jamais apres.
+
+`multi-bot.js` prefixe chaque ligne par `[TreeBotN]` (`containers.log` reste
+lisible), transmet SIGTERM et ne relance **jamais** un bot mort : il le
+journalise, et le healthcheck (`node ci/multi-bot.js health` : tous vivants
+et `/api/status` `spawned=true` pour chacun) echoue. Une sonde deconnectee
+n'est pas reconnectee non plus. `ci/run.py` joint chaque bot par son port
+loopback (`127.0.0.1::3001..3016`, resolu par `docker compose port`), ou
+par `docker compose exec bots` sur le bon port en repli ; un port publie qui
+refuse la connexion (processus lie au 127.0.0.1 du conteneur) bascule sur ce
+repli. La preuve survie/ops porte toujours sur chaque pseudo.
+
+`report.json` contient `resourceSnapshot` : un `docker stats` des conteneurs
+du projet environ 60 s apres le debut des niveaux (CPU, memoire, PIDs), et
+`summary.md` son total, pour comparer l'empreinte d'une execution a l'autre.
+`MEMORY: 3G` de Paper n'a pas ete baisse faute de mesure.
+
+En fin d'execution, `docker compose down` puis `docker image rm
+minebot-ci:<projet>` (le `--rmi local` d'avant ignore les images nommees).
+Jamais de `prune`, jamais `itzg/minecraft-server` ni les sauvegardes
+`minecraft-bot-test-bot:*`.
+
 Les resultats sont ecrits dans `test-results/mc-ci-.../` : `report.json`,
 `summary.md`, journaux et traces physiques. `test-results/latest.json` est une
 copie pratique locale. Le code de sortie vaut 0 uniquement si tous les tests
@@ -120,17 +186,24 @@ selectionnes et le nettoyage reussissent. Hors depot Git, `sha` vaut `null` ;
 dans un checkout, le SHA et l'indicateur `dirty` evitent de presenter des
 modifications locales comme un commit valide.
 
-Le compose de production n'est jamais utilise. Aucun port n'est publie,
-aucune cle `.env` ni volume de production n'est monte. Les conteneurs de test
-et leurs volumes anonymes sont supprimes en fin d'execution. Les caches de
-construction Docker peuvent rester. Apres une interruption brutale :
+Le compose de production n'est jamais utilise. Les seuls ports publies le
+sont sur `127.0.0.1`, en port hote aleatoire (RCON jetable, API des bots,
+harness) ; aucune cle `.env` ni volume de production n'est monte. Les
+conteneurs de test, leurs volumes anonymes et l'image `minebot-ci:<projet>`
+sont supprimes en fin d'execution. Les caches de construction Docker peuvent
+rester. Apres une interruption brutale :
 
 ```powershell
 python ci/cleanup.py
 ```
 
-Ce nettoyage ne cible que les projets jetables enregistres dans les fichiers
-`test-results/mc-ci-*/active.json`. Ne pas effacer ces fichiers avant nettoyage.
+Ce nettoyage demonte d'abord les projets enregistres dans
+`test-results/mc-ci-*/active.json`, puis balaie les restes de **tout** projet
+`mc-ci-*` : conteneurs, reseaux et volumes portant le label compose d'un
+projet `mc-ci-*`, images `minebot-ci:*` et `mc-ci-*` (anciennes images par
+service), et images sans tag construites par un projet `mc-ci-*`. Il affiche
+chaque element supprime. Rien d'autre n'est touche. Ne pas le lancer pendant
+qu'un banc tourne sur le meme Docker : il le demonterait aussi.
 Un arret brutal du runner ou du PC peut empecher le `finally` et les etapes
 GitHub `always()` de tourner ; executer ce nettoyage avant de relancer le job.
 

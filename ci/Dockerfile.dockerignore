@@ -8,4 +8,6 @@
 !ci/
 !ci/Dockerfile
 !ci/harness.js
+!ci/multi-bot.js
+!ci/probes.js
 !ci/package-lock.json

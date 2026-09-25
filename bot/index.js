@@ -459,7 +459,8 @@ function buildMovements () {
   joinDigMovements.allow1by1towers = true
   joinDigMovements.allowParkour = false
   joinDigMovements.maxDropDown = 3
-  joinDigMovements.liquidCost = LIQUID_COST
+  // Le bot ne ressort pas de l eau en 26.1 : un pont de terre vaut mieux.
+  joinDigMovements.liquidCost = 200
   for (const block of Object.values(bot.registry.blocksByName)) {
     if (BUILT_BLOCK.test(block.name)) joinDigMovements.blocksCantBreak.add(block.id)
   }
