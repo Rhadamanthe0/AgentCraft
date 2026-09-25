@@ -837,12 +837,32 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
         return {'test': name, 'success': False, 'bot': username, 'error': str(error), 'timelineTail': timeline[-5:]}
 
 
+# Level durations (s) measured on a green run of main (c9b0bf6, run
+# 36105107224), used only to order the queue. A level missing here counts as
+# NEW_LEVEL_S (started early: unknown levels are often the long ones).
+EXPECTED_S = {
+    'trees/tall': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'terrain/plateau': 82,
+    'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
+    'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,
+    'chat/question-keeps-mission': 27, 'chat/stop-tree': 27, 'join/tall-cliff': 26, 'terrain/dirt-wall': 25,
+    'join/shaft': 23, 'join/pit': 21, 'trees/reachable': 21, 'trees/leaves': 20, 'join/ravine-detour': 20,
+    'join/buried': 19, 'join/cliff-up': 18, 'join/cliff-down': 11, 'join/leaf-pillar': 10, 'join/closed-room': 7,
+    # follow/*: run 36109916130 (712eb71).
+    'follow/corner': 26, 'follow/stop': 19, 'follow/stairs': 12, 'follow/straight': 11,
+}
+NEW_LEVEL_S = 90
+
+
 def run_levels(output, rcon, bot_api):
     all_levels = levels()
     results = [None] * len(all_levels)
     origins = arena_origins()
     rcon('scoreboard objectives add degats minecraft.custom:minecraft.damage_taken')
-    queue = list(range(len(all_levels)))
+    # Longest levels first (LPT): 27 levels on 16 workers, and the queue used
+    # to hand the long tour-2 levels (trees/tall, trees/double) to whoever
+    # finished a short join first, ~25 s after the start. Order only: every
+    # level still runs, with the same checks, and results keep levels() order.
+    queue = sorted(range(len(all_levels)), key=lambda i: -EXPECTED_S.get(all_levels[i]['name'], NEW_LEVEL_S))
     lock = threading.Lock()
 
     def reset(bot):

@@ -5,10 +5,15 @@
    volumes labelled with a compose project `mc-ci-*`, and the bench images
    (`minebot-ci:*`, and the per-service `mc-ci-*` images of older benches).
 
+The Paper server image `minebot-ci-paper:<hash of ci/paper/Dockerfile>` is
+kept between runs on purpose (Paper downloaded and patched once); only its
+tags for an older Dockerfile are removed.
+
 Nothing else is touched: no `prune`, never itzg/minecraft-server, never the
 owner's `minecraft-bot-test-bot:*` backups. Do not run it while a bench run is
 in progress on the same Docker engine: it would remove that run too.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,6 +23,15 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_LABEL = 'com.docker.compose.project'
 PROJECT = re.compile(r'mc-ci-[0-9a-f]{12}')
+
+
+PAPER_REPOSITORY = 'minebot-ci-paper'
+
+
+def paper_image():
+    """Stable tag of the bench's Paper image: changes only with its Dockerfile."""
+    digest = hashlib.sha256((ROOT / 'ci/paper/Dockerfile').read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+    return f'{PAPER_REPOSITORY}:{digest[:12]}'
 
 
 def docker(*argv, check=False, env=None):
@@ -82,8 +96,10 @@ def sweep(removed):
                if p and is_ci_project(p[0])]
     remove('volume', ['volume', 'rm'], volumes, removed)
     # Named bench images: minebot-ci:<project> and older mc-ci-<project>-<service>.
-    images = [ref for (ref,) in lines(docker('image', 'ls', '--format', '{{.Repository}}:{{.Tag}}'))
-              if is_ci_image(ref) and not ref.endswith(':<none>')]
+    refs = [ref for (ref,) in lines(docker('image', 'ls', '--format', '{{.Repository}}:{{.Tag}}'))]
+    images = [ref for ref in refs if is_ci_image(ref) and not ref.endswith(':<none>')]
+    # Paper images built from an older ci/paper/Dockerfile; the current one stays.
+    images += [ref for ref in refs if ref.rsplit(':', 1)[0] == PAPER_REPOSITORY and ref != paper_image()]
     # Untagged leftovers of those builds, identified by their compose project label.
     for (image_id,) in lines(docker('image', 'ls', '-q', '--no-trunc', '--filter', 'dangling=true', *label)):
         project = docker('image', 'inspect', '--format', '{{index .Config.Labels "' + PROJECT_LABEL + '"}}', image_id).stdout.strip()
