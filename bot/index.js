@@ -1706,6 +1706,14 @@ app.delete('/api/memory', (req, res) => {
   res.json({ ok: true, portee: result.portee, ...result.snapshot })
 })
 
+// Interrupteurs A/B du banc (mission.setFeatures) : {"solveur": false} coupe
+// un mode, {"reset": true} revient aux defauts. Aucun pouvoir en jeu.
+app.post('/api/features', (req, res) => {
+  const features = missionRunner.setFeatures(req.body ?? {})
+  console.log(`[features] ${JSON.stringify(features)}`)
+  res.json({ ok: true, features })
+})
+
 app.post('/api/control', requireBot, async (req, res) => {
   const control = String(req.body.control || '')
   const state = Boolean(req.body.state)
