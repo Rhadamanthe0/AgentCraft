@@ -297,6 +297,11 @@
   Second espace OpenCode Go du proprietaire : alias `modele@go2` (KEY_ALIASES,
   liste fermee) = gateway Go avec `OPENCODE_SECONDARY_API_KEY`, mis de cote a
   part de la cle principale. Tete de chaine : deepseek-v4.1-flash@go2.
+  Sonde des modeles (`ci/model-probe.js`, `report.modelProbe`) : a chaque banc,
+  3 plans + 3 messages de chat + 1 brief par candidat avec les vrais prompts
+  (latence mediane, reponses valides) ; un processus par modele. Chaine vide
+  (toutes les cles absentes) => erreur claire, jamais la liste brute envoyee
+  comme nom de modele (« Model x@go2 is not supported »).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

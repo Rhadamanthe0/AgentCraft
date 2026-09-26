@@ -368,7 +368,10 @@ async function callWithProfile (system, user, opts = {}) {
   // Chaine de modeles du .env (bot/model-chain.js). Un seul modele sans base
   // propre : chemin historique inchange (profil pilote, repli DeepSeek).
   const chain = modelChain.chainFor(task, process.env, MODEL)
-  if (chain.length <= 1 && !chain[0]?.baseUrl && (chain[0]?.model ?? MODEL) === MODEL) return callSingle(system, user, opts)
+  // Toutes les entrees ecartees (cle absente) : jamais la liste brute comme nom
+  // de modele (vu : « Model x@go2 is not supported »).
+  if (!chain.length) throw new Error(`aucun modele utilisable pour ${task} (cle absente ?)`)
+  if (chain.length === 1 && !chain[0].baseUrl && chain[0].model === MODEL) return callSingle(system, user, opts)
   let lastErr = null
   // Un delai depasse passe UNE fois au modele suivant, sans le mettre de cote
   // (vu sur build/big-box : space-bunny muet 30 s sur l ordre du joueur, bot

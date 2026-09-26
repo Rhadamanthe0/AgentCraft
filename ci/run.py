@@ -33,6 +33,7 @@ PROVIDER_MODEL_LISTS = {
     'groq': ('GROQ_API_KEY', 'https://api.groq.com/openai/v1/models'),
     'gemini': ('GEMINI_API_KEY', 'https://generativelanguage.googleapis.com/v1beta/openai/models'),
     'openrouter': ('OPENROUTER_API_KEY', 'https://openrouter.ai/api/v1/models'),
+    'go2': ('OPENCODE_SECONDARY_API_KEY', 'https://opencode.ai/zen/go/v1/models'),
 }
 
 
@@ -44,7 +45,8 @@ def provider_models():
             continue
         request = urllib.request.Request(url, headers={'Authorization': f'Bearer {key}',
                                                           # Groq's edge answers 403 to Python-urllib.
-                                                          'User-Agent': 'minecraft-bot/1.0'})
+                                                          'User-Agent': 'minecraft-bot/1.0',
+                                                          'x-opencode-session': 'minebot-ci-models'})
         try:
             with urllib.request.urlopen(request, timeout=8) as response:
                 data = json.load(response).get('data', [])
@@ -322,6 +324,25 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             unit_results.append({'test': 'unit/navigation-regression', 'success': result.returncode == 0})
             phase('unit', unit_started)
 
+        # Candidate planner models (ci/model-probe.js): latency and validity of
+        # plans, chat and brief with the real prompts, next to the levels.
+        probe_results = []
+
+        def run_model_probe():
+            started = time.monotonic()
+            result = compose('run', '--rm', '--no-deps', BOTS_SERVICE, 'node', '/work/ci/model-probe.js',
+                             timeout=300, check=False)
+            try:
+                probe_results.extend(json.loads(result.stdout.strip().splitlines()[-1]))
+            except (ValueError, IndexError):
+                probe_results.append({'error': (result.stderr or result.stdout)[-500:]})
+            phase('modelProbe', started)
+
+        probe_thread = None
+        if args.suite in ('trees', 'all') and os.environ.get('PLANNER_API_KEY'):
+            probe_thread = threading.Thread(target=run_model_probe, daemon=True)
+            probe_thread.start()
+
         unit_thread = None
         if args.suite in ('unit', 'all'):
             print('Running focused offline regression tests (in parallel)...', flush=True)
@@ -489,6 +510,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         for thread in (unit_thread, nav_thread):
             if thread:
                 thread.join()
+        if probe_thread:
+            probe_thread.join(timeout=320)
+            report['modelProbe'] = probe_results
         report['tests'].extend(unit_results + nav_results + level_results)
     except (Exception, KeyboardInterrupt) as error:
         report['errors'].append(str(error) or 'Interrupted')

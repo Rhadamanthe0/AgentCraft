@@ -174,3 +174,11 @@ test('alias go2 : gateway Go avec la cle secondaire, jamais la principale', asyn
   } finally { delete process.env.OPENCODE_SECONDARY_API_KEY }
   assert.deepEqual(seen, [['d', 'https://opencode.ai/zen/go/v1', 'k-test'], ['d', 'https://opencode.ai/zen/go/v1', 'k2']])
 })
+
+test('chaine vide (cles absentes) : erreur claire, jamais la liste brute envoyee', async () => {
+  const seen = []
+  llm.call = async (s, u, o) => { seen.push(o.model); return { content: plan, usage: null, ms: 1 } }
+  const p = load({ PLANNER_MODEL: 'd@go2' })
+  await assert.rejects(p.plan({}, 'recolte', 'harvest'))
+  assert.deepEqual(seen, [])
+})
