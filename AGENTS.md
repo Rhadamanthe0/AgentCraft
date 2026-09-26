@@ -341,6 +341,10 @@
   DeepSeek V4.1 Flash reste pour actions et chat. Appels HTTP du banc aux
   bots a 150 s (`HTTP_TIMEOUT_S`) : /api/instruction attend la lecture
   d objectif muse (60 s + rejeu si tronquee) ; 45 s perdait craft/sticks.
+  Fabrication : un manque de bois se dit par famille (« buche (toute
+  essence) ») avec le stock reel en poche (craft/axe : « cherry_log x1 »,
+  cerisier cherche 150 s). Chat : un ordre a cible vague (« Va sous l arbre »)
+  est new, jamais une question de precision (route/under-tree, bot muet).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
