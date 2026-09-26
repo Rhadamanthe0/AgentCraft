@@ -1356,6 +1356,8 @@ avec la consigne COMPLETE de la maison et ses autres exigences conservees.
 Une phrase a l imperatif qui demande d agir (va, viens, coupe, construis, ramasse,
 suis, fabrique, rapporte...) est un ordre : new (ou amend), jamais question, meme
 courte et sans politesse. question exige une interrogation ou une simple remarque.
+Un ordre a cible vague (« va sous l arbre », « coupe un arbre », « va a la maison »)
+reste new : le bot prendra la cible la plus proche, ne demande pas laquelle.
 question = question sur l etat ou conversation : response breve et factuelle a
 partir de etat et mission, sans interrompre la mission. Si aucun objectif n est
 actif, reponds aussi aux salutations. Ne pretends jamais avoir accompli une action.
