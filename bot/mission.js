@@ -1411,9 +1411,23 @@ function createMissionRunner (host, injected = {}) {
     const filtreSecteur = Number.isFinite(yaw)
     const demiAngle = Number.isFinite(opts.demiAngle) ? opts.demiAngle : Math.PI / 4
 
+    // Seulement un bloc qu un joueur verrait : au moins une face a l air
+    // libre (feuilles, plantes et liquides laissent voir). La pierre enfouie
+    // sous le sol etait visee pour avancer (« rejoint a portee ») puis
+    // introuvable pour casser, en boucle (vu : craft/stone-pickaxe, 90 etapes,
+    // les 32 plus proches etant toutes sous le sol de l arene).
+    const see = pos => {
+      const b = bot.blockAt(pos)
+      return !b || b.boundingBox !== 'block' || /_leaves$|glass/.test(b.name)
+    }
+    const exposed = pos => [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
+      .some(([x, y, z]) => see(pos.offset(x, y, z)))
     let positions
     try {
-      positions = bot.findBlocks({ matching: ids, maxDistance: SEARCH_RADIUS, count: 32 })
+      // Plus large que les 32 plus proches, puis filtre : sous une arene ou
+      // un sol de pierre, les plus proches sont toutes enfouies.
+      positions = bot.findBlocks({ matching: ids, maxDistance: SEARCH_RADIUS, count: 256 })
+        .filter(exposed).slice(0, 32)
     } catch (err) {
       return null
     }
