@@ -1391,6 +1391,23 @@ function createMissionRunner (host, injected = {}) {
     return cleared
   }
 
+  // Cibles sans chemin (avancer en no_path, meme en creusant) : mises de cote
+  // INJOIGNABLE_MS pour que la recherche suivante en vise une autre. Vu sur
+  // craft/stone-pickaxe : la pierre la plus proche etait la face du dessous
+  // d une couche sous le sol (a l air libre par en dessous) ; trois avancer de
+  // suite visaient ce meme bloc et le bot finissait dans un trou.
+  const injoignables = new Map()
+  const INJOIGNABLE_MS = 180000
+  const posKey = p => `${p.x},${p.y},${p.z}`
+  function injoignable (pos) {
+    const until = injoignables.get(posKey(pos))
+    return Boolean(until && until > Date.now() && injoignables.missionId === mission?.id)
+  }
+  function marquerInjoignable (pos) {
+    if (injoignables.missionId !== mission?.id) { injoignables.clear(); injoignables.missionId = mission?.id }
+    injoignables.set(posKey(pos), Date.now() + INJOIGNABLE_MS)
+  }
+
   function findTargetBlock (resource, opts = {}) {
     // Surcharge toleree : findTargetBlock({ yaw }) vaut secteur sur la matiere
     // courante. Rien d autre n utilise cette forme aujourd hui.
@@ -1420,8 +1437,12 @@ function createMissionRunner (host, injected = {}) {
       const b = bot.blockAt(pos)
       return !b || b.boundingBox !== 'block' || /_leaves$|glass/.test(b.name)
     }
+    // La face du dessous ne se voit que d en dessous : sous les pieds du bot,
+    // elle ne compte pas (vu sur craft/stone-pickaxe : dessous de la couche de
+    // pierre sous l arene, a l air libre, vise puis creuse vers le bas).
+    const feetLevel = Math.floor(bot.entity.position.y)
     const exposed = pos => [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
-      .some(([x, y, z]) => see(pos.offset(x, y, z)))
+      .some(([x, y, z]) => !(y === -1 && pos.y < feetLevel) && see(pos.offset(x, y, z)))
     let positions
     try {
       // Filtre PENDANT la recherche : sous une arene ou un sol de pierre, des
@@ -1454,6 +1475,7 @@ function createMissionRunner (host, injected = {}) {
 
     const candidates = []
     for (const position of positions) {
+      if (injoignable(position)) continue
       if (emprise && position.x >= emprise.x0 && position.x <= emprise.x1 &&
         position.z >= emprise.z0 && position.z <= emprise.z1) continue
       if (!anyHeight && position.y < feetY - MAX_DIG_DEPTH) continue
@@ -3394,6 +3416,10 @@ function createMissionRunner (host, injected = {}) {
           degage += ` (${climbed})`
           result = await approach()
         }
+      }
+      if (!result.reached && ['no_path', 'dug_out_of_reach'].includes(result.code) && cible?.position) {
+        marquerInjoignable(cible.position)
+        degage += ' ; ce bloc est mis de cote, le prochain avancer en visera un autre'
       }
       return {
         resultat: (result.reached

@@ -305,6 +305,10 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   jetons de sortie (space-bunny tronquait 7 % des plans a 2000).
   Delai CI ramene a 20 s (p95 14,6 s, p99 18,1 s sur 288ce66) : un appel
   muet est re-essaye, et 30 + 30 s depassaient les 60 s sans progres.
+  Cible de matiere : la face du DESSOUS ne compte pas comme visible sous les
+  pieds du bot, et une cible en `no_path`/`dug_out_of_reach` est mise de cote
+  3 min (craft/stone-pickaxe, craft/furnace : dessous de la couche de pierre
+  sous l arene vise trois fois, bot creusant vers le bas, puits).
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
   Effort de raisonnement par usage (`PLANNER_REASONING_EFFORT[_PLAN|_BRIEF|
