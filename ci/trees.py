@@ -1401,7 +1401,10 @@ def run_levels(output, rcon, bot_api):
             if level.get('features'):
                 bot_api(bot, '/api/features', level['features'])
             calls_before = planner_calls(bot)
-            result = run_level(level, origins[index], bot, username, output, rcon, bot_api, probe)
+            try:
+                result = run_level(level, origins[index], bot, username, output, rcon, bot_api, probe)
+            except Exception as error:  # a crash is this level's failure, not the run's
+                result = {'test': level['name'], 'success': False, 'bot': username, 'error': f'runner: {error!r}'}
             result['type'] = mission_type(level['name'])
             calls_after = planner_calls(bot)
             if calls_before is not None and calls_after is not None:
@@ -1410,6 +1413,7 @@ def run_levels(output, rcon, bot_api):
                 result['features'] = level['features']
             if level.get('informative'):
                 result['informative'] = True
+            if level.get('variantOf'):
                 result['variantOf'] = level['variantOf']
             results[index] = result
             print(f'{level["name"]} finished in {result.get("elapsedS")} s', flush=True)

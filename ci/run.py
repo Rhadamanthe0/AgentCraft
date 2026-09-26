@@ -478,6 +478,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         for thread in (unit_thread, nav_thread):
             if thread:
                 thread.join()
+        # A level whose worker died leaves None: report it, never crash the summary.
+        level_results = [r if r else {'test': 'niveau sans resultat', 'success': False, 'error': 'worker mort'}
+                         for r in level_results]
         report['tests'].extend(unit_results + nav_results + level_results)
     except (Exception, KeyboardInterrupt) as error:
         report['errors'].append(str(error) or 'Interrupted')
