@@ -335,6 +335,12 @@
   PLANNER_KEY_COOLDOWN_MS (10 min). Jamais sur delai/5xx, jamais un autre
   modele. L alias `modele@go2` est retire. Banc : primary d abord (quota
   hebdo epuise) pour valider le repli, puis secondary.
+  Repli valide sur 6cea0f6 (32/32 bots passes a secondary sur 429
+  GoUsageLimitError, 64/65) : banc en secondary d abord. GLM-5.3 Flash
+  ecarte (60/65 en `medium`, 58/65 en `low`, ~3x plus rapide que DeepSeek) :
+  DeepSeek V4.1 Flash reste pour actions et chat. Appels HTTP du banc aux
+  bots a 150 s (`HTTP_TIMEOUT_S`) : /api/instruction attend la lecture
+  d objectif muse (60 s + rejeu si tronquee) ; 45 s perdait craft/sticks.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

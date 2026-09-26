@@ -20,6 +20,9 @@ from cleanup import paper_image
 from trees import BOTS_SERVICE, PROBES_SERVICE, arena_origins, bot_services, levels, probe_names, run_levels
 
 ROOT = Path(__file__).resolve().parents[1]
+# Delai des appels HTTP aux bots : /api/instruction attend la lecture de
+# l objectif (PLANNER_TIMEOUT_MS_BRIEF, 60 s, rejouee une fois si tronquee).
+HTTP_TIMEOUT_S = 150
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
         'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js',
         'model-chain.test.js', 'fabrication-utile.test.js', 'conversation.test.js']
@@ -197,7 +200,9 @@ def main():
                                          method=method or ('GET' if body is None else 'POST'),
                                          headers={'content-type': 'application/json'})
         try:
-            with urllib.request.urlopen(request, timeout=45) as response:
+            # 150 s : /api/instruction attend la lecture de l objectif (muse,
+            # 60 s, rejouee une fois si tronquee) ; 45 s coupait craft/sticks.
+            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_S) as response:
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as error:
             raise RuntimeError(f'{service}:{port}{route}: HTTP {error.code} {error.read().decode("utf-8", "replace")[:300]}')
@@ -221,7 +226,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
 .catch(e=>{console.error(e.message);process.exitCode=1})"""
         return json.loads(compose('exec', '-T', service, 'node', '-e', script, str(port),
                                   route, method or ('GET' if body is None else 'POST'),
-                                  *([] if body is None else [json.dumps(body)]), timeout=45).stdout)
+                                  *([] if body is None else [json.dumps(body)]), timeout=HTTP_TIMEOUT_S).stdout)
 
     def api(route, body=None):
         return http('harness', 3101, route, body)
@@ -481,7 +486,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     stats[username] = {k: p.get(k) for k in ('appels', 'etapes_servies', 'echecs', 'moyenne_ms',
                                                               'jetons_total', 'jetons_en_cache_total',
                                                               'jetons_sortie_total', 'jetons_raisonnement_total',
-                                                              'modele_servi')}
+                                                              'modele_servi', 'cle_servie', 'bascules_cle')}
                 report['plannerStats'] = stats
                 calls = sum(v.get('appels') or 0 for v in stats.values())
                 prompt = sum(v.get('jetons_total') or 0 for v in stats.values())
@@ -494,6 +499,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     'jetons_sortie': sum(v.get('jetons_sortie_total') or 0 for v in stats.values()),
                     # Modeles par usage (ci/models.env) : dernier modele servi par bot.
                     'modeles_servis': sorted({v['modele_servi'] for v in stats.values() if v.get('modele_servi')}),
+                    # Repli de cle (PLANNER_KEY_FIRST) : cle du dernier appel servi, bascules.
+                    'cles_servies': sorted({v['cle_servie'] for v in stats.values() if v.get('cle_servie')}),
+                    'bascules_cle': sum(v.get('bascules_cle') or 0 for v in stats.values()),
                 }
             else:
                 level_results = [{'test': level, 'success': False,
