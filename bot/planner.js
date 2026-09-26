@@ -119,6 +119,19 @@ const IS_OLLAMA = /:11434|ollama/i.test(BASE_URL)
 // serait perdu a chaque relance).
 const IS_ZEN = /opencode\.ai\/zen/i.test(BASE_URL)
 const SESSION_ID = process.env.PLANNER_SESSION_ID || `minecraft-bot-${process.env.BOT_USERNAME || 'bot'}`
+// Reaiguillage de session : Zen route chaque session vers un fournisseur ; un
+// fournisseur qui refuse tout (400 « Upstream request failed: Invalid request
+// parameters », meme sans le champ thinking) laissait un bot muet toute la
+// run (vu : TreeBot11, trois niveaux perdus). On change alors de session (le
+// cache de prompt repart de zero pour ce bot), trois fois au plus.
+const SESSION_REROUTE_MAX = 3
+let sessionReroutes = 0
+function currentSession () {
+  return sessionReroutes ? `${SESSION_ID}-r${sessionReroutes}` : SESSION_ID
+}
+function isUpstreamRefusal (err) {
+  return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(String(err?.message ?? ''))
+}
 const USER_AGENT = process.env.PLANNER_USER_AGENT || 'minecraft-bot/1.0'
 const DEBUG = process.env.PLANNER_DEBUG === '1'
 
@@ -233,7 +246,7 @@ function profileStatus (now = Date.now()) {
   if (routing.isDual()) return {
     enabled: true, configured: 'dual', effective: effectiveModel(), pilot: routing.STRATEGY,
     fallback: null, fallbackActive: false, reason: null, replis: 0,
-    baseConfigured: Boolean(BASE_URL), sessionStable: Boolean(SESSION_ID), session: SESSION_ID,
+    baseConfigured: Boolean(BASE_URL), sessionStable: Boolean(SESSION_ID), session: currentSession(),
     routing: routing.status()
   }
   return {
@@ -249,7 +262,7 @@ function profileStatus (now = Date.now()) {
     baseConfigured: Boolean(BASE_URL),
     isGo: IS_ZEN,
     sessionStable: Boolean(SESSION_ID),
-    session: SESSION_ID,
+    session: currentSession(),
     maxTokens: EFFECTIVE_MAX_TOKENS,
     maxTokensOk: EFFECTIVE_MAX_TOKENS >= 2000,
     // Budgets distincts (D37) : pilote 4096 + reessai 8192, DeepSeek 2000.
@@ -342,8 +355,8 @@ async function callWithProfile (system, user, { image = null, signal = null, max
   }
   const target0 = effectiveModel()
   const proto0 = target0 === PILOT_MODEL ? 'responses' : 'chat'
-  const headers = IS_ZEN
-    ? { 'user-agent': USER_AGENT, 'x-opencode-session': SESSION_ID }
+  const zenHeaders = () => IS_ZEN
+    ? { 'user-agent': USER_AGENT, 'x-opencode-session': currentSession() }
     : null
   // Budget de la premiere tentative pilote : le DISTINCT pilote (4096), jamais
   // sous le plancher 2000. Le repli garde le budget demande (DeepSeek 2000).
@@ -351,6 +364,7 @@ async function callWithProfile (system, user, { image = null, signal = null, max
     ? Math.max(Number.isFinite(maxTokens) ? maxTokens : PILOT_EFFECTIVE_MAX_TOKENS, PILOT_EFFECTIVE_MAX_TOKENS)
     : maxTokens
   async function doCall (model, proto, budget) {
+    const headers = zenHeaders()
     stats.tentatives += 1
     syncProfileStats()
     const thinking = proto === 'chat' && THINKING === 'disabled' ? { type: 'disabled' } : null
@@ -408,7 +422,17 @@ async function callWithProfile (system, user, { image = null, signal = null, max
     return { ...res, model }
   }
   try {
-    const res = await doCall(target0, proto0, pilotFirst)
+    let res
+    try {
+      res = await doCall(target0, proto0, pilotFirst)
+    } catch (err) {
+      if (!isUpstreamRefusal(err) || sessionReroutes >= SESSION_REROUTE_MAX || signal?.aborted) throw err
+      const old = currentSession()
+      sessionReroutes += 1
+      stats.reaiguillages = sessionReroutes
+      console.log(`[planner] session ${old} refusee par le fournisseur (400 upstream) : nouvelle session ${currentSession()}`)
+      res = await doCall(target0, proto0, pilotFirst)
+    }
     return markSuccess(res, target0)
   } catch (err) {
     // UN reessai pilote sur troncature, avant tout repli : meme delai strict,

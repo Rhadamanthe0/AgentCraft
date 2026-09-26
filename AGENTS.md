@@ -229,6 +229,11 @@
 - `interpretMessage` : relation new/amend avec objectif vide (vu : « Rejoins
   moi », join/pit) => le message du joueur sert d objectif, au lieu de
   « objectif de chat vide » et d un bot muet.
+- Reaiguillage de session (`planner.callWithProfile`) : un 400 « Upstream
+  request failed » qui persiste (meme apres le rejeu sans thinking) change
+  l en-tete `x-opencode-session` en `<session>-rN` (3 fois au plus) et rejoue
+  l appel : Zen aiguille par session, un fournisseur casse laissait un bot
+  muet toute la run (vu : TreeBot11, trois niveaux perdus sur 0eb221b).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
