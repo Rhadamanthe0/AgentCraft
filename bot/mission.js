@@ -1077,7 +1077,7 @@ function createMissionRunner (host, injected = {}) {
     const bot = host.getBot()
     const stock = (bot?.inventory?.items() ?? []).filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
     const dimensionsImposees = /trois/.test(dims.source)
-    for (let essai = 0; essai < 2 && planner.isEnabled?.() !== false; essai++) {
+    for (let essai = 0; essai < 3 && planner.isEnabled?.() !== false; essai++) {
       let bp = null
       try {
         bp = await planner.designBlueprint({
@@ -1114,6 +1114,21 @@ function createMissionRunner (host, injected = {}) {
       console.log(`[mission] plan libre refuse : ${erreurs.join(' ; ')}`)
     }
     mission.shape = erreurs.length ? { note: `plan libre refuse (${erreurs[0]}), boite a la place` } : {}
+    // La boite de repli tient dans le stock quand le joueur n a pas impose
+    // les trois dimensions : hauteur puis largeur/profondeur reduites (>= 3).
+    if (stock > 0 && !dimensionsImposees) {
+      const box = { ...mission.dimensions }
+      const count = d => build.planHouse({ origin: new Vec3(0, 0, 0), ...d }).blocks.length
+      while (count(box) > stock && (box.height > 3 || box.width > 3 || box.depth > 3)) {
+        if (box.height > 3) box.height -= 1
+        else if (box.width >= box.depth && box.width > 3) box.width -= 1
+        else box.depth -= 1
+      }
+      if (box.height !== mission.dimensions.height || box.width !== mission.dimensions.width || box.depth !== mission.dimensions.depth) {
+        mission.shape.box = box
+        mission.shape.note = `${mission.shape.note ?? 'boite'} reduite a ${box.width}x${box.depth}x${box.height} pour tenir dans ${stock} blocs`
+      }
+    }
     return mission.shape
   }
 
@@ -2248,7 +2263,12 @@ function createMissionRunner (host, injected = {}) {
         matiere: mission.resource,
         repere: mission.landmark,
         porte_demandee: mission.wantsDoor,
-        dimensions: `${dims.width} x ${dims.depth} x ${dims.height}`,
+        // Le chantier choisi fait foi (plan libre ou boite reduite au stock) :
+        // la phrase lue en cube annoncait 20 blocs pour une arche de 11 (vu :
+        // arche complete, modele en boucle 300 s sur « il manque des blocs »).
+        dimensions: mission.plan
+          ? `${mission.plan.width} x ${mission.plan.depth} x ${mission.plan.height} (chantier choisi, ${mission.plan.blocks.length} blocs)`
+          : `${dims.width} x ${dims.depth} x ${dims.height}`,
         fabrication_cible: mission.fabricationCible ?? null,
         fabrication_quantite: mission.fabricationCible ? (mission.fabricationQuantite ?? 1) : null
       },
@@ -3639,7 +3659,7 @@ function createMissionRunner (host, injected = {}) {
       const forme = await designShape()
       const volume = forme.compiled
         ? { width: forme.compiled.width, depth: forme.compiled.depth, height: forme.compiled.height }
-        : { width: dims.width, depth: dims.depth, height: dims.height }
+        : (forme.box ?? { width: dims.width, depth: dims.depth, height: dims.height })
       const site = build.findSite(bot, { near, ...volume })
 
       if (!site) {
@@ -4948,6 +4968,17 @@ function createMissionRunner (host, injected = {}) {
       // demandeur (s il est en jeu), puis clore ; un echec de trajet laisse la
       // boucle continuer (pendingJoin). Vu sur chat/tree-then-bring : mission
       // close au pied de l arbre, bois jamais rapporte.
+      // Chantier complet (mesure par le code, porte comprise si demandee) :
+      // clore, comme l arbre entier ou la quantite explicite. Le modele ne
+      // compte pas les blocs (vu : arche 11/11, 74 appels jusqu au plafond).
+      if (mission.kind === 'construction' && mission.plan) {
+        const chantier = buildProgress()
+        if (chantier.total > 0 && chantier.left === 0 && (!mission.wantsDoor || doorPlaced())) {
+          finish('done', `chantier complet (${chantier.done}/${chantier.total} blocs${mission.wantsDoor ? ', porte posee' : ''})`)
+          return
+        }
+      }
+
       if (mission.wholeTree && treeStatus()?.termine) {
         // La demande vient de l objectif (revision) ou d une precision
         // ajoutee en cours de route (vu : « et rapporte moi le bois » classe

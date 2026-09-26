@@ -272,6 +272,12 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   plan plus grand que le stock est refuse (vu : cabane 93 blocs pour 64
   planches, cap de 300 s). Une seule dimension lue (« 6 de haut ») n est plus
   passee comme un cube (vu : tour 6x6x6 de 152 blocs pour 64 de terre).
+  Chantier complet mesure (blocs + porte si demandee) => mission close par le
+  code, et `consigne.dimensions` donne le chantier choisi (vu : arche 11/11,
+  le modele en attendait 20 et tournait 300 s). Trois essais de plan libre ;
+  la boite de repli est reduite au stock (5x5x5 -> 5x5x3 pour 64 planches).
+  Limite connue : une tour de 6 ne se finit pas, le bot n atteint pas la
+  6e couche depuis le sol (poste de tir au sol seulement).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
