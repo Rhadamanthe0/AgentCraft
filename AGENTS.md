@@ -436,6 +436,11 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   `craft/stone-pickaxe`, `craft/torches`, `craft/furnace` (inventaire vide)
   et `craft/iron-pickaxe` (informatif : cuisson impossible, fin honnete
   attendue), chacun joue aussi `~sans-solveur` (interrupteur `solveur`).
+  Cibles en francais (`skills.normalizeFabricationTarget`) : « pioche en
+  pierre » -> stone_pickaxe (outil + matiere), four -> furnace, torche ->
+  torch..., pluriels ramenes au singulier du registre. Vu en CI (5b6f7f9) :
+  sans elles, pas de cible de fabrication, solveur jamais actif, bot visant
+  la pierre enfouie sous l arene (« aucun bloc cible sain a casser » x90).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

@@ -80,3 +80,17 @@ test('resume : prochaine etape et totaux a recolter', () => {
   assert.ok(s.a_recolter.some(l => /3 cobblestone .*outil wooden_pickaxe/.test(l)))
   assert.equal(s.a_fabriquer_dans_l_ordre.at(-1), 'stone_pickaxe')
 })
+
+test('cibles de fabrication en francais : outil a matiere, objets courants, pluriels', () => {
+  const { normalizeFabricationTarget } = skills
+  assert.equal(normalizeFabricationTarget('pioche en pierre'), 'stone_pickaxe')
+  assert.equal(normalizeFabricationTarget('hache en bois'), 'wooden_axe')
+  assert.equal(normalizeFabricationTarget('épée en diamant'), 'diamond_sword')
+  assert.equal(normalizeFabricationTarget('une pioche'), 'pioche')
+  assert.equal(normalizeFabricationTarget('un four'), 'furnace')
+  assert.equal(normalizeFabricationTarget('torches'), 'torch')
+  assert.equal(normalizeFabricationTarget('planches'), 'planches')
+  const { resolveFabricationCible } = require('../bot/mission')
+  assert.equal(resolveFabricationCible({ registry: md }, 'torches'), 'torch')
+  assert.equal(resolveFabricationCible({ registry: md }, 'furnaces'), 'furnace')
+})

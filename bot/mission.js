@@ -281,6 +281,12 @@ function resolveFabricationCible (bot, raw) {
   if (craft.TARGETS[norm]) return norm
   const itemsByName = bot?.registry?.itemsByName
   if (itemsByName && itemsByName[norm]) return norm
+  // Pluriel du modele (« torches », « furnaces ») : le singulier du registre.
+  const single = norm.replace(/(?<=[a-z])e?s$/, '')
+  if (itemsByName && single !== norm) {
+    if (itemsByName[norm.slice(0, -1)]) return norm.slice(0, -1)
+    if (itemsByName[single]) return single
+  }
   // Sans registre (jamais en prod), le format suffit : le make tranchera
   // (unknown/missing honnetes). En prod le registre existe toujours.
   if (!itemsByName && /^[a-z0-9_]+$/.test(norm)) return norm
