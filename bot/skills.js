@@ -946,8 +946,18 @@ const FABRICATION_ALIASES = {
 }
 
 function normalizeFabricationTarget (input) {
+  // Accents, articles et espaces pliés : le brief rend « établi », « une
+  // hache en bois » (vu sur craft/table : « établi » inconnu, aucune cible,
+  // batons fabriques et planches perdues).
   const key = String(input ?? '').trim().toLowerCase().replace(/^minecraft:/, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/^(?:(?:une?|des|les?|la)\s+|l['’]\s*)/, '').replace(/\s+/g, ' ').trim()
   if (!key) return null
+  const outil = /^(hache|pioche|pelle)s? en (bois|pierre|fer)$/.exec(key)
+  if (outil) {
+    const matiere = { bois: 'wooden', pierre: 'stone', fer: 'iron' }[outil[2]]
+    return `${matiere}_${{ hache: 'axe', pioche: 'pickaxe', pelle: 'shovel' }[outil[1]]}`
+  }
   if (Object.prototype.hasOwnProperty.call(FABRICATION_ALIASES, key)) {
     return FABRICATION_ALIASES[key]
   }

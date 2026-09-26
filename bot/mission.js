@@ -206,8 +206,28 @@ function fabTargetName (raw) {
 // Une fabrication sert-elle la cible du brief ? La cible elle-meme (ou un
 // objet de sa famille : wooden_axe pour « hache »), ou un intermediaire commun.
 const FAMILLES_FAB = { hache: /_axe$/, pioche: /_pickaxe$/, pelle: /_shovel$/, porte: /_door$/, planches: /_planks$/, batons: /^stick$/, etabli: /^crafting_table$/ }
-function fabricationUtile (target, cible) {
+// Objet representatif d une cible francaise, pour lire ses recettes.
+const CIBLE_ITEM = {
+  etabli: 'crafting_table', planches: 'oak_planks', batons: 'stick', porte: 'oak_door',
+  hache: 'wooden_axe', pioche: 'wooden_pickaxe', pelle: 'wooden_shovel'
+}
+
+// Des batons entrent-ils dans une recette de la cible ? Vu sur craft/table :
+// 1 buche, 4 planches, puis 2 batons (2 planches perdues) et plus assez pour
+// l etabli. Sans registre (tests purs), on garde l ancienne tolerance.
+function cibleUtiliseBatons (registry, cible) {
+  const name = CIBLE_ITEM[cible] ?? cible
+  const item = registry?.itemsByName?.[name]
+  const stick = registry?.itemsByName?.stick
+  if (!item || !stick || !registry.recipes) return true
+  const ids = recipe => [...(recipe.ingredients ?? []), ...(recipe.inShape ?? []).flat()]
+    .map(i => (i && typeof i === 'object' ? i.id : i))
+  return (registry.recipes[item.id] ?? []).some(r => ids(r).includes(stick.id))
+}
+
+function fabricationUtile (target, cible, registry = null) {
   if (!target || !cible || target === cible) return true
+  if (/^(batons|stick)$/.test(target) && !cibleUtiliseBatons(registry, cible)) return false
   if (['planches', 'batons', 'etabli'].includes(target) || /_planks$|^stick$|^crafting_table$/.test(target)) return true
   const famille = FAMILLES_FAB[cible]
   if (famille && famille.test(target)) return true
@@ -3061,7 +3081,7 @@ function createMissionRunner (host, injected = {}) {
       // Cible de fabrication fixee : seuls la cible et ses intermediaires
       // (planches, batons, etabli) sont utiles. Vu sur craft/axe : une pioche
       // fabriquee a la place de la hache, planches et batons consommes.
-      if (mission.fabricationCible && !fabricationUtile(target, mission.fabricationCible)) {
+      if (mission.fabricationCible && !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
         return {
           resultat: `${target} n est pas utile pour ${mission.fabricationCible} : fabrique ${mission.fabricationCible} ` +
             'ou ses ingredients (planches, batons, etabli), rien d autre',
@@ -3321,8 +3341,9 @@ function createMissionRunner (host, injected = {}) {
       // avec de la terre prise dans le relief lui-meme, puis rejoindre a pied.
       // L escalier creuse par le pathfinder ne laissait pas la place de la tete
       // (sauts sur place mesures) ; le pilier maison est prouve.
+      let climbed = null
       if ((result.code === 'no_path' || result.code === 'needs_height') && mission.kind === 'recolte' && !mission.cancelled) {
-        const climbed = await climbToward(cible)
+        climbed = await climbToward(cible)
         if (climbed) {
           degage += ` (${climbed})`
           result = await approach()
@@ -3356,10 +3377,39 @@ function createMissionRunner (host, injected = {}) {
           degage += ` (chemin creuse sur ${dug.travelled} bloc(s))`
           result = await approach()
           if (!result.reached && result.code !== 'advanced') {
-            result = { reached: true, travelled: dug.travelled, code: 'dug' }
+            // `digToward` s arrete a 4 blocs du centre, parfois derriere un mur
+            // (sable enferme dans la terre) : « rejoint a portee » etait alors
+            // faux, et le modele relancait `avancer` sans fin (vu : 15 fois,
+            // 0 bloc). Portee verifiee comme dans l etat ; sinon on creuse
+            // jusqu a toucher la cible, et l echec reste un echec.
+            const centre = cible.position.offset(0.5, 0.5, 0.5)
+            const inReach = () => {
+              const live = host.getBot()
+              return Boolean(live?.entity && blockInReach(live, live.entity.position, centre, REACH))
+            }
+            let travelled = dug.travelled
+            if (!inReach() && !mission.cancelled) {
+              const closer = await host.digToward(centre, { signal: mission.navigationAbort.signal, range: 1 })
+              if (closer.travelled) travelled += closer.travelled
+            }
+            result = inReach()
+              ? { reached: true, travelled, code: 'dug' }
+              : { reached: false, travelled, code: 'dug_out_of_reach' }
           }
         } else {
           degage += ` (chemin creuse impossible : ${dug.code})`
+        }
+      }
+      // Le trajet qui creuse a pu rapprocher le bot du relief sans l y faire
+      // monter : on retente la montee une fois, depuis le pied de la falaise
+      // (vu sur terrain/plateau : premier avancer en no_path, et seul un
+      // modele qui relancait avancer de lui-meme finissait l arbre).
+      if (!climbed && !result.reached && result.code !== 'advanced' && !noye &&
+        mission.kind === 'recolte' && !mission.cancelled) {
+        climbed = await climbToward(cible)
+        if (climbed) {
+          degage += ` (${climbed})`
+          result = await approach()
         }
       }
       return {
@@ -3400,6 +3450,34 @@ function createMissionRunner (host, injected = {}) {
       const cible = findTargetBlock()
       if (cible && blockInReach(bot, bot.entity.position, cible.position.offset(0.5, 0.5, 0.5), REACH)) {
         return { resultat: `${cible.name} deja a portee : casser directement, pas de pilier`, echec: true }
+      }
+      // Cible a +2 au plus au-dessus des pieds, bot au sol : elle se casse
+      // depuis le sol en s approchant. Un pilier y coutait un trou dans le sol
+      // (terre prise sur place) et un bloc pose pour rien (vu : trees/reachable,
+      // derniere buche d un tronc de 3).
+      const ecart = cible ? cible.position.y - Math.floor(bot.entity.position.y) : null
+      const porteur = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+      const perche = porteur && isPillarBlock(bot, porteur)
+      if (cible && bot.entity.onGround && !perche && ecart !== null && ecart <= 2) {
+        return {
+          resultat: `${cible.name} a +${ecart} seulement : pas de pilier, avancer plus pres (avancer vers la cible) puis casser`,
+          echec: true
+        }
+      }
+      // Hauteur trop courte pour la cible la plus basse encore hors de portee :
+      // la dire au lieu de monter d un bloc pour rien (vu sur
+      // chat/replace-and-join : piler(1) depuis un trou, puis encore piler(1),
+      // trois minutes sans atteindre le tronc). La valeur n est pas changee.
+      if (!cible) {
+        const haute = findTargetBlock(undefined, { anyHeight: true })
+        const ecartHaut = haute ? haute.position.y - Math.floor(bot.entity.position.y) : null
+        const minimum = ecartHaut === null ? 0 : ecartHaut - MAX_REACH_UP
+        if (haute && minimum > hauteur && minimum <= PILER_MAX) {
+          return {
+            resultat: `hauteur ${hauteur} trop courte : ${haute.name} a +${ecartHaut}, piler au moins ${minimum} pour l atteindre`,
+            echec: true
+          }
+        }
       }
 
       let available = scaffoldingStock(bot)
@@ -5976,4 +6054,4 @@ function createMissionRunner (host, injected = {}) {
   }
 }
 
-module.exports = { createMissionRunner, sondeAlentours, capDepuisVecteur, choisirCoteContournement, fabTargetName, countFabricationItems, fabricationWanted, resolveFabricationCible }
+module.exports = { createMissionRunner, sondeAlentours, capDepuisVecteur, choisirCoteContournement, fabTargetName, countFabricationItems, fabricationWanted, resolveFabricationCible, fabricationUtile }

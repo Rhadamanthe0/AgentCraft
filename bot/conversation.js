@@ -205,8 +205,17 @@ function createConversation (host) {
       }
       // Pour modifier une mission, elle doit etre celle que le modele a lue.
       if (['amend', 'context'].includes(decision.relation) && active && key(host.status()) !== key(active)) {
-        try { host.say('La mission a change entre-temps ; peux-tu reformuler ta precision ?') } catch (_) {}
-        return { ignored: true }
+        // La mission lue s est terminee pendant l interpretation (modele lent :
+        // « Laisse tomber, coupe plutot un arbre » perdu parce que « Rejoins
+        // moi » venait de finir, vu avec space-bunny-free). Une revision qui
+        // porte un objectif complet devient alors une nouvelle demande.
+        const now = host.status()
+        if (decision.relation === 'amend' && decision.objective && now?.etat !== 'running') {
+          active = null
+        } else {
+          try { host.say('La mission a change entre-temps ; peux-tu reformuler ta precision ?') } catch (_) {}
+          return { ignored: true }
+        }
       }
     } finally {
       releaseTurn()
