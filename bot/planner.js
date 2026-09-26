@@ -94,6 +94,9 @@ const THINKING = (process.env.PLANNER_THINKING || '').trim().toLowerCase()
 // pas rendre le raisonnement aux autres modeles de la chaine.
 const thinkingRefusals = new Map()
 const thinkingOff = new Set()
+// Meme regle pour `reasoning_effort` (PLANNER_REASONING_EFFORT[_<USAGE>]).
+const effortRefusals = new Map()
+const effortOff = new Set()
 const PILOT_MAX_TOKENS = Number(process.env.PLANNER_PILOT_MAX_TOKENS || 4096)
 const PILOT_RETRY_MAX_TOKENS = Number(process.env.PLANNER_PILOT_RETRY_MAX_TOKENS || 8192)
 const PILOT_EFFECTIVE_MAX_TOKENS = Math.max(
@@ -412,7 +415,8 @@ async function callWithProfile (system, user, opts = {}) {
   throw lastErr ?? new Error('aucun modele configure')
 }
 
-async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, baseUrl: otherBase = null } = {}) {
+async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, baseUrl: otherBase = null, task = 'plan' } = {}) {
+  const EFFORT = modelChain.effortFor(task)
   // Base propre a l entree (`modele@url`) : jamais la cle du gateway principal.
   const base = otherBase || BASE_URL
   const key = otherBase && otherBase !== BASE_URL ? '' : API_KEY
@@ -431,46 +435,36 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     const headers = zenHeaders()
     stats.tentatives += 1
     syncProfileStats()
-    const thinking = proto === 'chat' && THINKING === 'disabled' && !thinkingOff.has(model) ? { type: 'disabled' } : null
-    if (thinking) {
-      try {
-        return await llm.call(system, user, {
-          baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs,
-          keepAlive: IS_OLLAMA ? KEEP_ALIVE : null, headers, image, signal, protocol: proto, thinking
-        })
-      } catch (err) {
-        if (!(err?.code === 'LLM_HTTP' && err?.status === 400)) throw err
-        // Un 400 peut etre une panne passagere (« Upstream request failed »)
-        // OU un refus du champ par le fournisseur vers lequel la session est
-        // aiguillee (vu : un bot sur 16, tous ses appels en 400). L appel est
-        // rejoue aussitot sans le champ ; le champ n est retire pour la
-        // session qu apres deux refus suivis d un succes sans lui.
-        const result = await llm.call(system, user, {
-          baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs,
-          keepAlive: IS_OLLAMA ? KEEP_ALIVE : null, headers, image, signal, protocol: proto
-        })
-        const refusals = (thinkingRefusals.get(model) ?? 0) + 1
-        thinkingRefusals.set(model, refusals)
-        if (refusals >= 2 && !thinkingOff.has(model)) {
-          thinkingOff.add(model)
-          console.log(`[planner] champ thinking refuse pour ${model} (${String(err.message).slice(0, 80)}) : raisonnement laisse actif`)
-        }
-        return result
-      }
+    const effort = proto === 'chat' && EFFORT && !effortOff.has(model) ? EFFORT : null
+    // L effort remplace le champ thinking (space-bunny refuse thinking mais
+    // accepte reasoning_effort) : jamais les deux dans le meme appel.
+    const thinking = !effort && proto === 'chat' && THINKING === 'disabled' && !thinkingOff.has(model) ? { type: 'disabled' } : null
+    const plain = {
+      baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs,
+      keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null, headers, image, signal, protocol: proto
     }
-    return llm.call(system, user, {
-      baseUrl: base,
-      apiKey: key,
-      model,
-      temperature,
-      maxTokens: budget,
-      timeoutMs,
-      keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null,
-      headers,
-      image,
-      signal,
-      protocol: proto
-    })
+    if (!thinking && !effort) return llm.call(system, user, plain)
+    try {
+      return await llm.call(system, user, { ...plain, thinking, reasoningEffort: effort })
+    } catch (err) {
+      if (!(err?.code === 'LLM_HTTP' && err?.status === 400)) throw err
+      // Un 400 peut etre une panne passagere (« Upstream request failed »)
+      // OU un refus du champ par le fournisseur vers lequel la session est
+      // aiguillee (vu : un bot sur 16, tous ses appels en 400). L appel est
+      // rejoue aussitot sans le champ ; le champ n est retire pour la
+      // session qu apres deux refus suivis d un succes sans lui.
+      const result = await llm.call(system, user, plain)
+      const [counts, off, field] = effort
+        ? [effortRefusals, effortOff, 'reasoning_effort']
+        : [thinkingRefusals, thinkingOff, 'thinking']
+      const refusals = (counts.get(model) ?? 0) + 1
+      counts.set(model, refusals)
+      if (refusals >= 2 && !off.has(model)) {
+        off.add(model)
+        console.log(`[planner] champ ${field} refuse pour ${model} (${String(err.message).slice(0, 80)}) : raisonnement laisse par defaut`)
+      }
+      return result
+    }
   }
   function markSuccess (res, model) {
     warm = true

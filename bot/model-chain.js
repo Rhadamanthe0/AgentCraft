@@ -71,4 +71,13 @@ function createState (cooldownMs = 600000) {
   }
 }
 
-module.exports = { parse, chainFor, isSwitchError, createState, TASK_VARS }
+// Effort de raisonnement par usage : PLANNER_REASONING_EFFORT_<USAGE> sinon
+// PLANNER_REASONING_EFFORT (vide = rien envoye). Les actions (plan, chat)
+// gagnent a raisonner peu ; la lecture de l objectif garde le defaut.
+function effortFor (task, env = process.env) {
+  const own = TASK_VARS[task] ? env[TASK_VARS[task].replace('PLANNER_MODEL_', 'PLANNER_REASONING_EFFORT_')] : ''
+  const value = String(own ?? '').trim() || String(env.PLANNER_REASONING_EFFORT ?? '').trim()
+  return value.toLowerCase() || null
+}
+
+module.exports = { parse, chainFor, effortFor, isSwitchError, createState, TASK_VARS }

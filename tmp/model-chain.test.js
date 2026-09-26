@@ -8,7 +8,7 @@ const chain = require('../bot/model-chain')
 const llm = require('../bot/llm')
 
 const PLANNER_PATH = require.resolve('../bot/planner')
-const KEYS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_MODEL_PLAN', 'PLANNER_MODEL_CHAT', 'PLANNER_API_KEY', 'PLANNER_THINKING', 'BOT_USERNAME']
+const KEYS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_MODEL_PLAN', 'PLANNER_MODEL_CHAT', 'PLANNER_API_KEY', 'PLANNER_THINKING', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN', 'PLANNER_REASONING_EFFORT_BRIEF', 'BOT_USERNAME']
 const saved = Object.fromEntries(KEYS.map(k => [k, process.env[k]]))
 const origCall = llm.call
 afterEach(() => {
@@ -116,4 +116,26 @@ test('tous refuses apres un delai : le modele muet est re-essaye une fois', asyn
   const r = await p.plan({}, 'recolte', 'harvest')
   assert.equal(r.steps[0].action, 'regarder_autour')
   assert.deepEqual(seen, ['lent', 'quota', 'lent'])
+})
+
+test('effort de raisonnement par usage, a la place de thinking, retire apres deux refus', async () => {
+  assert.equal(chain.effortFor('plan', { PLANNER_REASONING_EFFORT: 'medium', PLANNER_REASONING_EFFORT_PLAN: 'low' }), 'low')
+  assert.equal(chain.effortFor('readBrief', { PLANNER_REASONING_EFFORT: 'medium' }), 'medium')
+  assert.equal(chain.effortFor('readBrief', {}), null)
+  const seen = []
+  llm.call = async (s, u, o) => {
+    seen.push([o.model, o.reasoningEffort ?? null, Boolean(o.thinking)])
+    if (o.model === 'b' && o.reasoningEffort) throw httpErr(400, 'Invalid request parameters')
+    return { content: plan, usage: null, ms: 1 }
+  }
+  const p = load({ PLANNER_MODEL: 'a', PLANNER_MODEL_PLAN: 'b', PLANNER_THINKING: 'disabled', PLANNER_REASONING_EFFORT_PLAN: 'low' })
+  await p.plan({}, 'recolte', 'harvest')
+  assert.deepEqual(seen, [['b', 'low', false], ['b', null, false]], 'effort seul, rejoue sans lui sur 400')
+  await p.plan({}, 'recolte', 'harvest')
+  seen.length = 0
+  await p.plan({}, 'recolte', 'harvest')
+  assert.deepEqual(seen, [['b', null, true]], 'effort retire apres deux refus : retour au champ thinking')
+  seen.length = 0
+  await p.readBrief('coupe un arbre').catch(() => {})
+  assert.deepEqual(seen[0], ['a', null, true], 'lecture de l objectif : pas d effort, thinking garde')
 })

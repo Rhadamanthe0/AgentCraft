@@ -278,6 +278,13 @@
   muet est re-essaye, et 30 + 30 s depassaient les 60 s sans progres.
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
+  Effort de raisonnement par usage (`PLANNER_REASONING_EFFORT[_PLAN|_BRIEF|
+  _CHAT|_COMPACT]`, champ `reasoning_effort`) : mesure space-bunny-free
+  2026-09-26, defaut ~200-800 jetons de raisonnement et 4-10 s par plan,
+  `low` ~50 jetons et ~2-3 s. Banc : plan/chat/compact en `low`, brief au
+  defaut. Remplace le champ thinking dans l appel ; deux 400 le retirent pour
+  le modele (retour a thinking). Autres gratuits de Zen (nemotron, ling,
+  longcat, mimo) : 403 FreeTierError, jev-1.13-free : 500.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
