@@ -326,13 +326,10 @@ async function callWithProfile (system, user, opts = {}) {
 
 async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, baseUrl: otherBase = null, keyVar = null, task = 'plan' } = {}) {
   const EFFORT = modelChain.effortFor(task)
-  // Base propre a l entree (`modele@url`) : jamais la cle du gateway principal.
+  // Alias a cle propre (`modele@go2`, liste fermee KEY_ALIASES) : sa base et
+  // sa variable ; sinon le gateway principal et PLANNER_API_KEY.
   const base = otherBase || BASE_URL
-  // Autre base : seulement la cle propre a son hote (liste fermee), jamais
-  // celle du gateway principal.
-  // Alias a cle propre (`modele@go2`, liste fermee KEY_ALIASES) : sa variable.
-  const key = keyVar ? String(process.env[keyVar] ?? '').trim()
-    : otherBase && otherBase !== BASE_URL ? modelChain.keyFor(otherBase) : API_KEY
+  const key = keyVar ? String(process.env[keyVar] ?? '').trim() : API_KEY
   const zen = /opencode\.ai\/zen/i.test(base)
   const target0 = forced ?? effectiveModel()
   const proto0 = target0 === PILOT_MODEL ? 'responses' : 'chat'

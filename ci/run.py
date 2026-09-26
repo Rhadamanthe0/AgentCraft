@@ -26,13 +26,10 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
 
 
 
-# Third-party planner providers (bot/model-chain.js PROVIDER_KEYS): model ids
-# they serve with the repository's key, to pick PLANNER_MODEL entries from
-# facts. Ids only, never the key; skipped when the secret is absent.
+# Models served to the second OpenCode workspace key (alias `modele@go2`,
+# bot/model-chain.js KEY_ALIASES), to pick PLANNER_MODEL_<USAGE> from facts.
+# Ids only, never the key; skipped when the secret is absent.
 PROVIDER_MODEL_LISTS = {
-    'groq': ('GROQ_API_KEY', 'https://api.groq.com/openai/v1/models'),
-    'gemini': ('GEMINI_API_KEY', 'https://generativelanguage.googleapis.com/v1beta/openai/models'),
-    'openrouter': ('OPENROUTER_API_KEY', 'https://openrouter.ai/api/v1/models'),
     'go2': ('OPENCODE_SECONDARY_API_KEY', 'https://opencode.ai/zen/go/v1/models'),
 }
 
@@ -44,15 +41,13 @@ def provider_models():
         if not key:
             continue
         request = urllib.request.Request(url, headers={'Authorization': f'Bearer {key}',
-                                                          # Groq's edge answers 403 to Python-urllib.
                                                           'User-Agent': 'minecraft-bot/1.0',
                                                           'x-opencode-session': 'minebot-ci-models'})
         try:
             with urllib.request.urlopen(request, timeout=8) as response:
                 data = json.load(response).get('data', [])
             ids = sorted(str(model.get('id')) for model in data)
-            # OpenRouter lists hundreds of paid models: keep the free ones.
-            found[name] = [i for i in ids if i.endswith(':free')] if name == 'openrouter' else ids
+            found[name] = ids
         except (OSError, ValueError) as error:
             found[name] = {'error': str(error)[:200]}
     return found

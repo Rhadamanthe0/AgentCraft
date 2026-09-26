@@ -322,6 +322,12 @@
   `low` ; reflexion (BRIEF, 40 s), memoire (COMPACT) et aide (REPAIR) en
   muse@go2 `high`. Les notes plus haut sur les chaines et bascules sont
   historiques.
+  Fournisseurs gratuits (Zen anonyme `@url`, Groq, Gemini, OpenRouter) retires
+  du code (decision du proprietaire ; cles laissees dans GitHub) : seuls
+  `modele` (cle principale) et `modele@go2` existent, tout autre `@...` est
+  refuse. Banc a 32 bots paralleles (POOL_SIZE, ~20 Go libres sur le runner ;
+  Paper 3 Go, 80 joueurs), brief muse `high` 60 s, `START_TIMEOUT_S` 75 s.
+  La sonde mesure aussi jetons de raisonnement et acceptation de l effort.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

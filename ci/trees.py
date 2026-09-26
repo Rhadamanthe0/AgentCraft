@@ -37,7 +37,8 @@ COUNT_Z = 200
 LOCAL_START = (10.5, 200, 18.5)
 TX, TZ = 18, 18  # Local tree position.
 LEAVES = 'oak_leaves[persistent=true]'
-START_TIMEOUT_S = 45
+# Reflexion (Muse, effort high) : jusqu a 60 s avant la premiere action.
+START_TIMEOUT_S = 75
 NO_PROGRESS_S = 60
 GRACE_AFTER_WOOD_S = 10
 LEVEL_CAP_S = 300
@@ -1128,10 +1129,10 @@ def run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # A fixed pool of real bots shares the levels: each worker runs its queue of
 # levels one after another (fresh arena each time), all workers in parallel.
 # Worker i also owns a silent probe player (join and chat levels).
-# 8 (16 before, 2026-09-26, owner's choice): free planner tiers cap calls and
-# tokens PER MINUTE (Groq 8000 tokens/min per model, Gemini ~15 calls/min);
-# 16 bots at once spent them in a minute. Levels phase ~2x longer (~9 min).
-POOL_SIZE = 8
+# 32 (owner's choice, 2026-09-26): the planner runs on a paid OpenCode Go key
+# (large quota), no free-tier per-minute cap left; ~20 GB RAM free on the
+# runner. Keep in step with ci/compose.yaml (ports, POOL_SIZE, probes).
+POOL_SIZE = 32
 
 
 # All pool bots live in ONE compose service (`bots`, ci/multi-bot.js); each bot

@@ -12,7 +12,7 @@ const REPAIR_PATH = require.resolve('../bot/repair')
 const KEYS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_MODEL_PLAN', 'PLANNER_MODEL_CHAT', 'PLANNER_MODEL_BRIEF',
   'PLANNER_MODEL_REPAIR', 'PLANNER_API_KEY', 'PLANNER_THINKING', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN',
   'PLANNER_REASONING_EFFORT_BRIEF', 'PLANNER_REASONING_EFFORT_REPAIR', 'PLANNER_TIMEOUT_MS_BRIEF', 'OPENCODE_SECONDARY_API_KEY',
-  'GROQ_API_KEY', 'BOT_USERNAME']
+  'BOT_USERNAME']
 const saved = Object.fromEntries(KEYS.map(k => [k, process.env[k]]))
 const origCall = llm.call
 afterEach(() => {
@@ -32,7 +32,7 @@ const httpErr = (status, message) => Object.assign(new Error(`HTTP ${status} : $
 const plan = '{"fini":0,"pourquoi":"t","plan":[{"action":"regarder_autour"}]}'
 
 test('modele de l usage : PLANNER_MODEL_<USAGE> sinon PLANNER_MODEL ; une liste ne garde que la tete', () => {
-  assert.deepEqual(chain.parse(' a , b@https://x/v1/ ').map(e => [e.model, e.baseUrl]), [['a', null], ['b', 'https://x/v1']])
+  assert.deepEqual(chain.parse(' a , b@go2 ').map(e => [e.model, e.baseUrl]), [['a', null], ['b', 'https://opencode.ai/zen/go/v1']])
   const env = { PLANNER_MODEL: 'a,b', PLANNER_MODEL_CHAT: 'c' }
   assert.equal(chain.modelFor('plan', env).model, 'a')
   assert.equal(chain.modelFor('interpretMessage', env).model, 'c')
@@ -48,12 +48,13 @@ test('refus du fournisseur : l erreur remonte, AUCUN autre modele n est essaye',
   assert.deepEqual([...new Set(seen)], ['payant'])
 })
 
-test('entree modele@url : autre base, et JAMAIS la cle du gateway principal', async () => {
+test('base tierce `modele@url` refusee : aucun modele, aucun appel', async () => {
+  assert.equal(chain.modelFor('plan', { PLANNER_MODEL: 'x@https://opencode.ai/zen/v1' }), null)
   const seen = []
-  llm.call = async (s, u, o) => { seen.push([o.model, o.baseUrl, o.apiKey]); return { content: plan, usage: null, ms: 1 } }
+  llm.call = async (s, u, o) => { seen.push(o.model); return { content: plan, usage: null, ms: 1 } }
   const p = load({ PLANNER_MODEL: 'x@https://opencode.ai/zen/v1' })
-  await p.plan({}, 'recolte', 'harvest')
-  assert.deepEqual(seen.at(-1), ['x', 'https://opencode.ai/zen/v1', ''])
+  await assert.rejects(p.plan({}, 'recolte', 'harvest'))
+  assert.deepEqual(seen, [])
 })
 
 test('refus du champ thinking compte par modele', async () => {
@@ -99,22 +100,6 @@ test('muse (/responses) : effort envoye en reasoning.effort', async () => {
   const p = load({ PLANNER_MODEL: 'x', PLANNER_MODEL_PLAN: 'muse-spark-1.3-contributor', PLANNER_REASONING_EFFORT_PLAN: 'high' })
   await p.plan({}, 'recolte', 'harvest')
   assert.deepEqual(seen[0], ['muse-spark-1.3-contributor', 'responses', { effort: 'high' }, null])
-})
-
-test('cle par fournisseur : liste fermee d hotes, jamais ailleurs', async () => {
-  const env = { GROQ_API_KEY: 'gk', GEMINI_API_KEY: 'gm' }
-  assert.equal(chain.keyFor('https://api.groq.com/openai/v1', env), 'gk')
-  assert.equal(chain.keyFor('https://generativelanguage.googleapis.com/v1beta/openai', env), 'gm')
-  assert.equal(chain.keyFor('https://api.groq.com.evil.example/v1', env), '')
-  assert.equal(chain.keyFor('https://opencode.ai/zen/v1', env), '')
-  assert.equal(chain.keyFor('https://openrouter.ai/api/v1', { OPENROUTER_API_KEY: 'or' }), 'or')
-  assert.equal(chain.keyFor('pas une url', env), '')
-  assert.equal(chain.modelFor('plan', { PLANNER_MODEL: 'g@https://api.groq.com/openai/v1' }), null, 'sans cle : aucun modele')
-  const seen = []
-  llm.call = async (s, u, o) => { seen.push([o.baseUrl, o.apiKey]); return { content: plan, usage: null, ms: 1 } }
-  const p = load({ PLANNER_MODEL: 'm@https://api.groq.com/openai/v1', GROQ_API_KEY: 'gk' })
-  await p.plan({}, 'recolte', 'harvest')
-  assert.deepEqual(seen, [['https://api.groq.com/openai/v1', 'gk']])
 })
 
 test('alias go2 : gateway Go avec la cle secondaire, jamais la principale', async () => {
