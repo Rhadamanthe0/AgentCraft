@@ -254,6 +254,9 @@
   sans mise de cote (build/big-box : ordre du joueur muet 30 s). Cible de
   fabrication du brief pliee (accents, article, « hache en bois » =>
   wooden_axe) : « établi » n etait pas reconnu, batons fabriques (craft/table).
+  `piler` refuse une hauteur qui laisse la buche la plus basse hors de portee
+  (> MAX_REACH_UP) et dit le minimum ; la valeur n est jamais changee
+  (chat/replace-and-join : piler(1) repete, 3 min sans atteindre le tronc).
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,

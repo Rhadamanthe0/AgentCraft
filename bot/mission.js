@@ -3298,6 +3298,21 @@ function createMissionRunner (host, injected = {}) {
           echec: true
         }
       }
+      // Hauteur trop courte pour la cible la plus basse encore hors de portee :
+      // la dire au lieu de monter d un bloc pour rien (vu sur
+      // chat/replace-and-join : piler(1) depuis un trou, puis encore piler(1),
+      // trois minutes sans atteindre le tronc). La valeur n est pas changee.
+      if (!cible) {
+        const haute = findTargetBlock(undefined, { anyHeight: true })
+        const ecartHaut = haute ? haute.position.y - Math.floor(bot.entity.position.y) : null
+        const minimum = ecartHaut === null ? 0 : ecartHaut - MAX_REACH_UP
+        if (haute && minimum > hauteur && minimum <= PILER_MAX) {
+          return {
+            resultat: `hauteur ${hauteur} trop courte : ${haute.name} a +${ecartHaut}, piler au moins ${minimum} pour l atteindre`,
+            echec: true
+          }
+        }
+      }
 
       let available = scaffoldingStock(bot)
       // Stock court : aller chercher le manque soi-meme plutot que d echouer
