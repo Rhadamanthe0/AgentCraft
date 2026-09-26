@@ -234,6 +234,18 @@
   l en-tete `x-opencode-session` en `<session>-rN` (3 fois au plus) et rejoue
   l appel : Zen aiguille par session, un fournisseur casse laissait un bot
   muet toute la run (vu : TreeBot11, trois niveaux perdus sur 0eb221b).
+- Chaine de modeles par usage (`bot/model-chain.js`, 2026-09-26, demande du
+  proprietaire apres le quota hebdomadaire Go epuise : 429 GoUsageLimitError) :
+  `PLANNER_MODEL` accepte une liste (ordre d essai) et chaque usage peut avoir
+  la sienne (`PLANNER_MODEL_PLAN`, `_BRIEF`, `_CHAT`, `_COMPACT`). Refus du
+  fournisseur (429, 401/403, modele inconnu/indisponible, 5xx) => modele mis de
+  cote `PLANNER_MODEL_COOLDOWN_MS` et suivant dans le meme appel ; jamais sur
+  delai ni 400 de schema. `modele@url` = autre base appelee SANS la cle. Refus
+  du champ thinking compte par modele. CI : `ci/models.env` (sans secret),
+  gratuits `space-bunny-free` (essaye hors CI : brief/chat/plans corrects,
+  ~2 s, refuse thinking) puis `longcat-2.5-preview-free`, puis Zen anonyme.
+  Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
+  contourner.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

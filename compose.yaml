@@ -105,6 +105,13 @@ services:
       # marge de sortie (PLANNER_MAX_TOKENS), sinon il raisonne jusqu'au bout et
       # rend un contenu vide (finish=length).
       PLANNER_MODEL: "${PLANNER_MODEL:-deepseek-v4.1-flash}"
+      # Liste = ordre d essai (bot/model-chain.js) ; un usage peut avoir la
+      # sienne (vide = PLANNER_MODEL). Voir .env.example.
+      PLANNER_MODEL_PLAN: "${PLANNER_MODEL_PLAN:-}"
+      PLANNER_MODEL_BRIEF: "${PLANNER_MODEL_BRIEF:-}"
+      PLANNER_MODEL_CHAT: "${PLANNER_MODEL_CHAT:-}"
+      PLANNER_MODEL_COMPACT: "${PLANNER_MODEL_COMPACT:-}"
+      PLANNER_MODEL_COOLDOWN_MS: "${PLANNER_MODEL_COOLDOWN_MS:-600000}"
       PLANNER_ROUTING_MODE: "${PLANNER_ROUTING_MODE:-legacy}"
       PLANNER_FAST_MODEL: "${PLANNER_FAST_MODEL:-mimo-v2.6-flash}"
       PLANNER_FAST_TIMEOUT_MS: "${PLANNER_FAST_TIMEOUT_MS:-45000}"
