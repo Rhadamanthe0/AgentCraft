@@ -229,6 +229,10 @@
 - `interpretMessage` : relation new/amend avec objectif vide (vu : « Rejoins
   moi », join/pit) => le message du joueur sert d objectif, au lieu de
   « objectif de chat vide » et d un bot muet.
+- Escalier (`navigation.js`, marche montee) : arret 50 ms avant le saut et
+  garde de 400 ms apres (au lieu de 150/600) ; meme geste arret-saut-
+  atterrissage, 4,53 -> 3,77 s au banc `tmp/stairs-bench.js`. follow/stairs
+  frolait la borne de 8 blocs (7,9 en disposition fixe, 8,15 arene tournee).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

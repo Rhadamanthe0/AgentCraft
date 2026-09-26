@@ -368,8 +368,12 @@ function createNavigator (getBot, options = {}) {
           continue
         }
         if (stepUp && bot.entity.onGround && Date.now() >= jumpUntil) {
+          // Pauses courtes (50 ms d arret, 400 ms de garde apres le saut) :
+          // meme geste arret-saut-atterrissage, marche 17 % plus rapide au
+          // banc tmp/stairs-bench.js (4,53 -> 3,77 s). Un suivi dans un
+          // escalier decrochait a 8,15 blocs (follow/stairs, arene tournee).
           bot.clearControlStates()
-          await sleep(150)
+          await sleep(50)
           if (stopped()) break
           report({ event: 'jump', onGround: bot.entity.onGround, point, position: bot.entity.position.clone() })
           if (bot.entity.onGround) {
@@ -379,7 +383,7 @@ function createNavigator (getBot, options = {}) {
             bot.setControlState('jump', false)
             report({ event: 'jumped', onGround: bot.entity.onGround, position: bot.entity.position.clone() })
           }
-          jumpUntil = Date.now() + 600
+          jumpUntil = Date.now() + 400
           progressAt = Date.now()
         }
         bot.setControlState('forward', true)
