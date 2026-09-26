@@ -102,3 +102,18 @@ test('delai depasse : modele suivant une fois, sans le mettre de cote', async ()
   await p.plan({}, 'recolte', 'harvest')
   assert.deepEqual(seen, ['lent', 'rapide'], 'un delai ne met pas le modele de cote')
 })
+
+test('tous refuses apres un delai : le modele muet est re-essaye une fois', async () => {
+  const seen = []
+  let lent = 0
+  llm.call = async (s, u, o) => {
+    seen.push(o.model)
+    if (o.model === 'lent' && lent++ === 0) throw Object.assign(new Error('pas de reponse en 30000 ms'), { code: 'LLM_TIMEOUT' })
+    if (o.model === 'quota') throw httpErr(429, 'GoUsageLimitError')
+    return { content: plan, usage: null, ms: 1 }
+  }
+  const p = load({ PLANNER_MODEL: 'lent,quota' })
+  const r = await p.plan({}, 'recolte', 'harvest')
+  assert.equal(r.steps[0].action, 'regarder_autour')
+  assert.deepEqual(seen, ['lent', 'quota', 'lent'])
+})

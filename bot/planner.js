@@ -381,7 +381,7 @@ async function callWithProfile (system, user, opts = {}) {
       return res
     } catch (err) {
       if (err?.code === 'LLM_TIMEOUT' && !signal?.aborted && !timeoutSwitch && i < ordered.length - 1) {
-        timeoutSwitch = true
+        timeoutSwitch = entry
         lastErr = err
         stats.bascules = (stats.bascules ?? 0) + 1
         console.log(`[planner] ${entry.label} sans reponse (${String(err.message).slice(0, 60)}) : modele suivant pour ${task}`)
@@ -393,6 +393,20 @@ async function callWithProfile (system, user, opts = {}) {
       stats.bascules = (stats.bascules ?? 0) + 1
       stats.modeles_de_cote = chainState.status()
       console.log(`[planner] ${entry.label} refuse (${String(err.message).slice(0, 100)}) : modele suivant pour ${task}`)
+    }
+  }
+  // Tous refuses apres un delai : le modele muet est re-essaye UNE fois (vu :
+  // 16 bots au meme instant, space-bunny muet 30 s, les autres en quota ou
+  // indisponibles ; quatre ordres du joueur perdus, bot immobile tout le niveau).
+  if (timeoutSwitch && !signal?.aborted) {
+    console.log(`[planner] aucun modele n a repondu : nouvel essai de ${timeoutSwitch.label} pour ${task}`)
+    try {
+      const res = await callSingle(system, user, { ...opts, model: timeoutSwitch.model, baseUrl: timeoutSwitch.baseUrl })
+      chainState.clear(timeoutSwitch)
+      stats.modele_servi = timeoutSwitch.label
+      return res
+    } catch (err) {
+      if (!signal?.aborted) lastErr = err
     }
   }
   throw lastErr ?? new Error('aucun modele configure')
