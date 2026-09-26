@@ -1424,10 +1424,14 @@ function createMissionRunner (host, injected = {}) {
       .some(([x, y, z]) => see(pos.offset(x, y, z)))
     let positions
     try {
-      // Plus large que les 32 plus proches, puis filtre : sous une arene ou
-      // un sol de pierre, les plus proches sont toutes enfouies.
-      positions = bot.findBlocks({ matching: ids, maxDistance: SEARCH_RADIUS, count: 256 })
-        .filter(exposed).slice(0, 32)
+      // Filtre PENDANT la recherche : sous une arene ou un sol de pierre, des
+      // milliers de blocs enfouis sont plus proches que le rocher visible (vu :
+      // les 256 plus proches toutes enfouies, « pierre introuvable »). La
+      // `useExtraInfo` en fonction = filtre applique aux seuls blocs de la
+      // matiere (mineflayer garde le tri rapide par palette sur `ids`).
+      positions = bot.findBlocks({
+        matching: ids, useExtraInfo: block => exposed(block.position), maxDistance: SEARCH_RADIUS, count: 64
+      }).filter(exposed).slice(0, 32)
     } catch (err) {
       return null
     }

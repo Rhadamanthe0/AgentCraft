@@ -442,7 +442,8 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   sans elles, pas de cible de fabrication, solveur jamais actif, bot visant
   la pierre enfouie sous l arene (« aucun bloc cible sain a casser » x90).
 - `findTargetBlock` ne retient que des blocs VISIBLES (une face a l air,
-  feuilles/vitres/plantes/liquides laissent voir), parmi les 256 plus proches :
+  feuilles/vitres/plantes/liquides laissent voir), filtre applique PENDANT la
+  recherche (`useExtraInfo` en fonction de `findBlocks`) :
   la pierre enfouie sous le sol etait visee pour `avancer` (« rejoint a
   portee ») puis introuvable pour `casser`, en boucle.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
