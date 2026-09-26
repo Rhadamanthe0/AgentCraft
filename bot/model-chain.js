@@ -7,6 +7,7 @@
 //   PLANNER_MODEL_BRIEF=...     lecture de l objectif   (readBrief)
 //   PLANNER_MODEL_CHAT=...      chat du joueur          (interpretMessage, classify)
 //   PLANNER_MODEL_COMPACT=...   resume de la memoire    (compact)
+//   PLANNER_MODEL_REPAIR=...    demander de l aide, reviser les actions (repair.js)
 //
 // Chaque usage prend sa liste, sinon PLANNER_MODEL. Une entree `modele@url`
 // passe par une autre base, SANS cle (ex : l offre gratuite anonyme de Zen,
@@ -29,7 +30,9 @@ const TASK_VARS = {
   readBrief: 'PLANNER_MODEL_BRIEF',
   interpretMessage: 'PLANNER_MODEL_CHAT',
   classify: 'PLANNER_MODEL_CHAT',
-  compact: 'PLANNER_MODEL_COMPACT'
+  compact: 'PLANNER_MODEL_COMPACT',
+  // demander_aide et reviser_actions (bot/repair.js)
+  repair: 'PLANNER_MODEL_REPAIR'
 }
 
 function parse (text) {

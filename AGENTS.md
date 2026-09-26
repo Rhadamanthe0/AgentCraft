@@ -310,6 +310,9 @@
   sonde), BRIEF (reflexion) muse@go2 `medium`, COMPACT (memoire) muse@go2
   `high` (`max` n est pas une valeur d API). `PLANNER_TIMEOUT_MS_<USAGE>` :
   brief 25 s au banc (un niveau sans mission a 45 s echoue), memoire 90 s.
+  Cinquieme usage REPAIR (demander_aide, reviser_actions) : `repair.js` passe
+  par la chaine du planificateur des que `PLANNER_MODEL_REPAIR` est pose
+  (prioritaire sur REPAIR_MODEL/REPAIR_API_KEY) ; banc : muse@go2 `medium`, 60 s.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

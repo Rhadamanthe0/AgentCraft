@@ -8,7 +8,7 @@ const chain = require('../bot/model-chain')
 const llm = require('../bot/llm')
 
 const PLANNER_PATH = require.resolve('../bot/planner')
-const KEYS = ['PLANNER_TIMEOUT_MS_BRIEF', 'PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_MODEL_PLAN', 'PLANNER_MODEL_CHAT', 'PLANNER_API_KEY', 'PLANNER_THINKING', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN', 'PLANNER_REASONING_EFFORT_BRIEF', 'BOT_USERNAME']
+const KEYS = ['PLANNER_MODEL_REPAIR', 'PLANNER_REASONING_EFFORT_REPAIR', 'PLANNER_TIMEOUT_MS_BRIEF', 'PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_MODEL_PLAN', 'PLANNER_MODEL_CHAT', 'PLANNER_API_KEY', 'PLANNER_THINKING', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN', 'PLANNER_REASONING_EFFORT_BRIEF', 'BOT_USERNAME']
 const saved = Object.fromEntries(KEYS.map(k => [k, process.env[k]]))
 const origCall = llm.call
 afterEach(() => {
@@ -191,4 +191,17 @@ test('delai par usage : PLANNER_TIMEOUT_MS_<USAGE>, jamais plus court que le del
   const p = load({ PLANNER_MODEL: 'a,b', PLANNER_TIMEOUT_MS_BRIEF: '45000' })
   await p.readBrief('coupe un arbre').catch(() => {})
   assert.ok(seen.length && seen.every(ms => ms >= 45000), JSON.stringify(seen))
+})
+
+test('demander de l aide : chaine PLANNER_MODEL_REPAIR avec son effort', async () => {
+  const REPAIR_PATH = require.resolve('../bot/repair')
+  delete require.cache[REPAIR_PATH]
+  const seen = []
+  llm.call = async (s, u, o) => { seen.push([o.model, o.reasoning?.effort ?? o.reasoningEffort ?? null]); return { content: '{}', usage: null, ms: 1 } }
+  load({ PLANNER_MODEL: 'a', PLANNER_MODEL_REPAIR: 'r1,r2', PLANNER_REASONING_EFFORT_REPAIR: 'medium' })
+  const repair = require('../bot/repair')
+  assert.ok(repair.isEnabled())
+  await repair.askForAction({ probleme: 'bloque', kind: 'recolte', supply: 'harvest', etat: {}, historique: [] })
+  delete require.cache[REPAIR_PATH]
+  assert.deepEqual(seen[0], ['r1', 'medium'])
 })
