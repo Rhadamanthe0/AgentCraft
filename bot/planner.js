@@ -134,7 +134,10 @@ function currentSession () {
   return sessionReroutes ? `${SESSION_ID}-r${sessionReroutes}` : SESSION_ID
 }
 function isUpstreamRefusal (err) {
-  return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(String(err?.message ?? ''))
+  // « Model is unavailable » : le modele lui-meme est absent, changer de
+  // session n y fait rien (la chaine de modeles passe au suivant).
+  const text = String(err?.message ?? '')
+  return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(text) && !/model is unavailable/i.test(text)
 }
 const USER_AGENT = process.env.PLANNER_USER_AGENT || 'minecraft-bot/1.0'
 const chainState = modelChain.createState(Number(process.env.PLANNER_MODEL_COOLDOWN_MS || 600000))
