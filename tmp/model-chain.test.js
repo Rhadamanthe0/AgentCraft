@@ -139,3 +139,21 @@ test('effort de raisonnement par usage, a la place de thinking, retire apres deu
   await p.readBrief('coupe un arbre').catch(() => {})
   assert.deepEqual(seen[0], ['a', null, true], 'lecture de l objectif : pas d effort, thinking garde')
 })
+
+test('cle par fournisseur : liste fermee d hotes, jamais ailleurs', async () => {
+  const env = { GROQ_API_KEY: 'gk', GEMINI_API_KEY: 'gm' }
+  assert.equal(chain.keyFor('https://api.groq.com/openai/v1', env), 'gk')
+  assert.equal(chain.keyFor('https://generativelanguage.googleapis.com/v1beta/openai', env), 'gm')
+  assert.equal(chain.keyFor('https://api.groq.com.evil.example/v1', env), '')
+  assert.equal(chain.keyFor('https://opencode.ai/zen/v1', env), '')
+  assert.equal(chain.keyFor('pas une url', env), '')
+  assert.deepEqual(chain.chainFor('plan', { PLANNER_MODEL: 'g@https://api.groq.com/openai/v1,s@https://opencode.ai/zen/v1' }).map(e => e.model), ['s'], 'sans cle : entree ignoree')
+  const seen = []
+  llm.call = async (s, u, o) => { seen.push([o.baseUrl, o.apiKey]); return { content: plan, usage: null, ms: 1 } }
+  process.env.GROQ_API_KEY = 'gk'
+  try {
+    const p = load({ PLANNER_MODEL: 'm@https://api.groq.com/openai/v1' })
+    await p.plan({}, 'recolte', 'harvest')
+  } finally { delete process.env.GROQ_API_KEY }
+  assert.deepEqual(seen, [['https://api.groq.com/openai/v1', 'gk']])
+})

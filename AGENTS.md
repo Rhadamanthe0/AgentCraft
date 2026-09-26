@@ -285,6 +285,11 @@
   defaut. Remplace le champ thinking dans l appel ; deux 400 le retirent pour
   le modele (retour a thinking). Autres gratuits de Zen (nemotron, ling,
   longcat, mimo) : 403 FreeTierError, jev-1.13-free : 500.
+  Fournisseurs tiers a cle (Groq, Google AI Studio ; demande du proprietaire,
+  2026-09-26) : `PROVIDER_KEYS` (model-chain.js) associe un HOTE exact a sa
+  variable (`GROQ_API_KEY`, `GEMINI_API_KEY`, secrets GitHub) ; une cle ne part
+  jamais vers une autre base, une entree sans sa cle est ignoree. Le rapport CI
+  porte `providerModels` (ids servis, jamais la cle). Hetzner ecarte (carte).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

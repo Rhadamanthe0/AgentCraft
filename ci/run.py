@@ -25,6 +25,32 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
         'model-chain.test.js', 'fabrication-utile.test.js', 'conversation.test.js']
 
 
+
+# Third-party planner providers (bot/model-chain.js PROVIDER_KEYS): model ids
+# they serve with the repository's key, to pick PLANNER_MODEL entries from
+# facts. Ids only, never the key; skipped when the secret is absent.
+PROVIDER_MODEL_LISTS = {
+    'groq': ('GROQ_API_KEY', 'https://api.groq.com/openai/v1/models'),
+    'gemini': ('GEMINI_API_KEY', 'https://generativelanguage.googleapis.com/v1beta/openai/models'),
+}
+
+
+def provider_models():
+    found = {}
+    for name, (var, url) in PROVIDER_MODEL_LISTS.items():
+        key = os.environ.get(var, '').strip()
+        if not key:
+            continue
+        request = urllib.request.Request(url, headers={'Authorization': f'Bearer {key}'})
+        try:
+            with urllib.request.urlopen(request, timeout=8) as response:
+                data = json.load(response).get('data', [])
+            found[name] = sorted(str(model.get('id')) for model in data)
+        except (OSError, ValueError) as error:
+            found[name] = {'error': str(error)[:200]}
+    return found
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--suite', choices=['unit', 'minecraft', 'trees', 'all'], default='all')
@@ -60,6 +86,7 @@ def main():
         report['dirty'] = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True).strip())
     except (OSError, subprocess.CalledProcessError):
         pass  # An exported source directory is supported, but never claims a tested SHA.
+    report['providerModels'] = provider_models()
 
     log_lock = threading.Lock()
 

@@ -36,7 +36,14 @@ function parse (text) {
 
 function chainFor (task, env = process.env, fallback = '') {
   const own = TASK_VARS[task] ? env[TASK_VARS[task]] : ''
+  // Fournisseur a cle (PROVIDER_KEYS) sans sa cle : entree ignoree plutot
+  // qu un 401 a chaque appel.
   return parse(String(own ?? '').trim() || env.PLANNER_MODEL || fallback)
+    .filter(e => !e.baseUrl || !needsKey(e.baseUrl) || keyFor(e.baseUrl, env))
+}
+
+function needsKey (baseUrl) {
+  try { return Boolean(PROVIDER_KEYS[new URL(baseUrl).hostname.toLowerCase()]) } catch { return false }
 }
 
 // Refus du fournisseur qui justifie d essayer un autre modele. 400 seulement
@@ -80,4 +87,19 @@ function effortFor (task, env = process.env) {
   return value.toLowerCase() || null
 }
 
-module.exports = { parse, chainFor, effortFor, isSwitchError, createState, TASK_VARS }
+// Cle d un fournisseur tiers (`modele@url`) : liste FERMEE hote -> variable.
+// Une cle ne part jamais que vers l hote exact auquel elle appartient ; toute
+// autre base est appelee sans cle (acces anonyme, ex : Zen gratuit).
+const PROVIDER_KEYS = {
+  'api.groq.com': 'GROQ_API_KEY',
+  'generativelanguage.googleapis.com': 'GEMINI_API_KEY'
+}
+
+function keyFor (baseUrl, env = process.env) {
+  let host
+  try { host = new URL(baseUrl).hostname.toLowerCase() } catch { return '' }
+  const name = PROVIDER_KEYS[host]
+  return name ? String(env[name] ?? '').trim() : ''
+}
+
+module.exports = { parse, chainFor, effortFor, keyFor, PROVIDER_KEYS, isSwitchError, createState, TASK_VARS }

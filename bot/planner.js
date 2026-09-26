@@ -419,7 +419,9 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
   const EFFORT = modelChain.effortFor(task)
   // Base propre a l entree (`modele@url`) : jamais la cle du gateway principal.
   const base = otherBase || BASE_URL
-  const key = otherBase && otherBase !== BASE_URL ? '' : API_KEY
+  // Autre base : seulement la cle propre a son hote (liste fermee), jamais
+  // celle du gateway principal.
+  const key = otherBase && otherBase !== BASE_URL ? modelChain.keyFor(otherBase) : API_KEY
   const zen = /opencode\.ai\/zen/i.test(base)
   const target0 = forced ?? effectiveModel()
   const proto0 = target0 === PILOT_MODEL ? 'responses' : 'chat'
