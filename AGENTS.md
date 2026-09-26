@@ -294,6 +294,9 @@
   Mesures e742854 : Gemini 3.5 Flash-Lite ~1,2 s/plan ; Groq gratuit 8000
   jetons/min PAR MODELE (~2 plans/min, aucun cache). Banc passe de 16 a 8 bots
   en parallele (`POOL_SIZE`, choix du proprietaire) pour tenir sous ces limites.
+  Second espace OpenCode Go du proprietaire : alias `modele@go2` (KEY_ALIASES,
+  liste fermee) = gateway Go avec `OPENCODE_SECONDARY_API_KEY`, mis de cote a
+  part de la cle principale. Tete de chaine : deepseek-v4.1-flash@go2.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

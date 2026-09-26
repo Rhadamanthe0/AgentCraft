@@ -378,7 +378,7 @@ async function callWithProfile (system, user, opts = {}) {
   for (const [i, entry] of ordered.entries()) {
     if (signal?.aborted) break
     try {
-      const res = await callSingle(system, user, { ...opts, model: entry.model, baseUrl: entry.baseUrl })
+      const res = await callSingle(system, user, { ...opts, model: entry.model, baseUrl: entry.baseUrl, keyVar: entry.keyVar })
       chainState.clear(entry)
       stats.modele_servi = entry.label
       return res
@@ -404,7 +404,7 @@ async function callWithProfile (system, user, opts = {}) {
   if (timeoutSwitch && !signal?.aborted) {
     console.log(`[planner] aucun modele n a repondu : nouvel essai de ${timeoutSwitch.label} pour ${task}`)
     try {
-      const res = await callSingle(system, user, { ...opts, model: timeoutSwitch.model, baseUrl: timeoutSwitch.baseUrl })
+      const res = await callSingle(system, user, { ...opts, model: timeoutSwitch.model, baseUrl: timeoutSwitch.baseUrl, keyVar: timeoutSwitch.keyVar })
       chainState.clear(timeoutSwitch)
       stats.modele_servi = timeoutSwitch.label
       return res
@@ -415,13 +415,15 @@ async function callWithProfile (system, user, opts = {}) {
   throw lastErr ?? new Error('aucun modele configure')
 }
 
-async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, baseUrl: otherBase = null, task = 'plan' } = {}) {
+async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, baseUrl: otherBase = null, keyVar = null, task = 'plan' } = {}) {
   const EFFORT = modelChain.effortFor(task)
   // Base propre a l entree (`modele@url`) : jamais la cle du gateway principal.
   const base = otherBase || BASE_URL
   // Autre base : seulement la cle propre a son hote (liste fermee), jamais
   // celle du gateway principal.
-  const key = otherBase && otherBase !== BASE_URL ? modelChain.keyFor(otherBase) : API_KEY
+  // Alias a cle propre (`modele@go2`, liste fermee KEY_ALIASES) : sa variable.
+  const key = keyVar ? String(process.env[keyVar] ?? '').trim()
+    : otherBase && otherBase !== BASE_URL ? modelChain.keyFor(otherBase) : API_KEY
   const zen = /opencode\.ai\/zen/i.test(base)
   const target0 = forced ?? effectiveModel()
   const proto0 = target0 === PILOT_MODEL ? 'responses' : 'chat'

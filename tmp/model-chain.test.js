@@ -158,3 +158,19 @@ test('cle par fournisseur : liste fermee d hotes, jamais ailleurs', async () => 
   } finally { delete process.env.GROQ_API_KEY }
   assert.deepEqual(seen, [['https://api.groq.com/openai/v1', 'gk']])
 })
+
+test('alias go2 : gateway Go avec la cle secondaire, jamais la principale', async () => {
+  assert.deepEqual(chain.chainFor('plan', { PLANNER_MODEL: 'd@go2,s' }).map(e => e.model), ['s'], 'sans cle secondaire : ignore')
+  const seen = []
+  llm.call = async (s, u, o) => {
+    seen.push([o.model, o.baseUrl, o.apiKey])
+    if (o.apiKey === 'k-test') throw httpErr(429, 'GoUsageLimitError')
+    return { content: plan, usage: null, ms: 1 }
+  }
+  process.env.OPENCODE_SECONDARY_API_KEY = 'k2'
+  try {
+    const p = load({ PLANNER_MODEL: 'd,d@go2' })
+    await p.plan({}, 'recolte', 'harvest')
+  } finally { delete process.env.OPENCODE_SECONDARY_API_KEY }
+  assert.deepEqual(seen, [['d', 'https://opencode.ai/zen/go/v1', 'k-test'], ['d', 'https://opencode.ai/zen/go/v1', 'k2']])
+})

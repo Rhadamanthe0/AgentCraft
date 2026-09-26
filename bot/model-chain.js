@@ -17,6 +17,13 @@
 // appel. Delai, annulation, JSON illisible : jamais de bascule (le modele a
 // repondu, ou c est le code qui a coupe).
 
+// Alias de base a cle PROPRE (liste fermee) : `modele@go2` = gateway Go avec
+// la cle d un second espace OpenCode (secret OPENCODE_SECONDARY_API_KEY), mis
+// de cote independamment de la cle principale (quota Go distinct).
+const KEY_ALIASES = {
+  go2: { baseUrl: 'https://opencode.ai/zen/go/v1', keyVar: 'OPENCODE_SECONDARY_API_KEY' }
+}
+
 const TASK_VARS = {
   plan: 'PLANNER_MODEL_PLAN',
   readBrief: 'PLANNER_MODEL_BRIEF',
@@ -29,6 +36,8 @@ function parse (text) {
   return String(text ?? '').split(',').map(s => s.trim()).filter(Boolean).map(entry => {
     const at = entry.indexOf('@')
     if (at <= 0) return { model: entry, baseUrl: null, label: entry }
+    const alias = KEY_ALIASES[entry.slice(at + 1).trim().toLowerCase()]
+    if (alias) return { model: entry.slice(0, at).trim(), baseUrl: alias.baseUrl, keyVar: alias.keyVar, label: entry }
     const baseUrl = entry.slice(at + 1).trim().replace(/\/+$/, '')
     return { model: entry.slice(0, at).trim(), baseUrl: baseUrl || null, label: entry }
   })
@@ -39,7 +48,7 @@ function chainFor (task, env = process.env, fallback = '') {
   // Fournisseur a cle (PROVIDER_KEYS) sans sa cle : entree ignoree plutot
   // qu un 401 a chaque appel.
   return parse(String(own ?? '').trim() || env.PLANNER_MODEL || fallback)
-    .filter(e => !e.baseUrl || !needsKey(e.baseUrl) || keyFor(e.baseUrl, env))
+    .filter(e => e.keyVar ? String(env[e.keyVar] ?? '').trim() : (!e.baseUrl || !needsKey(e.baseUrl) || keyFor(e.baseUrl, env)))
 }
 
 function needsKey (baseUrl) {
@@ -103,4 +112,4 @@ function keyFor (baseUrl, env = process.env) {
   return name ? String(env[name] ?? '').trim() : ''
 }
 
-module.exports = { parse, chainFor, effortFor, keyFor, PROVIDER_KEYS, isSwitchError, createState, TASK_VARS }
+module.exports = { KEY_ALIASES, parse, chainFor, effortFor, keyFor, PROVIDER_KEYS, isSwitchError, createState, TASK_VARS }

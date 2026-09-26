@@ -140,6 +140,7 @@ services:
       GROQ_API_KEY: "${GROQ_API_KEY:-}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      OPENCODE_SECONDARY_API_KEY: "${OPENCODE_SECONDARY_API_KEY:-}"
       # Bots must not take each other's chat for orders (shared server).
       CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TreeBot9,TreeBot10,TreeBot11,TreeBot12,TreeBot13,TreeBot14,TreeBot15,TreeBot16,TestProbe1,TestProbe2,TestProbe3,TestProbe4,TestProbe5,TestProbe6,TestProbe7,TestProbe8,TestProbe9,TestProbe10,TestProbe11,TestProbe12,TestProbe13,TestProbe14,TestProbe15,TestProbe16,TestProbe17
       PLANNER_USER_AGENT: minecraft-bot/1.0
