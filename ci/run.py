@@ -25,6 +25,39 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
         'model-chain.test.js', 'fabrication-utile.test.js', 'conversation.test.js']
 
 
+
+# Third-party planner providers (bot/model-chain.js PROVIDER_KEYS): model ids
+# they serve with the repository's key, to pick PLANNER_MODEL entries from
+# facts. Ids only, never the key; skipped when the secret is absent.
+PROVIDER_MODEL_LISTS = {
+    'groq': ('GROQ_API_KEY', 'https://api.groq.com/openai/v1/models'),
+    'gemini': ('GEMINI_API_KEY', 'https://generativelanguage.googleapis.com/v1beta/openai/models'),
+    'openrouter': ('OPENROUTER_API_KEY', 'https://openrouter.ai/api/v1/models'),
+    'go2': ('OPENCODE_SECONDARY_API_KEY', 'https://opencode.ai/zen/go/v1/models'),
+}
+
+
+def provider_models():
+    found = {}
+    for name, (var, url) in PROVIDER_MODEL_LISTS.items():
+        key = os.environ.get(var, '').strip()
+        if not key:
+            continue
+        request = urllib.request.Request(url, headers={'Authorization': f'Bearer {key}',
+                                                          # Groq's edge answers 403 to Python-urllib.
+                                                          'User-Agent': 'minecraft-bot/1.0',
+                                                          'x-opencode-session': 'minebot-ci-models'})
+        try:
+            with urllib.request.urlopen(request, timeout=8) as response:
+                data = json.load(response).get('data', [])
+            ids = sorted(str(model.get('id')) for model in data)
+            # OpenRouter lists hundreds of paid models: keep the free ones.
+            found[name] = [i for i in ids if i.endswith(':free')] if name == 'openrouter' else ids
+        except (OSError, ValueError) as error:
+            found[name] = {'error': str(error)[:200]}
+    return found
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--suite', choices=['unit', 'minecraft', 'trees', 'all'], default='all')
@@ -60,6 +93,7 @@ def main():
         report['dirty'] = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True).strip())
     except (OSError, subprocess.CalledProcessError):
         pass  # An exported source directory is supported, but never claims a tested SHA.
+    report['providerModels'] = provider_models()
 
     log_lock = threading.Lock()
 
@@ -290,6 +324,25 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             unit_results.append({'test': 'unit/navigation-regression', 'success': result.returncode == 0})
             phase('unit', unit_started)
 
+        # Candidate planner models (ci/model-probe.js): latency and validity of
+        # plans, chat and brief with the real prompts, next to the levels.
+        probe_results = []
+
+        def run_model_probe():
+            started = time.monotonic()
+            result = compose('run', '--rm', '--no-deps', BOTS_SERVICE, 'node', '/work/ci/model-probe.js',
+                             timeout=300, check=False)
+            try:
+                probe_results.extend(json.loads(result.stdout.strip().splitlines()[-1]))
+            except (ValueError, IndexError):
+                probe_results.append({'error': (result.stderr or result.stdout)[-500:]})
+            phase('modelProbe', started)
+
+        probe_thread = None
+        if args.suite in ('trees', 'all') and os.environ.get('PLANNER_API_KEY'):
+            probe_thread = threading.Thread(target=run_model_probe, daemon=True)
+            probe_thread.start()
+
         unit_thread = None
         if args.suite in ('unit', 'all'):
             print('Running focused offline regression tests (in parallel)...', flush=True)
@@ -433,7 +486,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     stats[username] = {k: p.get(k) for k in ('appels', 'etapes_servies', 'echecs', 'moyenne_ms',
                                                               'jetons_total', 'jetons_en_cache_total',
                                                               'jetons_sortie_total', 'jetons_raisonnement_total',
-                                                              'modele_servi', 'bascules', 'modeles_de_cote')}
+                                                              'modele_servi')}
                 report['plannerStats'] = stats
                 calls = sum(v.get('appels') or 0 for v in stats.values())
                 prompt = sum(v.get('jetons_total') or 0 for v in stats.values())
@@ -444,9 +497,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     'cache_ratio': round(cached / prompt, 3) if prompt else None,
                     'jetons_raisonnement': sum(v.get('jetons_raisonnement_total') or 0 for v in stats.values()),
                     'jetons_sortie': sum(v.get('jetons_sortie_total') or 0 for v in stats.values()),
-                    # Chaine de modeles (ci/models.env) : dernier modele servi par bot, bascules.
+                    # Modeles par usage (ci/models.env) : dernier modele servi par bot.
                     'modeles_servis': sorted({v['modele_servi'] for v in stats.values() if v.get('modele_servi')}),
-                    'bascules': sum(v.get('bascules') or 0 for v in stats.values()),
                 }
             else:
                 level_results = [{'test': level, 'success': False,
@@ -457,6 +509,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         for thread in (unit_thread, nav_thread):
             if thread:
                 thread.join()
+        if probe_thread:
+            probe_thread.join(timeout=320)
+            report['modelProbe'] = probe_results
         report['tests'].extend(unit_results + nav_results + level_results)
     except (Exception, KeyboardInterrupt) as error:
         report['errors'].append(str(error) or 'Interrupted')

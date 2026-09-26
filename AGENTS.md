@@ -270,8 +270,58 @@
   `piler` refuse une hauteur qui laisse la buche la plus basse hors de portee
   (> MAX_REACH_UP) et dit le minimum ; la valeur n est jamais changee
   (chat/replace-and-join : piler(1) repete, 3 min sans atteindre le tronc).
+  Chaine entiere refusee apres un delai : le modele muet est re-essaye UNE
+  fois (16 bots au meme instant : space-bunny muet 30 s, muse en quota,
+  deepseek indisponible ; quatre ordres perdus sur bc79aae). Banc : 4000
+  jetons de sortie (space-bunny tronquait 7 % des plans a 2000).
+  Delai CI ramene a 20 s (p95 14,6 s, p99 18,1 s sur 288ce66) : un appel
+  muet est re-essaye, et 30 + 30 s depassaient les 60 s sans progres.
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
+  Effort de raisonnement par usage (`PLANNER_REASONING_EFFORT[_PLAN|_BRIEF|
+  _CHAT|_COMPACT]`, champ `reasoning_effort`) : mesure space-bunny-free
+  2026-09-26, defaut ~200-800 jetons de raisonnement et 4-10 s par plan,
+  `low` ~50 jetons et ~2-3 s. Banc : plan/chat/compact en `low`, brief au
+  defaut. Remplace le champ thinking dans l appel ; deux 400 le retirent pour
+  le modele (retour a thinking). Autres gratuits de Zen (nemotron, ling,
+  longcat, mimo) : 403 FreeTierError, jev-1.13-free : 500.
+  Fournisseurs tiers a cle (Groq, Google AI Studio ; demande du proprietaire,
+  2026-09-26) : `PROVIDER_KEYS` (model-chain.js) associe un HOTE exact a sa
+  variable (`GROQ_API_KEY`, `GEMINI_API_KEY`, secrets GitHub) ; une cle ne part
+  jamais vers une autre base, une entree sans sa cle est ignoree. Le rapport CI
+  porte `providerModels` (ids servis, jamais la cle). Hetzner ecarte (carte).
+  OpenRouter (`OPENROUTER_API_KEY`) : ~50 appels/jour gratuits, dernier recours.
+  Mesures e742854 : Gemini 3.5 Flash-Lite ~1,2 s/plan ; Groq gratuit 8000
+  jetons/min PAR MODELE (~2 plans/min, aucun cache). Banc passe de 16 a 8 bots
+  en parallele (`POOL_SIZE`, choix du proprietaire) pour tenir sous ces limites.
+  Second espace OpenCode Go du proprietaire : alias `modele@go2` (KEY_ALIASES,
+  liste fermee) = gateway Go avec `OPENCODE_SECONDARY_API_KEY`, mis de cote a
+  part de la cle principale. Tete de chaine : deepseek-v4.1-flash@go2.
+  Sonde des modeles (`ci/model-probe.js`, `report.modelProbe`) : a chaque banc,
+  3 plans + 3 messages de chat + 1 brief par candidat avec les vrais prompts
+  (latence mediane, reponses valides) ; un processus par modele. Chaine vide
+  (toutes les cles absentes) => erreur claire, jamais la liste brute envoyee
+  comme nom de modele (« Model x@go2 is not supported »).
+  Muse Spark 1.3 (indice Artificial Analysis 45-48, le plus haut des candidats ;
+  plus gros quota Go) passe par /responses (`PILOT_MODEL`) : l effort y part
+  en `reasoning.effort`. `muse-spark-1.3-contributor@go2` est dans la sonde.
+  Quatre usages x (modele, effort) voulus par le proprietaire : PLAN (actions)
+  et CHAT en `low` (deepseek-v4.1-flash ou mimo-v2.6-flash, a trancher par la
+  sonde), BRIEF (reflexion) muse@go2 `medium`, COMPACT (memoire) muse@go2
+  `high` (`max` n est pas une valeur d API). `PLANNER_TIMEOUT_MS_<USAGE>` :
+  brief 25 s au banc (un niveau sans mission a 45 s echoue), memoire 90 s.
+  Cinquieme usage REPAIR (demander_aide, reviser_actions) : `repair.js` passe
+  par la chaine du planificateur des que `PLANNER_MODEL_REPAIR` est pose
+  (prioritaire sur REPAIR_MODEL/REPAIR_API_KEY) ; banc : muse@go2 `medium`, 60 s.
+  **Plus aucun repli de modele (2026-09-26, demande du proprietaire)** : UN
+  modele par usage (`modelFor`, une liste ne garde que sa tete), aucune bascule
+  sur refus/delai, aucune mise de cote, plus de repli Muse -> DeepSeek du
+  profil pilote. Seuls restent les rejeux du MEME modele : troncature (budget
+  elargi), panne passagere dans `llm.call`, reaiguillage de session, retrait
+  des champs thinking/effort refuses. Banc : actions/chat deepseek-v4.1-flash@go2
+  `low` ; reflexion (BRIEF, 40 s), memoire (COMPACT) et aide (REPAIR) en
+  muse@go2 `high`. Les notes plus haut sur les chaines et bascules sont
+  historiques.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

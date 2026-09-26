@@ -66,8 +66,8 @@ test('erreur et annulation dual ne declenchent aucun second modele', async t => 
   const controller = new AbortController(); controller.abort()
   await assert.rejects(planner.plan({}, 'recolte', 'harvest', {}, null, { signal: controller.signal }), /annule/)
   assert.equal(calls, 2)
-  assert.equal(planner.profileStatus().fallbackActive, false)
-  assert.equal(planner.profileStatus().fallback, null)
+  // Aucun repli vers un autre modele : le statut n en porte meme plus la notion.
+  assert.ok(!('fallback' in planner.profileStatus()))
 })
 
 test('statut concurrent distingue appels actifs et dernier termine sans secret', async t => {

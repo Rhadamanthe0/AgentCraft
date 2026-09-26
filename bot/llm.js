@@ -124,7 +124,10 @@ async function call (system, user, options = {}) {
     // le nom du modele (muse-spark -> responses, sinon chat).
     protocol = null,
     thinking = null,
-    reasoning = null
+    reasoning = null,
+    // `reasoning_effort` (chat) : 'low' coupe ~80 % du raisonnement de
+    // space-bunny-free (plan ~2 s au lieu de ~6 s, mesure 2026-09-26).
+    reasoningEffort = null
   } = options
 
   if (!baseUrl || !model) throw new Error('transport LLM mal configure (baseUrl ou model manquant)')
@@ -168,6 +171,7 @@ async function call (system, user, options = {}) {
       temperature,
       max_tokens: maxTokens,
       ...(thinking ? { thinking } : {}),
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       // Sans cela un petit modele encadre son JSON de ``` et la reponse
       // devient inexploitable une fois sur trois.
       response_format: { type: 'json_object' },

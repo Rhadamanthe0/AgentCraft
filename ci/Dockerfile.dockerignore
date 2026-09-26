@@ -10,4 +10,5 @@
 !ci/harness.js
 !ci/multi-bot.js
 !ci/probes.js
+!ci/model-probe.js
 !ci/package-lock.json

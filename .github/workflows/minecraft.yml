@@ -29,9 +29,15 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Run unit regressions and real Minecraft tests
-        # The planner key only reaches the disposable bot container (tree missions).
+        # The planner keys only reach the disposable bot container (tree missions).
         env:
           PLANNER_API_KEY: ${{ secrets.PLANNER_API_KEY }}
+          # Cles des fournisseurs tiers (bot/model-chain.js PROVIDER_KEYS), vides si absentes.
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Second espace OpenCode (alias `modele@go2`, bot/model-chain.js KEY_ALIASES).
+          OPENCODE_SECONDARY_API_KEY: ${{ secrets.OPENCODE_SECONDARY_API_KEY }}
         run: python ci/run.py --suite all
       - name: Remove any remaining disposable test containers
         if: always()
