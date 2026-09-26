@@ -3155,8 +3155,9 @@ function createMissionRunner (host, injected = {}) {
       // avec de la terre prise dans le relief lui-meme, puis rejoindre a pied.
       // L escalier creuse par le pathfinder ne laissait pas la place de la tete
       // (sauts sur place mesures) ; le pilier maison est prouve.
+      let climbed = null
       if ((result.code === 'no_path' || result.code === 'needs_height') && mission.kind === 'recolte' && !mission.cancelled) {
-        const climbed = await climbToward(cible)
+        climbed = await climbToward(cible)
         if (climbed) {
           degage += ` (${climbed})`
           result = await approach()
@@ -3211,6 +3212,18 @@ function createMissionRunner (host, injected = {}) {
           }
         } else {
           degage += ` (chemin creuse impossible : ${dug.code})`
+        }
+      }
+      // Le trajet qui creuse a pu rapprocher le bot du relief sans l y faire
+      // monter : on retente la montee une fois, depuis le pied de la falaise
+      // (vu sur terrain/plateau : premier avancer en no_path, et seul un
+      // modele qui relancait avancer de lui-meme finissait l arbre).
+      if (!climbed && !result.reached && result.code !== 'advanced' && !noye &&
+        mission.kind === 'recolte' && !mission.cancelled) {
+        climbed = await climbToward(cible)
+        if (climbed) {
+          degage += ` (${climbed})`
+          result = await approach()
         }
       }
       return {
