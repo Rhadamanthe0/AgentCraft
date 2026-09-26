@@ -23,3 +23,12 @@ test('batons admis pour un outil ou une torche, planches toujours admises', () =
 test('sans registre : ancienne tolerance', () => {
   assert.equal(fabricationUtile('stick', 'etabli'), true)
 })
+
+test('cible du brief avec accent ou article : « établi » = etabli, batons refuses', () => {
+  const skills = require('../bot/skills')
+  assert.equal(skills.normalizeFabricationTarget('établi'), 'etabli')
+  assert.equal(skills.normalizeFabricationTarget('un établi'), 'etabli')
+  assert.equal(skills.normalizeFabricationTarget('hache en bois'), 'wooden_axe')
+  const m = require('../bot/mission')
+  assert.equal(m.fabricationUtile(m.fabTargetName('stick'), m.fabTargetName('établi'), md), false)
+})

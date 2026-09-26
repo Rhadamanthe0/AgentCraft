@@ -250,6 +250,10 @@
   gratuits en 429 une fois le quota epuise (sa doc dit l inverse). Mesure
   df32ee7 : 55/65 niveaux contre 64/65 avec deepseek, ~6,4 s par appel,
   raisonne toujours (refuse thinking).
+  Delai depasse dans une chaine : UNE bascule au modele suivant par appel,
+  sans mise de cote (build/big-box : ordre du joueur muet 30 s). Cible de
+  fabrication du brief pliee (accents, article, « hache en bois » =>
+  wooden_axe) : « établi » n etait pas reconnu, batons fabriques (craft/table).
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,

@@ -367,7 +367,12 @@ async function callWithProfile (system, user, opts = {}) {
   const chain = modelChain.chainFor(task, process.env, MODEL)
   if (chain.length <= 1 && !chain[0]?.baseUrl && (chain[0]?.model ?? MODEL) === MODEL) return callSingle(system, user, opts)
   let lastErr = null
-  for (const entry of chainState.order(chain)) {
+  // Un delai depasse passe UNE fois au modele suivant, sans le mettre de cote
+  // (vu sur build/big-box : space-bunny muet 30 s sur l ordre du joueur, bot
+  // immobile tout le niveau). Jamais sur annulation par le signal.
+  let timeoutSwitch = false
+  const ordered = chainState.order(chain)
+  for (const [i, entry] of ordered.entries()) {
     if (signal?.aborted) break
     try {
       const res = await callSingle(system, user, { ...opts, model: entry.model, baseUrl: entry.baseUrl })
@@ -375,6 +380,13 @@ async function callWithProfile (system, user, opts = {}) {
       stats.modele_servi = entry.label
       return res
     } catch (err) {
+      if (err?.code === 'LLM_TIMEOUT' && !signal?.aborted && !timeoutSwitch && i < ordered.length - 1) {
+        timeoutSwitch = true
+        lastErr = err
+        stats.bascules = (stats.bascules ?? 0) + 1
+        console.log(`[planner] ${entry.label} sans reponse (${String(err.message).slice(0, 60)}) : modele suivant pour ${task}`)
+        continue
+      }
       if (!modelChain.isSwitchError(err)) throw err
       lastErr = err
       chainState.bench(entry, err)

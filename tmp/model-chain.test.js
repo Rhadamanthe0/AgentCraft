@@ -87,3 +87,18 @@ test('refus du champ thinking compte par modele', async () => {
   await p.interpretMessage('salut', {}).catch(() => {})
   assert.deepEqual(seen[0], ['b', true], 'b garde le champ')
 })
+
+test('delai depasse : modele suivant une fois, sans le mettre de cote', async () => {
+  const seen = []
+  llm.call = async (s, u, o) => {
+    seen.push(o.model)
+    if (o.model === 'lent') throw Object.assign(new Error('pas de reponse en 30000 ms'), { code: 'LLM_TIMEOUT' })
+    return { content: plan, usage: null, ms: 1 }
+  }
+  const p = load({ PLANNER_MODEL: 'lent,rapide' })
+  await p.plan({}, 'recolte', 'harvest')
+  assert.deepEqual(seen, ['lent', 'rapide'])
+  seen.length = 0
+  await p.plan({}, 'recolte', 'harvest')
+  assert.deepEqual(seen, ['lent', 'rapide'], 'un delai ne met pas le modele de cote')
+})
