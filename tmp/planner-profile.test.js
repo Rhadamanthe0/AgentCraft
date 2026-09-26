@@ -371,3 +371,41 @@ describe('profil pilote : budget distinct et reessai troncature (D37 live)', () 
     assert.equal(planner.profileStatus().fallbackActive, false)
   })
 })
+
+describe('reaiguillage de session sur refus du fournisseur', () => {
+  function upstream400 () {
+    const err = new Error('HTTP 400 : {"error":{"type":"server_error","message":"Upstream request failed: Invalid request parameters. Please check your input and try again."}}')
+    err.code = 'LLM_HTTP'
+    err.status = 400
+    return err
+  }
+  it('400 upstream persistant : nouvelle session x-opencode-session, puis succes', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async (s, u, o) => {
+      if (o.headers['x-opencode-session'] === 'minecraft-bot-TestBot') throw upstream400()
+      return okPlan()
+    })
+    const res = await planner.plan({ consigne: 't' }, 'recolte', 'harvest')
+    assert.ok(res)
+    assert.equal(seen.at(-1).options.headers['x-opencode-session'], 'minecraft-bot-TestBot-r1')
+    assert.equal(planner.profileStatus().session, 'minecraft-bot-TestBot-r1')
+    // La session reste la nouvelle pour les appels suivants.
+    await planner.plan({ consigne: 't2' }, 'recolte', 'harvest')
+    assert.equal(seen.at(-1).options.headers['x-opencode-session'], 'minecraft-bot-TestBot-r1')
+  })
+  it('trois reaiguillages au plus, puis l erreur remonte', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => { throw upstream400() })
+    for (let i = 0; i < 3; i++) {
+      await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest'))
+    }
+    await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest'))
+    assert.equal(planner.profileStatus().session, 'minecraft-bot-TestBot-r3')
+  })
+  it('un autre 400 (pas upstream) ne change pas de session', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => { const e = new Error('HTTP 400 : bad json'); e.code = 'LLM_HTTP'; e.status = 400; throw e })
+    await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest'))
+    assert.equal(planner.profileStatus().session, 'minecraft-bot-TestBot')
+  })
+})
