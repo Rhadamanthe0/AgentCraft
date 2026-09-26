@@ -523,10 +523,10 @@ def base_levels():
         },
         {
             'name': 'build/arch',
-            'about': '64 pierres, « Construis une arche en pierre de 5 blocs de large et 4 de haut » : 4e couche atteinte, passage laisse (moins de 18 blocs).',
+            'about': '64 pierres, « Construis une arche en pierre de 5 blocs de large et 4 de haut » : 4e couche atteinte, passage laisse (couche du bas moins pleine que celle du haut).',
             'kind': 'build', 'give': [('cobblestone', 64)],
             'instruction': 'Construis une arche en pierre de 5 blocs de large et 4 de haut',
-            'blocks': ['minecraft:cobblestone'], 'target': 8, 'maxTarget': 17, 'minTop': 4,
+            'blocks': ['minecraft:cobblestone'], 'target': 8, 'opening': True, 'minTop': 4,
             'variants': [sans('plans')], 'leaves': [], 'logs': [], 'rules': {},
         },
         {
@@ -728,9 +728,13 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
               'mission_terminee': end_reason.startswith('mission terminee')}
     if level.get('door'):
         checks['porte_posee'] = doors >= 2  # a door is two blocks
-    if level.get('maxTarget'):
-        # Openings asked (arch, passage): a solid block of the same size fails.
-        checks['forme_ouverte'] = built <= level['maxTarget']
+    if level.get('opening') and level.get('minTop'):
+        # Openings asked (arch, passage): the ground layer must hold fewer
+        # blocks than the top one (a full wall has as many). A block count cap
+        # failed a thicker but still open arch.
+        layer_count = lambda y: sum(count(f'{x0} {y} 0 {x0 + SIZE} {y} {SIZE}', b) for b in level['blocks'])
+        bottom, top = layer_count(200), layer_count(200 + level['minTop'] - 1)
+        checks['forme_ouverte'] = 0 < top and bottom < top
     if level.get('minTop'):
         # Free-form shape: something must reach that layer (tower, wall).
         layer = 200 + level['minTop'] - 1
