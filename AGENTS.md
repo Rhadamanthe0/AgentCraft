@@ -291,6 +291,9 @@
   jamais vers une autre base, une entree sans sa cle est ignoree. Le rapport CI
   porte `providerModels` (ids servis, jamais la cle). Hetzner ecarte (carte).
   OpenRouter (`OPENROUTER_API_KEY`) : ~50 appels/jour gratuits, dernier recours.
+  Mesures e742854 : Gemini 3.5 Flash-Lite ~1,2 s/plan ; Groq gratuit 8000
+  jetons/min PAR MODELE (~2 plans/min, aucun cache). Banc passe de 16 a 8 bots
+  en parallele (`POOL_SIZE`, choix du proprietaire) pour tenir sous ces limites.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

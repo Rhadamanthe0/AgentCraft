@@ -1128,7 +1128,10 @@ def run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # A fixed pool of real bots shares the levels: each worker runs its queue of
 # levels one after another (fresh arena each time), all workers in parallel.
 # Worker i also owns a silent probe player (join and chat levels).
-POOL_SIZE = 16
+# 8 (16 before, 2026-09-26, owner's choice): free planner tiers cap calls and
+# tokens PER MINUTE (Groq 8000 tokens/min per model, Gemini ~15 calls/min);
+# 16 bots at once spent them in a minute. Levels phase ~2x longer (~9 min).
+POOL_SIZE = 8
 
 
 # All pool bots live in ONE compose service (`bots`, ci/multi-bot.js); each bot
