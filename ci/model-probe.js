@@ -16,7 +16,7 @@ const M = '@https://generativelanguage.googleapis.com/v1beta/openai'
 const Z = '@https://opencode.ai/zen/v1'
 const O = '@https://openrouter.ai/api/v1'
 const DEFAULT = [
-  'deepseek-v4.1-flash@go2', 'deepseek-v4-flash@go2', 'mimo-v2.6-flash@go2', 'mimo-v2.6-pro@go2',
+  'deepseek-v4.1-flash@go2', 'muse-spark-1.3-contributor@go2', 'deepseek-v4-flash@go2', 'mimo-v2.6-flash@go2', 'mimo-v2.6-pro@go2',
   'glm-5.3-flash@go2', 'qwen3.8-flash@go2', 'longcat-2.0@go2',
   `gemini-3.5-flash-lite${M}`, `gemini-flash-latest${M}`,
   `openai/gpt-oss-120b${G}`, `openai/gpt-oss-20b${G}`, `qwen/qwen3.8-27b${G}`,

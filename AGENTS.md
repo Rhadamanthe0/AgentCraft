@@ -302,6 +302,9 @@
   (latence mediane, reponses valides) ; un processus par modele. Chaine vide
   (toutes les cles absentes) => erreur claire, jamais la liste brute envoyee
   comme nom de modele (« Model x@go2 is not supported »).
+  Muse Spark 1.3 (indice Artificial Analysis 45-48, le plus haut des candidats ;
+  plus gros quota Go) passe par /responses (`PILOT_MODEL`) : l effort y part
+  en `reasoning.effort`. `muse-spark-1.3-contributor@go2` est dans la sonde.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

@@ -442,7 +442,8 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     const headers = zenHeaders()
     stats.tentatives += 1
     syncProfileStats()
-    const effort = proto === 'chat' && EFFORT && !effortOff.has(model) ? EFFORT : null
+    // `reasoning_effort` sur /chat/completions, `reasoning.effort` sur /responses (muse).
+    const effort = EFFORT && !effortOff.has(model) ? EFFORT : null
     // L effort remplace le champ thinking (space-bunny refuse thinking mais
     // accepte reasoning_effort) : jamais les deux dans le meme appel.
     const thinking = !effort && proto === 'chat' && THINKING === 'disabled' && !thinkingOff.has(model) ? { type: 'disabled' } : null
@@ -452,7 +453,11 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     }
     if (!thinking && !effort) return llm.call(system, user, plain)
     try {
-      return await llm.call(system, user, { ...plain, thinking, reasoningEffort: effort })
+      return await llm.call(system, user, {
+        ...plain, thinking,
+        reasoningEffort: proto === 'chat' ? effort : null,
+        reasoning: proto === 'responses' && effort ? { effort } : null
+      })
     } catch (err) {
       if (!(err?.code === 'LLM_HTTP' && err?.status === 400)) throw err
       // Un 400 peut etre une panne passagere (« Upstream request failed »)
