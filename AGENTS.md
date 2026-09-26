@@ -326,6 +326,8 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   `build.placeOne` pose d ici quand la case est deja a portee (corps hors de
   la case, appui present) : l etabli a poser contre le rocher partait vers un
   « meilleur » poste injoignable (12 s), pioche en pierre jamais fabriquee.
+  Postes de tir cherches jusqu a 5 blocs sous la case : le sommet d une tour
+  de 6 se pose du sol (build/tower, 6e couche injoignable a -4).
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
