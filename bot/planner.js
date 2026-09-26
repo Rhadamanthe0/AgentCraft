@@ -1448,6 +1448,9 @@ recolte = context ; garde la maison ou la recolte en cours, ne transforme pas
 le moyen propose en nouvel objectif et ne modifie pas les dimensions du batiment.
 "Sureleve la maison d un bloc" modifie au contraire le resultat demande = amend,
 avec la consigne COMPLETE de la maison et ses autres exigences conservees.
+Une phrase a l imperatif qui demande d agir (va, viens, coupe, construis, ramasse,
+suis, fabrique, rapporte...) est un ordre : new (ou amend), jamais question, meme
+courte et sans politesse. question exige une interrogation ou une simple remarque.
 question = question sur l etat ou conversation : response breve et factuelle a
 partir de etat et mission, sans interrompre la mission. Si aucun objectif n est
 actif, reponds aussi aux salutations. Ne pretends jamais avoir accompli une action.
