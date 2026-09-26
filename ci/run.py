@@ -42,7 +42,9 @@ def provider_models():
         key = os.environ.get(var, '').strip()
         if not key:
             continue
-        request = urllib.request.Request(url, headers={'Authorization': f'Bearer {key}'})
+        request = urllib.request.Request(url, headers={'Authorization': f'Bearer {key}',
+                                                          # Groq's edge answers 403 to Python-urllib.
+                                                          'User-Agent': 'minecraft-bot/1.0'})
         try:
             with urllib.request.urlopen(request, timeout=8) as response:
                 data = json.load(response).get('data', [])

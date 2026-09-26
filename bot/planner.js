@@ -395,7 +395,7 @@ async function callWithProfile (system, user, opts = {}) {
       chainState.bench(entry, err)
       stats.bascules = (stats.bascules ?? 0) + 1
       stats.modeles_de_cote = chainState.status()
-      console.log(`[planner] ${entry.label} refuse (${String(err.message).slice(0, 100)}) : modele suivant pour ${task}`)
+      console.log(`[planner] ${entry.label} refuse (${String(err.message).slice(0, 300)}) : modele suivant pour ${task}`)
     }
   }
   // Tous refuses apres un delai : le modele muet est re-essaye UNE fois (vu :
