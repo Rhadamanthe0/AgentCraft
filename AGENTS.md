@@ -309,6 +309,9 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   pieds du bot, et une cible en `no_path`/`dug_out_of_reach` est mise de cote
   3 min (craft/stone-pickaxe, craft/furnace : dessous de la couche de pierre
   sous l arene vise trois fois, bot creusant vers le bas, puits).
+  `build.placeOne` pose d ici quand la case est deja a portee (corps hors de
+  la case, appui present) : l etabli a poser contre le rocher partait vers un
+  « meilleur » poste injoignable (12 s), pioche en pierre jamais fabriquee.
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
   Effort de raisonnement par usage (`PLANNER_REASONING_EFFORT[_PLAN|_BRIEF|

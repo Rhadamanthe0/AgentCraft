@@ -85,7 +85,8 @@ def planner_key_present():
 HTTP_TIMEOUT_S = 150
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
         'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js',
-        'model-chain.test.js', 'fabrication-utile.test.js', 'conversation.test.js', 'acquire-plan.test.js']
+        'model-chain.test.js', 'fabrication-utile.test.js', 'conversation.test.js', 'acquire-plan.test.js',
+        'place-direct.test.js']
 
 
 
