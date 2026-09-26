@@ -18,6 +18,8 @@ started, or the hard cap LEVEL_CAP_S is reached.
 """
 import json
 import math
+import os
+import random
 import re
 import threading
 import time
@@ -510,13 +512,100 @@ def levels():
 
 
 PROBE_LOCAL = (4.5, 200, 32.5)
+PARK_LOCAL = (4.5, 200, 32.5)  # where a silent probe waits when it plays no part
+
+
+# Varied arenas (anti-benchmaxing): each run turns (0/90/180/270 deg) and
+# mirrors every scene around the arena centre, and swaps the tree species.
+# Distances, heights and difficulty are unchanged; only the absolute layout
+# and the look differ, so a fix that only works for one fixed layout shows up.
+# Seed: CI_VARIATION_SEED (``off`` = fixed layout), else the commit SHA.
+SPECIES = ('oak', 'birch', 'spruce')
+
+
+def variation_seed():
+    seed = os.environ.get('CI_VARIATION_SEED') or os.environ.get('GITHUB_SHA') or ''
+    return None if seed.lower() == 'off' else (seed or str(random.random()))
+
+
+def _cell(x, z, turns, mirror):
+    if mirror:
+        x = SIZE - x
+    for _ in range(turns):
+        x, z = SIZE - z, x
+    return x, z
+
+
+def _point(p, turns, mirror):
+    # Continuous position (a block centre is n + .5): turn the block it is in.
+    x, y, z = p
+    fx, fz = x - math.floor(x), z - math.floor(z)
+    cx, cz = _cell(math.floor(x), math.floor(z), turns, mirror)
+    # Offsets inside the block turn with it; centres (.5) stay centres.
+    ox, oz = (1 - fx if mirror else fx), fz
+    for _ in range(turns):
+        ox, oz = 1 - oz, ox
+    return (cx + ox, y, cz + oz)
+
+
+def _box(b, turns, mirror):
+    a, y1, c, d, y2, f = b[:6]
+    x1, z1 = _cell(a, c, turns, mirror)
+    x2, z2 = _cell(d, f, turns, mirror)
+    return (min(x1, x2), y1, min(z1, z2), max(x1, x2), y2, max(z1, z2)) + tuple(b[6:])
+
+
+def _block(name, turns, species):
+    if species != 'oak':
+        name = name.replace('oak_log', f'{species}_log').replace('oak_leaves', f'{species}_leaves')
+    if turns % 2:
+        name = name.replace('axis=x', 'axis=TMP').replace('axis=z', 'axis=x').replace('axis=TMP', 'axis=z')
+    return name
+
+
+def vary(level, seed):
+    if seed is None:
+        return level
+    rng = random.Random(f"{seed}:{level['name']}")
+    turns, mirror, species = rng.randrange(4), rng.random() < .5, rng.choice(SPECIES)
+    out = dict(level)
+    out['variation'] = {'rotation': turns * 90, 'miroir': mirror, 'essence': species}
+    out['terrain'] = [_box(t[:6], turns, mirror) + (_block(t[6], turns, species),) for t in level.get('terrain', [])]
+    out['leaves'] = [_box(t, turns, mirror) for t in level['leaves']]
+    out['leavesBlock'] = _block(LEAVES, turns, species)
+    logs = []
+    for (x, y, z), block in level['logs']:
+        cx, cz = _cell(x, z, turns, mirror)
+        logs.append(((cx, y, cz), _block(block, turns, species)))
+    out['logs'] = logs
+    # Objects made from the tree follow its species (spruce tree -> spruce
+    # planks), unless the logs were given (oak) rather than cut.
+    if species != 'oak' and level['logs'] and not any(g[0].startswith('oak_') for g in level.get('give', [])):
+        out['items'] = [i.replace('oak_', f'{species}_') for i in level.get('items', [])]
+    out['start'] = _point(level.get('start', LOCAL_START), turns, mirror)
+    out['park'] = _point(level.get('park', PARK_LOCAL), turns, mirror)
+    out['probeLocal'] = _point(level.get('probeLocal', PROBE_LOCAL), turns, mirror)
+    out['treeCenter'] = _point(level.get('treeCenter', (TX + .5, 200, TZ + .5)), turns, mirror)
+    for key in ('probeAt',):
+        if key in level:
+            out[key] = _point(level[key], turns, mirror)
+    if 'path' in level:
+        out['path'] = [_point(p, turns, mirror) for p in level['path']]
+    if isinstance(level.get('target'), tuple):  # goto_block target (elsewhere a count)
+        tx, ty, tz = level['target']
+        cx, cz = _cell(tx, tz, turns, mirror)
+        out['target'] = (cx, ty, cz)
+    if 'loot' in level:
+        out['loot'] = [(item, *_cell(dx, dz, turns, mirror)) for item, dx, dz in level['loot']]
+    return out
 
 
 def run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_player):
     """Interrupt a tree job while the bot stands on its pillar, then check that
     "Remplace et rejoins moi" is understood and that the bot reaches the
     player without taking damage (it must take its pillar down first)."""
-    probe = (x0 + PROBE_LOCAL[0], PROBE_LOCAL[1], PROBE_LOCAL[2])
+    local = level.get('probeLocal', PROBE_LOCAL)
+    probe = (x0 + local[0], local[1], local[2])
     rcon(f'tp {probe_player} ' + ' '.join(map(str, probe)))
     started = time.monotonic()
     answers = {}
@@ -636,7 +725,8 @@ def run_route_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     if level['back']:
         checks['revenu_au_depart'] = bool(p and start) and math.hypot(p['x'] - start['x'], p['z'] - start['z']) <= 1.5
     if level.get('underTree'):
-        cx, cz = x0 + TX + .5, TZ + .5
+        center = level.get('treeCenter', (TX + .5, 200, TZ + .5))
+        cx, cz = x0 + center[0], center[2]
         checks['sous_la_couronne'] = bool(p) and final.get('onGround') and max(abs(p['x'] - cx), abs(p['z'] - cz)) <= 2.5 \
             and abs(p['y'] - 200) < .6
         checks['arbre_intact'] = count(f'{x0} 200 0 {x0 + SIZE} {TOP_Y} {SIZE}', '#minecraft:logs') == logs_before
@@ -659,7 +749,8 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     blocks placed above the floor are counted in the arena by RCON. The bot
     must place `target` blocks, the door if asked, end the mission by itself
     and take no damage."""
-    rcon(f'tp {probe_name} {x0 + 4.5} 200 {32.5}')
+    park = level.get('park', PARK_LOCAL)
+    rcon(f'tp {probe_name} {x0 + park[0]} {park[1]} {park[2]}')
     for item, amount in level.get('give', []):
         rcon(f'give {username} minecraft:{item} {amount}')
     above = f'{x0} 200 0 {x0 + SIZE} {TOP_Y} {SIZE}'
@@ -716,7 +807,8 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     """« Ramasse N ... » from a silent probe player; the bot must hold N of the
     items (counted by RCON, `clear <bot> <item> 0` removes nothing), never
     stand below the floor (no pit) and take no damage."""
-    rcon(f'tp {probe_name} {x0 + 4.5} 200 {32.5}')
+    park = level.get('park', PARK_LOCAL)
+    rcon(f'tp {probe_name} {x0 + park[0]} {park[1]} {park[2]}')
     for item, amount in level.get('give', []):
         rcon(f'give {username} minecraft:{item} {amount}')
     started = time.monotonic()
@@ -1114,7 +1206,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
         for (a, b, c, d, e, f, block) in level.get('terrain', []):
             rcon(f'fill {x0 + a} {b} {c} {x0 + d} {e} {f} {block}')
         for (a, b, c, d, e, f) in level['leaves']:
-            rcon(f'fill {x0 + a} {b} {c} {x0 + d} {e} {f} {LEAVES}')
+            rcon(f"fill {x0 + a} {b} {c} {x0 + d} {e} {f} {level.get('leavesBlock', LEAVES)}")
         for (x, y, z), block in level['logs']:
             rcon(f'setblock {x0 + x} {y} {z} {block}')
         rcon(f'tp {username} ' + ' '.join(map(str, start)))
@@ -1262,7 +1354,9 @@ NEW_LEVEL_S = 90
 
 
 def run_levels(output, rcon, bot_api):
-    all_levels = levels()
+    seed = variation_seed()
+    print(f'Arenes variees : graine {seed!r}', flush=True)
+    all_levels = [vary(level, seed) for level in levels()]
     results = [None] * len(all_levels)
     origins = arena_origins()
     rcon('scoreboard objectives add degats minecraft.custom:minecraft.damage_taken')
@@ -1295,6 +1389,8 @@ def run_levels(output, rcon, bot_api):
             print(f'{level["name"]} ({username}) started', flush=True)
             result = run_level(level, origins[index], bot, username, output, rcon, bot_api, probe)
             result['type'] = mission_type(level['name'])
+            if level.get('variation'):
+                result['variation'] = level['variation']
             results[index] = result
             print(f'{level["name"]} finished in {result.get("elapsedS")} s', flush=True)
 

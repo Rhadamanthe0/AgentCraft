@@ -229,6 +229,19 @@
 - `interpretMessage` : relation new/amend avec objectif vide (vu : « Rejoins
   moi », join/pit) => le message du joueur sert d objectif, au lieu de
   « objectif de chat vide » et d un bot muet.
+- Arenes variees (anti-benchmaxing, `vary` dans ci/trees.py) : a chaque
+  execution, chaque scene est tournee (0/90/180/270 degres) et/ou mise en
+  miroir autour du centre de l arene, et l arbre change d essence (chene,
+  bouleau, sapin). Depart, joueur, parcours, cibles et buches suivent : les
+  distances et la difficulte ne changent pas, seule la disposition absolue
+  change. Graine = SHA du commit (reproductible), `CI_VARIATION_SEED` la
+  force, `off` fige l ancienne disposition. Chaque resultat porte
+  `variation` (rotation, miroir, essence) : un echec se rejoue a l identique.
+  Les objets attendus suivent l essence (planches de sapin pour un sapin).
+- Escalier (`navigation.js`, marche montee) : arret 50 ms avant le saut et
+  garde de 400 ms apres (au lieu de 150/600) ; meme geste arret-saut-
+  atterrissage, 4,53 -> 3,77 s au banc `tmp/stairs-bench.js`. follow/stairs
+  frolait la borne de 8 blocs (7,9 en disposition fixe, 8,15 arene tournee).
 - Reaiguillage de session (`planner.callWithProfile`) : un 400 « Upstream
   request failed » qui persiste (meme apres le rejeu sans thinking) change
   l en-tete `x-opencode-session` en `<session>-rN` (3 fois au plus) et rejoue
