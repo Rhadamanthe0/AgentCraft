@@ -554,7 +554,11 @@ function findVantages (bot, target) {
   for (const [dx, dz] of VANTAGE_OFFSETS) {
     const x = target.x + dx
     const z = target.z + dz
-    for (let dy = 1; dy >= -4; dy -= 1) {
+    // Jusqu a -5 : le sommet d une tour de 6 se pose du sol (oeil +1,62,
+    // case voisine, 4,0 blocs) ; a -4 seulement, aucun poste au sol n etait
+    // essaye et la 6e couche restait injoignable (build/tower). La portee
+    // PLACE_REACH tranche.
+    for (let dy = 1; dy >= -5; dy -= 1) {
       const y = target.y + dy
       if (!standable(bot, x, y, z)) continue
       const stand = new Vec3(x + 0.5, y, z + 0.5)
@@ -579,7 +583,11 @@ function findVantage (bot, target) {
     // Le sol utile peut etre celui de la case, celui d en dessous (on pose le
     // plancher depuis l exterieur) ou plus bas encore ; et celui d au-dessus,
     // pour poser le toit depuis l interieur, debout sur le plancher.
-    for (let dy = 1; dy >= -4; dy -= 1) {
+    // Jusqu a -5 : le sommet d une tour de 6 se pose du sol (oeil +1,62,
+    // case voisine, 4,0 blocs) ; a -4 seulement, aucun poste au sol n etait
+    // essaye et la 6e couche restait injoignable (build/tower). La portee
+    // PLACE_REACH tranche.
+    for (let dy = 1; dy >= -5; dy -= 1) {
       const y = target.y + dy
       if (!standable(bot, x, y, z)) continue
 
@@ -805,6 +813,21 @@ async function clearOfTarget (bot, target) {
 async function placeOne (bot, target, itemName, { accept = null, move = null } = {}) {
   const existing = bot.blockAt(target)
   if (existing && (existing.name === itemName || accept?.test(existing.name))) return 'deja'
+
+  // Deja a portee, corps hors de la case : poser d ici. Vu sur
+  // craft/stone-pickaxe : etabli a poser a cote du bot, contre un rocher ;
+  // le trajet vers un « meilleur » poste echouait (12 s) et la pioche en
+  // pierre n etait jamais fabriquee, pierre et planches en poche.
+  const here = bot.entity?.position
+  const center = target.offset(0.5, 0.5, 0.5)
+  const direct = here && bot.entity.onGround && isFree(existing) && !bodyOverlaps(here, target) &&
+    here.offset(0, 1.62, 0).distanceTo(center) <= PLACE_REACH ? findSupport(bot, target) : null
+  if (direct) {
+    await equipMaterial(bot, itemName)
+    await bot.lookAt(center, true)
+    await bot.placeBlock(direct.reference, direct.faceVector)
+    return 'pose'
+  }
 
   let vantage = findVantage(bot, target)
   if (!vantage) throw new Error('aucun poste de tir au sol a portee')

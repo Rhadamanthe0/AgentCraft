@@ -323,6 +323,9 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   fois (16 bots au meme instant : space-bunny muet 30 s, muse en quota,
   deepseek indisponible ; quatre ordres perdus sur bc79aae). Banc : 4000
   jetons de sortie (space-bunny tronquait 7 % des plans a 2000).
+  `build.placeOne` pose d ici quand la case est deja a portee (corps hors de
+  la case, appui present) : l etabli a poser contre le rocher partait vers un
+  « meilleur » poste injoignable (12 s), pioche en pierre jamais fabriquee.
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,

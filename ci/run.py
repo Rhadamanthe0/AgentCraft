@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
         'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js',
         'blueprint.test.js', 'model-chain.test.js', 'fabrication-utile.test.js',
-        'conversation.test.js']
+        'conversation.test.js', 'place-direct.test.js']
 
 
 def compare_variants(tests):
