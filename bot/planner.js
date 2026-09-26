@@ -39,6 +39,7 @@ const skills = require('./skills')
 const memory = require('./memory')
 const llm = require('./llm')
 const routing = require('./model-routing')
+const modelChain = require('./model-chain')
 
 const BASE_URL = (process.env.PLANNER_BASE_URL || '').replace(/\/+$/, '')
 const API_KEY = process.env.PLANNER_API_KEY || ''
@@ -88,8 +89,11 @@ const EFFECTIVE_MAX_TOKENS = Math.max(Number.isFinite(MAX_TOKENS) ? MAX_TOKENS :
 // 86 % des jetons produits etaient du raisonnement, ~3,9 s par plan. Un 400
 // sur ce champ fait rejouer l appel sans lui ; deux refus suivis d un succes
 // sans le champ le retirent pour la session (annonce une fois).
-let THINKING = (process.env.PLANNER_THINKING || '').trim().toLowerCase()
-let thinkingRefusals = 0
+const THINKING = (process.env.PLANNER_THINKING || '').trim().toLowerCase()
+// Refus du champ comptes PAR MODELE : un modele gratuit qui le refuse ne doit
+// pas rendre le raisonnement aux autres modeles de la chaine.
+const thinkingRefusals = new Map()
+const thinkingOff = new Set()
 const PILOT_MAX_TOKENS = Number(process.env.PLANNER_PILOT_MAX_TOKENS || 4096)
 const PILOT_RETRY_MAX_TOKENS = Number(process.env.PLANNER_PILOT_RETRY_MAX_TOKENS || 8192)
 const PILOT_EFFECTIVE_MAX_TOKENS = Math.max(
@@ -130,9 +134,13 @@ function currentSession () {
   return sessionReroutes ? `${SESSION_ID}-r${sessionReroutes}` : SESSION_ID
 }
 function isUpstreamRefusal (err) {
-  return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(String(err?.message ?? ''))
+  // « Model is unavailable » : le modele lui-meme est absent, changer de
+  // session n y fait rien (la chaine de modeles passe au suivant).
+  const text = String(err?.message ?? '')
+  return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(text) && !/model is unavailable/i.test(text)
 }
 const USER_AGENT = process.env.PLANNER_USER_AGENT || 'minecraft-bot/1.0'
+const chainState = modelChain.createState(Number(process.env.PLANNER_MODEL_COOLDOWN_MS || 600000))
 const DEBUG = process.env.PLANNER_DEBUG === '1'
 
 // Memes seuils que ceux qu utilisait Jev : ils ont ete regles en jeu, ils ne
@@ -343,7 +351,8 @@ Object.defineProperty(stats, 'routing', { enumerable: true, get: () => routing.s
 // reessai est annonce (callback + stats) et compte comme tentative, comme le
 // repli. Mauvais JSON (apres un call reussi) : jamais de repli ni de reessai
 // ici (voir plan/readBrief : parse hors transport).
-async function callWithProfile (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, task = 'plan', state = {}, route = null } = {}) {
+async function callWithProfile (system, user, opts = {}) {
+  const { image = null, signal = null, temperature = TEMPERATURE, task = 'plan', state = {}, route = null } = opts
   if (routing.isDual()) {
     stats.tentatives += 1
     try {
@@ -353,9 +362,50 @@ async function callWithProfile (system, user, { image = null, signal = null, max
       return result
     } finally { syncProfileStats() }
   }
-  const target0 = effectiveModel()
+  // Chaine de modeles du .env (bot/model-chain.js). Un seul modele sans base
+  // propre : chemin historique inchange (profil pilote, repli DeepSeek).
+  const chain = modelChain.chainFor(task, process.env, MODEL)
+  if (chain.length <= 1 && !chain[0]?.baseUrl && (chain[0]?.model ?? MODEL) === MODEL) return callSingle(system, user, opts)
+  let lastErr = null
+  // Un delai depasse passe UNE fois au modele suivant, sans le mettre de cote
+  // (vu sur build/big-box : space-bunny muet 30 s sur l ordre du joueur, bot
+  // immobile tout le niveau). Jamais sur annulation par le signal.
+  let timeoutSwitch = false
+  const ordered = chainState.order(chain)
+  for (const [i, entry] of ordered.entries()) {
+    if (signal?.aborted) break
+    try {
+      const res = await callSingle(system, user, { ...opts, model: entry.model, baseUrl: entry.baseUrl })
+      chainState.clear(entry)
+      stats.modele_servi = entry.label
+      return res
+    } catch (err) {
+      if (err?.code === 'LLM_TIMEOUT' && !signal?.aborted && !timeoutSwitch && i < ordered.length - 1) {
+        timeoutSwitch = true
+        lastErr = err
+        stats.bascules = (stats.bascules ?? 0) + 1
+        console.log(`[planner] ${entry.label} sans reponse (${String(err.message).slice(0, 60)}) : modele suivant pour ${task}`)
+        continue
+      }
+      if (!modelChain.isSwitchError(err)) throw err
+      lastErr = err
+      chainState.bench(entry, err)
+      stats.bascules = (stats.bascules ?? 0) + 1
+      stats.modeles_de_cote = chainState.status()
+      console.log(`[planner] ${entry.label} refuse (${String(err.message).slice(0, 100)}) : modele suivant pour ${task}`)
+    }
+  }
+  throw lastErr ?? new Error('aucun modele configure')
+}
+
+async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, baseUrl: otherBase = null } = {}) {
+  // Base propre a l entree (`modele@url`) : jamais la cle du gateway principal.
+  const base = otherBase || BASE_URL
+  const key = otherBase && otherBase !== BASE_URL ? '' : API_KEY
+  const zen = /opencode\.ai\/zen/i.test(base)
+  const target0 = forced ?? effectiveModel()
   const proto0 = target0 === PILOT_MODEL ? 'responses' : 'chat'
-  const zenHeaders = () => IS_ZEN
+  const zenHeaders = () => zen
     ? { 'user-agent': USER_AGENT, 'x-opencode-session': currentSession() }
     : null
   // Budget de la premiere tentative pilote : le DISTINCT pilote (4096), jamais
@@ -367,11 +417,11 @@ async function callWithProfile (system, user, { image = null, signal = null, max
     const headers = zenHeaders()
     stats.tentatives += 1
     syncProfileStats()
-    const thinking = proto === 'chat' && THINKING === 'disabled' ? { type: 'disabled' } : null
+    const thinking = proto === 'chat' && THINKING === 'disabled' && !thinkingOff.has(model) ? { type: 'disabled' } : null
     if (thinking) {
       try {
         return await llm.call(system, user, {
-          baseUrl: BASE_URL, apiKey: API_KEY, model, temperature, maxTokens: budget, timeoutMs,
+          baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs,
           keepAlive: IS_OLLAMA ? KEEP_ALIVE : null, headers, image, signal, protocol: proto, thinking
         })
       } catch (err) {
@@ -382,20 +432,21 @@ async function callWithProfile (system, user, { image = null, signal = null, max
         // rejoue aussitot sans le champ ; le champ n est retire pour la
         // session qu apres deux refus suivis d un succes sans lui.
         const result = await llm.call(system, user, {
-          baseUrl: BASE_URL, apiKey: API_KEY, model, temperature, maxTokens: budget, timeoutMs,
+          baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs,
           keepAlive: IS_OLLAMA ? KEEP_ALIVE : null, headers, image, signal, protocol: proto
         })
-        thinkingRefusals += 1
-        if (thinkingRefusals >= 2 && THINKING) {
-          THINKING = ''
-          console.log(`[planner] champ thinking refuse par le fournisseur (${String(err.message).slice(0, 80)}) : raisonnement laisse actif`)
+        const refusals = (thinkingRefusals.get(model) ?? 0) + 1
+        thinkingRefusals.set(model, refusals)
+        if (refusals >= 2 && !thinkingOff.has(model)) {
+          thinkingOff.add(model)
+          console.log(`[planner] champ thinking refuse pour ${model} (${String(err.message).slice(0, 80)}) : raisonnement laisse actif`)
         }
         return result
       }
     }
     return llm.call(system, user, {
-      baseUrl: BASE_URL,
-      apiKey: API_KEY,
+      baseUrl: base,
+      apiKey: key,
       model,
       temperature,
       maxTokens: budget,
@@ -1011,6 +1062,8 @@ function coerceParams (action, entry) {
   return out
 }
 
+const ACTION_ALIASES = { pilier: 'piler' }
+
 function validate (raw, kind, supply) {
   const allowed = new Set(skills.actionsFor(kind, supply, true))
   const steps = []
@@ -1022,11 +1075,16 @@ function validate (raw, kind, supply) {
   for (const entry of plan) {
     if (steps.length >= PLAN_MAX) break
 
-    const action = typeof entry === 'string' ? entry : entry?.action
-    if (typeof action !== 'string') {
+    const rawAction = typeof entry === 'string' ? entry : entry?.action
+    if (typeof rawAction !== 'string') {
       rejected.push('etape sans nom')
       continue
     }
+    // Nom d action a peine deforme (accents, majuscules, nom du bloc pour
+    // l action) : ramene a l action native. Vu avec space-bunny-free :
+    // « pilier » rejete trois fois de suite au lieu de `piler`.
+    const folded = rawAction.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    const action = ACTION_ALIASES[folded] ?? folded
 
     // Le planificateur JSON donne des valeurs NUMERIQUES — « casser pendant 5
     // secondes », « avancer de 12 blocs » — et non plus une ampleur abstraite.
@@ -1402,6 +1460,9 @@ recolte = context ; garde la maison ou la recolte en cours, ne transforme pas
 le moyen propose en nouvel objectif et ne modifie pas les dimensions du batiment.
 "Sureleve la maison d un bloc" modifie au contraire le resultat demande = amend,
 avec la consigne COMPLETE de la maison et ses autres exigences conservees.
+Une phrase a l imperatif qui demande d agir (va, viens, coupe, construis, ramasse,
+suis, fabrique, rapporte...) est un ordre : new (ou amend), jamais question, meme
+courte et sans politesse. question exige une interrogation ou une simple remarque.
 question = question sur l etat ou conversation : response breve et factuelle a
 partir de etat et mission, sans interrompre la mission. Si aucun objectif n est
 actif, reponds aussi aux salutations. Ne pretends jamais avoir accompli une action.
