@@ -268,6 +268,10 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   boite). Niveaux A/B `build/tower`, `build/wall`, `build/arch` (`maxTarget` :
   passage laisse), `build/windows` (fenetres + porte) et `build/dirt-box`
   (non-regression de la maison simple) ; `minTop` = couche a atteindre.
+  Le concepteur recoit `blocs_en_stock` ; hors trois dimensions imposees, un
+  plan plus grand que le stock est refuse (vu : cabane 93 blocs pour 64
+  planches, cap de 300 s). Une seule dimension lue (« 6 de haut ») n est plus
+  passee comme un cube (vu : tour 6x6x6 de 152 blocs pour 64 de terre).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

@@ -1072,12 +1072,21 @@ function createMissionRunner (host, injected = {}) {
     }
     let erreurs = []
     const dims = build.parseDimensions(mission.objective)
+    // Materiau de construction en poche : le plan doit y tenir, sauf si le
+    // joueur a fixe les trois dimensions (il faudra alors en recolter).
+    const bot = host.getBot()
+    const stock = (bot?.inventory?.items() ?? []).filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
+    const dimensionsImposees = /trois/.test(dims.source)
     for (let essai = 0; essai < 2 && planner.isEnabled?.() !== false; essai++) {
       let bp = null
       try {
         bp = await planner.designBlueprint({
           objectif: mission.objective,
-          dimensions_lues: dims.source === 'aucune dimension lue' ? null : { largeur: dims.width, profondeur: dims.depth, hauteur: dims.height },
+          // Une seule dimension (« tour de 6 blocs de haut ») n est pas un
+          // cube : parseDimensions la recopie sur les trois axes (vu : tour
+          // 6x6x6 de 152 blocs pour 64 de terre). Le modele lit la phrase.
+          dimensions_lues: /trois|deux/.test(dims.source) ? { largeur: dims.width, profondeur: dims.depth, hauteur: dims.height } : null,
+          blocs_en_stock: stock,
           matiere: mission.resource,
           porte_demandee: Boolean(mission.wantsDoor),
           erreurs_precedentes: erreurs
@@ -1088,6 +1097,10 @@ function createMissionRunner (host, injected = {}) {
       }
       if (!bp || bp.forme !== 'libre') break
       const compiled = build.compileBlueprint(bp)
+      if (compiled.ok && stock > 0 && !dimensionsImposees && compiled.cells.length > stock) {
+        compiled.ok = false
+        compiled.errors = [`${compiled.cells.length} blocs pour ${stock} en stock : fais une forme qui tient dans le stock`]
+      }
       if (compiled.ok && mission.wantsDoor && !compiled.door) {
         compiled.ok = false
         compiled.errors = ['porte demandee : donne "porte": [x, z] sur le bord']

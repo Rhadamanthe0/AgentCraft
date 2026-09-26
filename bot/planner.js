@@ -1312,7 +1312,7 @@ function blueprintPrompt () {
   if (!prompts.has(key)) {
     prompts.set(key, `Tu concois la forme d une construction Minecraft demandee par un joueur. Le code la verifiera puis la posera bloc par bloc, en survie, avec les blocs de l inventaire.
 
-Tu recois {"objectif", "dimensions_lues", "matiere", "porte_demandee", "erreurs_precedentes"} et tu rends du JSON, rien d autre.
+Tu recois {"objectif", "dimensions_lues", "blocs_en_stock", "matiere", "porte_demandee", "erreurs_precedentes"} et tu rends du JSON, rien d autre.
 
 Deux reponses possibles :
 1. {"forme": "boite"} : une maison ordinaire, boite creuse (sol, 4 murs, toit plat, porte au milieu d un mur). Le code sait la faire : choisis-la des que la demande ne precise rien d autre qu une maison, une cabane ou un abri de taille donnee.
@@ -1327,7 +1327,8 @@ Chaque element est un pave {"type": "plein" | "creux" | "vide", "de": [x,y,z], "
 Regles de construction, verifiees par le code :
 - Tout bloc doit etre relie au sol par des blocs voisins (face contre face) : pas de bloc flottant, pas de toit sans murs ou piliers qui le portent.
 - Les appuis avant ce qu ils portent : un toit repose sur des murs ou des piliers de toute la hauteur.
-- Respecte les dimensions dites par le joueur (dimensions_lues) quand elles existent ; sinon reste petit et economique.
+- Respecte les dimensions dites par le joueur (dimensions_lues, ou lues dans la phrase : « 6 de haut » fixe la hauteur seulement) ; sinon reste petit et economique.
+- blocs_en_stock > 0 : le nombre total de blocs de ta forme ne depasse pas ce stock, sauf si le joueur a fixe les trois dimensions. Une tour ou un mur n a pas besoin d etre large : 1 a 3 blocs d epaisseur suffisent.
 - erreurs_precedentes non vide : ta forme precedente a ete refusee pour ces raisons, corrige-les.
 
 Exemples :
