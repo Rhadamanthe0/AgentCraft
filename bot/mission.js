@@ -3190,7 +3190,24 @@ function createMissionRunner (host, injected = {}) {
           degage += ` (chemin creuse sur ${dug.travelled} bloc(s))`
           result = await approach()
           if (!result.reached && result.code !== 'advanced') {
-            result = { reached: true, travelled: dug.travelled, code: 'dug' }
+            // `digToward` s arrete a 4 blocs du centre, parfois derriere un mur
+            // (sable enferme dans la terre) : « rejoint a portee » etait alors
+            // faux, et le modele relancait `avancer` sans fin (vu : 15 fois,
+            // 0 bloc). Portee verifiee comme dans l etat ; sinon on creuse
+            // jusqu a toucher la cible, et l echec reste un echec.
+            const centre = cible.position.offset(0.5, 0.5, 0.5)
+            const inReach = () => {
+              const live = host.getBot()
+              return Boolean(live?.entity && blockInReach(live, live.entity.position, centre, REACH))
+            }
+            let travelled = dug.travelled
+            if (!inReach() && !mission.cancelled) {
+              const closer = await host.digToward(centre, { signal: mission.navigationAbort.signal, range: 1 })
+              if (closer.travelled) travelled += closer.travelled
+            }
+            result = inReach()
+              ? { reached: true, travelled, code: 'dug' }
+              : { reached: false, travelled, code: 'dug_out_of_reach' }
           }
         } else {
           degage += ` (chemin creuse impossible : ${dug.code})`
@@ -3234,6 +3251,19 @@ function createMissionRunner (host, injected = {}) {
       const cible = findTargetBlock()
       if (cible && blockInReach(bot, bot.entity.position, cible.position.offset(0.5, 0.5, 0.5), REACH)) {
         return { resultat: `${cible.name} deja a portee : casser directement, pas de pilier`, echec: true }
+      }
+      // Cible a +2 au plus au-dessus des pieds, bot au sol : elle se casse
+      // depuis le sol en s approchant. Un pilier y coutait un trou dans le sol
+      // (terre prise sur place) et un bloc pose pour rien (vu : trees/reachable,
+      // derniere buche d un tronc de 3).
+      const ecart = cible ? cible.position.y - Math.floor(bot.entity.position.y) : null
+      const porteur = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+      const perche = porteur && isPillarBlock(bot, porteur)
+      if (cible && bot.entity.onGround && !perche && ecart !== null && ecart <= 2) {
+        return {
+          resultat: `${cible.name} a +${ecart} seulement : pas de pilier, avancer plus pres (avancer vers la cible) puis casser`,
+          echec: true
+        }
       }
 
       let available = scaffoldingStock(bot)
