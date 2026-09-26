@@ -242,6 +242,11 @@
   garde de 400 ms apres (au lieu de 150/600) ; meme geste arret-saut-
   atterrissage, 4,53 -> 3,77 s au banc `tmp/stairs-bench.js`. follow/stairs
   frolait la borne de 8 blocs (7,9 en disposition fixe, 8,15 arene tournee).
+- Reaiguillage de session (`planner.callWithProfile`) : un 400 « Upstream
+  request failed » qui persiste (meme apres le rejeu sans thinking) change
+  l en-tete `x-opencode-session` en `<session>-rN` (3 fois au plus) et rejoue
+  l appel : Zen aiguille par session, un fournisseur casse laissait un bot
+  muet toute la run (vu : TreeBot11, trois niveaux perdus sur 0eb221b).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
