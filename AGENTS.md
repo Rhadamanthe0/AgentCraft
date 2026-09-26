@@ -328,6 +328,13 @@
   refuse. Banc a 32 bots paralleles (POOL_SIZE, ~20 Go libres sur le runner ;
   Paper 3 Go, 80 joueurs), brief muse `high` 60 s, `START_TIMEOUT_S` 75 s.
   La sonde mesure aussi jetons de raisonnement et acceptation de l effort.
+  Repli de CLE (demande du proprietaire) : deux cles pour le gateway Go,
+  primary (PLANNER_API_KEY) et secondary (OPENCODE_SECONDARY_API_KEY) ;
+  PLANNER_KEY_FIRST dit laquelle essayer d abord. Refus de cle (429,
+  401/402/403) => MEME modele avec l autre cle, cle refusee mise de cote
+  PLANNER_KEY_COOLDOWN_MS (10 min). Jamais sur delai/5xx, jamais un autre
+  modele. L alias `modele@go2` est retire. Banc : primary d abord (quota
+  hebdo epuise) pour valider le repli, puis secondary.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

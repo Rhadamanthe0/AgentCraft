@@ -26,8 +26,8 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
 
 
 
-# Models served to the second OpenCode workspace key (alias `modele@go2`,
-# bot/model-chain.js KEY_ALIASES), to pick PLANNER_MODEL_<USAGE> from facts.
+# Models served to the second OpenCode workspace key (secondary,
+# PLANNER_KEY_FIRST in ci/models.env), to pick PLANNER_MODEL_<USAGE> from facts.
 # Ids only, never the key; skipped when the secret is absent.
 PROVIDER_MODEL_LISTS = {
     'go2': ('OPENCODE_SECONDARY_API_KEY', 'https://opencode.ai/zen/go/v1/models'),

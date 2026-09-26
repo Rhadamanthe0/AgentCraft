@@ -138,6 +138,7 @@ function isUpstreamRefusal (err) {
   return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(text) && !/model is unavailable/i.test(text)
 }
 const USER_AGENT = process.env.PLANNER_USER_AGENT || 'minecraft-bot/1.0'
+const keyState = modelChain.createKeyState(Number(process.env.PLANNER_KEY_COOLDOWN_MS || 600000))
 const DEBUG = process.env.PLANNER_DEBUG === '1'
 
 // Memes seuils que ceux qu utilisait Jev : ils ont ete regles en jeu, ils ne
@@ -319,17 +320,32 @@ async function callWithProfile (system, user, opts = {}) {
   // raisonne plus (muse pour la reflexion) a besoin de plus.
   const taskTimeout = modelChain.timeoutFor(task)
   if (taskTimeout) opts = { ...opts, timeoutMs: Math.max(taskTimeout, opts.timeoutMs ?? 0) }
-  const res = await callSingle(system, user, { ...opts, model: entry.model, baseUrl: entry.baseUrl, keyVar: entry.keyVar })
-  stats.modele_servi = entry.label
-  return res
+  // Repli de CLE seulement (PLANNER_KEY_FIRST) : meme modele, autre cle.
+  // Sans aucune cle (base locale type Ollama) : un appel sans cle, comme avant.
+  const configured = modelChain.keyOrder(process.env)
+  const keys = configured.length ? keyState.order(configured) : [{ name: 'aucune', key: '' }]
+  for (const [i, k] of keys.entries()) {
+    try {
+      const res = await callSingle(system, user, { ...opts, model: entry.model, apiKey: k.key })
+      keyState.clear(k)
+      stats.modele_servi = entry.label
+      stats.cle_servie = k.name
+      return res
+    } catch (err) {
+      if (signal?.aborted || !modelChain.isKeySwitchError(err) || i === keys.length - 1) throw err
+      keyState.bench(k)
+      stats.bascules_cle = (stats.bascules_cle ?? 0) + 1
+      stats.cles_de_cote = keyState.status()
+      console.log(`[planner] cle ${k.name} refusee (${String(err.message).slice(0, 160)}) : cle ${keys[i + 1].name} pour ${task}`)
+    }
+  }
 }
 
-async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, baseUrl: otherBase = null, keyVar = null, task = 'plan' } = {}) {
+async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, apiKey = null, task = 'plan' } = {}) {
   const EFFORT = modelChain.effortFor(task)
-  // Alias a cle propre (`modele@go2`, liste fermee KEY_ALIASES) : sa base et
-  // sa variable ; sinon le gateway principal et PLANNER_API_KEY.
-  const base = otherBase || BASE_URL
-  const key = keyVar ? String(process.env[keyVar] ?? '').trim() : API_KEY
+  // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
+  const base = BASE_URL
+  const key = apiKey ?? API_KEY
   const zen = /opencode\.ai\/zen/i.test(base)
   const target0 = forced ?? effectiveModel()
   const proto0 = target0 === PILOT_MODEL ? 'responses' : 'chat'

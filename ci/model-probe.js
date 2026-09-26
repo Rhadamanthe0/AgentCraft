@@ -13,7 +13,7 @@ const path = require('node:path')
 
 // Face-a-face actions/chat (2026-09-26) : meme effort (PLANNER_REASONING_EFFORT_*
 // du banc), jetons de raisonnement et acceptation du champ effort mesures.
-const DEFAULT = ['deepseek-v4.1-flash@go2', 'glm-5.3-flash@go2']
+const DEFAULT = ['deepseek-v4.1-flash', 'glm-5.3-flash']
 const RUNS = Number(process.env.CI_PROBE_RUNS || 8)
 
 const STATE = {
@@ -39,7 +39,9 @@ async function one (entry) {
   console.log = (...a) => console.error(...a)
   Object.assign(process.env, {
     PLANNER_MODEL: entry, PLANNER_MODEL_PLAN: '', PLANNER_MODEL_BRIEF: '', PLANNER_MODEL_CHAT: '', PLANNER_MODEL_COMPACT: '',
-    PLANNER_TIMEOUT_MS: '30000', PLANNER_WARMUP_TIMEOUT_MS: '30000', BOT_USERNAME: 'ProbeModel'
+    PLANNER_TIMEOUT_MS: '30000', PLANNER_WARMUP_TIMEOUT_MS: '30000', BOT_USERNAME: 'ProbeModel',
+    // Mesure du modele, pas du repli de cle : la cle secondaire d abord.
+    PLANNER_KEY_FIRST: process.env.OPENCODE_SECONDARY_API_KEY ? 'secondary' : 'primary'
   })
   // Espion du transport : effort envoye, refus 400, jetons de raisonnement.
   const llm = require(path.join(__dirname, '..', 'bot', 'llm'))

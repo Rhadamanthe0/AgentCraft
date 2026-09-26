@@ -10,16 +10,12 @@
 //   PLANNER_MODEL_REPAIR=...    demander de l aide, reviser les actions (repair.js)
 //
 // Avec pour chacun PLANNER_REASONING_EFFORT_<USAGE> et PLANNER_TIMEOUT_MS_<USAGE>.
-// `modele` = gateway principal (PLANNER_BASE_URL, PLANNER_API_KEY) ;
-// `modele@go2` = gateway Go avec la cle du second espace OpenCode. Tout autre
-// `@...` est refuse (aucun modele pour l usage, erreur claire).
-
-// Alias de base a cle PROPRE (liste fermee) : `modele@go2` = gateway Go avec
-// la cle d un second espace OpenCode (secret OPENCODE_SECONDARY_API_KEY), mis
-// de cote independamment de la cle principale (quota Go distinct).
-const KEY_ALIASES = {
-  go2: { baseUrl: 'https://opencode.ai/zen/go/v1', keyVar: 'OPENCODE_SECONDARY_API_KEY' }
-}
+// Tous les modeles passent par PLANNER_BASE_URL. Deux cles possibles pour ce
+// gateway : `primary` (PLANNER_API_KEY) et `secondary` (OPENCODE_SECONDARY_API_KEY,
+// second espace OpenCode). PLANNER_KEY_FIRST dit laquelle essayer d abord ; un
+// refus de cle (quota 429, 401/402/403) rejoue le MEME modele avec l autre cle
+// et met la cle refusee de cote PLANNER_KEY_COOLDOWN_MS. C est le seul repli :
+// jamais un autre modele. Tout `modele@...` est refuse (erreur claire).
 
 const TASK_VARS = {
   plan: 'PLANNER_MODEL_PLAN',
@@ -35,10 +31,8 @@ function parse (text) {
   return String(text ?? '').split(',').map(s => s.trim()).filter(Boolean).map(entry => {
     const at = entry.indexOf('@')
     if (at <= 0) return { model: entry, baseUrl: null, label: entry }
-    // Seuls les alias connus (KEY_ALIASES) : plus aucune base tierce (les
-    // fournisseurs gratuits ont ete retires du code, 2026-09-26).
-    const alias = KEY_ALIASES[entry.slice(at + 1).trim().toLowerCase()]
-    if (alias) return { model: entry.slice(0, at).trim(), baseUrl: alias.baseUrl, keyVar: alias.keyVar, label: entry }
+    // Plus aucune base tierce (fournisseurs gratuits retires du code) ni alias :
+    // la cle se choisit par PLANNER_KEY_FIRST, pas par le nom du modele.
     return { model: entry.slice(0, at).trim(), invalid: true, label: entry }
   })
 }
@@ -49,7 +43,6 @@ function modelFor (task, env = process.env, fallback = '') {
   const own = TASK_VARS[task] ? env[TASK_VARS[task]] : ''
   const entry = parse(String(own ?? '').trim() || env.PLANNER_MODEL || fallback)[0]
   if (!entry || entry.invalid) return null
-  if (entry.keyVar && !String(env[entry.keyVar] ?? '').trim()) return null
   return entry
 }
 
@@ -69,4 +62,36 @@ function timeoutFor (task, env = process.env) {
   return Number.isFinite(value) && value > 0 ? value : null
 }
 
-module.exports = { KEY_ALIASES, parse, modelFor, effortFor, timeoutFor, TASK_VARS }
+const KEY_VARS = { primary: 'PLANNER_API_KEY', secondary: 'OPENCODE_SECONDARY_API_KEY' }
+
+// Cles dans l ordre d essai (PLANNER_KEY_FIRST=primary|secondary, defaut
+// primary), sans les cles vides.
+function keyOrder (env = process.env) {
+  const first = String(env.PLANNER_KEY_FIRST ?? '').trim().toLowerCase() === 'secondary' ? 'secondary' : 'primary'
+  return [first, first === 'primary' ? 'secondary' : 'primary']
+    .map(name => ({ name, key: String(env[KEY_VARS[name]] ?? '').trim() }))
+    .filter(k => k.key)
+}
+
+// Refus qui tient a la CLE (quota, droits) : l autre cle peut passer. Un delai,
+// une 5xx ou un 400 de schema ne changent rien d une cle a l autre.
+function isKeySwitchError (err) {
+  return err?.code === 'LLM_HTTP' && [401, 402, 403, 429].includes(Number(err.status))
+}
+
+function createKeyState (cooldownMs = 600000) {
+  const until = new Map()
+  return {
+    order (keys, now = Date.now()) {
+      const ready = keys.filter(k => !(until.get(k.name) > now))
+      return [...ready, ...keys.filter(k => until.get(k.name) > now)]
+    },
+    bench (k, now = Date.now()) { until.set(k.name, now + cooldownMs) },
+    clear (k) { until.delete(k.name) },
+    status (now = Date.now()) {
+      return Object.fromEntries([...until].filter(([, t]) => t > now).map(([n, t]) => [n, new Date(t).toISOString()]))
+    }
+  }
+}
+
+module.exports = { parse, modelFor, effortFor, timeoutFor, keyOrder, isKeySwitchError, createKeyState, KEY_VARS, TASK_VARS }
