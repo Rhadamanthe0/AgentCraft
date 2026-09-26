@@ -21,7 +21,8 @@ from trees import BOTS_SERVICE, PROBES_SERVICE, arena_origins, bot_services, lev
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
-        'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js']
+        'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js',
+        'model-chain.test.js', 'fabrication-utile.test.js', 'conversation.test.js']
 
 
 def main():
@@ -431,7 +432,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                         continue
                     stats[username] = {k: p.get(k) for k in ('appels', 'etapes_servies', 'echecs', 'moyenne_ms',
                                                               'jetons_total', 'jetons_en_cache_total',
-                                                              'jetons_sortie_total', 'jetons_raisonnement_total')}
+                                                              'jetons_sortie_total', 'jetons_raisonnement_total',
+                                                              'modele_servi', 'bascules', 'modeles_de_cote')}
                 report['plannerStats'] = stats
                 calls = sum(v.get('appels') or 0 for v in stats.values())
                 prompt = sum(v.get('jetons_total') or 0 for v in stats.values())
@@ -442,6 +444,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     'cache_ratio': round(cached / prompt, 3) if prompt else None,
                     'jetons_raisonnement': sum(v.get('jetons_raisonnement_total') or 0 for v in stats.values()),
                     'jetons_sortie': sum(v.get('jetons_sortie_total') or 0 for v in stats.values()),
+                    # Chaine de modeles (ci/models.env) : dernier modele servi par bot, bascules.
+                    'modeles_servis': sorted({v['modele_servi'] for v in stats.values() if v.get('modele_servi')}),
+                    'bascules': sum(v.get('bascules') or 0 for v in stats.values()),
                 }
             else:
                 level_results = [{'test': level, 'success': False,

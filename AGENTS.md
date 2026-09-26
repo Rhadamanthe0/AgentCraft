@@ -234,6 +234,31 @@
   l en-tete `x-opencode-session` en `<session>-rN` (3 fois au plus) et rejoue
   l appel : Zen aiguille par session, un fournisseur casse laissait un bot
   muet toute la run (vu : TreeBot11, trois niveaux perdus sur 0eb221b).
+- Chaine de modeles par usage (`bot/model-chain.js`, 2026-09-26, demande du
+  proprietaire apres le quota hebdomadaire Go epuise : 429 GoUsageLimitError) :
+  `PLANNER_MODEL` accepte une liste (ordre d essai) et chaque usage peut avoir
+  la sienne (`PLANNER_MODEL_PLAN`, `_BRIEF`, `_CHAT`, `_COMPACT`). Refus du
+  fournisseur (429, 401/403, modele inconnu/indisponible, 5xx) => modele mis de
+  cote `PLANNER_MODEL_COOLDOWN_MS` et suivant dans le meme appel ; jamais sur
+  delai ni 400 de schema. `modele@url` = autre base appelee SANS la cle. Refus
+  du champ thinking compte par modele. CI : `ci/models.env` (sans secret),
+  ordre du proprietaire : `deepseek-v4-flash-free` puis `space-bunny-free`
+  (acces anonyme `@https://opencode.ai/zen/v1`), puis `muse-spark-1.3-contributor`
+  payant (Go, avec la cle). Pas de `deepseek-v4.1-flash-free` (n existe pas) ;
+  `mimo-v2.6-flash-free` et `muse-...-free` refuses hors client OpenCode (403
+  FreeTierError) : ne pas contourner. Avec la cle, Go refusait aussi les modeles
+  gratuits en 429 une fois le quota epuise (sa doc dit l inverse). Mesure
+  df32ee7 : 55/65 niveaux contre 64/65 avec deepseek, ~6,4 s par appel,
+  raisonne toujours (refuse thinking).
+  Delai depasse dans une chaine : UNE bascule au modele suivant par appel,
+  sans mise de cote (build/big-box : ordre du joueur muet 30 s). Cible de
+  fabrication du brief pliee (accents, article, « hache en bois » =>
+  wooden_axe) : « établi » n etait pas reconnu, batons fabriques (craft/table).
+  `piler` refuse une hauteur qui laisse la buche la plus basse hors de portee
+  (> MAX_REACH_UP) et dit le minimum ; la valeur n est jamais changee
+  (chat/replace-and-join : piler(1) repete, 3 min sans atteindre le tronc).
+  Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
+  contourner.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
