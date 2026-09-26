@@ -319,6 +319,10 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   `piler` refuse une hauteur qui laisse la buche la plus basse hors de portee
   (> MAX_REACH_UP) et dit le minimum ; la valeur n est jamais changee
   (chat/replace-and-join : piler(1) repete, 3 min sans atteindre le tronc).
+  Chaine entiere refusee apres un delai : le modele muet est re-essaye UNE
+  fois (16 bots au meme instant : space-bunny muet 30 s, muse en quota,
+  deepseek indisponible ; quatre ordres perdus sur bc79aae). Banc : 4000
+  jetons de sortie (space-bunny tronquait 7 % des plans a 2000).
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
