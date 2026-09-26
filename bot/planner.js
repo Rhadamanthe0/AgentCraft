@@ -1047,6 +1047,8 @@ function coerceParams (action, entry) {
   return out
 }
 
+const ACTION_ALIASES = { pilier: 'piler' }
+
 function validate (raw, kind, supply) {
   const allowed = new Set(skills.actionsFor(kind, supply, true))
   const steps = []
@@ -1058,11 +1060,16 @@ function validate (raw, kind, supply) {
   for (const entry of plan) {
     if (steps.length >= PLAN_MAX) break
 
-    const action = typeof entry === 'string' ? entry : entry?.action
-    if (typeof action !== 'string') {
+    const rawAction = typeof entry === 'string' ? entry : entry?.action
+    if (typeof rawAction !== 'string') {
       rejected.push('etape sans nom')
       continue
     }
+    // Nom d action a peine deforme (accents, majuscules, nom du bloc pour
+    // l action) : ramene a l action native. Vu avec space-bunny-free :
+    // « pilier » rejete trois fois de suite au lieu de `piler`.
+    const folded = rawAction.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    const action = ACTION_ALIASES[folded] ?? folded
 
     // Le planificateur JSON donne des valeurs NUMERIQUES — « casser pendant 5
     // secondes », « avancer de 12 blocs » — et non plus une ampleur abstraite.

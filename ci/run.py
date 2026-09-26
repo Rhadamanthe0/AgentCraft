@@ -22,7 +22,7 @@ from trees import BOTS_SERVICE, PROBES_SERVICE, arena_origins, bot_services, lev
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
         'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js',
-        'model-chain.test.js']
+        'model-chain.test.js', 'fabrication-utile.test.js']
 
 
 def main():
