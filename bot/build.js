@@ -153,7 +153,10 @@ function clamp (value) {
 // exacte et gratuite.
 function parseDimensions (text) {
   const clean = String(text || '').toLowerCase().replace(/,/g, ' ')
-  const sep = '\\s*(?:par|sur|x|\\*)\\s*'
+  // « × » : le modele de chat reecrit volontiers « 3 par 3 par 3 » en
+  // « 3 × 3 × 3 » (vu avec space-bunny-free : maison 5x5x5 par defaut, 96
+  // blocs pour 64 de terre).
+  const sep = '\\s*(?:par|sur|x|\\*|\u00d7|\u2715)\\s*'
 
   const three = clean.match(new RegExp(`(\\d+)${sep}(\\d+)${sep}(\\d+)`))
   if (three) {
@@ -198,7 +201,7 @@ const QUOTA_WORDS = {
 function parseQuota (text, { allowBlockUnits = false } = {}) {
   const original = String(text || '')
     .toLowerCase()
-    .replace(/\d+\s*(?:par|sur|x|\*)\s*\d+(?:\s*(?:par|sur|x|\*)\s*\d+)?/g, ' ')
+    .replace(/\d+\s*(?:par|sur|x|\*|×|✕)\s*\d+(?:\s*(?:par|sur|x|\*|×|✕)\s*\d+)?/g, ' ')
   if (allowBlockUnits) {
     const words = { un: 1, une: 1, ...QUOTA_WORDS }
     const count = original.match(new RegExp(`\\b(\\d{1,3}|${Object.keys(words).join('|')})\\s+blocs?\\b`))

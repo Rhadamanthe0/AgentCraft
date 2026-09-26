@@ -46,6 +46,18 @@ test('modification ne cible pas une mission remplacee pendant le calcul', async 
   assert.equal((await f.conversation.receive('A', 'plutot trois')).ignored, true)
   assert.equal(f.events[0][0], 'say')
 })
+test('mission finie pendant le calcul : la revision complete devient une nouvelle demande', async () => {
+  const f = fixture()
+  f.host.interpret = async () => { f.state.etat = 'done'; return { relation: 'amend', objective: 'coupe un arbre' } }
+  const out = await f.conversation.receive('A', 'laisse tomber, coupe plutot un arbre')
+  assert.notEqual(out.ignored, true)
+  assert.deepEqual(f.events.filter(e => e[0] === 'start'), [['start', 'coupe un arbre']])
+})
+test('precision sur une mission finie pendant le calcul : toujours redemandee', async () => {
+  const f = fixture()
+  f.host.interpret = async () => { f.state.etat = 'done'; return { relation: 'context' } }
+  assert.equal((await f.conversation.receive('A', 'je suis derriere')).ignored, true)
+})
 test('question pendant le brief ne supprime pas un objectif deja accepte', async () => {
   const f = fixture()
   let release

@@ -10,7 +10,7 @@ const craft = require('../bot/craft')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false }) {
+async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74 }) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
@@ -29,7 +29,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
     return { ms: 0, seconds: 1, rejected: [], done: 0, finished: false, steps }
   })
   const stock = inventory.map(item => ({ ...item }))
-  const blocks = new Map([['0,64,0', 'stone'], ['1,74,0', 'oak_log']])
+  const blocks = new Map([['0,64,0', 'stone'], [`1,${logY},0`, 'oak_log']])
   const placements = []
   const commands = []
   const messages = []
@@ -38,7 +38,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
       coarse_dirt: { id: 3, boundingBox: 'block' }, oak_planks: { id: 4, boundingBox: 'block' },
       birch_planks: { id: 5, boundingBox: 'block' }, fake_planks: { id: 6, boundingBox: 'empty' } }, itemsByName: {} },
     inventory: { items: () => stock.filter(item => item.count > 0) }, players: {}, entities: {},
-    findBlocks: ({ matching }) => matching.includes(1) ? [new Vec3(1, 74, 0)] : [], findBlock: () => null,
+    findBlocks: ({ matching }) => matching.includes(1) ? [new Vec3(1, logY, 0)] : [], findBlock: () => null,
     blockAt: p => { const position = p.floored(); const name = blocks.get(`${position.x},${position.y},${position.z}`) ?? 'air'
       return { name, position, boundingBox: name === 'air' ? 'empty' : 'block', shapes: name === 'air' ? [] : [[0, 0, 0, 1, 1, 1]] } },
     clearControlStates () {},
@@ -120,13 +120,13 @@ test('refus niveau2 : premiere pose prouvee mais montee partielle en echec', asy
 })
 
 test('bloc different du materiau choisi ne prouve pas la pose', async t => {
-  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 1 }], height: 1, wrongBlock: true })
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 1 }], height: 1, wrongBlock: true, logY: 69 })
   assert.equal(f.step.echec, true)
   assert.match(f.step.resultat, /non pose|different/)
 })
 
 test('pose presente sans atterrissage prouve reste un echec mesure', async t => {
-  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 1 }], height: 1, noLanding: true })
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 1 }], height: 1, noLanding: true, logY: 69 })
   assert.equal(f.step.echec, true)
   assert.match(f.step.resultat, /1\/1.*atterrissage/)
 })
@@ -140,7 +140,14 @@ test('stock perdu apres premiere pose : echec partiel mesure et pas de vieux pla
 })
 
 test('retry ne valide jamais un bloc different du materiau choisi', async t => {
-  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 2 }], height: 1, wrongBlock: true, retryError: true })
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 2 }], height: 1, wrongBlock: true, retryError: true, logY: 69 })
   assert.equal(f.step.echec, true)
   assert.match(f.step.resultat, /pilier impossible/)
+})
+
+test('hauteur trop courte pour la buche la plus basse : refus qui dit le minimum', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 6 }], height: 1 })
+  assert.equal(f.step.echec, true)
+  assert.match(f.step.resultat, /piler au moins 6/)
+  assert.deepEqual(f.placements, [])
 })
