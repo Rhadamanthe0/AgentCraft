@@ -242,8 +242,11 @@
   cote `PLANNER_MODEL_COOLDOWN_MS` et suivant dans le meme appel ; jamais sur
   delai ni 400 de schema. `modele@url` = autre base appelee SANS la cle. Refus
   du champ thinking compte par modele. CI : `ci/models.env` (sans secret),
-  gratuits `space-bunny-free` (essaye hors CI : brief/chat/plans corrects,
-  ~2 s, refuse thinking) puis `longcat-2.5-preview-free`, puis Zen anonyme.
+  `space-bunny-free@https://opencode.ai/zen/v1` seul (choix du proprietaire :
+  100 % gratuit, acces anonyme). Avec la cle, Go refusait aussi les modeles
+  gratuits en 429 une fois le quota epuise (sa doc dit l inverse). Mesure
+  df32ee7 : 55/65 niveaux contre 64/65 avec deepseek, ~6,4 s par appel,
+  raisonne toujours (refuse thinking).
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
