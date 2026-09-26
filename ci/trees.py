@@ -578,6 +578,10 @@ def vary(level, seed):
         cx, cz = _cell(x, z, turns, mirror)
         logs.append(((cx, y, cz), _block(block, turns, species)))
     out['logs'] = logs
+    # Objects made from the tree follow its species (spruce tree -> spruce
+    # planks), unless the logs were given (oak) rather than cut.
+    if species != 'oak' and level['logs'] and not any(g[0].startswith('oak_') for g in level.get('give', [])):
+        out['items'] = [i.replace('oak_', f'{species}_') for i in level.get('items', [])]
     out['start'] = _point(level.get('start', LOCAL_START), turns, mirror)
     out['park'] = _point(level.get('park', PARK_LOCAL), turns, mirror)
     out['probeLocal'] = _point(level.get('probeLocal', PROBE_LOCAL), turns, mirror)
