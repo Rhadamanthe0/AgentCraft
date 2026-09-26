@@ -140,7 +140,10 @@ services:
       # Bots must not take each other's chat for orders (shared server).
       CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TreeBot9,TreeBot10,TreeBot11,TreeBot12,TreeBot13,TreeBot14,TreeBot15,TreeBot16,TestProbe1,TestProbe2,TestProbe3,TestProbe4,TestProbe5,TestProbe6,TestProbe7,TestProbe8,TestProbe9,TestProbe10,TestProbe11,TestProbe12,TestProbe13,TestProbe14,TestProbe15,TestProbe16,TestProbe17
       PLANNER_USER_AGENT: minecraft-bot/1.0
-      PLANNER_TIMEOUT_MS: "30000"
+      # 20 s : un appel muet de space-bunny ne revient pas, un nouvel essai si
+      # (planner.callWithProfile). Mesure 288ce66 : p95 14,6 s, p99 18,1 s ;
+      # a 30 s, 30 + 30 s depassaient les 60 s sans progres du banc.
+      PLANNER_TIMEOUT_MS: "20000"
       # Mesure : 86 % des jetons produits etaient du raisonnement (~3,9 s/plan).
       PLANNER_THINKING: disabled
       # space-bunny-free raisonne toujours (refuse thinking) : a 2000, 7 % des

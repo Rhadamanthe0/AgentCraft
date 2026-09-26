@@ -274,6 +274,8 @@
   fois (16 bots au meme instant : space-bunny muet 30 s, muse en quota,
   deepseek indisponible ; quatre ordres perdus sur bc79aae). Banc : 4000
   jetons de sortie (space-bunny tronquait 7 % des plans a 2000).
+  Delai CI ramene a 20 s (p95 14,6 s, p99 18,1 s sur 288ce66) : un appel
+  muet est re-essaye, et 30 + 30 s depassaient les 60 s sans progres.
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
