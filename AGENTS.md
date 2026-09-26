@@ -305,6 +305,11 @@
   Muse Spark 1.3 (indice Artificial Analysis 45-48, le plus haut des candidats ;
   plus gros quota Go) passe par /responses (`PILOT_MODEL`) : l effort y part
   en `reasoning.effort`. `muse-spark-1.3-contributor@go2` est dans la sonde.
+  Quatre usages x (modele, effort) voulus par le proprietaire : PLAN (actions)
+  et CHAT en `low` (deepseek-v4.1-flash ou mimo-v2.6-flash, a trancher par la
+  sonde), BRIEF (reflexion) muse@go2 `medium`, COMPACT (memoire) muse@go2
+  `high` (`max` n est pas une valeur d API). `PLANNER_TIMEOUT_MS_<USAGE>` :
+  brief 25 s au banc (un niveau sans mission a 45 s echoue), memoire 90 s.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

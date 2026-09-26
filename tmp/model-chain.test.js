@@ -8,7 +8,7 @@ const chain = require('../bot/model-chain')
 const llm = require('../bot/llm')
 
 const PLANNER_PATH = require.resolve('../bot/planner')
-const KEYS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_MODEL_PLAN', 'PLANNER_MODEL_CHAT', 'PLANNER_API_KEY', 'PLANNER_THINKING', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN', 'PLANNER_REASONING_EFFORT_BRIEF', 'BOT_USERNAME']
+const KEYS = ['PLANNER_TIMEOUT_MS_BRIEF', 'PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_MODEL_PLAN', 'PLANNER_MODEL_CHAT', 'PLANNER_API_KEY', 'PLANNER_THINKING', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN', 'PLANNER_REASONING_EFFORT_BRIEF', 'BOT_USERNAME']
 const saved = Object.fromEntries(KEYS.map(k => [k, process.env[k]]))
 const origCall = llm.call
 afterEach(() => {
@@ -181,4 +181,14 @@ test('chaine vide (cles absentes) : erreur claire, jamais la liste brute envoyee
   const p = load({ PLANNER_MODEL: 'd@go2' })
   await assert.rejects(p.plan({}, 'recolte', 'harvest'))
   assert.deepEqual(seen, [])
+})
+
+test('delai par usage : PLANNER_TIMEOUT_MS_<USAGE>, jamais plus court que le delai commun', async () => {
+  assert.equal(chain.timeoutFor('readBrief', { PLANNER_TIMEOUT_MS_BRIEF: '45000' }), 45000)
+  assert.equal(chain.timeoutFor('plan', {}), null)
+  const seen = []
+  llm.call = async (s, u, o) => { seen.push(o.timeoutMs); return { content: '{"type":"recolte","matiere":"bois"}', usage: null, ms: 1 } }
+  const p = load({ PLANNER_MODEL: 'a,b', PLANNER_TIMEOUT_MS_BRIEF: '45000' })
+  await p.readBrief('coupe un arbre').catch(() => {})
+  assert.ok(seen.length && seen.every(ms => ms >= 45000), JSON.stringify(seen))
 })

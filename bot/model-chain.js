@@ -112,4 +112,11 @@ function keyFor (baseUrl, env = process.env) {
   return name ? String(env[name] ?? '').trim() : ''
 }
 
-module.exports = { KEY_ALIASES, parse, chainFor, effortFor, keyFor, PROVIDER_KEYS, isSwitchError, createState, TASK_VARS }
+// Delai d un appel par usage : PLANNER_TIMEOUT_MS_<USAGE> (vide = delai commun).
+function timeoutFor (task, env = process.env) {
+  const name = TASK_VARS[task]?.replace('PLANNER_MODEL_', 'PLANNER_TIMEOUT_MS_')
+  const value = Number(name ? env[name] : NaN)
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+
+module.exports = { KEY_ALIASES, parse, chainFor, effortFor, timeoutFor, keyFor, PROVIDER_KEYS, isSwitchError, createState, TASK_VARS }

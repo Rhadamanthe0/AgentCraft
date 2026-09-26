@@ -377,6 +377,10 @@ async function callWithProfile (system, user, opts = {}) {
   // (vu sur build/big-box : space-bunny muet 30 s sur l ordre du joueur, bot
   // immobile tout le niveau). Jamais sur annulation par le signal.
   let timeoutSwitch = false
+  // Delai propre a l usage (PLANNER_TIMEOUT_MS_<USAGE>) : un modele qui
+  // raisonne plus (muse en effort moyen pour la reflexion) a besoin de plus.
+  const taskTimeout = modelChain.timeoutFor(task)
+  if (taskTimeout) opts = { ...opts, timeoutMs: Math.max(taskTimeout, opts.timeoutMs ?? 0) }
   const ordered = chainState.order(chain)
   for (const [i, entry] of ordered.entries()) {
     if (signal?.aborted) break
