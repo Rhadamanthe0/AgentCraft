@@ -313,6 +313,15 @@
   Cinquieme usage REPAIR (demander_aide, reviser_actions) : `repair.js` passe
   par la chaine du planificateur des que `PLANNER_MODEL_REPAIR` est pose
   (prioritaire sur REPAIR_MODEL/REPAIR_API_KEY) ; banc : muse@go2 `medium`, 60 s.
+  **Plus aucun repli de modele (2026-09-26, demande du proprietaire)** : UN
+  modele par usage (`modelFor`, une liste ne garde que sa tete), aucune bascule
+  sur refus/delai, aucune mise de cote, plus de repli Muse -> DeepSeek du
+  profil pilote. Seuls restent les rejeux du MEME modele : troncature (budget
+  elargi), panne passagere dans `llm.call`, reaiguillage de session, retrait
+  des champs thinking/effort refuses. Banc : actions/chat deepseek-v4.1-flash@go2
+  `low` ; reflexion (BRIEF, 40 s), memoire (COMPACT) et aide (REPAIR) en
+  muse@go2 `high`. Les notes plus haut sur les chaines et bascules sont
+  historiques.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

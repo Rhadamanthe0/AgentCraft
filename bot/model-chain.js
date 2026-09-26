@@ -1,22 +1,18 @@
 'use strict'
-// Chaine de modeles par usage, choisie dans le .env (demande du proprietaire,
-// 2026-09-26 : quota hebdomadaire Go epuise, modeles gratuits a la place).
+// Modele par usage, choisi dans le .env (demande du proprietaire, 2026-09-26) :
+// UN seul modele par usage, AUCUN repli vers un autre modele.
 //
-//   PLANNER_MODEL=space-bunny-free,longcat-2.5-preview-free
-//   PLANNER_MODEL_PLAN=...      plans de mission        (tache plan)
-//   PLANNER_MODEL_BRIEF=...     lecture de l objectif   (readBrief)
+//   PLANNER_MODEL=...           defaut (prechauffage, usage sans variable)
+//   PLANNER_MODEL_PLAN=...      actions (plans de mission)
 //   PLANNER_MODEL_CHAT=...      chat du joueur          (interpretMessage, classify)
-//   PLANNER_MODEL_COMPACT=...   resume de la memoire    (compact)
+//   PLANNER_MODEL_BRIEF=...     reflexion : lecture de l objectif (readBrief)
+//   PLANNER_MODEL_COMPACT=...   generation de la memoire (compact)
 //   PLANNER_MODEL_REPAIR=...    demander de l aide, reviser les actions (repair.js)
 //
-// Chaque usage prend sa liste, sinon PLANNER_MODEL. Une entree `modele@url`
-// passe par une autre base, SANS cle (ex : l offre gratuite anonyme de Zen,
-// `space-bunny-free@https://opencode.ai/zen/v1`) : la cle du gateway principal
-// n est jamais envoyee ailleurs. On essaie dans l ordre ; un refus HTTP du
-// fournisseur (quota 429, modele inconnu ou indisponible, 401/403, 5xx) met le
-// modele de cote `PLANNER_MODEL_COOLDOWN_MS` et passe au suivant dans le meme
-// appel. Delai, annulation, JSON illisible : jamais de bascule (le modele a
-// repondu, ou c est le code qui a coupe).
+// Avec pour chacun PLANNER_REASONING_EFFORT_<USAGE> et PLANNER_TIMEOUT_MS_<USAGE>.
+// Une entree `modele@url` passe par une autre base, avec la seule cle propre a
+// cet hote (PROVIDER_KEYS) ; `modele@go2` = gateway Go avec la cle secondaire.
+// La cle du gateway principal n est jamais envoyee ailleurs.
 
 // Alias de base a cle PROPRE (liste fermee) : `modele@go2` = gateway Go avec
 // la cle d un second espace OpenCode (secret OPENCODE_SECONDARY_API_KEY), mis
@@ -46,48 +42,19 @@ function parse (text) {
   })
 }
 
-function chainFor (task, env = process.env, fallback = '') {
+// Le modele de l usage : PLANNER_MODEL_<USAGE>, sinon PLANNER_MODEL. Une liste
+// (ancien format) ne garde que sa premiere entree. null si sa cle manque.
+function modelFor (task, env = process.env, fallback = '') {
   const own = TASK_VARS[task] ? env[TASK_VARS[task]] : ''
-  // Fournisseur a cle (PROVIDER_KEYS) sans sa cle : entree ignoree plutot
-  // qu un 401 a chaque appel.
-  return parse(String(own ?? '').trim() || env.PLANNER_MODEL || fallback)
-    .filter(e => e.keyVar ? String(env[e.keyVar] ?? '').trim() : (!e.baseUrl || !needsKey(e.baseUrl) || keyFor(e.baseUrl, env)))
+  const entry = parse(String(own ?? '').trim() || env.PLANNER_MODEL || fallback)[0]
+  if (!entry) return null
+  const keyed = entry.keyVar ? String(env[entry.keyVar] ?? '').trim()
+    : !entry.baseUrl || !needsKey(entry.baseUrl) || keyFor(entry.baseUrl, env)
+  return keyed ? entry : null
 }
 
 function needsKey (baseUrl) {
   try { return Boolean(PROVIDER_KEYS[new URL(baseUrl).hostname.toLowerCase()]) } catch { return false }
-}
-
-// Refus du fournisseur qui justifie d essayer un autre modele. 400 seulement
-// s il dit que le modele n est pas servi (un 400 de schema resterait un 400).
-function isSwitchError (err) {
-  if (err?.code !== 'LLM_HTTP') return false
-  const s = Number(err.status)
-  if ([401, 402, 403, 404, 429].includes(s) || s >= 500) return true
-  return s === 400 && /model is unavailable|not supported|unknown model|model.*not found/i.test(String(err.message ?? ''))
-}
-
-function createState (cooldownMs = 600000) {
-  const until = new Map()
-  const reasons = new Map()
-  return {
-    cooldownMs,
-    order (chain, now = Date.now()) {
-      const ready = chain.filter(e => !(until.get(e.label) > now))
-      const cooled = chain.filter(e => until.get(e.label) > now)
-        .sort((a, b) => until.get(a.label) - until.get(b.label))
-      return [...ready, ...cooled]
-    },
-    bench (entry, err, now = Date.now()) {
-      until.set(entry.label, now + cooldownMs)
-      reasons.set(entry.label, String(err?.message ?? err ?? '').slice(0, 160))
-    },
-    clear (entry) { until.delete(entry.label); reasons.delete(entry.label) },
-    status (now = Date.now()) {
-      return Object.fromEntries([...until].filter(([, t]) => t > now)
-        .map(([label, t]) => [label, { jusqu_a: new Date(t).toISOString(), raison: reasons.get(label) }]))
-    }
-  }
 }
 
 // Effort de raisonnement par usage : PLANNER_REASONING_EFFORT_<USAGE> sinon
@@ -122,4 +89,4 @@ function timeoutFor (task, env = process.env) {
   return Number.isFinite(value) && value > 0 ? value : null
 }
 
-module.exports = { KEY_ALIASES, parse, chainFor, effortFor, timeoutFor, keyFor, PROVIDER_KEYS, isSwitchError, createState, TASK_VARS }
+module.exports = { KEY_ALIASES, parse, modelFor, effortFor, timeoutFor, keyFor, PROVIDER_KEYS, TASK_VARS }

@@ -43,8 +43,7 @@ const modelChain = require('./model-chain')
 
 const BASE_URL = (process.env.PLANNER_BASE_URL || '').replace(/\/+$/, '')
 const API_KEY = process.env.PLANNER_API_KEY || ''
-// Profil pilote D37/D49 : `muse-spark-1.3-contributor` par defaut (nouveau
-// profil), `deepseek-v4.1-flash` en repli annonce sur indisponibilite uniquement.
+// Profil pilote D37/D49 : `muse-spark-1.3-contributor` par defaut, sans repli.
 // Le gateway Go sert Muse sur `/responses` (503 « Endpoint is unavailable » sur
 // `/chat/completions`) : llm.js parle desormais les deux protocoles avec
 // autodetection sur le nom, donc ce fichier choisit le MODELE et laisse llm.js
@@ -54,7 +53,6 @@ const API_KEY = process.env.PLANNER_API_KEY || ''
 // ne pretend Muse en jeu. `deepseek-v4.1-flash` percoit lui-meme les images
 // (appel reel verifie), donc la mini-carte reste lue sur les deux modeles.
 const PILOT_MODEL = 'muse-spark-1.3-contributor'
-const FALLBACK_MODEL = 'deepseek-v4.1-flash'
 const MODEL = (process.env.PLANNER_MODEL || '').trim() || PILOT_MODEL
 const TIMEOUT_MS = Number(process.env.PLANNER_TIMEOUT_MS || 12000)
 const PLAN_MAX = Number(process.env.PLANNER_PLAN_MAX || 5)
@@ -104,9 +102,6 @@ const PILOT_EFFECTIVE_MAX_TOKENS = Math.max(
 const PILOT_RETRY_EFFECTIVE_MAX_TOKENS = Math.max(
   Number.isFinite(PILOT_RETRY_MAX_TOKENS) ? PILOT_RETRY_MAX_TOKENS : 8192,
   PILOT_EFFECTIVE_MAX_TOKENS)
-// Cooldown avant de re-sonder le pilote apres un repli : la reprise passe par
-// l appel normal suivant (sondage), jamais par un appel double/concurrent en fond.
-const PILOT_COOLDOWN_MS = Number(process.env.PLANNER_PILOT_COOLDOWN_MS || 60000)
 // Jamais de pilote Astra par ce profil : un modele configure contenant `astra`
 // desactive le profil (le modele explicite est alors utilise tel quel).
 const ASTRA_RE = /astra/i
@@ -143,7 +138,6 @@ function isUpstreamRefusal (err) {
   return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(text) && !/model is unavailable/i.test(text)
 }
 const USER_AGENT = process.env.PLANNER_USER_AGENT || 'minecraft-bot/1.0'
-const chainState = modelChain.createState(Number(process.env.PLANNER_MODEL_COOLDOWN_MS || 600000))
 const DEBUG = process.env.PLANNER_DEBUG === '1'
 
 // Memes seuils que ceux qu utilisait Jev : ils ont ete regles en jeu, ils ne
@@ -164,30 +158,16 @@ let lastError = null
 let warm = false
 
 // ---------------------------------------------------------------------------
-// Profil pilote D37/D49 : selection Muse par defaut, repli DeepSeek annonce.
-//
-// - `configured` (MODEL) : ce qui est configure (defaut = pilote Muse). Un
-//   PLANNER_MODEL explicite (ex : deepseek existant) est respecte : le profil
-//   reste alors inactif et l effectif reste le configure.
-// - `effective` : pilote sauf repli actif (cooldown non expire => fallback).
-// - Repli UNIQUEMENT sur erreur de disponibilite du transport (llm.call leve)
-//   quand on visait le pilote. Jamais sur abort (signal annule) ni sur erreur
-//   de schema/JSON (apres un llm.call reussi : parse/validation/relation).
-// - Reprise : a l expiration du cooldown, l appel normal suivant re-sonde le
-//   pilote ; un succes le retablit, sans appel double ni sondage en fond.
-// - Garde-fous : base Go non vide + session stable + maxTokens >= 2000, jamais
-//   de pilote Astra.
+// Profil pilote D37/D49 : Muse (`/responses`) quand PLANNER_MODEL le nomme.
+// Plus AUCUN repli vers un autre modele (2026-09-26) : `effective` vaut
+// toujours le modele configure ; seul reste le reessai du MEME modele sur
+// troncature (budget elargi). Garde-fous : base Go, session stable, jamais Astra.
 // ---------------------------------------------------------------------------
 
 const profileListeners = new Set()
 const _profile = {
   configured: MODEL,
-  pilot: PILOT_MODEL,
-  fallback: FALLBACK_MODEL,
-  fallbackActive: false,
-  reason: null,
-  nextRetryAt: 0,
-  replis: 0
+  pilot: PILOT_MODEL
 }
 
 function isProfileEnabled () {
@@ -202,7 +182,6 @@ function isProfileEnabled () {
 function effectiveModel (now = Date.now()) {
   if (routing.isDual()) return 'dual'
   if (!isProfileEnabled()) return MODEL
-  if (_profile.fallbackActive && now < _profile.nextRetryAt) return FALLBACK_MODEL
   return PILOT_MODEL
 }
 
@@ -221,21 +200,9 @@ function isTruncationError (err, signal) {
     .test(String(err?.message ?? ''))
 }
 
-// Toute erreur du transport (HTTP 4xx/5xx, timeout, incomplete, tronquee, vide,
-// erreur modele) quand on visait le pilote justifie le repli. Seul l abort est
-// exclu : il vient du code (stop, plan speculatif jete), pas du modele. Les
-// erreurs de schema/JSON surviennent APRES un llm.call reussi et ne passent
-// jamais ici, donc ne declenchent aucun remplacement d objectif.
-function isAvailabilityError (err, signal) {
-  return !isAbortError(err, signal)
-}
-
 function syncProfileStats () {
   stats.modele_configure = routing.isDual() ? 'dual' : MODEL
   stats.modele_effectif = effectiveModel()
-  stats.repli_actif = _profile.fallbackActive
-  stats.repli_raison = _profile.reason
-  stats.replis = _profile.replis
 }
 
 function announceProfile (evt) {
@@ -245,18 +212,17 @@ function announceProfile (evt) {
 }
 
 // Annonce optionnelle pour l integrateur (callback). Compatibilite backward :
-// sans observateur, le repli reste visible via profileStatus()/stats.
+// sans observateur, le reessai reste visible via profileStatus()/stats.
 function onProfileEvent (cb) {
   if (typeof cb !== 'function') throw new Error('observateur de profil invalide')
   profileListeners.add(cb)
   return () => { profileListeners.delete(cb) }
 }
 
-// Statut public SANS secret (jamais la cle) : configure/effectif/repli/raison.
+// Statut public SANS secret (jamais la cle) : configure/effectif.
 function profileStatus (now = Date.now()) {
   if (routing.isDual()) return {
     enabled: true, configured: 'dual', effective: effectiveModel(), pilot: routing.STRATEGY,
-    fallback: null, fallbackActive: false, reason: null, replis: 0,
     baseConfigured: Boolean(BASE_URL), sessionStable: Boolean(SESSION_ID), session: currentSession(),
     routing: routing.status()
   }
@@ -264,12 +230,7 @@ function profileStatus (now = Date.now()) {
     enabled: isProfileEnabled(),
     configured: MODEL,
     pilot: PILOT_MODEL,
-    fallback: FALLBACK_MODEL,
     effective: effectiveModel(now),
-    fallbackActive: _profile.fallbackActive,
-    reason: _profile.reason,
-    nextRetryAt: _profile.nextRetryAt,
-    replis: _profile.replis,
     baseConfigured: Boolean(BASE_URL),
     isGo: IS_ZEN,
     sessionStable: Boolean(SESSION_ID),
@@ -287,10 +248,6 @@ function profileStatus (now = Date.now()) {
 }
 
 function _resetProfile () {
-  _profile.fallbackActive = false
-  _profile.reason = null
-  _profile.nextRetryAt = 0
-  _profile.replis = 0
   syncProfileStats()
 }
 
@@ -312,7 +269,7 @@ const stats = {
   appels: 0,
   etapes_servies: 0,
   echecs: 0,
-  // Toutes les tentatives transport (dont reessais troncature + repli), pour
+  // Toutes les tentatives transport (dont reessais sur troncature), pour
   // qu une troncature live ne soit plus invisible ("echoue avant stat appels").
   tentatives: 0,
   troncatures: 0,
@@ -330,30 +287,18 @@ const stats = {
   jetons_en_cache_total: 0,
   jetons_sortie_total: 0,
   jetons_raisonnement_total: 0,
-  // Miroir du profil pour /api/status.planner (index.js etale ...stats sans
-  // changer de code) : l endpoint historique affiche ainsi l effectif, pas une
-  // promesse de pilote quand le repli DeepSeek est actif.
+  // Miroir du profil pour /api/status.planner (index.js etale ...stats).
   modele_configure: MODEL,
-  modele_effectif: MODEL,
-  repli_actif: false,
-  repli_raison: null,
-  replis: 0
+  modele_effectif: MODEL
 }
 
 syncProfileStats()
 Object.defineProperty(stats, 'routing', { enumerable: true, get: () => routing.status() })
 
-// Helper UNIQUE du profil (plan/classifier/brief/conversation/compaction) :
-// choisit le modele effectif, appelle llm.call une fois, et sur indisponibilite
-// du pilote rejoue UNE fois sur le repli, sequentiellement. Pas de double appel
-// concurrent ni de sondage en fond : la reprise passe par l appel normal suivant
-// apres le cooldown. Sans modification d ABI publique.
-//
-// Troncature (D37) : UN reessai pilote a budget elargi (4096 -> 8192 par
-// defaut), MEME delai (strict, jamais allonge) et meme signal d abort. Le
-// reessai est annonce (callback + stats) et compte comme tentative, comme le
-// repli. Mauvais JSON (apres un call reussi) : jamais de repli ni de reessai
-// ici (voir plan/readBrief : parse hors transport).
+// Helper UNIQUE (plan, chat, brief, compaction, aide) : le modele de l usage,
+// un appel, jamais d autre modele. Troncature : UN reessai du meme modele a
+// budget elargi, meme delai et meme signal. Mauvais JSON (apres un call
+// reussi) : ni reessai ni repli ici (voir plan/readBrief : parse hors transport).
 async function callWithProfile (system, user, opts = {}) {
   const { image = null, signal = null, temperature = TEMPERATURE, task = 'plan', state = {}, route = null } = opts
   if (routing.isDual()) {
@@ -365,61 +310,18 @@ async function callWithProfile (system, user, opts = {}) {
       return result
     } finally { syncProfileStats() }
   }
-  // Chaine de modeles du .env (bot/model-chain.js). Un seul modele sans base
-  // propre : chemin historique inchange (profil pilote, repli DeepSeek).
-  const chain = modelChain.chainFor(task, process.env, MODEL)
-  // Toutes les entrees ecartees (cle absente) : jamais la liste brute comme nom
-  // de modele (vu : « Model x@go2 is not supported »).
-  if (!chain.length) throw new Error(`aucun modele utilisable pour ${task} (cle absente ?)`)
-  if (chain.length === 1 && !chain[0].baseUrl && chain[0].model === MODEL) return callSingle(system, user, opts)
-  let lastErr = null
-  // Un delai depasse passe UNE fois au modele suivant, sans le mettre de cote
-  // (vu sur build/big-box : space-bunny muet 30 s sur l ordre du joueur, bot
-  // immobile tout le niveau). Jamais sur annulation par le signal.
-  let timeoutSwitch = false
+  // UN seul modele par usage (bot/model-chain.js : PLANNER_MODEL_<USAGE>,
+  // sinon PLANNER_MODEL) et AUCUN repli vers un autre modele (demande du
+  // proprietaire, 2026-09-26) : une panne du fournisseur remonte telle quelle.
+  const entry = modelChain.modelFor(task, process.env, MODEL)
+  if (!entry) throw new Error(`aucun modele utilisable pour ${task} (cle absente ?)`)
   // Delai propre a l usage (PLANNER_TIMEOUT_MS_<USAGE>) : un modele qui
-  // raisonne plus (muse en effort moyen pour la reflexion) a besoin de plus.
+  // raisonne plus (muse pour la reflexion) a besoin de plus.
   const taskTimeout = modelChain.timeoutFor(task)
   if (taskTimeout) opts = { ...opts, timeoutMs: Math.max(taskTimeout, opts.timeoutMs ?? 0) }
-  const ordered = chainState.order(chain)
-  for (const [i, entry] of ordered.entries()) {
-    if (signal?.aborted) break
-    try {
-      const res = await callSingle(system, user, { ...opts, model: entry.model, baseUrl: entry.baseUrl, keyVar: entry.keyVar })
-      chainState.clear(entry)
-      stats.modele_servi = entry.label
-      return res
-    } catch (err) {
-      if (err?.code === 'LLM_TIMEOUT' && !signal?.aborted && !timeoutSwitch && i < ordered.length - 1) {
-        timeoutSwitch = entry
-        lastErr = err
-        stats.bascules = (stats.bascules ?? 0) + 1
-        console.log(`[planner] ${entry.label} sans reponse (${String(err.message).slice(0, 60)}) : modele suivant pour ${task}`)
-        continue
-      }
-      if (!modelChain.isSwitchError(err)) throw err
-      lastErr = err
-      chainState.bench(entry, err)
-      stats.bascules = (stats.bascules ?? 0) + 1
-      stats.modeles_de_cote = chainState.status()
-      console.log(`[planner] ${entry.label} refuse (${String(err.message).slice(0, 300)}) : modele suivant pour ${task}`)
-    }
-  }
-  // Tous refuses apres un delai : le modele muet est re-essaye UNE fois (vu :
-  // 16 bots au meme instant, space-bunny muet 30 s, les autres en quota ou
-  // indisponibles ; quatre ordres du joueur perdus, bot immobile tout le niveau).
-  if (timeoutSwitch && !signal?.aborted) {
-    console.log(`[planner] aucun modele n a repondu : nouvel essai de ${timeoutSwitch.label} pour ${task}`)
-    try {
-      const res = await callSingle(system, user, { ...opts, model: timeoutSwitch.model, baseUrl: timeoutSwitch.baseUrl, keyVar: timeoutSwitch.keyVar })
-      chainState.clear(timeoutSwitch)
-      stats.modele_servi = timeoutSwitch.label
-      return res
-    } catch (err) {
-      if (!signal?.aborted) lastErr = err
-    }
-  }
-  throw lastErr ?? new Error('aucun modele configure')
+  const res = await callSingle(system, user, { ...opts, model: entry.model, baseUrl: entry.baseUrl, keyVar: entry.keyVar })
+  stats.modele_servi = entry.label
+  return res
 }
 
 async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, baseUrl: otherBase = null, keyVar = null, task = 'plan' } = {}) {
@@ -485,15 +387,7 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
   function markSuccess (res, model) {
     warm = true
     if (image) stats.captures += 1
-    if (model === PILOT_MODEL && _profile.fallbackActive) {
-      const from = FALLBACK_MODEL
-      _profile.fallbackActive = false
-      _profile.reason = null
-      syncProfileStats()
-      announceProfile({ type: 'recovery', from, to: PILOT_MODEL, at: new Date().toISOString() })
-    } else {
-      syncProfileStats()
-    }
+    syncProfileStats()
     return { ...res, model }
   }
   try {
@@ -510,59 +404,21 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     }
     return markSuccess(res, target0)
   } catch (err) {
-    // UN reessai pilote sur troncature, avant tout repli : meme delai strict,
-    // budget elargi (8192), annonce et compte. Abort/timeout exclus par
-    // isTruncationError (strict conserves).
-    if (target0 === PILOT_MODEL && isProfileEnabled() && isTruncationError(err, signal)) {
-      stats.troncatures += 1
-      const retryBudget = Math.max(PILOT_RETRY_EFFECTIVE_MAX_TOKENS, pilotFirst)
-      announceProfile({ type: 'truncation-retry', from: PILOT_MODEL, to: PILOT_MODEL, reason: String(err?.message ?? 'tronquee').slice(0, 200), maxTokens: retryBudget, at: new Date().toISOString() })
-      console.log(`[planner] reponse tronquee (${String(err?.message ?? '').slice(0, 80)}), reessai pilote a ${retryBudget} jetons (delai inchange)`)
-      try {
-        stats.reessais += 1
-        const resRetry = await doCall(PILOT_MODEL, 'responses', retryBudget)
-        return markSuccess(resRetry, PILOT_MODEL)
-      } catch (err2) {
-        // Le reessai elargi a echoue : retomber dans le chemin repli ci-dessous
-        // (sauf abort, qui remonte strict).
-        if (!isAvailabilityError(err2, signal)) throw err2
-        if (isAbortError(err2, signal)) throw err2
-        // Troncature persistante a 8192 : c est une indisponibilite du pilote
-        // pour cet appel => repli annonce, comme une 503.
-        _profile.fallbackActive = true
-        _profile.reason = String(err2?.message ?? err?.message ?? 'indisponible').slice(0, 200)
-        _profile.nextRetryAt = Date.now() + PILOT_COOLDOWN_MS
-        _profile.replis += 1
-        stats.troncatures += isTruncationError(err2, signal) ? 1 : 0
-        syncProfileStats()
-        announceProfile({ type: 'fallback', from: PILOT_MODEL, to: FALLBACK_MODEL, reason: _profile.reason, at: new Date().toISOString() })
-        if (signal?.aborted) throw err2
-        const res2 = await doCall(FALLBACK_MODEL, 'chat', maxTokens)
-        return markSuccess(res2, FALLBACK_MODEL)
-      }
-    }
-    // Modele unique (deepseek) : son raisonnement compte dans max_tokens et
-    // epuise parfois le budget. UN reessai a budget double, meme delai et meme
-    // signal ; trois troncatures d affilee faisaient echouer la mission.
-    if (target0 !== PILOT_MODEL && isTruncationError(err, signal)) {
+    // UN reessai du MEME modele sur troncature (budget elargi, meme delai et
+    // meme signal) : trois troncatures d affilee faisaient echouer la mission.
+    // Aucun autre modele n est jamais essaye.
+    if (isTruncationError(err, signal)) {
       stats.troncatures += 1
       stats.reessais += 1
-      const retryBudget = Math.max(4000, 2 * (Number.isFinite(maxTokens) ? maxTokens : 2000))
-      console.log(`[planner] reponse tronquee, reessai a ${retryBudget} jetons (delai inchange)`)
+      const retryBudget = proto0 === 'responses'
+        ? Math.max(PILOT_RETRY_EFFECTIVE_MAX_TOKENS, pilotFirst)
+        : Math.max(4000, 2 * (Number.isFinite(maxTokens) ? maxTokens : 2000))
+      console.log(`[planner] reponse tronquee (${String(err?.message ?? '').slice(0, 80)}), reessai a ${retryBudget} jetons (delai inchange)`)
+      announceProfile({ type: 'truncation-retry', from: target0, to: target0, reason: String(err?.message ?? 'tronquee').slice(0, 200), maxTokens: retryBudget, at: new Date().toISOString() })
       const resRetry = await doCall(target0, proto0, retryBudget)
       return markSuccess(resRetry, target0)
     }
-    if (!isAvailabilityError(err, signal)) throw err
-    if (target0 !== PILOT_MODEL || !isProfileEnabled()) throw err
-    _profile.fallbackActive = true
-    _profile.reason = String(err?.message ?? 'indisponible').slice(0, 200)
-    _profile.nextRetryAt = Date.now() + PILOT_COOLDOWN_MS
-    _profile.replis += 1
-    syncProfileStats()
-    announceProfile({ type: 'fallback', from: PILOT_MODEL, to: FALLBACK_MODEL, reason: _profile.reason, at: new Date().toISOString() })
-    if (signal?.aborted) throw err
-    const res2 = await doCall(FALLBACK_MODEL, 'chat', maxTokens)
-    return markSuccess(res2, FALLBACK_MODEL)
+    throw err
   }
 }
 
@@ -1586,8 +1442,6 @@ module.exports = {
   PILOT_EFFECTIVE_MAX_TOKENS,
   PILOT_RETRY_EFFECTIVE_MAX_TOKENS,
   PILOT_MODEL,
-  FALLBACK_MODEL,
-  PILOT_COOLDOWN_MS,
   MIN_CONFIDENCE,
   DONE_THRESHOLD,
   DOOR_THRESHOLD,
