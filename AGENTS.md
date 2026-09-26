@@ -290,6 +290,7 @@
   variable (`GROQ_API_KEY`, `GEMINI_API_KEY`, secrets GitHub) ; une cle ne part
   jamais vers une autre base, une entree sans sa cle est ignoree. Le rapport CI
   porte `providerModels` (ids servis, jamais la cle). Hetzner ecarte (carte).
+  OpenRouter (`OPENROUTER_API_KEY`) : ~50 appels/jour gratuits, dernier recours.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

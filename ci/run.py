@@ -32,6 +32,7 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
 PROVIDER_MODEL_LISTS = {
     'groq': ('GROQ_API_KEY', 'https://api.groq.com/openai/v1/models'),
     'gemini': ('GEMINI_API_KEY', 'https://generativelanguage.googleapis.com/v1beta/openai/models'),
+    'openrouter': ('OPENROUTER_API_KEY', 'https://openrouter.ai/api/v1/models'),
 }
 
 
@@ -45,7 +46,9 @@ def provider_models():
         try:
             with urllib.request.urlopen(request, timeout=8) as response:
                 data = json.load(response).get('data', [])
-            found[name] = sorted(str(model.get('id')) for model in data)
+            ids = sorted(str(model.get('id')) for model in data)
+            # OpenRouter lists hundreds of paid models: keep the free ones.
+            found[name] = [i for i in ids if i.endswith(':free')] if name == 'openrouter' else ids
         except (OSError, ValueError) as error:
             found[name] = {'error': str(error)[:200]}
     return found

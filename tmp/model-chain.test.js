@@ -146,6 +146,7 @@ test('cle par fournisseur : liste fermee d hotes, jamais ailleurs', async () => 
   assert.equal(chain.keyFor('https://generativelanguage.googleapis.com/v1beta/openai', env), 'gm')
   assert.equal(chain.keyFor('https://api.groq.com.evil.example/v1', env), '')
   assert.equal(chain.keyFor('https://opencode.ai/zen/v1', env), '')
+  assert.equal(chain.keyFor('https://openrouter.ai/api/v1', { OPENROUTER_API_KEY: 'or' }), 'or')
   assert.equal(chain.keyFor('pas une url', env), '')
   assert.deepEqual(chain.chainFor('plan', { PLANNER_MODEL: 'g@https://api.groq.com/openai/v1,s@https://opencode.ai/zen/v1' }).map(e => e.model), ['s'], 'sans cle : entree ignoree')
   const seen = []

@@ -92,7 +92,8 @@ function effortFor (task, env = process.env) {
 // autre base est appelee sans cle (acces anonyme, ex : Zen gratuit).
 const PROVIDER_KEYS = {
   'api.groq.com': 'GROQ_API_KEY',
-  'generativelanguage.googleapis.com': 'GEMINI_API_KEY'
+  'generativelanguage.googleapis.com': 'GEMINI_API_KEY',
+  'openrouter.ai': 'OPENROUTER_API_KEY'
 }
 
 function keyFor (baseUrl, env = process.env) {
