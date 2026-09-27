@@ -410,6 +410,12 @@
   rejeu 16384 (plafond, pas un delai). Mesure CPU de l agent MINIPC-CLEM : CI a
   199 % en moyenne, 400 % seulement au demarrage (build, Paper, connexions),
   182 % ensuite ; 0 evenement memoire ; 16 bots gardes.
+- Enveloppe CI a 800 % (2026-09-27, decision du proprietaire) : `cpu-arbiter`
+  reserve a la CI 4 coeurs physiques / 8 threads pendant chaque job ; a 400 %
+  la moitie restait vide. Ne pas revenir a 400 %. `ci/capacity.py` : seuils
+  CPU en part de l enveloppe (admission 75 %, plafond 90 %),
+  `CI_ENVELOPE_CPU_PCT` 800 ; `cpu.max` attendu `800000 100000`.
+  `CI_POOL_SIZE` (repli fixe) reste 16, mesure a 400 % : a remesurer.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

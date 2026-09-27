@@ -38,7 +38,7 @@ class Sim:
         self.queued = queued
         self.frozen = False
         self.host_override = None
-        self.config = config or Config(settle_s=5.0)
+        self.config = config or Config(settle_s=5.0, envelope_cpu_pct=400.0)
         self.collector = Collector(envelope=self, host=HostView(self), config=self.config, clock=lambda: self.t)
         self.controller = Controller(self.config, mode=mode, fixed_size=fixed)
         self.decisions = []
@@ -57,7 +57,7 @@ class Sim:
             return None
         return {'cpuUsec': int(self.usage), 'nrPeriods': self.periods, 'nrThrottled': self.throttled,
                 'throttledUsec': 0, 'cpuSomeUsec': 0, 'mem': self.mem(), 'memLimit': self.limit,
-                'memMargin': self.limit - self.mem(), 'memEvents': {}, 'cpuMaxPct': 400.0,
+                'memMargin': self.limit - self.mem(), 'memEvents': {}, 'cpuMaxPct': self.config.envelope_cpu_pct,
                 'memAvailable': self.host_override if self.host_override is not None else self.host0 - self.mem(),
                 'memTotal': 30 * GIB, 'hostBusyTicks': int(self.t * 100), 'hostTotalTicks': int(self.t * 1600)}
 
@@ -75,10 +75,11 @@ class Sim:
         steps = int(round(seconds / self.config.interval_s))
         for _ in range(steps):
             dt = self.config.interval_s
-            load = min(self.load(), 400.0)
+            quota = self.config.envelope_cpu_pct
+            load = min(self.load(), quota)
             self.usage += load / 100 * 1e6 * dt
             self.periods += 1
-            if self.load() > 400:
+            if self.load() > quota:
                 self.throttled += 1
             self.t = round(self.t + dt, 3)
             self.collector.sample_once()
@@ -124,7 +125,7 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(sim.admissions(), [], 'the long window keeps the 350 % peaks in view')
         # A fast oscillation between 290 and 310 % never gives 10 consecutive checks under 300 % at a high ceiling.
         sim = Sim(base=lambda t: 290.0 if int(t / .3) % 2 == 0 else 310.0,
-                  config=Config(settle_s=5.0, ceiling_pct=1000)).run(WARM + 30)
+                  config=Config(settle_s=5.0, envelope_cpu_pct=400.0, ceiling_pct=1000)).run(WARM + 30)
         for t in sim.admissions():
             window = [d for u, d in sim.decisions if t - 1.0 < u < t]
             self.assertTrue(all(d.kind == 'hold' and d.reason.startswith('verification') for d in window), window)
@@ -138,6 +139,23 @@ class ControllerTest(unittest.TestCase):
         self.assertLessEqual(peak, 400, f'{sim.active_max} workers, peak {peak} %')
         # During dips the long window still remembers the busy peaks: admissions stop long before 400 %.
         self.assertEqual(sim.active_max, 5, '60 % + 5 x 60 % = 360 %, the ceiling')
+
+    def test_thresholds_follow_the_envelope(self):
+        # MINIPC-CLEM : 800 % (cpu-arbiter reserve 8 threads pendant un job).
+        c = Config()
+        self.assertEqual((c.envelope_cpu_pct, c.admit_cpu_pct, c.ceiling_pct), (800.0, 600.0, 720.0))
+        c = Config(envelope_cpu_pct=400.0)
+        self.assertEqual((c.admit_cpu_pct, c.ceiling_pct), (300.0, 360.0))
+        self.assertEqual(Config(admit_cpu_pct=500.0).admit_cpu_pct, 500.0, 'an explicit value wins')
+
+    def test_eight_threads_admit_twice_the_workers(self):
+        # Same wake-up pattern as test_llm_dip_then_simultaneous_wake, 800 % quota.
+        busy = lambda t: (t // 20) % 2 == 0
+        sim = Sim(base=lambda t: 60.0, worker_cpu=lambda t, i: 60.0 if busy(t) else 5.0, start_s=1.0,
+                  config=Config(settle_s=5.0)).run(WARM + 400)
+        peak = 60 + 60 * sim.active_max
+        self.assertLessEqual(peak, 800, f'{sim.active_max} workers, peak {peak} %')
+        self.assertEqual(sim.active_max, 11, '60 % + 11 x 60 % = 720 %, the ceiling')
 
     def test_slow_start_blocks_next_admission(self):
         sim = Sim(start_s=60.0).run(WARM + 50)
@@ -153,7 +171,7 @@ class ControllerTest(unittest.TestCase):
         self.assertIn('perimee', sim.decisions[-1][1].reason)
 
     def test_missing_envelope_never_admits(self):
-        cfg = Config(settle_s=5.0)
+        cfg = Config(settle_s=5.0, envelope_cpu_pct=400.0)
         sim = Sim(config=cfg)
         sim.collector.envelope = None  # host only
         sim.run(20)

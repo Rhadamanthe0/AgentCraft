@@ -51,12 +51,14 @@ niveaux en attente.
 - `adaptive` (defaut du workflow) : `ci/capacity.py` lit 10 fois par seconde
   des FICHIERS (aucun `docker exec`/`podman stats`) : `cpu.stat`,
   `cpu.pressure`, `memory.current`, `memory.high/max` (et ceux des ancetres
-  lisibles), `memory.events` de l enveloppe CI (cgroup plafonne a 400 %), plus
-  `MemAvailable` et `/proc/stat` de l hote. Admission d UN worker a la fois si :
-  CPU 1 s < 300 % sur 10 verifications consecutives (fenetres glissantes qui
+  lisibles), `memory.events` de l enveloppe CI (cgroup plafonne a 800 %), plus
+  `MemAvailable` et `/proc/stat` de l hote. Seuils CPU en part de l enveloppe
+  (`CI_ENVELOPE_CPU_PCT`, 800 %) : admission 75 % (600 %), plafond 90 % (720 %).
+  Admission d UN worker a la fois si :
+  CPU 1 s < 600 % sur 10 verifications consecutives (fenetres glissantes qui
   se recouvrent : ~2 s de preuve, pas 10 mesures independantes) ; max des CPU
-  1 s sur 30 s + estimation d un worker <= 360 % ; base + (N+1) x pic observe
-  par worker <= 360 % (tous les bots reveilles a la fois par les reponses du
+  1 s sur 30 s + estimation d un worker <= 720 % ; base + (N+1) x pic observe
+  par worker <= 720 % (tous les bots reveilles a la fois par les reponses du
   modele) ; historique de 30 s complet ; bridage < 10 % des periodes et
   pression CPU < 25 % sur 10 s ; hote < 90 % CPU ; marge CI et MemAvailable
   hote, moins le budget du worker et la part non encore observee des workers
@@ -78,12 +80,15 @@ niveaux en attente.
   `CI_MEM_RESERVE_GIB`, `CI_SETTLE_S` (docstring de `ci/capacity.py`).
 
 Enveloppe CI : `CI_METRICS_CGROUP` (chemin vu du runner), sinon le cgroup
-unique sous `/sys/fs/cgroup` dont `cpu.max` vaut 400 %. Le cgroup propre du
+unique sous `/sys/fs/cgroup` dont `cpu.max` vaut 800 %. Le cgroup propre du
 runner n est PAS l enveloppe (Paper, bots et sondes sont des conteneurs
 freres) : il n est que rapporte (`report.capacity.sources.runnerCgroup`).
 Sur MINIPC-CLEM (verifie par l agent de la machine, 2026-09-27) : enveloppe
 = `/sys/fs/cgroup/user.slice/user-1008.slice` (compte `podman-ci`, `cpu.max`
-400000/100000, `memory.high` 14G, `MemoryMax` 16G) ; le runner a un cgroupns
+800000/100000 depuis le 2026-09-27, `memory.high` 14G, `MemoryMax` 16G) ;
+pendant un job, `cpu-arbiter` (systemd-maintainer, infra-deploy) cantonne la
+slice aux 4 coeurs physiques 4-7 (CPU 4-7,12-15, 3,4 GHz) et les interdit au
+reste de la machine : le quota n est plus qu un garde-fou hors job ; le runner a un cgroupns
 prive (son `/sys/fs/cgroup` est sa feuille : `cpu.max` = `max`, trompeur), donc
 la slice est montee en lecture seule sur `/host/ci-cgroup` par le quadlet du
 runner (`Volume=...:/host/ci-cgroup:ro`, infra-deploy) et le workflow pose
