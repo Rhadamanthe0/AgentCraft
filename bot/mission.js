@@ -2564,6 +2564,21 @@ function createMissionRunner (host, injected = {}) {
     // des que le bot avance, il borne les tentatives sur un obstacle donne.
     let jumpAttempts = 0
 
+    // Bord d une chute blessante vu a CHAQUE tick de physique, touches
+    // relachees dans le meme tick : la boucle ne passe que toutes les 100 ms
+    // (plus sous charge) et le bot court souvent (saut preventif, sprint
+    // tenu) ; il voyait le vide puis glissait par-dessus (terrain/plateau
+    // a45b981 : « arret au bord », chute de 5 blocs).
+    let videVu = null
+    const surveilleBord = () => {
+      if (videVu !== null) return
+      const chute = videDevant(bot)
+      if (chute === null) return
+      videVu = chute
+      try { bot.clearControlStates() } catch (_) {}
+    }
+    if (typeof bot.on === 'function') bot.on('physicsTick', surveilleBord)
+
     bot.setControlState('forward', true)
     // Saut PREVENTIF en cours : `jump` (et `sprint`) tenus avant le contact.
     let sautPreventif = false
@@ -2589,7 +2604,7 @@ function createMissionRunner (host, injected = {}) {
         }
 
         // Jamais de chute de plus de deux blocs a la marche : arret au bord.
-        const chute = videDevant(live)
+        const chute = videVu ?? videDevant(live)
         if (chute !== null) {
           return { moved: Number(moved.toFixed(2)), blocked: true, vide: chute }
         }
@@ -2673,6 +2688,7 @@ function createMissionRunner (host, injected = {}) {
         await sleep(WALK_TICK_MS)
       }
     } finally {
+      try { bot.removeListener?.('physicsTick', surveilleBord) } catch (_) {}
       bot.setControlState('forward', false)
       bot.setControlState('jump', false)
       try { bot.setControlState('sprint', false) } catch (_) {}

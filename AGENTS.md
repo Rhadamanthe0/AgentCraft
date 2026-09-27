@@ -437,6 +437,10 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   journalise son plan a chaque changement (`[mission] solveur (etabli proche
   : ...)`) : craft/furnace 89fa489 (« il manque bois et etabli », etabli pose)
   n etait pas lisible dans les journaux.
+- `avancer` sans cible : bord d une chute blessante (`videDevant`) guette a
+  chaque tick de physique, touches relachees dans le meme tick. La boucle de
+  marche ne passe que toutes les 100 ms et le bot court souvent : il voyait le
+  vide puis glissait par-dessus (terrain/plateau a45b981, chute de 5 blocs).
 - Chat sans reponse du modele dans le delai (`interpretMessage`) : UN rejeu du
   meme modele ; sinon « Modèle trop lent, répète ? » (et non « Pas compris »).
   Vu sur c499481 (PR #22) : chat p95 19 s, deux ordres perdus (terrain/plateau,
