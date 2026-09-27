@@ -518,14 +518,24 @@ async function ensureTable (bot, { move = null } = {}) {
 // sans produit », plus de bois pour la suite). mineflayer ne ferme jamais la
 // fenetre 0 ; la fermer fait rendre grille et curseur par le serveur. Rend
 // vrai si quelque chose etait bloque (l inventaire se resynchronise ensuite).
-async function recoverStranded (bot) {
+// Laisse le serveur renvoyer grille et curseur (1,5 s au plus).
+async function waitInventorySettled (bot) {
+  for (let waited = 0; waited < 1500; waited += 100) {
+    await sleep(100)
+    const inv = bot?.inventory
+    if (!inv?.selectedItem && ![1, 2, 3, 4].some(slot => inv?.slots?.[slot])) return
+  }
+}
+
+async function recoverStranded (bot, { force = false } = {}) {
   const inv = bot?.inventory
-  if (!inv || bot.currentWindow) return false
+  if (!inv || bot.currentWindow || typeof bot.closeWindow !== 'function') return false
   const stranded = Boolean(inv.selectedItem) ||
     [1, 2, 3, 4].some(slot => inv.slots?.[slot])
-  if (!stranded) return false
+  if (!stranded && !force) return false
   try { await bot.closeWindow(inv) } catch (_) { return false }
-  return true
+  if (!stranded) await sleep(150)
+  return stranded
 }
 
 // Fabrique `wanted` UNITES (pas des executions) de la cible, alias FR ou nom
@@ -560,6 +570,13 @@ async function make (bot, targetName, wanted = 1, opts = {}) {
     err.missing = []
     throw err
   }
+
+  // Restes d un craft precedent dans la grille ou sur le curseur : les rendre
+  // avant de planifier sur l inventaire (craft/axe 33abea6 : etabli fabrique,
+  // 8 planches invisibles, batons « impossibles, buche manquante »).
+  // Fermer la fenetre 0 est sans effet cote serveur quand la grille est vide ;
+  // on la ferme aussi quand le modele local l a perdue de vue (desynchro).
+  if (await recoverStranded(bot, { force: true })) await waitInventorySettled(bot)
 
   const invBase = inventoryMap(bot)
   const dataset = getDataset(bot)

@@ -1237,11 +1237,16 @@ function createMissionRunner (host, injected = {}) {
     mission.shape = erreurs.length ? { note: `plan libre refuse (${erreurs[0]}), boite a la place` } : {}
     // La boite de repli tient dans le stock quand le joueur n a pas impose
     // les trois dimensions : hauteur puis largeur/profondeur reduites (>= 3).
+    // Hauteur jamais sous 4 (plancher + deux blocs d air + toit) : a 3, le
+    // vide interieur fait un bloc, le bot s y retrouve le toit dans la tete
+    // et ne peut plus ni en sortir ni poser la derniere case (build/windows
+    // 33abea6 : 63/64, « poste de tir injoignable » jusqu au plafond).
     if (stock > 0 && !dimensionsImposees) {
       const box = { ...mission.dimensions }
+      const minHeight = Math.min(4, box.height)
       const count = d => build.planHouse({ origin: new Vec3(0, 0, 0), ...d }).blocks.length
-      while (count(box) > stock && (box.height > 3 || box.width > 3 || box.depth > 3)) {
-        if (box.height > 3) box.height -= 1
+      while (count(box) > stock && (box.height > minHeight || box.width > 3 || box.depth > 3)) {
+        if (box.height > minHeight) box.height -= 1
         else if (box.width >= box.depth && box.width > 3) box.width -= 1
         else box.depth -= 1
       }
@@ -3272,12 +3277,13 @@ function createMissionRunner (host, injected = {}) {
         : target === 'batons' || target === 'stick' ? /^stick$/ : null
       const familleDansLePlan = famille && (plan?.etapes ?? []).some(e => e.op === 'fabriquer' && famille.test(e.objet))
       if (plan?.ok && famille && !familleDansLePlan && !famille.test(CIBLE_ITEM[mission.fabricationCible] ?? mission.fabricationCible)) {
-        // Etape suivante du plan = l autre intermediaire (batons apres les
-        // planches) : la faire au lieu de refuser. Vu sur craft/stone-pickaxe
+        // Etape suivante du plan = une fabrication (batons, ou la cible
+        // elle-meme) : la faire au lieu de refuser. Vu sur craft/stone-pickaxe
         // (0a2a819) : planches redemandees cinq fois malgre « suite du plan :
-        // fabriquer 4 stick », pioche jamais faite, plafond de 300 s.
+        // fabriquer 4 stick » ; craft/furnace (33abea6) : planches redemandees
+        // six fois, plan reduit a « fabriquer 1 furnace ».
         const suivante = plan.etapes[0]
-        if (suivante?.op === 'fabriquer' && /_planks$|^stick$/.test(suivante.objet)) {
+        if (suivante?.op === 'fabriquer') {
           reorientation = `assez de ${target}, etape suivante du plan faite a la place : `
           target = suivante.objet
           wanted = Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Number(suivante.quantite) || CRAFT_MIN))

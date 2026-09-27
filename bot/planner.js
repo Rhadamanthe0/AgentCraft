@@ -1501,9 +1501,18 @@ async function interpretMessage (message, context, opts = {}) {
     console.log(`[planner] chat sans reponse (${err.message}), nouvel essai`)
     response = await ask()
   }
-  const value = parseJson(response.content)
+  const RELATIONS = ['new', 'amend', 'context', 'question', 'stop']
+  const lire = content => { try { return parseJson(content) } catch (_) { return null } }
+  let value = lire(response.content)
+  // Reponse illisible ou sans relation valide : UN rejeu du meme modele (vu
+  // sur chat/tree-then-bring 33abea6 : « rapporte moi le bois » perdu, bot
+  // reste loin du joueur). Jamais un autre modele, jamais apres annulation.
+  if (!RELATIONS.includes(value?.relation) && !opts.signal?.aborted) {
+    console.log(`[planner] chat : relation invalide (${JSON.stringify(value?.relation ?? null).slice(0, 40)}), nouvel essai`)
+    value = lire((await ask()).content)
+  }
   const relation = value?.relation
-  if (!['new', 'amend', 'context', 'question', 'stop'].includes(relation)) throw new Error('relation de chat invalide')
+  if (!RELATIONS.includes(relation)) throw new Error('relation de chat invalide')
   // Objectif vide sur new/amend (vu : « Rejoins moi ») : le message du joueur
   // est lui-meme l objectif, plutot que d echouer et de laisser le bot muet.
   let objective = String(value.objective ?? '').trim().slice(0, 1000)

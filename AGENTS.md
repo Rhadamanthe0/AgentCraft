@@ -555,6 +555,14 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   rejoint par le navigateur partage (20 s, 48 blocs), gestes de
   `build.moveTo` en repli seulement (craft/furnace 811c888 : 8 pierres en
   poche, etabli a 29 blocs, « trajet trop long (12000 ms) », four jamais fait).
+- Banc PR #24 (33abea6), quatre causes :
+  `craft.make` ferme d abord la fenetre 0 (restes d un craft reussi : etabli
+  fait, 8 planches invisibles, craft/axe) ; le refus « assez de planches »
+  fait l etape suivante du plan quelle qu elle soit (four seul restant,
+  craft/furnace) ; la boite de repli reduite au stock garde >= 4 de haut
+  (5x5x3 : un bloc de vide, toit dans la tete du bot, build/windows 63/64) ;
+  `interpretMessage` rejoue UNE fois une reponse sans relation valide
+  (« rapporte moi le bois » perdu, chat/tree-then-bring).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
