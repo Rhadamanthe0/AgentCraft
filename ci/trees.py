@@ -42,6 +42,10 @@ START_TIMEOUT_S = 75
 NO_PROGRESS_S = 60
 GRACE_AFTER_WOOD_S = 10
 LEVEL_CAP_S = 300
+# Scenarios composites : plafond du proprietaire, 45 min par scenario.
+COMPOSITE_CAP_S = 2700
+# Cinq arbres (tronc de 5) loin du depart (10.5, 18.5) et de la sonde (4.5, 32.5).
+COMPOSITE_TREES = [(4, 6), (30, 6), (30, 18), (30, 30), (18, 32)]
 
 
 def _logs(*positions, axis=None):
@@ -577,6 +581,22 @@ def base_levels():
             'blocks': ['#minecraft:planks'], 'target': 30, 'door': True,
             'variants': [sans('plans')], 'leaves': [], 'logs': [], 'rules': {},
         },
+        # Scenarios composites (2026-09-27, demande du proprietaire) : le joueur
+        # donne le BUT, jamais les etapes. Inventaire vide, cinq arbres : le bot
+        # coupe, fabrique planches, etabli et porte (hache s il la juge utile),
+        # puis construit. Palier 1, bloquant.
+        {
+            'name': 'composite/cabin-from-scratch',
+            'about': 'Inventaire vide, cinq chenes, « Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte » : '
+                     'couper, fabriquer planches et porte, construire, sans qu aucune etape soit donnee.',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S,
+            'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte',
+            'blocks': ['#minecraft:planks'], 'target': 40, 'door': True,
+            'leaves': [box for (x, z) in COMPOSITE_TREES
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
+            'rules': {},
+        },
     ]
 
 
@@ -829,8 +849,9 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     started = time.monotonic()
     timeline = []
     answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
-    seen, end_reason, last_count_at, now_placed = False, f'plafond de {BUILD_CAP_S} s', 0, before
-    while time.monotonic() - started < BUILD_CAP_S:
+    cap = level.get('cap', BUILD_CAP_S)
+    seen, end_reason, last_count_at, now_placed = False, f'plafond de {cap} s', 0, before
+    while time.monotonic() - started < cap:
         s = bot_api(bot, '/api/status')
         running = bool(s.get('missionRunning'))
         seen = seen or running
@@ -1462,6 +1483,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # 36105107224), used only to order the queue. A level missing here counts as
 # NEW_LEVEL_S (started early: unknown levels are often the long ones).
 EXPECTED_S = {
+    'composite/cabin-from-scratch': 900,
     'trees/tall': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'terrain/plateau': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
     'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,
