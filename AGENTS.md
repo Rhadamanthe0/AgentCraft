@@ -427,6 +427,9 @@
   par lots (`batch_max` 8, pic suppose >= 60 % par worker pendant les 30
   premieres secondes). bb045ed (60 % tout le banc) : 297 s, 65/65, lots bornes
   a 11 workers alors que le pic mesure etait 25-42 %.
+  bc43654 (pic suppose la premiere fenetre seulement) : 22 workers, 292 s,
+  63/65 (route/around-wall, craft/from-tree sans arbre visible). Workflow en
+  `fixed` par defaut (16) ; l adaptatif reste au choix (dispatch).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

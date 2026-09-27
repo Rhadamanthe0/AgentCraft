@@ -48,7 +48,8 @@ niveaux en attente.
 `CI_POOL_MODE` :
 - `fixed` : `CI_POOL_SIZE` workers (16), aucune mesure ne les freine. Sert a
   comparer les performances entre commits (memes conditions).
-- `adaptive` (defaut du workflow) : `ci/capacity.py` lit 10 fois par seconde
+- `adaptive` (au choix par workflow_dispatch ; le defaut est `fixed`, plus
+  rapide sur MINIPC-CLEM : 219 s contre 292 a 347 s, meme graine) : `ci/capacity.py` lit 10 fois par seconde
   des FICHIERS (aucun `docker exec`/`podman stats`) : `cpu.stat`,
   `cpu.pressure`, `memory.current`, `memory.high/max` (et ceux des ancetres
   lisibles), `memory.events` de l enveloppe CI (cgroup plafonne a 800 %), plus
