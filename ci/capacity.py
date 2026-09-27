@@ -468,7 +468,9 @@ def validate(collector, info, container_mem_total=None):
         problems.append('aucune source lisible')
         return problems
     if collector.envelope is not None:
-        if raw.get('cpuUsec') is None or raw.get('mem') is None:
+        if not collector.envelope.path.exists():
+            problems.append(f'{collector.envelope.path} absent du runner (montage de l enveloppe manquant)')
+        elif raw.get('cpuUsec') is None or raw.get('mem') is None:
             problems.append('enveloppe illisible (cpu.stat / memory.current)')
         elif raw.get('memLimit') is None:
             problems.append('enveloppe sans limite memoire lisible')

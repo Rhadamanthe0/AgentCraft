@@ -377,6 +377,11 @@
   « pas de reponse en ») classe `api`. follow/* note `missionRunningAtWalk` :
   sur 83bbfad, follow/stairs (8,71 blocs) et route/under-tree (aucune mission)
   venaient de lectures d objectif Muse > 20 s / 60 s x 2, pas du suivi.
+- Don non demande retire de l objectif (`conversation.js`, `DELIVERY`) : le
+  modele de chat reecrivait « Fabrique une porte » en « ... et la remettre au
+  joueur » (intermittent depuis le 2026-09-26) ; `donner` sans quantite
+  bouclait ensuite jusqu au plafond (craft/door ffda434). Seul un message du
+  joueur avec un verbe de don (donne, rapporte, ramene, livre, file...) le garde.
 - Chat du bot en style court (demande du proprietaire : chat Minecraft petit et
   charge) : messages systeme raccourcis (« Reçu, je regarde… », « Compris. »,
   « Fini : raison. »), prompt du chat et doc de `dire` en quelques mots.
