@@ -126,7 +126,11 @@ const SESSION_ID = process.env.PLANNER_SESSION_ID || `minecraft-bot-${process.en
 // parameters », meme sans le champ thinking) laissait un bot muet toute la
 // run (vu : TreeBot11, trois niveaux perdus). On change alors de session (le
 // cache de prompt repart de zero pour ce bot), trois fois au plus.
-const SESSION_REROUTE_MAX = 3
+// Meme geste apres un DELAI depasse (sans rejouer l appel : la boucle de
+// mission le refait) : les delais se groupent par bot, donc par session
+// (vu sur un banc : TreeBot10 cinq fois en 2 min, les 15 autres jamais ;
+// trees/bent 189799a, deux delais de 20 s d affilee, niveau perdu).
+const SESSION_REROUTE_MAX = 6
 let sessionReroutes = 0
 function currentSession () {
   return sessionReroutes ? `${SESSION_ID}-r${sessionReroutes}` : SESSION_ID
@@ -460,6 +464,12 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
       announceProfile({ type: 'truncation-retry', from: target0, to: target0, reason: String(err?.message ?? 'tronquee').slice(0, 200), maxTokens: retryBudget, at: new Date().toISOString() })
       const resRetry = await doCall(target0, proto0, retryBudget)
       return markSuccess(resRetry, target0)
+    }
+    if (err?.code === 'LLM_TIMEOUT' && zen && !signal?.aborted && sessionReroutes < SESSION_REROUTE_MAX) {
+      const old = currentSession()
+      sessionReroutes += 1
+      stats.reaiguillages = sessionReroutes
+      console.log(`[planner] session ${old} sans reponse dans le delai : appels suivants sur ${currentSession()}`)
     }
     throw err
   }

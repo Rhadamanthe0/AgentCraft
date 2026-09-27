@@ -3095,7 +3095,7 @@ function createMissionRunner (host, injected = {}) {
       const bot = host.getBot()
       // `objet` arrive en nom de cible (« batons »), mais le modele envoie
       // parfois un nom d objet (« stick ») : on traduit, jamais pris tel quel.
-      const target = fabTargetName(params.objet)
+      let target = fabTargetName(params.objet)
 
       if (!target) {
         const possible = craft.options(bot).filter(o => o.possible).map(o => o.name)
@@ -3107,17 +3107,44 @@ function createMissionRunner (host, injected = {}) {
         }
       }
 
-      const wanted = Number.isFinite(Number(params.quantite))
+      let wanted = Number.isFinite(Number(params.quantite))
         ? Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Math.round(Number(params.quantite))))
         : scaled(scale, CRAFT_MIN, CRAFT_MAX)
+      let reorientation = ''
 
       // Cible de fabrication fixee : seuls la cible et ses intermediaires
       // (planches, batons, etabli) sont utiles. Vu sur craft/axe : une pioche
       // fabriquee a la place de la hache, planches et batons consommes.
       // Un objet de la chaine de prerequis calculee (pioche en bois pour une
       // pioche en pierre) est utile lui aussi.
-      const dansLePlan = (acquisition()?.etapes ?? []).some(e => e.op === 'fabriquer' &&
+      const plan = acquisition()
+      const dansLePlan = (plan?.etapes ?? []).some(e => e.op === 'fabriquer' &&
         (e.objet === target || FAMILLES_FAB[target]?.test(e.objet)))
+      // Intermediaire deja en quantite suffisante : le plan du solveur,
+      // recalcule sur l inventaire reel, n en demande plus. Vu sur craft/axe
+      // (40ee116) : plan anticipe perime, planches et batons fabriques deux
+      // fois, trois buches brulees, plus rien pour l etabli ni la hache.
+      const famille = target === 'planches' || /_planks$/.test(target) ? /_planks$/
+        : target === 'batons' || target === 'stick' ? /^stick$/ : null
+      const familleDansLePlan = famille && (plan?.etapes ?? []).some(e => e.op === 'fabriquer' && famille.test(e.objet))
+      if (plan?.ok && famille && !familleDansLePlan && !famille.test(CIBLE_ITEM[mission.fabricationCible] ?? mission.fabricationCible)) {
+        // Etape suivante du plan = l autre intermediaire (batons apres les
+        // planches) : la faire au lieu de refuser. Vu sur craft/stone-pickaxe
+        // (0a2a819) : planches redemandees cinq fois malgre « suite du plan :
+        // fabriquer 4 stick », pioche jamais faite, plafond de 300 s.
+        const suivante = plan.etapes[0]
+        if (suivante?.op === 'fabriquer' && /_planks$|^stick$/.test(suivante.objet)) {
+          reorientation = `assez de ${target}, etape suivante du plan faite a la place : `
+          target = suivante.objet
+          wanted = Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Number(suivante.quantite) || CRAFT_MIN))
+        } else {
+          return {
+            resultat: `assez de ${target} pour ${mission.fabricationCible} : suite du plan : ` +
+              (acquirePlan.describe(plan, 3).join(' ; ') || `fabriquer ${mission.fabricationCible}`),
+            echec: true
+          }
+        }
+      }
       if (mission.fabricationCible && !dansLePlan && !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
         return {
           resultat: `${target} n est pas utile pour ${mission.fabricationCible} : fabrique ${mission.fabricationCible} ` +
@@ -3150,13 +3177,18 @@ function createMissionRunner (host, injected = {}) {
       }
 
       try {
-        const made = await craft.make(bot, target, wanted)
+        const made = await craft.make(bot, target, wanted, {
+          // Etabli pose loin (autre bout du chantier) : rejoint par le navigateur.
+          move: async stand => (await host.navigateToPosition(stand, {
+            signal: mission.navigationAbort.signal, __owner: stepToken, radius: 1, timeoutMs: 20000, distanceBudget: 48
+          }))?.reached === true
+        })
         // Succes vers la cible du brief : efface le manque signale.
         if (mission.fabricationCible && (target === mission.fabricationCible || made.item === mission.fabricationCible)) {
           mission.fabricationLastError = null
         }
         return {
-          resultat: `${made.produced} ${made.item} fabrique(s) sur ${wanted} demande(s)` +
+          resultat: reorientation + `${made.produced} ${made.item} fabrique(s) sur ${wanted} demande(s)` +
             (made.usedTable ? ' (a l etabli)' : '')
         }
       } catch (err) {

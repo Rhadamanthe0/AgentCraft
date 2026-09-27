@@ -496,6 +496,43 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   recherche (`useExtraInfo` en fonction de `findBlocks`) :
   la pierre enfouie sous le sol etait visee pour `avancer` (« rejoint a
   portee ») puis introuvable pour `casser`, en boucle.
+- Enveloppe CI a 800 % (2026-09-27, decision du proprietaire) : `cpu-arbiter`
+  reserve a la CI 4 coeurs physiques / 8 threads pendant chaque job ; a 400 %
+  la moitie restait vide. Ne pas revenir a 400 %. `ci/capacity.py` : seuils
+  CPU en part de l enveloppe (admission 75 %, plafond 90 %),
+  `CI_ENVELOPE_CPU_PCT` 800 ; `cpu.max` attendu `800000 100000`.
+  `CI_POOL_SIZE` (repli fixe) reste 16, mesure a 400 % : a remesurer.
+- Delai du modele depasse => reaiguillage de session pour les appels SUIVANTS
+  (`<session>-rN`, sans rejeu dans l appel ; 6 reaiguillages au plus, 400
+  upstream compris) : les delais se groupent par bot (TreeBot10 5 fois en
+  2 min, les autres jamais), trees/bent 189799a perdu sur deux delais de 20 s.
+  Premier banc adaptatif (189799a, enveloppe 800 % lue) : 17 workers, 347 s,
+  CPU moyen 176 %, pic 1 s 565 %, 8,7 Gio, 64/65.
+  Meme graine en fixe (16) : 219 s, 65/65, CPU moyen 271 %, pic 793 %. L
+  adaptatif admettait un worker toutes les 17,5 s (280 s pour 17) : admission
+  par lots (`batch_max` 8, pic suppose >= 60 % par worker pendant les 30
+  premieres secondes). bb045ed (60 % tout le banc) : 297 s, 65/65, lots bornes
+  a 11 workers alors que le pic mesure etait 25-42 %.
+  bc43654 (pic suppose la premiere fenetre seulement) : 22 workers, 292 s,
+  63/65 (route/around-wall, craft/from-tree sans arbre visible). Workflow en
+  `fixed` par defaut (16) ; l adaptatif reste au choix (dispatch).
+- `fabriquer` refuse planches/batons quand le plan du solveur (recalcule sur
+  l inventaire reel, complet) n en demande plus : craft/axe (40ee116), plan
+  anticipe perime, planches et batons faits deux fois, 3 buches brulees, plus
+  rien pour l etabli ni la hache. Hors cible planches/batons elle-meme.
+  Si l etape suivante du plan est l autre intermediaire (batons apres les
+  planches), elle est fabriquee a la place au lieu d un refus :
+  craft/stone-pickaxe (0a2a819), planches redemandees cinq fois malgre
+  « suite du plan : fabriquer 4 stick », plafond de 300 s.
+- Craft desynchronise : ingredients restes dans la grille 2x2 de l inventaire
+  (slots 1 a 4) ou sur le curseur, invisibles pour `items()`, comptes comme
+  consommes (craft/torches 4ee01ef : etabli « -8 ingredients sans produit »,
+  plus de bois). `craft.recoverStranded` ferme la fenetre 0 (le serveur rend
+  grille et curseur) avant de conclure a une consommation incertaine.
+- Etabli pose loin (autre bout de l arene) : `craft.make(..., { move })` le
+  rejoint par le navigateur partage (20 s, 48 blocs), gestes de
+  `build.moveTo` en repli seulement (craft/furnace 811c888 : 8 pierres en
+  poche, etabli a 29 blocs, « trajet trop long (12000 ms) », four jamais fait).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

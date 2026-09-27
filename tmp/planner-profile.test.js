@@ -284,14 +284,29 @@ describe('reaiguillage de session sur refus du fournisseur', () => {
     await planner.plan({ consigne: 't2' }, 'recolte', 'harvest')
     assert.equal(seen.at(-1).options.headers['x-opencode-session'], 'minecraft-bot-TestBot-r1')
   })
-  it('trois reaiguillages au plus, puis l erreur remonte', async () => {
+  it('six reaiguillages au plus, puis l erreur remonte', async () => {
     const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
     mockLlm(async () => { throw upstream400() })
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 6; i++) {
       await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest'))
     }
     await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest'))
-    assert.equal(planner.profileStatus().session, 'minecraft-bot-TestBot-r3')
+    assert.equal(planner.profileStatus().session, 'minecraft-bot-TestBot-r6')
+  })
+  it('delai depasse : l appel echoue, les suivants partent sur une nouvelle session', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async (s, u, o) => {
+      if (o.headers['x-opencode-session'] === 'minecraft-bot-TestBot') {
+        const e = new Error('pas de reponse en 20000 ms'); e.code = 'LLM_TIMEOUT'; throw e
+      }
+      return okPlan()
+    })
+    await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest'), /pas de reponse/)
+    assert.equal(seen.length, 1, 'aucun rejeu dans le meme appel')
+    assert.equal(planner.profileStatus().session, 'minecraft-bot-TestBot-r1')
+    const res = await planner.plan({ consigne: 't2' }, 'recolte', 'harvest')
+    assert.ok(res)
+    assert.equal(seen.at(-1).options.headers['x-opencode-session'], 'minecraft-bot-TestBot-r1')
   })
   it('un autre 400 (pas upstream) ne change pas de session', async () => {
     const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
