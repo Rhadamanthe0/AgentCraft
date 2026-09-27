@@ -3116,8 +3116,23 @@ function createMissionRunner (host, injected = {}) {
       // fabriquee a la place de la hache, planches et batons consommes.
       // Un objet de la chaine de prerequis calculee (pioche en bois pour une
       // pioche en pierre) est utile lui aussi.
-      const dansLePlan = (acquisition()?.etapes ?? []).some(e => e.op === 'fabriquer' &&
+      const plan = acquisition()
+      const dansLePlan = (plan?.etapes ?? []).some(e => e.op === 'fabriquer' &&
         (e.objet === target || FAMILLES_FAB[target]?.test(e.objet)))
+      // Intermediaire deja en quantite suffisante : le plan du solveur,
+      // recalcule sur l inventaire reel, n en demande plus. Vu sur craft/axe
+      // (40ee116) : plan anticipe perime, planches et batons fabriques deux
+      // fois, trois buches brulees, plus rien pour l etabli ni la hache.
+      const famille = target === 'planches' || /_planks$/.test(target) ? /_planks$/
+        : target === 'batons' || target === 'stick' ? /^stick$/ : null
+      const familleDansLePlan = famille && (plan?.etapes ?? []).some(e => e.op === 'fabriquer' && famille.test(e.objet))
+      if (plan?.ok && famille && !familleDansLePlan && !famille.test(CIBLE_ITEM[mission.fabricationCible] ?? mission.fabricationCible)) {
+        return {
+          resultat: `assez de ${target} pour ${mission.fabricationCible} : suite du plan : ` +
+            (acquirePlan.describe(plan, 3).join(' ; ') || `fabriquer ${mission.fabricationCible}`),
+          echec: true
+        }
+      }
       if (mission.fabricationCible && !dansLePlan && !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
         return {
           resultat: `${target} n est pas utile pour ${mission.fabricationCible} : fabrique ${mission.fabricationCible} ` +

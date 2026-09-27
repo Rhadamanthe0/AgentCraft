@@ -516,6 +516,10 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   bc43654 (pic suppose la premiere fenetre seulement) : 22 workers, 292 s,
   63/65 (route/around-wall, craft/from-tree sans arbre visible). Workflow en
   `fixed` par defaut (16) ; l adaptatif reste au choix (dispatch).
+- `fabriquer` refuse planches/batons quand le plan du solveur (recalcule sur
+  l inventaire reel, complet) n en demande plus : craft/axe (40ee116), plan
+  anticipe perime, planches et batons faits deux fois, 3 buches brulees, plus
+  rien pour l etabli ni la hache. Hors cible planches/batons elle-meme.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
