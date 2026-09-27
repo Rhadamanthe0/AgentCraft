@@ -821,6 +821,13 @@ Ce que l etat impose, et qui n est pas negociable :
   fabrications_possibles est vide ou ne contient pas la cible, recolte d abord
   la matiere brute (casser/ramasser) puis fabrique. Ne conclus jamais sur un
   quota de recolte ni sur un seul plan : seul l objet cible compte.
+- environnement.prerequis (fabrication) = chaine calculee par le code depuis
+  l inventaire reel et les donnees du jeu : prochaine_etape, a_recolter
+  (quantites, outil exige), a_fabriquer_dans_l_ordre, bloque. C est une
+  connaissance fiable, pas un ordre : suis-la sauf si l etat montre mieux.
+  casser vise matiere_a_recolter (le bois d abord, la pierre ensuite pour
+  une pioche en pierre). bloque non vide => dis-le au joueur au lieu de
+  tourner en rond.
 - etat.plan_ajuste present => une etape de ton plan precedent a ete rejetee par
   le code (nom d action inconnu, valeur hors bornes, plan trop long). Tiens-en
   compte au lieu de redemander la meme chose telle quelle.

@@ -684,6 +684,21 @@ async function placeOne (bot, target, itemName, { accept = null, move = null } =
   const existing = bot.blockAt(target)
   if (existing && (existing.name === itemName || accept?.test(existing.name))) return 'deja'
 
+  // Deja a portee, corps hors de la case : poser d ici. Vu sur
+  // craft/stone-pickaxe : etabli a poser a cote du bot, contre un rocher ;
+  // le trajet vers un « meilleur » poste echouait (12 s) et la pioche en
+  // pierre n etait jamais fabriquee, pierre et planches en poche.
+  const here = bot.entity?.position
+  const center = target.offset(0.5, 0.5, 0.5)
+  const direct = here && bot.entity.onGround && isFree(existing) && !bodyOverlaps(here, target) &&
+    here.offset(0, 1.62, 0).distanceTo(center) <= PLACE_REACH ? findSupport(bot, target) : null
+  if (direct) {
+    await equipMaterial(bot, itemName)
+    await bot.lookAt(center, true)
+    await bot.placeBlock(direct.reference, direct.faceVector)
+    return 'pose'
+  }
+
   let vantage = findVantage(bot, target)
   if (!vantage) throw new Error('aucun poste de tir au sol a portee')
 
