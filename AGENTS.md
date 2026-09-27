@@ -258,6 +258,26 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
 - `interpretMessage` : relation new/amend avec objectif vide (vu : « Rejoins
   moi », join/pit) => le message du joueur sert d objectif, au lieu de
   « objectif de chat vide » et d un bot muet.
+- Plans de construction libres (APT / MineCEraft) : `choisir_terrain` demande
+  une forme au modele (`planner.designBlueprint`) : « boite » (planHouse du
+  code) ou « libre » en paves plein/creux/vide. `build.compileBlueprint`
+  verifie bornes (12, 300 blocs), blocs flottants (relies au sol face a face),
+  porte au bord avec sol dessous ; refus renvoye au modele une fois, puis
+  repli sur la boite. Ordre de pose = distance au sol dans la structure
+  (chaque bloc a un voisin pose). Interrupteur `plans` (coupe : toujours la
+  boite). Niveaux A/B `build/tower`, `build/wall`, `build/arch` (`maxTarget` :
+  passage laisse), `build/windows` (fenetres + porte) et `build/dirt-box`
+  (non-regression de la maison simple) ; `minTop` = couche a atteindre.
+  Le concepteur recoit `blocs_en_stock` ; hors trois dimensions imposees, un
+  plan plus grand que le stock est refuse (vu : cabane 93 blocs pour 64
+  planches, cap de 300 s). Une seule dimension lue (« 6 de haut ») n est plus
+  passee comme un cube (vu : tour 6x6x6 de 152 blocs pour 64 de terre).
+  Chantier complet mesure (blocs + porte si demandee) => mission close par le
+  code, et `consigne.dimensions` donne le chantier choisi (vu : arche 11/11,
+  le modele en attendait 20 et tournait 300 s). Trois essais de plan libre ;
+  la boite de repli est reduite au stock (5x5x5 -> 5x5x3 pour 64 planches).
+  Limite connue : une tour de 6 ne se finit pas, le bot n atteint pas la
+  6e couche depuis le sol (poste de tir au sol seulement).
 - Arenes variees (anti-benchmaxing, `vary` dans ci/trees.py) : a chaque
   execution, chaque scene est tournee (0/90/180/270 degres) et/ou mise en
   miroir autour du centre de l arene, et l arbre change d essence (chene,
@@ -312,6 +332,8 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   `build.placeOne` pose d ici quand la case est deja a portee (corps hors de
   la case, appui present) : l etabli a poser contre le rocher partait vers un
   « meilleur » poste injoignable (12 s), pioche en pierre jamais fabriquee.
+  Postes de tir cherches jusqu a 5 blocs sous la case : le sommet d une tour
+  de 6 se pose du sol (build/tower, 6e couche injoignable a -4).
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
   Effort de raisonnement par usage (`PLANNER_REASONING_EFFORT[_PLAN|_BRIEF|
@@ -533,6 +555,24 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   rejoint par le navigateur partage (20 s, 48 blocs), gestes de
   `build.moveTo` en repli seulement (craft/furnace 811c888 : 8 pierres en
   poche, etabli a 29 blocs, « trajet trop long (12000 ms) », four jamais fait).
+- Banc PR #24 (33abea6), quatre causes :
+  `craft.make` ferme d abord la fenetre 0 (restes d un craft reussi : etabli
+  fait, 8 planches invisibles, craft/axe) ; le refus « assez de planches »
+  fait l etape suivante du plan quelle qu elle soit (four seul restant,
+  craft/furnace) ; la boite de repli reduite au stock garde >= 4 de haut
+  (5x5x3 : un bloc de vide, toit dans la tete du bot, build/windows 63/64) ;
+  `interpretMessage` rejoue UNE fois une reponse sans relation valide
+  (« rapporte moi le bois » perdu, chat/tree-then-bring).
+  Suite (0b1d4a3) : `craft.make` resynchronise l inventaire avec le serveur
+  (`bot._syncWindow`, 1,5 s max) avant de planifier ; la fermeture forcee de
+  la fenetre 0 n empechait pas les objets de disparaitre du modele local
+  (craft/door : buche puis etabli invisibles). `piler` en construction ne
+  juge plus sur la cible de recolte (terre « deja a portee ») : bot emmure au
+  pied d une tour creuse, derniere case du toit a +5 (build/tower).
+  Prompt du chat : l objectif garde les pronoms du joueur (« ta place » = le
+  bot, « moi » = le joueur) et nomme les deux s il reformule (route/wait-and-
+  back bb2a9f8 : « retourne a ta place » reecrit « revenir a ma position
+  actuelle », bot revenu pres du joueur).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

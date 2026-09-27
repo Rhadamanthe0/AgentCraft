@@ -37,3 +37,14 @@ test('case voisine a portee : posee sans se deplacer', async () => {
   assert.deepEqual(placed.map(p => p.toString()), [new Vec3(2, 64, 0).toString()])
   assert.deepEqual(moves, [])
 })
+
+test('sixieme couche d une tour : un poste au sol est propose (5 blocs sous la case)', () => {
+  const { bot } = world(new Vec3(10.5, 64, 10.5))
+  const target = new Vec3(0, 69, 0)
+  bot.blockAt = p => {
+    const solid = p.y < 64 || (p.x >= 0 && p.x <= 1 && p.z >= 0 && p.z <= 1 && p.y < 69)
+    return { name: solid ? 'dirt' : 'air', position: p, boundingBox: solid ? 'block' : 'empty' }
+  }
+  const vantages = build.findVantages(bot, target)
+  assert.ok(vantages.some(v => v.stand.y === 64), 'poste au sol a portee')
+})

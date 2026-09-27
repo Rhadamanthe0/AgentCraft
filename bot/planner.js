@@ -1326,6 +1326,48 @@ function pick (value, criteria, fallback) {
   return Object.prototype.hasOwnProperty.call(criteria, name) ? name : fallback
 }
 
+// Conception d un plan de construction (APT / MineCEraft) : le modele propose
+// une forme, build.compileBlueprint la verifie. Consignes propres a la
+// construction : generiques (« reflechis etape par etape ») n aident pas.
+function blueprintPrompt () {
+  const key = 'blueprint'
+  if (!prompts.has(key)) {
+    prompts.set(key, `Tu concois la forme d une construction Minecraft demandee par un joueur. Le code la verifiera puis la posera bloc par bloc, en survie, avec les blocs de l inventaire.
+
+Tu recois {"objectif", "dimensions_lues", "blocs_en_stock", "matiere", "porte_demandee", "erreurs_precedentes"} et tu rends du JSON, rien d autre.
+
+Deux reponses possibles :
+1. {"forme": "boite"} : une maison ordinaire, boite creuse (sol, 4 murs, toit plat, porte au milieu d un mur). Le code sait la faire : choisis-la des que la demande ne precise rien d autre qu une maison, une cabane ou un abri de taille donnee.
+2. {"forme": "libre", "largeur": W, "profondeur": D, "hauteur": H, "elements": [...], "porte": [x, z] ou null} pour toute autre forme (tour, mur, pont, pilier, fenetres, etage, escalier, arche, pyramide...).
+
+Repere local : x de 0 a W-1, z de 0 a D-1, y de 0 a H-1 ; y 0 est la premiere couche, posee SUR le sol. W, D, H de 1 a 12 ; 300 blocs au plus.
+Chaque element est un pave {"type": "plein" | "creux" | "vide", "de": [x,y,z], "a": [x,y,z]} applique dans l ordre :
+- "plein" remplit le pave ; "creux" n en pose que l enveloppe (sol, murs, plafond) ;
+- "vide" retire des blocs deja mis (fenetre, passage, interieur).
+"porte" [x, z] : case du bord ou poser la porte ; le code degage son ouverture (y 1 et 2) et exige un bloc en y 0 dessous. Mets-la si porte_demandee est vrai.
+
+Regles de construction, verifiees par le code :
+- Tout bloc doit etre relie au sol par des blocs voisins (face contre face) : pas de bloc flottant, pas de toit sans murs ou piliers qui le portent.
+- Les appuis avant ce qu ils portent : un toit repose sur des murs ou des piliers de toute la hauteur.
+- Respecte les dimensions dites par le joueur (dimensions_lues, ou lues dans la phrase : « 6 de haut » fixe la hauteur seulement) ; sinon reste petit et economique.
+- blocs_en_stock > 0 : le nombre total de blocs de ta forme ne depasse pas ce stock, sauf si le joueur a fixe les trois dimensions. Une tour ou un mur n a pas besoin d etre large : 1 a 3 blocs d epaisseur suffisent.
+- erreurs_precedentes non vide : ta forme precedente a ete refusee pour ces raisons, corrige-les.
+
+Exemples :
+"construis une tour de 6 blocs de haut" -> {"forme":"libre","largeur":3,"profondeur":3,"hauteur":6,"elements":[{"type":"creux","de":[0,0,0],"a":[2,5,2]}],"porte":null}
+"fais un mur de 7 de long et 3 de haut" -> {"forme":"libre","largeur":7,"profondeur":1,"hauteur":3,"elements":[{"type":"plein","de":[0,0,0],"a":[6,2,0]}],"porte":null}
+"une maison de 5 par 5 avec des fenetres" -> {"forme":"libre","largeur":5,"profondeur":5,"hauteur":4,"elements":[{"type":"creux","de":[0,0,0],"a":[4,3,4]},{"type":"vide","de":[0,2,2],"a":[0,2,2]},{"type":"vide","de":[4,2,2],"a":[4,2,2]}],"porte":[2,0]}
+"construis une maison en terre de 3 par 3 par 3" -> {"forme":"boite"}`)
+  }
+  return prompts.get(key)
+}
+
+async function designBlueprint (input, opts = {}) {
+  if (!isEnabled()) return null
+  const response = await call(blueprintPrompt(), JSON.stringify(input), null, { ...opts, task: 'designBlueprint' })
+  return parseJson(response.content)
+}
+
 async function readBrief (objective, opts = {}) {
   if (!isEnabled()) return null
 
@@ -1390,6 +1432,10 @@ mode = "temporary" par defaut (tache ponctuelle, une fois terminee c est fini) ;
 Un objectif permanent garde le meme but et attend ensuite une observation pertinente :
 jamais de boucle de recolte aveugle repetee.
 new = nouvel objectif independant (objective reprend fidelement la demande).
+objective garde les mots du joueur ; ne change jamais qui designent ses
+pronoms. « ta place », « ta position », « toi » = le bot ; « moi », « ma
+position » = le joueur. Si tu reformules, nomme-les : « position de depart du
+bot », « le joueur <nom> » (jamais « ma position » ni « ta place »).
 amend = modifie une mission EN COURS : objective est sa consigne COMPLETE revisee,
 en conservant les exigences non modifiees. Ne rejoue pas ce qui est explicitement deja accompli.
 context = information utile a la mission courante sans changer son objectif
@@ -1459,9 +1505,18 @@ async function interpretMessage (message, context, opts = {}) {
     console.log(`[planner] chat sans reponse (${err.message}), nouvel essai`)
     response = await ask()
   }
-  const value = parseJson(response.content)
+  const RELATIONS = ['new', 'amend', 'context', 'question', 'stop']
+  const lire = content => { try { return parseJson(content) } catch (_) { return null } }
+  let value = lire(response.content)
+  // Reponse illisible ou sans relation valide : UN rejeu du meme modele (vu
+  // sur chat/tree-then-bring 33abea6 : « rapporte moi le bois » perdu, bot
+  // reste loin du joueur). Jamais un autre modele, jamais apres annulation.
+  if (!RELATIONS.includes(value?.relation) && !opts.signal?.aborted) {
+    console.log(`[planner] chat : relation invalide (${JSON.stringify(value?.relation ?? null).slice(0, 40)}), nouvel essai`)
+    value = lire((await ask()).content)
+  }
   const relation = value?.relation
-  if (!['new', 'amend', 'context', 'question', 'stop'].includes(relation)) throw new Error('relation de chat invalide')
+  if (!RELATIONS.includes(relation)) throw new Error('relation de chat invalide')
   // Objectif vide sur new/amend (vu : « Rejoins moi ») : le message du joueur
   // est lui-meme l objectif, plutot que d echouer et de laisser le bot muet.
   let objective = String(value.objective ?? '').trim().slice(0, 1000)
@@ -1500,6 +1555,7 @@ module.exports = {
   plan,
   classify,
   readBrief,
+  designBlueprint,
   interpretMessage,
   compact,
   systemPrompt,

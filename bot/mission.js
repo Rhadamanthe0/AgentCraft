@@ -1182,6 +1182,150 @@ function createMissionRunner (host, injected = {}) {
     }
   }
 
+  // Forme du chantier, une fois par mission : { compiled } pour un plan libre
+  // valide, {} pour la boite (demandee, ou repli apres deux plans refuses).
+  async function designShape () {
+    if (mission.shape) return mission.shape
+    // Interrupteur A/B `plans` : coupe, toujours la boite du code.
+    if (!featureOn('plans')) {
+      mission.shape = {}
+      return mission.shape
+    }
+    let erreurs = []
+    const dims = build.parseDimensions(mission.objective)
+    // Materiau de construction en poche : le plan doit y tenir, sauf si le
+    // joueur a fixe les trois dimensions (il faudra alors en recolter).
+    const bot = host.getBot()
+    const stock = (bot?.inventory?.items() ?? []).filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
+    const dimensionsImposees = /trois/.test(dims.source)
+    for (let essai = 0; essai < 3 && planner.isEnabled?.() !== false; essai++) {
+      let bp = null
+      try {
+        bp = await planner.designBlueprint({
+          objectif: mission.objective,
+          // Une seule dimension (« tour de 6 blocs de haut ») n est pas un
+          // cube : parseDimensions la recopie sur les trois axes (vu : tour
+          // 6x6x6 de 152 blocs pour 64 de terre). Le modele lit la phrase.
+          dimensions_lues: /trois|deux/.test(dims.source) ? { largeur: dims.width, profondeur: dims.depth, hauteur: dims.height } : null,
+          blocs_en_stock: stock,
+          matiere: mission.resource,
+          porte_demandee: Boolean(mission.wantsDoor),
+          erreurs_precedentes: erreurs
+        }, { signal: mission.navigationAbort?.signal })
+      } catch (err) {
+        console.warn(`[mission] conception du plan en echec : ${err.message}`)
+        break
+      }
+      if (!bp || bp.forme !== 'libre') break
+      const compiled = build.compileBlueprint(bp)
+      if (compiled.ok && stock > 0 && !dimensionsImposees && compiled.cells.length > stock) {
+        compiled.ok = false
+        compiled.errors = [`${compiled.cells.length} blocs pour ${stock} en stock : fais une forme qui tient dans le stock`]
+      }
+      if (compiled.ok && mission.wantsDoor && !compiled.door) {
+        compiled.ok = false
+        compiled.errors = ['porte demandee : donne "porte": [x, z] sur le bord']
+      }
+      if (compiled.ok) {
+        console.log(`[mission] plan libre ${compiled.width}x${compiled.depth}x${compiled.height}, ${compiled.cells.length} blocs`)
+        mission.shape = { compiled }
+        return mission.shape
+      }
+      erreurs = compiled.errors
+      console.log(`[mission] plan libre refuse : ${erreurs.join(' ; ')}`)
+    }
+    mission.shape = erreurs.length ? { note: `plan libre refuse (${erreurs[0]}), boite a la place` } : {}
+    // La boite de repli tient dans le stock quand le joueur n a pas impose
+    // les trois dimensions : hauteur puis largeur/profondeur reduites (>= 3).
+    // Hauteur jamais sous 4 (plancher + deux blocs d air + toit) : a 3, le
+    // vide interieur fait un bloc, le bot s y retrouve le toit dans la tete
+    // et ne peut plus ni en sortir ni poser la derniere case (build/windows
+    // 33abea6 : 63/64, « poste de tir injoignable » jusqu au plafond).
+    if (stock > 0 && !dimensionsImposees) {
+      const box = { ...mission.dimensions }
+      const minHeight = Math.min(4, box.height)
+      const count = d => build.planHouse({ origin: new Vec3(0, 0, 0), ...d }).blocks.length
+      while (count(box) > stock && (box.height > minHeight || box.width > 3 || box.depth > 3)) {
+        if (box.height > minHeight) box.height -= 1
+        else if (box.width >= box.depth && box.width > 3) box.width -= 1
+        else box.depth -= 1
+      }
+      if (box.height !== mission.dimensions.height || box.width !== mission.dimensions.width || box.depth !== mission.dimensions.depth) {
+        mission.shape.box = box
+        mission.shape.note = `${mission.shape.note ?? 'boite'} reduite a ${box.width}x${box.depth}x${box.height} pour tenir dans ${stock} blocs`
+      }
+    }
+    return mission.shape
+  }
+
+  // Reflexes (reflexes.js, modes de Mindcraft) : entre deux etapes, dans le
+  // slot de l etape, sans le modele. Danger (bloc qui tombe, feu/lave, tete
+  // prise), monstre, joueur colle, objets au sol tout pres. Chaque geste est
+  // journalise dans mission.reflexes et servi au modele (reflexes_recents).
+  async function reflexPass (owner, lastAction) {
+    const bot = host.getBot()
+    if (!mission || mission.cancelled || !bot?.entity || lastAction === 'terminer') return
+    const myMission = mission
+    const note = (reflexe, detail) => {
+      myMission.reflexes = (myMission.reflexes ?? []).concat({ apres_etape: myMission.steps + 1, reflexe, detail }).slice(-6)
+      console.log(`[reflexe] ${reflexe} : ${detail}`)
+    }
+    const move = (target, timeoutMs) => host.navigateToPosition(target, {
+      signal: myMission.navigationAbort?.signal, __owner: owner, radius: 1.2, distanceBudget: 14, timeoutMs
+    })
+    try {
+      const danger = reflexes.detectDanger(bot)
+      if (danger?.type === 'etouffement') {
+        const head = bot.blockAt(bot.entity.position.floored().offset(0, 1, 0))
+        if (head && head.diggable !== false) {
+          await craft.equipForBlock(bot, head).catch(() => {})
+          await withTimeout(bot.dig(head), 4000, 'creusage trop long')
+          note('degagement', `tete prise dans ${danger.bloc} : bloc casse`)
+        }
+      } else if (danger) {
+        const r = await move(reflexes.awayFrom(bot.entity.position, danger.source, 3), 4000)
+        note('mise_a_l_abri', `${danger.type} (${danger.bloc}) : ${r?.reached ? 'ecarte de 3 blocs' : 'ecart tente'}`)
+      }
+      if (myMission.cancelled) return
+      const hostile = reflexes.detectHostile(bot)
+      if (hostile) {
+        const r = await move(reflexes.awayFrom(bot.entity.position, hostile.entity.position, 10), 5000)
+        note('fuite', `${hostile.entity.name ?? 'monstre'} a ${hostile.distance.toFixed(1)} bloc(s) : ${r?.reached ? 'eloigne' : 'eloignement tente'}`)
+      }
+      if (myMission.cancelled || myMission.kind === 'geste') return
+      const crowd = reflexes.detectCrowding(bot)
+      if (crowd) {
+        await move(reflexes.awayFrom(bot.entity.position, crowd.position, 1.5), 2000)
+        note('place', `${crowd.joueur} colle au bot : un pas de cote`)
+      }
+      // Jamais apres un don ni pendant une livraison : le bot reprendrait
+      // ce qu il vient de poser aux pieds du joueur.
+      if (myMission.cancelled || lastAction === 'donner' || deliveryLedgersFor(myMission).length > 0) return
+      // Objet deja tente sans succes : ignore ensuite (pas 4 s par etape).
+      myMission.reflexSkip = myMission.reflexSkip ?? new Set()
+      const drops = reflexes.detectDrops(bot).filter(e => !myMission.reflexSkip.has(e.id)).slice(0, 3)
+      if (drops.length > 0) {
+        const count = () => bot.inventory.items().reduce((n, it) => n + it.count, 0)
+        const before = count()
+        const deadline = Date.now() + 4000
+        for (const drop of drops) {
+          if (myMission.cancelled || Date.now() > deadline || drop.isValid === false) continue
+          const nav = await host.navigateToPosition(drop.position, {
+            signal: myMission.navigationAbort?.signal, __owner: owner, pickup: true, radius: 1.2, distanceBudget: 8,
+            timeoutMs: Math.max(1000, Math.min(3000, deadline - Date.now()))
+          })
+          await sleep(300)
+          if (!nav?.reached && drop.isValid !== false) await stepOnto(drop)
+          if (drop.isValid !== false) myMission.reflexSkip.add(drop.id)
+        }
+        const gained = count() - before
+        if (gained > 0) note('ramassage', `${gained} objet(s) au sol ramasse(s) a proximite`)
+      }
+    } catch (err) {
+      console.warn(`[reflexe] ${err.message}`)
+    }
+  }
+
   // Monte d une hauteur H vers une cible posee sur un relief plus haut :
   // obtient H blocs de terre dans le relief voisin (jamais sous les pieds),
   // pile de H, puis laisse l approche normale finir a pied. Rend un resume ou
@@ -1744,7 +1888,7 @@ function createMissionRunner (host, injected = {}) {
   }
 
   function doorPlaced () {
-    if (!mission?.plan) return false
+    if (!mission?.plan?.door) return false
 
     const bot = host.getBot()
     if (!bot) return mission.doorPlaced
@@ -2291,7 +2435,12 @@ function createMissionRunner (host, injected = {}) {
         matiere: mission.resource,
         repere: mission.landmark,
         porte_demandee: mission.wantsDoor,
-        dimensions: `${dims.width} x ${dims.depth} x ${dims.height}`,
+        // Le chantier choisi fait foi (plan libre ou boite reduite au stock) :
+        // la phrase lue en cube annoncait 20 blocs pour une arche de 11 (vu :
+        // arche complete, modele en boucle 300 s sur « il manque des blocs »).
+        dimensions: mission.plan
+          ? `${mission.plan.width} x ${mission.plan.depth} x ${mission.plan.height} (chantier choisi, ${mission.plan.blocks.length} blocs)`
+          : `${dims.width} x ${dims.depth} x ${dims.height}`,
         fabrication_cible: mission.fabricationCible ?? null,
         fabrication_quantite: mission.fabricationCible ? (mission.fabricationQuantite ?? 1) : null
       },
@@ -3128,12 +3277,13 @@ function createMissionRunner (host, injected = {}) {
         : target === 'batons' || target === 'stick' ? /^stick$/ : null
       const familleDansLePlan = famille && (plan?.etapes ?? []).some(e => e.op === 'fabriquer' && famille.test(e.objet))
       if (plan?.ok && famille && !familleDansLePlan && !famille.test(CIBLE_ITEM[mission.fabricationCible] ?? mission.fabricationCible)) {
-        // Etape suivante du plan = l autre intermediaire (batons apres les
-        // planches) : la faire au lieu de refuser. Vu sur craft/stone-pickaxe
+        // Etape suivante du plan = une fabrication (batons, ou la cible
+        // elle-meme) : la faire au lieu de refuser. Vu sur craft/stone-pickaxe
         // (0a2a819) : planches redemandees cinq fois malgre « suite du plan :
-        // fabriquer 4 stick », pioche jamais faite, plafond de 300 s.
+        // fabriquer 4 stick » ; craft/furnace (33abea6) : planches redemandees
+        // six fois, plan reduit a « fabriquer 1 furnace ».
         const suivante = plan.etapes[0]
-        if (suivante?.op === 'fabriquer' && /_planks$|^stick$/.test(suivante.objet)) {
+        if (suivante?.op === 'fabriquer') {
           reorientation = `assez de ${target}, etape suivante du plan faite a la place : `
           target = suivante.objet
           wanted = Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Number(suivante.quantite) || CRAFT_MIN))
@@ -3532,8 +3682,11 @@ function createMissionRunner (host, injected = {}) {
       }
 
       // Un pilier sous une cible deja cassable gaspille de la dirt : le dire au
-      // lieu de monter pour rien.
-      const cible = findTargetBlock()
+      // lieu de monter pour rien. Recolte seulement : en construction la cible
+      // est la terre a prendre, pas la case a atteindre (build/tower 0b1d4a3 :
+      // bot emmure au pied d une tour creuse, derniere case du toit a +5,
+      // piler(4) refuse « grass_block deja a portee », plafond de 300 s).
+      const cible = mission?.kind === 'construction' ? null : findTargetBlock()
       if (cible && blockInReach(bot, bot.entity.position, cible.position.offset(0.5, 0.5, 0.5), REACH)) {
         return { resultat: `${cible.name} deja a portee : casser directement, pas de pilier`, echec: true }
       }
@@ -3566,7 +3719,7 @@ function createMissionRunner (host, injected = {}) {
         }
         const ecartHaut = haute ? haute.position.y - Math.floor(bot.entity.position.y) : null
         const minimum = ecartHaut === null ? 0 : ecartHaut - MAX_REACH_UP
-        if (haute && minimum > hauteur && minimum <= PILER_MAX) {
+        if (haute && mission?.kind !== 'construction' && minimum > hauteur && minimum <= PILER_MAX) {
           return {
             resultat: `hauteur ${hauteur} trop courte : ${haute.name} a +${ecartHaut}, piler au moins ${minimum} pour l atteindre`,
             echec: true
@@ -3826,29 +3979,28 @@ function createMissionRunner (host, injected = {}) {
         near = anchor.position
       }
 
-      const site = build.findSite(bot, {
-        near,
-        width: dims.width,
-        depth: dims.depth,
-        height: dims.height
-      })
+      // Forme : la boite du code, ou un plan libre concu par le modele et
+      // verifie par build.compileBlueprint (deux essais, erreurs renvoyees).
+      const forme = await designShape()
+      const volume = forme.compiled
+        ? { width: forme.compiled.width, depth: forme.compiled.depth, height: forme.compiled.height }
+        : (forme.box ?? { width: dims.width, depth: dims.depth, height: dims.height })
+      const site = build.findSite(bot, { near, ...volume })
 
       if (!site) {
         return { resultat: 'aucun terrain plat et degage aux alentours', echec: true }
       }
 
-      mission.plan = build.planHouse({
-        origin: site.origin,
-        width: dims.width,
-        depth: dims.depth,
-        height: dims.height
-      })
+      mission.plan = forme.compiled
+        ? build.planFromBlueprint(forme.compiled, site.origin)
+        : build.planHouse({ origin: site.origin, ...volume })
       mission.placed = 0
 
       const { x, y, z } = site.origin
       return {
-        resultat: `chantier place en ${x} ${y} ${z} (${dims.width}x${dims.depth}x${dims.height}, ` +
-          `${mission.plan.blocks.length} blocs, a ${site.distance} blocs du repere)`
+        resultat: `chantier place en ${x} ${y} ${z} (${volume.width}x${volume.depth}x${volume.height}, ` +
+          `${mission.plan.blocks.length} blocs, ${forme.compiled ? 'plan libre verifie' : 'boite'}, ` +
+          `a ${site.distance} blocs du repere)${forme.note ? ` ; ${forme.note}` : ''}`
       }
     },
 
@@ -3964,6 +4116,7 @@ function createMissionRunner (host, injected = {}) {
 
     async poser_porte () {
       if (!mission.plan) return { resultat: 'aucun emplacement choisi', echec: true }
+      if (!mission.plan.door) return { resultat: 'ce plan n a pas de porte', echec: true }
       if (doorPlaced()) return { resultat: 'la porte est deja posee' }
 
       const progress = buildProgress()
@@ -5140,6 +5293,17 @@ function createMissionRunner (host, injected = {}) {
       // demandeur (s il est en jeu), puis clore ; un echec de trajet laisse la
       // boucle continuer (pendingJoin). Vu sur chat/tree-then-bring : mission
       // close au pied de l arbre, bois jamais rapporte.
+      // Chantier complet (mesure par le code, porte comprise si demandee) :
+      // clore, comme l arbre entier ou la quantite explicite. Le modele ne
+      // compte pas les blocs (vu : arche 11/11, 74 appels jusqu au plafond).
+      if (mission.kind === 'construction' && mission.plan) {
+        const chantier = buildProgress()
+        if (chantier.total > 0 && chantier.left === 0 && (!mission.wantsDoor || doorPlaced())) {
+          finish('done', `chantier complet (${chantier.done}/${chantier.total} blocs${mission.wantsDoor ? ', porte posee' : ''})`)
+          return
+        }
+      }
+
       if (mission.wholeTree && treeStatus()?.termine) {
         // La demande vient de l objectif (revision) ou d une precision
         // ajoutee en cours de route (vu : « et rapporte moi le bois » classe

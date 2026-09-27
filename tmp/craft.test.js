@@ -219,6 +219,7 @@ test('ingredients restes dans la grille 2x2 : rendus a la fermeture, craft rejou
   bot.closeWindow = async (win) => {
     closed += 1
     assert.equal(win, bot.inventory)
+    if (!win.slots[1]) return
     win.slots[1] = null
     bot._state.stock.oak_log = (bot._state.stock.oak_log ?? 0) + 1
   }

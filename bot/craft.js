@@ -518,14 +518,36 @@ async function ensureTable (bot, { move = null } = {}) {
 // sans produit », plus de bois pour la suite). mineflayer ne ferme jamais la
 // fenetre 0 ; la fermer fait rendre grille et curseur par le serveur. Rend
 // vrai si quelque chose etait bloque (l inventaire se resynchronise ensuite).
+// Laisse le serveur renvoyer grille et curseur (1,5 s au plus).
+async function waitInventorySettled (bot) {
+  for (let waited = 0; waited < 1500; waited += 100) {
+    await sleep(100)
+    const inv = bot?.inventory
+    if (!inv?.selectedItem && ![1, 2, 3, 4].some(slot => inv?.slots?.[slot])) return
+  }
+}
+
 async function recoverStranded (bot) {
   const inv = bot?.inventory
-  if (!inv || bot.currentWindow) return false
+  if (!inv || bot.currentWindow || typeof bot.closeWindow !== 'function') return false
   const stranded = Boolean(inv.selectedItem) ||
     [1, 2, 3, 4].some(slot => inv.slots?.[slot])
   if (!stranded) return false
   try { await bot.closeWindow(inv) } catch (_) { return false }
   return true
+}
+
+// Resynchronisation complete de l inventaire (clic a numero d etat perime,
+// `_syncWindow` du mineflayer patche) : 1,5 s au plus, sans effet sinon.
+async function resyncInventory (bot) {
+  if (!bot?.inventory || bot.currentWindow || typeof bot._syncWindow !== 'function') return
+  let timer
+  try {
+    await Promise.race([
+      bot._syncWindow(bot.inventory),
+      new Promise(resolve => { timer = setTimeout(resolve, 1500) })
+    ])
+  } catch (_) { /* inventaire local tel quel */ } finally { clearTimeout(timer) }
 }
 
 // Fabrique `wanted` UNITES (pas des executions) de la cible, alias FR ou nom
@@ -560,6 +582,16 @@ async function make (bot, targetName, wanted = 1, opts = {}) {
     err.missing = []
     throw err
   }
+
+  // Restes d un craft precedent dans la grille ou sur le curseur : les rendre
+  // avant de planifier sur l inventaire (craft/axe 33abea6 : etabli fabrique,
+  // 8 planches invisibles, batons « impossibles, buche manquante »).
+  if (await recoverStranded(bot)) await waitInventorySettled(bot)
+  // Inventaire local desynchronise apres un craft (objets disparus du modele,
+  // presents cote serveur : craft/axe 33abea6, 8 planches ; craft/door
+  // 0b1d4a3, une buche puis l etabli) : le serveur renvoie l inventaire
+  // complet avant qu on planifie dessus.
+  await resyncInventory(bot)
 
   const invBase = inventoryMap(bot)
   const dataset = getDataset(bot)

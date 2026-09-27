@@ -1,0 +1,58 @@
+'use strict'
+// build.compileBlueprint : plan libre verifie (bornes, blocs flottants, porte,
+// ordre de pose). Pur, sans monde.
+const { test } = require('node:test')
+const assert = require('node:assert/strict')
+const build = require('../bot/build')
+
+const key = c => `${c.x},${c.y},${c.z}`
+function assertBuildable (cells) {
+  const placed = new Set()
+  for (const c of cells) {
+    const n = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]
+      .some(([x, y, z]) => placed.has(key({ x: c.x + x, y: c.y + y, z: c.z + z })))
+    assert.ok(c.y === 0 || n, `bloc ${key(c)} pose sans voisin`)
+    placed.add(key(c))
+  }
+}
+
+test('tour creuse : enveloppe seule, posable dans l ordre', () => {
+  const r = build.compileBlueprint({ largeur: 3, profondeur: 3, hauteur: 6, elements: [{ type: 'creux', de: [0, 0, 0], a: [2, 5, 2] }] })
+  assert.equal(r.ok, true)
+  assert.equal(r.cells.length, 9 * 2 + 8 * 4)
+  assertBuildable(r.cells)
+})
+
+test('toit sans appui : refuse avec la raison', () => {
+  const r = build.compileBlueprint({ largeur: 3, profondeur: 3, hauteur: 4, elements: [{ type: 'plein', de: [0, 0, 0], a: [2, 0, 2] }, { type: 'plein', de: [0, 3, 0], a: [2, 3, 2] }] })
+  assert.equal(r.ok, false)
+  assert.match(r.errors[0], /flottant/)
+})
+
+test('element hors du volume : refuse', () => {
+  const r = build.compileBlueprint({ largeur: 3, profondeur: 1, hauteur: 2, elements: [{ type: 'plein', de: [0, 0, 0], a: [5, 1, 0] }] })
+  assert.equal(r.ok, false)
+  assert.match(r.errors[0], /sort du volume/)
+})
+
+test('porte : ouverture degagee, sol exige dessous', () => {
+  const r = build.compileBlueprint({ largeur: 5, profondeur: 5, hauteur: 4, elements: [{ type: 'creux', de: [0, 0, 0], a: [4, 3, 4] }], porte: [2, 0] })
+  assert.equal(r.ok, true)
+  assert.ok(!r.cells.some(c => c.x === 2 && c.z === 0 && (c.y === 1 || c.y === 2)))
+  const plan = build.planFromBlueprint(r, { x: 100, y: 64, z: 100 })
+  assert.deepEqual([plan.door.position.x, plan.door.position.y, plan.door.position.z], [102, 65, 100])
+  assert.ok(plan.doorApproach.z < 100)
+  const bad = build.compileBlueprint({ largeur: 5, profondeur: 5, hauteur: 4, elements: [{ type: 'creux', de: [0, 0, 0], a: [4, 3, 4] }], porte: [2, 2] })
+  assert.equal(bad.ok, false)
+})
+
+test('arche : les piliers portent le linteau', () => {
+  const r = build.compileBlueprint({ largeur: 5, profondeur: 1, hauteur: 4, elements: [{ type: 'plein', de: [0, 0, 0], a: [4, 3, 0] }, { type: 'vide', de: [1, 0, 0], a: [3, 2, 0] }] })
+  assert.equal(r.ok, true)
+  assertBuildable(r.cells)
+})
+
+test('trop de blocs : refuse', () => {
+  const r = build.compileBlueprint({ largeur: 12, profondeur: 12, hauteur: 12, elements: [{ type: 'plein', de: [0, 0, 0], a: [11, 11, 11] }] })
+  assert.equal(r.ok, false)
+})
