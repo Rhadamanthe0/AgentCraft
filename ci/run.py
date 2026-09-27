@@ -16,14 +16,122 @@ import urllib.error
 import urllib.request
 import uuid
 
-from cleanup import paper_image
-from trees import BOTS_SERVICE, PROBES_SERVICE, arena_origins, bot_services, levels, probe_names, run_levels
+from cleanup import compose_files, paper_image
+import capacity
+from pool import LauncherControl, Pool
+from trees import API_BASE_PORT, BOTS_SERVICE, POOL_MAX, POOL_SIZE, PROBES_SERVICE, arena_origins, levels, run_levels
 
 ROOT = Path(__file__).resolve().parents[1]
+# Acces aux ports publies : `direct` (TCP/HTTP sur 127.0.0.1, poste Windows +
+# Docker Desktop) ou `exec` (docker compose exec). Sur un runner qui tourne
+# lui-meme en conteneur (MINIPC-CLEM, Podman par socket), 127.0.0.1 est le
+# conteneur du runner, pas l hote : les ports publies y sont injoignables.
+# `ip` (MINIPC-CLEM) : IP du conteneur sur le reseau du projet (lue par
+# `docker inspect`, change a chaque execution) et port interne ; le runner
+# joint ce reseau directement (verifie par l agent de la machine), sans les
+# ~1 600 `compose exec` du mode `exec` (niveaux 635 s au lieu de ~190 s).
+ENDPOINT_MODE = os.environ.get('CI_ENDPOINT_MODE', 'direct')
+if ENDPOINT_MODE not in ('direct', 'ip', 'exec'):
+    raise SystemExit('CI_ENDPOINT_MODE doit valoir direct, ip ou exec')
+
+
+# Classement d un echec (report.tests[].failureKind), pour ne jamais corriger le
+# bot a cause d une panne du banc :
+#   infrastructure : moteur/conteneur/Minecraft/banc (service arrete, commande
+#                    compose en echec, RCON) ; invalide le banc s il est global.
+#   api            : fournisseur du modele (HTTP 4xx/5xx, quota, delai du planificateur).
+#   garde-fou      : plafond de duree ou d etapes du niveau atteint.
+#   bot            : le reste (mauvaise action, mission non lancee, verification ratee) ;
+#                    le modele et le code du bot se departagent en lisant la timeline.
+INFRA_MARKERS = ('command failed', 'is not running', 'published port', 'rcon', 'connection refused',
+                 'connection reset', 'no such container', 'cannot connect to the docker daemon')
+API_MARKERS = ('http 4', 'http 5', 'gousagelimit', 'planificateur indisponible', 'upstream request failed',
+               'pas de reponse en')
+
+
+def failure_kind(test):
+    # answerError : l ordre du joueur rejete par le bot (lecture d objectif sans
+    # reponse du modele...), la mission n a alors jamais commence.
+    text = ' '.join(str(test.get(k) or '') for k in ('error', 'endReason', 'answerError')).lower()
+    if any(m in text for m in INFRA_MARKERS):
+        return 'infrastructure'
+    if any(m in text for m in API_MARKERS):
+        return 'api'
+    if 'plafond' in text:
+        return 'garde-fou'
+    return 'bot'
+
+
+def classify_failures(report):
+    failed = [t for t in report['tests'] if not t.get('success')]
+    for t in failed:
+        t['failureKind'] = failure_kind(t)
+    infra = [t['test'] for t in failed if t['failureKind'] == 'infrastructure']
+    reasons = []
+    if report.get('servicesDown'):
+        reasons.append('services arretes en fin de banc : ' + ', '.join(report['servicesDown']))
+    if len(infra) >= 3:
+        reasons.append(f'{len(infra)} niveaux en echec d infrastructure : ' + ', '.join(infra[:8]))
+    if reasons:
+        report['benchInvalid'] = ' ; '.join(reasons)
+
+
+def planner_key_present():
+    # Le banc tourne avec la seule cle secondaire (secret OPENCODE_SECONDARY_API_KEY) ;
+    # PLANNER_API_KEY reste admise pour un poste local.
+    return bool(os.environ.get('OPENCODE_SECONDARY_API_KEY') or os.environ.get('PLANNER_API_KEY'))
+# Delai des appels HTTP aux bots : /api/instruction attend la lecture de
+# l objectif (PLANNER_TIMEOUT_MS_BRIEF, 60 s, rejouee une fois si tronquee).
+HTTP_TIMEOUT_S = 150
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
         'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js',
-        'blueprint.test.js', 'model-chain.test.js', 'fabrication-utile.test.js',
-        'conversation.test.js', 'place-direct.test.js']
+        'blueprint.test.js', 'model-chain.test.js', 'fabrication-utile.test.js', 'conversation.test.js', 'acquire-plan.test.js',
+        'place-direct.test.js', 'craft-table-reuse.test.js']
+
+
+
+# Models served to the second OpenCode workspace key (secondary,
+# PLANNER_KEY_FIRST in ci/models.env), to pick PLANNER_MODEL_<USAGE> from facts.
+# Ids only, never the key; skipped when the secret is absent.
+PROVIDER_MODEL_LISTS = {
+    'go2': ('OPENCODE_SECONDARY_API_KEY', 'https://opencode.ai/zen/go/v1/models'),
+}
+
+
+def latency_summary(stats):
+    """p50/p95/max (ms) and outcomes per planner usage, over every bot of the run."""
+    merged = {}
+    for bot in stats.values():
+        for task, entry in (bot.get('latences') or {}).items():
+            m = merged.setdefault(task, {'ms': [], 'ok': 0, 'delai': 0, 'erreur': 0, 'annule': 0})
+            m['ms'] += entry.get('ms') or []
+            for k in ('ok', 'delai', 'erreur', 'annule'):
+                m[k] += entry.get(k) or 0
+    out = {}
+    for task, m in sorted(merged.items()):
+        ms = sorted(m.pop('ms'))
+        pick = lambda q: ms[min(len(ms) - 1, int(q * len(ms)))] if ms else None
+        out[task] = {'n': len(ms), 'p50': pick(.5), 'p95': pick(.95), 'max': ms[-1] if ms else None, **m}
+    return out
+
+
+def provider_models():
+    found = {}
+    for name, (var, url) in PROVIDER_MODEL_LISTS.items():
+        key = os.environ.get(var, '').strip()
+        if not key:
+            continue
+        request = urllib.request.Request(url, headers={'Authorization': f'Bearer {key}',
+                                                          'User-Agent': 'minecraft-bot/1.0',
+                                                          'x-opencode-session': 'minebot-ci-models'})
+        try:
+            with urllib.request.urlopen(request, timeout=8) as response:
+                data = json.load(response).get('data', [])
+            ids = sorted(str(model.get('id')) for model in data)
+            found[name] = ids
+        except (OSError, ValueError) as error:
+            found[name] = {'error': str(error)[:200]}
+    return found
 
 
 def compare_variants(tests):
@@ -56,7 +164,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--suite', choices=['unit', 'minecraft', 'trees', 'all'], default='all')
     args = parser.parse_args()
-    project = 'mc-ci-' + uuid.uuid4().hex[:12]
+    # Un nom par job : deux executions en parallele (branches, depots du
+    # runner mutualise) ne partagent ni conteneur, ni reseau, ni volume.
+    run_id = os.environ.get('GITHUB_RUN_ID', '')
+    project = f'mc-ci-{run_id}-{uuid.uuid4().hex[:8]}' if run_id.isdigit() else 'mc-ci-' + uuid.uuid4().hex[:12]
     output = ROOT / 'test-results' / project
     output.mkdir(parents=True)
     marker = output / 'active.json'
@@ -71,12 +182,22 @@ def main():
         if key.startswith('COMPOSE_') and key != 'COMPOSE_DISABLE_ENV_FILE':
             del env[key]
     base = ['docker', 'compose', '--env-file', str(ROOT / 'ci/empty.env'),
-            '--project-directory', str(ROOT / 'ci'), '-f', str(ROOT / 'ci/compose.yaml'), '-p', project]
+            '--project-directory', str(ROOT / 'ci'), *compose_files(), '-p', project]
     report = {'schemaVersion': 1, 'project': project, 'image': image, 'suite': args.suite,
               'startedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
               'sha': None, 'dirty': None, 'success': False, 'tests': [], 'errors': [],
               'phases': {}}
     run_started = time.monotonic()
+    # CI envelope and host metrics, 10 Hz, from files only (ci/capacity.py):
+    # measured in every mode, they gate the pool only in adaptive mode.
+    pool_mode = os.environ.get('CI_POOL_MODE', 'fixed')
+    if pool_mode not in ('fixed', 'adaptive'):
+        raise SystemExit('CI_POOL_MODE doit valoir fixed ou adaptive')
+    capacity_config = capacity.Config.from_env(POOL_MAX)
+    envelope, host, sources = capacity.open_sources(capacity_config)
+    collector = capacity.Collector(envelope, host, capacity_config)
+    collector.start()
+    report['capacity'] = {'sources': sources}
 
     def phase(name, started):
         # Wall time of one bench phase, in seconds (report.json and summary).
@@ -87,6 +208,7 @@ def main():
         report['dirty'] = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True).strip())
     except (OSError, subprocess.CalledProcessError):
         pass  # An exported source directory is supported, but never claims a tested SHA.
+    report['providerModels'] = provider_models()
 
     log_lock = threading.Lock()
 
@@ -113,6 +235,8 @@ def main():
     endpoints = {}
 
     def load_endpoints():
+        if ENDPOINT_MODE == 'ip':
+            return  # IP lues a la demande (service_ip).
         # Every published port of the project in ONE call (a `compose port`
         # costs ~1 s on Windows, and there are 18 of them).
         out = compose('ps', '--format', 'json', timeout=30, check=False).stdout.strip()
@@ -126,7 +250,23 @@ def main():
                     endpoints.setdefault((row.get('Service'), int(pub['TargetPort'])),
                                          ('127.0.0.1', int(pub['PublishedPort'])))
 
+    service_ips = {}
+
+    def service_ip(service):
+        if service not in service_ips:
+            ids = compose('ps', '-q', service, timeout=30).stdout.split()
+            if not ids:
+                raise ConnectionError(f'{service} : aucun conteneur')
+            out = command(['docker', 'inspect', '--format',
+                           '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}', ids[0]], timeout=30).stdout.split()
+            if not out:
+                raise ConnectionError(f'{service} : aucune IP')
+            service_ips[service] = out[0]
+        return service_ips[service]
+
     def endpoint(service, port):
+        if ENDPOINT_MODE == 'ip':
+            return service_ip(service), port
         key = (service, port)
         if key not in endpoints:
             out = compose('port', service, str(port), timeout=30).stdout.strip().splitlines()[-1]
@@ -173,17 +313,33 @@ def main():
                         raise
 
     def rcon(text):
-        try:
-            value = rcon_direct(text).strip()
-        except Exception:
+        value = None
+        if ENDPOINT_MODE != 'exec' and not rcon_state.get('exec'):
+            try:
+                value = rcon_direct(text).strip()
+            except Exception as error:
+                # Une seule tentative : sans cela chaque commande repayait le delai.
+                rcon_state['exec'] = True
+                print(f'RCON direct indisponible ({error}) : docker compose exec pour la suite', flush=True)
+        if value is None:
             value = compose('exec', '-T', 'minecraft', 'rcon-cli', text).stdout.strip()
         if any(word in value.lower() for word in ['incorrect argument', 'unknown command', 'not loaded']):
             raise RuntimeError('Fixture command rejected: ' + value)
         return value
 
+    def services_down():
+        out = compose('ps', '-a', '--format', 'json', timeout=30, check=False).stdout.strip()
+        try:
+            rows = json.loads(out) if out.startswith('[') else [json.loads(line) for line in out.splitlines() if line.strip()]
+        except ValueError:
+            return None
+        return sorted({row.get('Service') for row in rows if str(row.get('State', '')).lower() != 'running'} - {None})
+
     unreachable = set()  # (service, port) whose published port refused or dropped the connection.
 
     def http(service, port, route, body=None, method=None):
+        if ENDPOINT_MODE == 'exec':
+            return http_exec(service, port, route, body, method)
         try:
             if (service, port) in unreachable:
                 raise ConnectionError('published port unusable')
@@ -195,7 +351,9 @@ def main():
                                          method=method or ('GET' if body is None else 'POST'),
                                          headers={'content-type': 'application/json'})
         try:
-            with urllib.request.urlopen(request, timeout=45) as response:
+            # 150 s : /api/instruction attend la lecture de l objectif (muse,
+            # 60 s, rejouee une fois si tronquee) ; 45 s coupait craft/sticks.
+            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_S) as response:
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as error:
             raise RuntimeError(f'{service}:{port}{route}: HTTP {error.code} {error.read().decode("utf-8", "replace")[:300]}')
@@ -219,7 +377,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
 .catch(e=>{console.error(e.message);process.exitCode=1})"""
         return json.loads(compose('exec', '-T', service, 'node', '-e', script, str(port),
                                   route, method or ('GET' if body is None else 'POST'),
-                                  *([] if body is None else [json.dumps(body)]), timeout=45).stdout)
+                                  *([] if body is None else [json.dumps(body)]), timeout=HTTP_TIMEOUT_S).stdout)
 
     def api(route, body=None):
         return http('harness', 3101, route, body)
@@ -248,6 +406,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                              'cpuPercent': float((row.get('CPUPerc') or '0').rstrip('%') or 0),
                              'memUsage': row.get('MemUsage'),
                              'memMB': size_mb((row.get('MemUsage') or '').split('/')[0]),
+                             'memLimitMB': size_mb(((row.get('MemUsage') or '').split('/') + [''])[1]),
                              'pids': row.get('PIDs')})
         return {'takenAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'containers': rows,
                 'totalCpuPercent': round(sum(r['cpuPercent'] for r in rows), 1),
@@ -317,6 +476,25 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             unit_results.append({'test': 'unit/navigation-regression', 'success': result.returncode == 0})
             phase('unit', unit_started)
 
+        # Candidate planner models (ci/model-probe.js): latency and validity of
+        # plans, chat and brief with the real prompts, next to the levels.
+        probe_results = []
+
+        def run_model_probe():
+            started = time.monotonic()
+            result = compose('run', '--rm', '--no-deps', BOTS_SERVICE, 'node', '/work/ci/model-probe.js',
+                             timeout=900, check=False)
+            try:
+                probe_results.extend(json.loads(result.stdout.strip().splitlines()[-1]))
+            except (ValueError, IndexError):
+                probe_results.append({'error': (result.stderr or result.stdout)[-500:]})
+            phase('modelProbe', started)
+
+        probe_thread = None
+        if args.suite in ('trees', 'all') and planner_key_present():
+            probe_thread = threading.Thread(target=run_model_probe, daemon=True)
+            probe_thread.start()
+
         unit_thread = None
         if args.suite in ('unit', 'all'):
             print('Running focused offline regression tests (in parallel)...', flush=True)
@@ -350,9 +528,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 phase('forceloadArenas', arena_started)
             arena_errors = []
             arena_thread = threading.Thread(target=forceload_arenas, daemon=True)
-            if args.suite in ('trees', 'all') and os.environ.get('PLANNER_API_KEY'):
+            if args.suite in ('trees', 'all') and planner_key_present():
                 arena_thread.start()
-            bots_wanted = args.suite in ('trees', 'all') and bool(os.environ.get('PLANNER_API_KEY'))
+            bots_wanted = args.suite in ('trees', 'all') and bool(planner_key_present())
             # Two containers host all pool bots and all probe players.
             extra = [BOTS_SERVICE, PROBES_SERVICE] if bots_wanted else []
             compose('up', '-d', '--wait', '--wait-timeout', '240', 'harness', *extra, timeout=290)
@@ -403,24 +581,10 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             nav_thread = threading.Thread(target=run_navigation, daemon=True)
             nav_thread.start()
         if args.suite in ('trees', 'all'):
-            if os.environ.get('PLANNER_API_KEY'):
-                # The probes healthcheck only proves the process: wait until each one is in the world.
-                started = time.monotonic()
-                until = time.monotonic() + 60
-                while not all(re.search(r':\s*0\s*$', rcon(f'data get entity {name} playerGameType')) for name in probe_names()):
-                    if time.monotonic() > until:
-                        raise RuntimeError('Probe players did not join')
-                    time.sleep(1)
+            if planner_key_present():
                 ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
-                modes = {name: rcon(f'data get entity {name} playerGameType')
-                         for name in [name for _, name in bot_services()] + probe_names()}
-                if ops or not all(re.search(r':\s*0\s*$', mode) for mode in modes.values()):
-                    raise RuntimeError('Expected tree bots in survival without ops: ' + json.dumps(modes))
-                report['botSurvivalProof'] = {'ops': ops, 'playerGameType': modes}
-                phase('probesJoined', started)
-                arena_thread.join()
-                if arena_errors:
-                    raise arena_errors[0]
+                if ops:
+                    raise RuntimeError('Expected empty ops.json: ' + json.dumps(ops))
                 # Footprint all through the levels: one `docker stats` sample
                 # every ~5 s (peaks, means), and the first sample taken >= 60 s
                 # in as `resourceSnapshot` (the single sample of older reports).
@@ -434,6 +598,17 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                             snap = resource_snapshot()
                             snap['atS'] = round(time.monotonic() - levels_started, 1)
                             samples.append(snap)
+                            # Container caps for admission (bots 12g, probes 1536m).
+                            collector.set_containers({
+                                (r['container'] or '').replace(project + '-', '').rsplit('-', 1)[0]:
+                                    ((r['memMB'] or 0) * 2**20, (r['memLimitMB'] or 0) * 2**20 or None)
+                                for r in snap['containers'] if r['container'] and 'minecraft' not in r['container']})
+                            try:
+                                ticks = {'atS': snap['atS'], 'tps': rcon('tps'), 'mspt': rcon('mspt')}
+                                report.setdefault('serverTicks', []).append(
+                                    {k: re.sub(r'\u00a7.', '', v) if isinstance(v, str) else v for k, v in ticks.items()})
+                            except Exception as error:
+                                report['serverTicksError'] = str(error)[:200]
                             if 'resourceSnapshot' not in report and snap['atS'] >= 60:
                                 report['resourceSnapshot'] = snap
                         except Exception as error:
@@ -441,26 +616,55 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                         levels_done.wait(5)
                 sampler = threading.Thread(target=sample, daemon=True)
                 sampler.start()
-                level_results = run_levels(output, rcon, bot_api)
+                # Pool: fixed size (CI_POOL_SIZE, benchmark between commits) or
+                # adaptive (ci/capacity.py). Adaptive without trustworthy metrics
+                # falls back to the fixed size, said in the report and the log.
+                validation = []
+                if pool_mode == 'adaptive':
+                    snap = resource_snapshot()
+                    validation = capacity.validate(collector, sources, container_mem_total=sum(
+                        (r['memMB'] or 0) for r in snap['containers']) * 2**20)
+                    report['capacity']['validation'] = validation or 'ok'
+                    if validation:
+                        print('Pool adaptatif impossible, repli fixe a %d : %s' % (POOL_SIZE, ' ; '.join(validation)), flush=True)
+                controller = capacity.Controller(capacity_config, mode='fixe-repli' if validation else pool_mode,
+                                                 fixed_size=POOL_SIZE)
+                stats = {}
+
+                def planner_stats(worker):
+                    # Read before a bot is retired: its counters die with its process.
+                    try:
+                        p = bot_api(worker.bot, '/api/status').get('planner') or {}
+                    except Exception:
+                        return
+                    stats[worker.username] = {k: p.get(k) for k in (
+                        'appels', 'etapes_servies', 'echecs', 'moyenne_ms', 'jetons_total', 'jetons_en_cache_total',
+                        'jetons_sortie_total', 'jetons_raisonnement_total', 'modele_servi', 'cle_servie', 'bascules_cle',
+                        'latences')}
+
+                def pool_factory(queue, run_one):
+                    return Pool(queue, run_one, LauncherControl(http), controller, collector, rcon, capacity_config,
+                                api_base_port=API_BASE_PORT, pool_max=POOL_MAX, before_retire=planner_stats,
+                                log=lambda line: print(line, flush=True))
+                def arenas_ready():
+                    # Workers start while the arenas load; a level waits for them.
+                    arena_thread.join()
+                    if arena_errors:
+                        raise arena_errors[0]
+                level_results, report['pool'] = run_levels(output, rcon, bot_api, pool_factory, before_level=arenas_ready)
                 phase('levels', levels_started)
                 levels_done.set()
                 sampler.join(90)
+                ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
+                report['botSurvivalProof'] = {'ops': ops, 'playerGameType': report['pool'].pop('survival', {})}
+                if ops:
+                    report['errors'].append('ops.json non vide en fin de banc : ' + json.dumps(ops))
                 report['resourcePeaks'] = resource_peaks(samples)
                 report['resourceSamples'] = [{'atS': s['atS'], 'totalMemMB': s['totalMemMB'],
                                               'totalCpuPercent': s['totalCpuPercent'],
                                               'containers': {(r['container'] or '').replace(project + '-', ''): [round(r['memMB'] or 0), r['cpuPercent']]
                                                              for r in s['containers']}} for s in samples]
                 # Planner cost per bot: latency, prompt cache hit rate, reasoning tokens.
-                stats = {}
-                for service, username in bot_services():
-                    try:
-                        p = bot_api(service, '/api/status').get('planner') or {}
-                    except Exception:
-                        continue
-                    stats[username] = {k: p.get(k) for k in ('appels', 'etapes_servies', 'echecs', 'moyenne_ms',
-                                                              'jetons_total', 'jetons_en_cache_total',
-                                                              'jetons_sortie_total', 'jetons_raisonnement_total',
-                                                              'modele_servi', 'bascules', 'modeles_de_cote')}
                 report['plannerStats'] = stats
                 calls = sum(v.get('appels') or 0 for v in stats.values())
                 prompt = sum(v.get('jetons_total') or 0 for v in stats.values())
@@ -471,26 +675,54 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     'cache_ratio': round(cached / prompt, 3) if prompt else None,
                     'jetons_raisonnement': sum(v.get('jetons_raisonnement_total') or 0 for v in stats.values()),
                     'jetons_sortie': sum(v.get('jetons_sortie_total') or 0 for v in stats.values()),
-                    # Chaine de modeles (ci/models.env) : dernier modele servi par bot, bascules.
+                    # Modeles par usage (ci/models.env) : dernier modele servi par bot.
                     'modeles_servis': sorted({v['modele_servi'] for v in stats.values() if v.get('modele_servi')}),
-                    'bascules': sum(v.get('bascules') or 0 for v in stats.values()),
+                    # Repli de cle (PLANNER_KEY_FIRST) : cle du dernier appel servi, bascules.
+                    'cles_servies': sorted({v['cle_servie'] for v in stats.values() if v.get('cle_servie')}),
+                    'bascules_cle': sum(v.get('bascules_cle') or 0 for v in stats.values()),
+                    # Duree reelle par usage (plan, chat, brief, compact, repair), tous bots.
+                    'latences': latency_summary(stats),
                 }
+                for v in stats.values():
+                    v.pop('latences', None)
+                # Cle attendue (CI_EXPECT_KEY, `secondary` au banc) : toute autre cle
+                # servie, ou une bascule, rend le banc non conforme.
+                expected = os.environ.get('CI_EXPECT_KEY')
+                if expected:
+                    served = report['plannerSummary']['cles_servies']
+                    switches = report['plannerSummary']['bascules_cle']
+                    ok = served == [expected] and not switches
+                    report['keyCheck'] = {'expected': expected, 'served': served, 'switches': switches, 'ok': ok}
+                    print(f"Cle du planificateur : attendue {expected}, servie {served}, bascules {switches} -> {'OK' if ok else 'NON CONFORME'}", flush=True)
+                    if not ok:
+                        report['errors'].append(f'Cle du planificateur non conforme : attendue {expected}, servie {served}, {switches} bascule(s)')
             else:
                 level_results = [{'test': level, 'success': False,
-                                  'error': 'PLANNER_API_KEY absent : secret GitHub du depot non configure'}
+                                  'error': 'aucune cle du planificateur (OPENCODE_SECONDARY_API_KEY ou PLANNER_API_KEY) : secret GitHub non configure'}
                                  for level in [level['name'] for level in levels()]]
         else:
             level_results = []
         for thread in (unit_thread, nav_thread):
             if thread:
                 thread.join()
+        if probe_thread:
+            probe_thread.join(timeout=920)
+            report['modelProbe'] = probe_results
         # A level whose worker died leaves None: report it, never crash the summary.
         level_results = [r if r else {'test': 'niveau sans resultat', 'success': False, 'error': 'worker mort'}
                          for r in level_results]
         report['tests'].extend(unit_results + nav_results + level_results)
+        # Services arretes en fin de banc (conteneur tue de l exterieur, moteur
+        # redemarre...) : le banc est invalide, pas le code (vu sur b2da858).
+        report['servicesDown'] = services_down()
     except (Exception, KeyboardInterrupt) as error:
         report['errors'].append(str(error) or 'Interrupted')
     finally:
+        collector.stop()
+        try:
+            report['capacity'].update(collector.report(run_started))
+        except Exception as error:
+            report['capacity']['error'] = str(error)[:300]
         # Only the generated project and the explicit ci/compose.yaml are addressed.
         # Anonymous test volumes are removed with their containers; no global prune.
         started = time.monotonic()
@@ -513,6 +745,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             report['errors'].append('Cleanup failed: ' + str(error))
         phase('teardown', started)
         report['phases']['total'] = round(time.monotonic() - run_started, 1)
+        classify_failures(report)
         # A/B variants (a mode switched off, or the view switched on) measure,
         # they never gate: only the levels as written decide PASS/FAIL.
         report['success'] = bool(report['tests']) and all(t['success'] or t.get('informative') for t in report['tests']) and not report['errors']
@@ -531,14 +764,27 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             return info + (' ; echec : ' + ', '.join(failed) if failed else '')
         def line(t):
             tag = ('INFO-' if t.get('informative') else '') + ('PASS' if t['success'] else 'FAIL')
-            return f"- {tag} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '') + detail(t)
+            return f"- {tag} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '') \
+                + (f" <{t['failureKind']}>" if t.get('failureKind') else '') + detail(t)
         summary = '\n'.join([f"Commit: {report['sha'] or 'local export (no Git SHA)'}",
-                             f"Result: {'PASS' if report['success'] else 'FAIL'}", '',
+                             f"Result: {'PASS' if report['success'] else 'FAIL'}",
+                             *([f"BANC INVALIDE (infrastructure) : {report['benchInvalid']}"] if report.get('benchInvalid') else []),
+                             *([f"Cle du planificateur : {report['keyCheck']}"] if report.get('keyCheck') else []), '',
                              *[line(t) for t in report['tests']],
                              *(['', 'Comparaisons A/B (niveau tel quel -> variante) :'] + [
                                  f"- {c['level']} vs {c['variant']} : {c['base']} -> {c['other']}"
                                  for c in report['comparisons']] if report.get('comparisons') else []),
                              *([f"Planificateur : {report['plannerSummary']}"] if report.get('plannerSummary') else []),
+                             *([f"Pool : mode {report['pool']['mode']}, {report['pool']['maxActive']} workers au plus, "
+                                f"{report['pool']['workersStarted']} lances, morts {report['pool']['dead'] or 'aucun'}, "
+                                f"budget memoire {report['pool']['workerMemBudgetGiB']} Gio/worker"]
+                               if report.get('pool') else []),
+                             *([f"Capacite (enveloppe CI {report['capacity'].get('sources', {}).get('envelope') or 'introuvable'}) : "
+                                + ', '.join(f'{k} {report["capacity"].get(k)}' for k in (
+                                    'cpuSeconds', 'cpuMeanPct', 'cpu1sP95Pct', 'cpu1sMaxPct', 'throttledPeriodsShareMax10s',
+                                    'cpuPressureMax10s', 'memPeakGiB', 'minMemMarginGiB', 'minHostAvailableGiB', 'memEventsDelta'))
+                                + (f" ; validation : {report['capacity']['validation']}" if report['capacity'].get('validation') else '')]
+                               if report.get('capacity') else []),
                              f"Phases (s) : {report['phases']}",
                              *([f"Pics (docker stats toutes les ~5 s pendant les niveaux, {report['resourcePeaks']['samples']} mesures) : "
                                 f"memoire totale {report['resourcePeaks']['totalMemPeakMB']} MB, CPU total max {report['resourcePeaks']['totalCpuPeakPercent']} % "

@@ -1,17 +1,16 @@
-"""Fallback after a cancelled or interrupted CI run.
+"""Teardown of THIS checkout's bench runs, including after a failure or a cancel.
 
-1. Tear down this checkout's recorded CI projects (test-results/mc-ci-*/active.json).
-2. Sweep what any earlier `mc-ci-*` run left behind: containers, networks and
-   volumes labelled with a compose project `mc-ci-*`, and the bench images
-   (`minebot-ci:*`, and the per-service `mc-ci-*` images of older benches).
+1. Tear down the compose projects recorded by this checkout
+   (test-results/mc-ci-*/active.json): containers, anonymous volumes, network,
+   and the run's own `minebot-ci:<project>` image.
+2. Remove tags of the bench Paper image built from an older ci/paper/ (the
+   current `minebot-ci-paper:<hash>` is kept between runs on purpose).
 
-The Paper server image `minebot-ci-paper:<hash of ci/paper/Dockerfile>` is
-kept between runs on purpose (Paper downloaded and patched once); only its
-tags for an older Dockerfile are removed.
-
-Nothing else is touched: no `prune`, never itzg/minecraft-server, never the
-owner's `minecraft-bot-test-bot:*` backups. Do not run it while a bench run is
-in progress on the same Docker engine: it would remove that run too.
+The runner is shared (MINIPC-CLEM runs the organisation's private projects, and
+other branches of this repository may bench at the same time): nothing that
+this checkout did not record is touched. `--sweep-stale` also removes every
+`mc-ci-*` leftover of the engine; only for a local machine, never in CI.
+No `prune`, never itzg/minecraft-server, never `minecraft-bot-test-bot:*`.
 """
 import hashlib
 import json
@@ -19,19 +18,38 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_LABEL = 'com.docker.compose.project'
-PROJECT = re.compile(r'mc-ci-[0-9a-f]{12}')
+# mc-ci-<hex12>, or mc-ci-<GITHUB_RUN_ID>-<hex8> in GitHub Actions (ci/run.py).
+PROJECT = re.compile(r'mc-ci-(?:[0-9]+-[0-9a-f]{8}|[0-9a-f]{12})')
 
 
 PAPER_REPOSITORY = 'minebot-ci-paper'
 
 
 def paper_image():
-    """Stable tag of the bench's Paper image: changes only with its Dockerfile."""
-    digest = hashlib.sha256((ROOT / 'ci/paper/Dockerfile').read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+    """Stable tag of the bench's Paper image: changes only with ci/paper/ (Dockerfile, bukkit.yml)."""
+    digest = hashlib.sha256()
+    for name in ('Dockerfile', 'bukkit.yml'):
+        digest.update((ROOT / 'ci/paper' / name).read_bytes().replace(b'\r\n', b'\n'))
+    digest = digest.hexdigest()
     return f'{PAPER_REPOSITORY}:{digest[:12]}'
+
+
+def compose_files():
+    """`-f` arguments of the bench: ci/compose.yaml, plus ci/compose.old-api.yaml
+    when the engine API is older than 1.44 (Podman: no healthcheck.start_interval)."""
+    files = ['-f', str(ROOT / 'ci/compose.yaml')]
+    version = docker('version', '--format', '{{.Server.APIVersion}}').stdout.strip()
+    try:
+        old = tuple(int(n) for n in version.split('.')[:2]) < (1, 44)
+    except ValueError:
+        old = False  # Version illisible : fichier de base seul, l erreur de Compose parlera.
+    if old:
+        files += ['-f', str(ROOT / 'ci/compose.old-api.yaml')]
+    return files
 
 
 def docker(*argv, check=False, env=None):
@@ -63,6 +81,7 @@ def remove(kind, argv, names, removed):
 
 
 def recorded_projects(removed):
+    files = compose_files()
     env = dict(os.environ, COMPOSE_DISABLE_ENV_FILE='1')
     for key in list(env):
         if key.startswith('COMPOSE_') and key != 'COMPOSE_DISABLE_ENV_FILE':
@@ -73,7 +92,7 @@ def recorded_projects(removed):
             raise ValueError('Invalid disposable project marker')
         env['CI_TAG'] = project
         base = ['compose', '--env-file', str(ROOT / 'ci/empty.env'),
-                '--project-directory', str(ROOT / 'ci'), '-f', str(ROOT / 'ci/compose.yaml'), '-p', project]
+                '--project-directory', str(ROOT / 'ci'), *files, '-p', project]
         docker(*base, 'rm', '--stop', '--force', '--volumes', check=True, env=env)
         docker(*base, 'down', '--remove-orphans', check=True, env=env)
         # The shared test image has an explicit name, so `--rmi local` would skip it.
@@ -108,10 +127,19 @@ def sweep(removed):
     remove('image', ['image', 'rm'], images, removed)
 
 
+def old_paper_images(removed):
+    refs = [ref for (ref,) in lines(docker('image', 'ls', '--format', '{{.Repository}}:{{.Tag}}'))]
+    old = [ref for ref in refs if ref.rsplit(':', 1)[0] in (PAPER_REPOSITORY, 'localhost/' + PAPER_REPOSITORY)
+           and ref.rsplit(':', 1)[1] != paper_image().rsplit(':', 1)[1]]
+    remove('image', ['image', 'rm'], old, removed)
+
+
 def main():
     removed = []
     recorded_projects(removed)
-    sweep(removed)
+    old_paper_images(removed)
+    if '--sweep-stale' in sys.argv[1:]:
+        sweep(removed)
     print(f'cleanup: {len(removed)} item(s) removed' if removed else 'cleanup: nothing to remove', flush=True)
 
 

@@ -1,0 +1,21 @@
+# Ajoute par ci/cleanup.py:compose_files() quand l API du moteur est < 1.44
+# (Podman rootless du runner MINIPC-CLEM) : Compose y refuse
+# `healthcheck.start_interval`. On le retire et on sonde toutes les 2 s, sinon
+# `up --wait` attendrait l intervalle de 30 s avant la premiere sonde.
+services:
+  minecraft:
+    healthcheck:
+      start_interval: !reset null
+      interval: 2s
+  harness:
+    healthcheck:
+      start_interval: !reset null
+      interval: 2s
+  bots:
+    healthcheck:
+      start_interval: !reset null
+      interval: 2s
+  probes:
+    healthcheck:
+      start_interval: !reset null
+      interval: 2s

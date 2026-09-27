@@ -300,8 +300,24 @@ function getDataset (bot) {
   return null
 }
 
+// Une buche/planche manquante accepte toutes les essences (recettes a
+// variantes) : le planificateur en nomme une au hasard (cherry_log), le
+// modele partait chercher un cerisier. On dit la famille.
 function formatMissing (missing) {
-  return (missing ?? []).map(m => `${m.name || m.id} x${m.count}`).join(', ')
+  return (missing ?? []).map(m => {
+    const name = String(m.name || m.id)
+    const family = /_(log|stem)$/.test(name) ? 'buche (toute essence)' : /_planks$/.test(name) ? 'planches (toute essence)' : name
+    return `${family} x${m.count}`
+  }).join(', ')
+}
+
+// Stock utile a la fabrication (bois, batons, etabli) : joint a un echec
+// « ingredients manquants » pour que le modele et le journal voient le reel.
+function woodStock (inv) {
+  const parts = Object.entries(inv)
+    .filter(([name, n]) => n > 0 && /(_log|_stem|_planks|^stick|^crafting_table)$/.test(name))
+    .map(([name, n]) => `${name} x${n}`)
+  return parts.length ? parts.join(', ') : 'aucun bois'
 }
 
 // Candidats concrets pour une demande : alias FR -> resolve() selon stock,
@@ -410,12 +426,46 @@ function freeSpotNear (bot) {
   return null
 }
 
-// Un etabli a portee : celui qui traine, celui qu on pose, ou celui qu on
-// fabrique d abord. Le bot est ensuite amene a cote, faute de quoi le serveur
-// refuse d ouvrir la fenetre de craft.
+// Un etabli deja pose a moins de TABLE_REUSE_RADIUS blocs sert encore : le bot
+// y retourne. Borne a 4-6 blocs, le solveur de prerequis le perdait de vue des
+// que le bot partait miner (craft/furnace : pierre a ~25 blocs, plan qui
+// reclamait un nouvel etabli donc du bois, allers-retours bouleau/pierre).
+const TABLE_REUSE_RADIUS = Number(process.env.CRAFT_TABLE_REUSE_RADIUS || 24)
+
+// L etabli que CE bot a pose ou utilise reste le sien tant que le bloc est la,
+// jusqu a TABLE_KNOWN_MAX blocs : un rayon fixe ne suffit pas (craft/furnace,
+// 83bbfad : pierre a ~26 blocs de l etabli, juste hors des 24).
+const TABLE_KNOWN_MAX = Number(process.env.CRAFT_TABLE_KNOWN_MAX || 64)
+
+function placedTable (bot, radius = TABLE_REUSE_RADIUS) {
+  const blockId = bot.registry?.blocksByName?.crafting_table?.id
+  if (!blockId) return null
+  let found = null
+  try {
+    found = typeof bot.findBlock === 'function' ? bot.findBlock({ matching: blockId, maxDistance: radius }) : null
+  } catch (_) {
+    found = null
+  }
+  if (found) return found
+  const known = bot.craftTable
+  if (!known || typeof bot.blockAt !== 'function' || !bot.entity?.position) return null
+  try {
+    const block = bot.blockAt(known)
+    if (block?.type === blockId && bot.entity.position.distanceTo(known) <= TABLE_KNOWN_MAX) return block
+  } catch (_) { /* chunk absent */ }
+  return null
+}
+
+function rememberTable (bot, table) {
+  if (table?.position) bot.craftTable = table.position.clone ? table.position.clone() : table.position
+}
+
+// Un etabli a portee : celui qui traine (a TABLE_REUSE_RADIUS blocs au plus),
+// celui qu on pose, ou celui qu on fabrique d abord. Le bot est ensuite amene
+// a cote, faute de quoi le serveur refuse d ouvrir la fenetre de craft.
 async function ensureTable (bot) {
   const blockId = bot.registry.blocksByName.crafting_table?.id
-  let table = blockId ? bot.findBlock({ matching: blockId, maxDistance: 4 }) : null
+  let table = placedTable(bot)
 
   if (!table) {
     if (!findItem(bot, 'crafting_table')) {
@@ -439,8 +489,12 @@ async function ensureTable (bot) {
   if (bot.entity.position.distanceTo(table.position) > 3.5) {
     const vantage = build.findVantage(bot, table.position)
     if (vantage) await build.moveTo(bot, vantage.stand)
+    if (bot.entity.position.distanceTo(table.position) > 4.5) {
+      throw new Error(`etabli pose a ${bot.entity.position.distanceTo(table.position).toFixed(1)} blocs, pas rejoint`)
+    }
   }
 
+  rememberTable(bot, table)
   await bot.lookAt(table.position.offset(0.5, 0.5, 0.5), true)
   return table
 }
@@ -523,7 +577,7 @@ async function make (bot, targetName, wanted = 1) {
   if (!bestPlan) {
     if (bestMissing) {
       const desc = formatMissing(bestMissing.missing) || bestItem
-      const err = new Error(`ingredients manquants pour ${bestItem} : ${desc} (a recolter, rien d invente)`)
+      const err = new Error(`ingredients manquants pour ${bestItem} : ${desc} (a recolter, rien d invente ; en poche : ${woodStock(invBase)})`)
       err.code = 'missing'
       err.item = bestItem
       err.wanted = wantedUnits
@@ -599,9 +653,7 @@ async function make (bot, targetName, wanted = 1) {
   // complet, puis nouveau plan sur l inventaire reel.
   const needsTable = bestPlan.operations.some(op => op.requiresTable)
   if (needsTable && bestItem !== 'crafting_table' && !findItem(bot, 'crafting_table')) {
-    const tableId = bot.registry?.blocksByName?.crafting_table?.id
-    const placed = tableId && typeof bot.findBlock === 'function' ? bot.findBlock({ matching: tableId, maxDistance: 4 }) : null
-    if (!placed) {
+    if (!placedTable(bot)) {
       await make(bot, 'crafting_table', 1)
       return make(bot, targetName, wanted)
     }
@@ -782,6 +834,10 @@ async function make (bot, targetName, wanted = 1) {
 }
 
 module.exports = {
+  TABLE_REUSE_RADIUS,
+  TABLE_KNOWN_MAX,
+  placedTable,
+  rememberTable,
   snapshot,
   options,
   targetCriteria,

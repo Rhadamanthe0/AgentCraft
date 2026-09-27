@@ -566,7 +566,7 @@ const ACTIONS = {
     summary: 'ecrire une phrase dans le chat du serveur',
     scale: 'sans effet',
     secondes: 0.3,
-    intent: "Dire quelque chose au joueur dans le chat : rendre compte d une avancee, signaler un blocage, repondre a une question. A utiliser sobrement, une ou deux fois par mission, pas a chaque etape",
+    intent: "Dire quelque chose au joueur dans le chat : rendre compte d une avancee, signaler un blocage, repondre a une question. A utiliser sobrement, une ou deux fois par mission, pas a chaque etape. Style chat court : quelques mots utiles, pas de phrase complete si elle n ajoute rien (« bloque : plus de terre »)",
     params: {
       texte: {
         json: { kind: 'text', max: 120 },
@@ -945,6 +945,37 @@ const FABRICATION_ALIASES = {
   shovel: 'pelle'
 }
 
+// Noms francais d objets et d outils a matiere nommee. Vu en CI : « pioche en
+// pierre », « torches », « four » n etaient pas reconnus, la mission tombait
+// sans cible de fabrication (solveur inactif, bot visant la pierre enfouie).
+const FR_TOOLS = { pioche: 'pickaxe', hache: 'axe', pelle: 'shovel', epee: 'sword', houe: 'hoe' }
+const FR_MATERIALS = { bois: 'wooden', pierre: 'stone', fer: 'iron', or: 'golden', diamant: 'diamond' }
+const FR_ITEMS = {
+  four: 'furnace', torche: 'torch', coffre: 'chest', echelle: 'ladder', seau: 'bucket',
+  bateau: 'oak_boat', barriere: 'oak_fence', bol: 'bowl', papier: 'paper', canne: 'fishing_rod',
+  arc: 'bow', fleche: 'arrow', pain: 'bread', levier: 'lever', panneau: 'oak_sign'
+}
+const FR_STOP = new Set(['un', 'une', 'des', 'de', 'du', 'la', 'le', 'les', 'l', 'd', 'a', 'en', 'au'])
+
+function singular (word) {
+  if (FR_TOOLS[word] || FR_MATERIALS[word] || FR_ITEMS[word]) return word // « bois » n est pas un pluriel
+  return word.length > 3 && /[sx]$/.test(word) ? word.slice(0, -1) : word
+}
+
+function frenchFabricationTarget (key) {
+  const words = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim().split(' ')
+  const content = words.map(singular)
+  const tool = content.find(w => FR_TOOLS[w])
+  if (tool) {
+    const material = content.find(w => FR_MATERIALS[w])
+    // Sans matiere : la famille (« une pioche » -> pioche, le code choisit).
+    return material ? `${FR_MATERIALS[material]}_${FR_TOOLS[tool]}` : (FABRICATION_ALIASES[tool] ?? null)
+  }
+  const nouns = content.filter(w => !FR_STOP.has(w))
+  if (nouns.length === 1 && FR_ITEMS[nouns[0]]) return FR_ITEMS[nouns[0]]
+  return null
+}
+
 function normalizeFabricationTarget (input) {
   // Accents, articles et espaces pliés : le brief rend « établi », « une
   // hache en bois » (vu sur craft/table : « établi » inconnu, aucune cible,
@@ -953,11 +984,8 @@ function normalizeFabricationTarget (input) {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/^(?:(?:une?|des|les?|la)\s+|l['’]\s*)/, '').replace(/\s+/g, ' ').trim()
   if (!key) return null
-  const outil = /^(hache|pioche|pelle)s? en (bois|pierre|fer)$/.exec(key)
-  if (outil) {
-    const matiere = { bois: 'wooden', pierre: 'stone', fer: 'iron' }[outil[2]]
-    return `${matiere}_${{ hache: 'axe', pioche: 'pickaxe', pelle: 'shovel' }[outil[1]]}`
-  }
+  const french = frenchFabricationTarget(key)
+  if (french) return french
   if (Object.prototype.hasOwnProperty.call(FABRICATION_ALIASES, key)) {
     return FABRICATION_ALIASES[key]
   }
@@ -970,6 +998,7 @@ function normalizeFabricationTarget (input) {
   if (/_axe$/.test(key)) return 'hache'
   if (/_pickaxe$/.test(key)) return 'pioche'
   if (/_shovel$/.test(key)) return 'pelle'
+  // Pluriel anglais (« torches ») : le registre tranchera sur le singulier.
   if (/^[a-z0-9_]+$/.test(key)) return key.slice(0, 40)
   return null
 }
@@ -1186,7 +1215,7 @@ const ACTION_EXEMPLES = {
   sortir: ['bot.dans_liquide vrai -> sortir avant tout le reste'],
   attendre: ['une action longue est deja en cours -> attendre, mais preferer regarder_autour si on ne sait pas quoi faire'],
   terminer: ['objectif atteint et rien d utile ne reste -> terminer'],
-  dire: ['signal de blocage -> {"action":"dire","texte":"je suis coince, il me manque du bois"}'],
+  dire: ['signal de blocage -> {"action":"dire","texte":"coince : plus de bois"}'],
   regarder: ['viser une case en hauteur -> regarder horizontal 0 vertical 45'],
   sauter: ['consigne saute sur place -> {"action":"sauter","duree":0.3}'],
   appuyer: ['consigne decale-toi a droite une seconde -> {"action":"appuyer","touches":["right"],"duree":1}'],

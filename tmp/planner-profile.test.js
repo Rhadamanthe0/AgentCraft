@@ -1,6 +1,6 @@
 'use strict'
 
-// Profil pilote D37/D49 (bot/planner.js) : Muse par defaut, repli DeepSeek annonce.
+// Profil pilote D37/D49 (bot/planner.js) : Muse par defaut, SANS repli (2026-09-26).
 // Tout le reseau est simule (llm.call moque) : aucun appel distant, aucun secret.
 
 const { describe, it, beforeEach, afterEach } = require('node:test')
@@ -84,7 +84,6 @@ describe('profil pilote : selection par defaut et gardes', () => {
     assert.equal(effective.model, DEEPSEEK)
     assert.equal(effective.protocol, 'chat')
     assert.equal(effective.signal, signal)
-    assert.equal(planner.profileStatus().fallbackActive, false)
     assert.equal(planner.profileStatus().enabled, false)
     assert.equal(planner.profileStatus().session, 'minecraft-bot-TestBot')
     assert.ok(!Object.hasOwn(effective, 'reasoning') && !Object.hasOwn(effective, 'effort'))
@@ -101,7 +100,7 @@ describe('profil pilote : selection par defaut et gardes', () => {
     const planner = loadPlanner({ PLANNER_MODEL: undefined })
     assert.equal(planner.MODEL, MUSE)
     assert.equal(planner.PILOT_MODEL, MUSE)
-    assert.equal(planner.FALLBACK_MODEL, DEEPSEEK)
+    assert.ok(!('FALLBACK_MODEL' in planner), 'plus aucun modele de repli')
     const st = planner.profileStatus()
     assert.equal(st.configured, MUSE)
     assert.equal(st.effective, MUSE)
@@ -132,11 +131,10 @@ describe('profil pilote : selection par defaut et gardes', () => {
     assert.equal(seen.length, 1)
     assert.equal(seen[0].options.model, DEEPSEEK)
     assert.deepEqual(events, [])
-    assert.equal(planner.profileStatus().fallbackActive, false)
   })
 })
 
-describe('profil pilote : Muse responses succes et repli', () => {
+describe('profil pilote : Muse responses', () => {
   it('Muse responses succes : protocole responses, un seul appel', async () => {
     const planner = loadPlanner({ PLANNER_MODEL: undefined })
     mockLlm(async () => okPlan())
@@ -145,65 +143,8 @@ describe('profil pilote : Muse responses succes et repli', () => {
     assert.equal(seen.length, 1)
     assert.equal(seen[0].options.model, MUSE)
     assert.equal(seen[0].options.protocol, 'responses')
-    assert.equal(planner.profileStatus().fallbackActive, false)
   })
 
-  it('indispo Muse -> DeepSeek, repli declare via callback et etat', async () => {
-    const planner = loadPlanner({ PLANNER_MODEL: undefined })
-    mockLlm(async (s, u, o) => {
-      if (o.model === MUSE) throw new Error('HTTP 503 : Endpoint is unavailable')
-      return okPlan()
-    })
-    const events = []
-    const off = planner.onProfileEvent(e => events.push(e))
-    let res
-    try {
-      res = await planner.plan({ consigne: 't' }, 'recolte', 'harvest')
-    } finally { off() }
-    assert.ok(res.steps.length >= 1)
-    assert.equal(seen.length, 2)
-    assert.equal(seen[0].options.model, MUSE)
-    assert.equal(seen[1].options.model, DEEPSEEK)
-    assert.equal(seen[1].options.protocol, 'chat')
-    assert.equal(events.length, 1)
-    assert.equal(events[0].type, 'fallback')
-    assert.equal(events[0].from, MUSE)
-    assert.equal(events[0].to, DEEPSEEK)
-    const st = planner.profileStatus()
-    assert.equal(st.fallbackActive, true)
-    assert.equal(st.effective, DEEPSEEK)
-    assert.match(String(st.reason), /503/)
-    // Statut public sans secret.
-    assert.doesNotMatch(JSON.stringify(st), /oc_sk|apikey|Bearer/i)
-    // Miroir dans stats pour /api/status.planner (sans modifier index.js).
-    assert.equal(planner.stats.repli_actif, true)
-    assert.equal(planner.stats.modele_effectif, DEEPSEEK)
-    assert.equal(planner.stats.modele_configure, MUSE)
-  })
-
-  it('cooldown expire : reprise Muse sur sondage normal, un seul appel', async () => {
-    const planner = loadPlanner({ PLANNER_MODEL: undefined })
-    mockLlm(async (s, u, o) => {
-      if (o.model === MUSE) throw new Error('HTTP 503 : Endpoint is unavailable')
-      return okPlan()
-    })
-    await planner.plan({ consigne: 't' }, 'recolte', 'harvest')
-    assert.equal(planner.profileStatus().fallbackActive, true)
-    // Fin du cooldown : le prochain appel normal re-sonde le pilote.
-    planner._profile.nextRetryAt = Date.now() - 1
-    const events = []
-    const off = planner.onProfileEvent(e => events.push(e))
-    mockLlm(async () => okPlan())
-    try {
-      await planner.plan({ consigne: 't' }, 'recolte', 'harvest')
-    } finally { off() }
-    assert.equal(seen.length, 1)
-    assert.equal(seen[0].options.model, MUSE)
-    assert.equal(planner.profileStatus().fallbackActive, false)
-    assert.equal(events.length, 1)
-    assert.equal(events[0].type, 'recovery')
-    assert.equal(events[0].to, MUSE)
-  })
 })
 
 describe('profil pilote : pas de repli hors disponibilite', () => {
@@ -220,7 +161,6 @@ describe('profil pilote : pas de repli hors disponibilite', () => {
     assert.equal(seen.length, 1)
     assert.equal(seen[0].options.model, MUSE)
     assert.deepEqual(events, [])
-    assert.equal(planner.profileStatus().fallbackActive, false)
   })
 
   it('mauvais JSON : pas de remplacement d objectif, pas de repli', async () => {
@@ -232,12 +172,10 @@ describe('profil pilote : pas de repli hors disponibilite', () => {
       await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest'), /illisible/)
       assert.equal(seen.length, 1)
       assert.deepEqual(events, [])
-      assert.equal(planner.profileStatus().fallbackActive, false)
       // readBrief : un JSON illisible leve, ne rend aucun objectif de remplacement.
       seen = []
       await assert.rejects(planner.readBrief('casse du bois'), /illisible/)
       assert.equal(seen.length, 1)
-      assert.equal(planner.profileStatus().fallbackActive, false)
     } finally { off() }
   })
 })
@@ -262,7 +200,6 @@ describe('profil pilote : helper unique sur tous les points d appel', () => {
       assert.equal(call.options.model, MUSE)
       assert.equal(call.options.protocol, 'responses')
     }
-    assert.equal(planner.profileStatus().fallbackActive, false)
   })
 })
 
@@ -308,52 +245,7 @@ describe('profil pilote : budget distinct et reessai troncature (D37 live)', () 
     assert.equal(planner.stats.tentatives, t0 + 2)
     assert.equal(planner.stats.troncatures, trunc0 + 1)
     assert.equal(planner.stats.reessais, retry0 + 1)
-    assert.equal(planner.profileStatus().fallbackActive, false)
     assert.equal(planner.profileStatus().troncatures, trunc0 + 1)
-  })
-
-  it('troncature persistante a 8192 -> repli DeepSeek annonce', async () => {
-    const planner = loadPlanner({ PLANNER_MODEL: undefined })
-    mockLlm(async (s, u, o) => {
-      if (o.model === MUSE) throw new Error('reponse incomplete (max_output_tokens)')
-      return okPlan()
-    })
-    const events = []
-    const off = planner.onProfileEvent(e => events.push(e))
-    let res
-    try {
-      res = await planner.plan({ consigne: 't' }, 'recolte', 'harvest')
-    } finally { off() }
-    assert.ok(res.steps.length >= 1)
-    assert.equal(seen.length, 3)
-    assert.equal(seen[0].options.model, MUSE)
-    assert.equal(seen[1].options.model, MUSE)
-    assert.equal(seen[2].options.model, DEEPSEEK)
-    assert.equal(seen[2].options.protocol, 'chat')
-    assert.equal(seen[2].options.maxTokens, 2000)
-    assert.ok(events.some(e => e.type === 'truncation-retry'))
-    assert.ok(events.some(e => e.type === 'fallback'))
-    assert.equal(planner.profileStatus().fallbackActive, true)
-  })
-
-  it('timeout pilote : pas de reessai budget, repli direct delai strict', async () => {
-    const planner = loadPlanner({ PLANNER_MODEL: undefined })
-    mockLlm(async (s, u, o) => {
-      if (o.model === MUSE) {
-        const err = new Error('pas de reponse en 12000 ms')
-        err.code = 'LLM_TIMEOUT'
-        throw err
-      }
-      return okPlan()
-    })
-    const events = []
-    const off = planner.onProfileEvent(e => events.push(e))
-    try {
-      await planner.plan({ consigne: 't' }, 'recolte', 'harvest')
-    } finally { off() }
-    assert.equal(seen.length, 2)
-    assert.equal(events.filter(e => e.type === 'truncation-retry').length, 0)
-    assert.equal(events.filter(e => e.type === 'fallback').length, 1)
   })
 
   it('readBrief fabrication : brut transmis, quantite bornee, sans repli', async () => {
@@ -368,7 +260,6 @@ describe('profil pilote : budget distinct et reessai troncature (D37 live)', () 
     assert.equal(brief.fabricationQuantite, 1)
     assert.equal(brief.kind, 'recolte')
     assert.equal(seen.length, 1)
-    assert.equal(planner.profileStatus().fallbackActive, false)
   })
 })
 

@@ -1,5 +1,12 @@
 'use strict'
 
+// Exigences que le modele de chat ajoutait sans que le joueur les demande
+// (reprises de la mission precedente) : don / livraison, porte. Chacune exige
+// son mot dans le message du joueur.
+const DELIVERY = /\b(?:remet\w*|remett\w*|donn\w*|livr\w*|apport\w*|rapport\w*|ram[eè]n\w*|fil(?:e|es|er)\b|passe[-\s]moi|au joueur)/i
+const DOOR = /\bportes?\b/i
+const UNASKED = [['don', DELIVERY], ['porte', DOOR]]
+
 // Le chat est un flux d intentions, pas une deuxieme file de touches.
 // Une reponse distante obsolete ne peut ni parler ni modifier une mission.
 //
@@ -183,7 +190,7 @@ function createConversation (host) {
       active = before?.etat === 'running' ? before : null
       const waiting = setTimeout(() => {
         if (own === generation && !abort.signal.aborted) {
-          try { host.say('J ai recu ton message, je regarde ce que tu me demandes.') } catch (_) {}
+          try { host.say('Reçu, je regarde…') } catch (_) {}
         }
       }, 1500)
       try {
@@ -198,6 +205,19 @@ function createConversation (host) {
       // L interpretation est finie. Une question suivante ne doit pas annuler
       // le readBrief d un objectif deja accepte ; stop/new le feront explicitement.
       controllers.delete(abort)
+      // Un don que le joueur n a pas demande n entre jamais dans l objectif :
+      // « Fabrique une porte » relu « ... et la remettre au joueur » (vu en CI,
+      // craft/door ffda434 : 3 portes puis boucle sur un don sans quantite).
+      // Idem pour une porte (build/no-materials bc5963d : « maison 3x3x3 » relue
+      // « ... avec une porte », reprise du niveau precedent ; murs finis puis
+      // recherche de bois jusqu au plafond).
+      const unasked = decision.relation === 'new' && decision.objective
+        ? UNASKED.filter(([, re]) => re.test(decision.objective) && !re.test(message)).map(([name]) => name)
+        : []
+      if (unasked.length) {
+        console.log(`[chat] ${unasked.join(' + ')} non demande(s) retire(s) de l objectif : "${decision.objective}" -> "${message}"`)
+        decision = { ...decision, objective: message }
+      }
       if (decision.relation === 'stop') {
         try { host.cancelPendingStart?.() } catch (_) {}
         try { host.stop() } catch (_) {}
@@ -213,7 +233,7 @@ function createConversation (host) {
         if (decision.relation === 'amend' && decision.objective && now?.etat !== 'running') {
           active = null
         } else {
-          try { host.say('La mission a change entre-temps ; peux-tu reformuler ta precision ?') } catch (_) {}
+          try { host.say('La mission a changé, reformule ?') } catch (_) {}
           return { ignored: true }
         }
       }
@@ -223,11 +243,11 @@ function createConversation (host) {
     // Disposition SANS le tour (start/revise peuvent bloquer sur un brief) :
     // les gardes existantes (startGeneration, cles, generation) tranchent.
     const relation = decision.relation
-    const acknowledge = () => host.say(decision.response || 'J ai compris, je verifie les etapes necessaires.')
+    const acknowledge = () => host.say(decision.response || 'Compris.')
     const rejected = result => {
       if (result?.ok !== false) return null
       if (own !== generation || abort.signal.aborted) { noteIgnored(username, raw); return { ignored: true } }
-      host.say(`Je ne peux pas lancer cette demande : ${result.error}`)
+      host.say(`Impossible : ${result.error}`)
       return { ...decision, error: result.error }
     }
     if (relation === 'question') {
@@ -249,10 +269,10 @@ function createConversation (host) {
         const result = host.context(message, username, { clearanceBlocks: decision.clearanceBlocks })
         if (result === false || result?.ok === false) throw new Error(result?.error || 'mission indisponible ou enregistrement refuse')
       } catch (err) {
-        host.say(`Precision refusee : ${err.message}. Je ne l ai pas ajoutee au contexte de la mission.`)
+        host.say(`Precision refusee : ${err.message}`)
         return { ...decision, error: err.message }
       }
-      host.say(decision.response || 'Compris, je prends cette precision en compte.')
+      host.say(decision.response || 'Noté.')
     } else if (relation === 'amend' && active) {
       acknowledge()
       const result = await host.revise(decision.objective, username, { signal: abort.signal, clearanceBlocks: decision.clearanceBlocks, mode: decision.mode ?? directMode })

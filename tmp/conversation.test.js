@@ -227,8 +227,30 @@ test('interpretation lente : accuse de reception intermediaire, puis vraie repon
   f.host.interpret = () => new Promise(resolve => { release = resolve })
   const pending = f.conversation.receive('A', '3+3 ?')
   await new Promise(resolve => setTimeout(resolve, 1600))
-  assert.match(f.events[0][1], /recu ton message/)
+  assert.match(f.events[0][1], /Reçu/)
   release({ relation: 'question', response: '3 + 3 = 6.' })
   await pending
   assert.deepEqual(f.events[1], ['say', '3 + 3 = 6.'])
+})
+test('un don non demande par le joueur est retire de l objectif (craft/door, ffda434)', async () => {
+  const f = fixture()
+  f.host.interpret = async () => ({ relation: 'new', objective: 'Fabriquer une porte en bois et la remettre au joueur.' })
+  await f.conversation.receive('A', 'Fabrique une porte en bois')
+  assert.deepEqual(f.events.filter(e => e[0] === 'start'), [['start', 'Fabrique une porte en bois']])
+})
+test('un don demande par le joueur reste dans l objectif', async () => {
+  const f = fixture()
+  f.host.interpret = async () => ({ relation: 'new', objective: 'Couper un arbre et rapporter le bois au joueur.' })
+  await f.conversation.receive('A', 'Coupe un arbre et rapporte moi le bois')
+  assert.deepEqual(f.events.filter(e => e[0] === 'start'), [['start', 'Couper un arbre et rapporter le bois au joueur.']])
+})
+test('une porte non demandee est retiree de l objectif (build/no-materials, bc5963d)', async () => {
+  const f = fixture()
+  f.host.interpret = async () => ({ relation: 'new', objective: 'Construire une maison en terre de 3 par 3 par 3 avec une porte.' })
+  await f.conversation.receive('A', 'Construis une maison en terre de 3 par 3 par 3')
+  assert.deepEqual(f.events.filter(e => e[0] === 'start'), [['start', 'Construis une maison en terre de 3 par 3 par 3']])
+  f.events.length = 0
+  f.host.interpret = async () => ({ relation: 'new', objective: 'Construire une maison en bois avec une porte.' })
+  await f.conversation.receive('A', 'Construis une maison en bois avec une porte')
+  assert.deepEqual(f.events.filter(e => e[0] === 'start'), [['start', 'Construire une maison en bois avec une porte.']])
 })

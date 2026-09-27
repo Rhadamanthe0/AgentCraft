@@ -60,8 +60,12 @@ const stats = {
 }
 Object.defineProperty(stats, 'routing', { enumerable: true, get: () => routing.status() })
 
+// Chaine de modeles du planificateur (PLANNER_MODEL_REPAIR, effort et delai
+// par usage, cles par entree) : prioritaire sur REPAIR_MODEL/REPAIR_API_KEY.
+const CHAIN = String(process.env.PLANNER_MODEL_REPAIR || '').trim()
+
 function isEnabled () {
-  return routing.isDual() || Boolean(API_KEY && BASE_URL)
+  return routing.isDual() || Boolean(CHAIN) || Boolean(API_KEY && BASE_URL)
 }
 
 function why () {
@@ -151,6 +155,9 @@ ${documentation(kind, supply)}`
 // oubli sur le chemin `reflect` qui a fait echouer `reviser_actions` en jeu.
 function call (system, user, { temperature = 0.2, maxTokens = MAX_TOKENS, signal = null, task = 'repair.askForAction', state = {} } = {}) {
   if (routing.isDual()) return routing.call(task, state, system, user, { temperature, signal })
+  // require tardif : planner ne depend pas de repair, mais on garde ce module
+  // chargeable seul (tests) sans tirer le planificateur.
+  if (CHAIN) return require('./planner')._callWithProfile(system, user, { temperature, maxTokens, timeoutMs: TIMEOUT_MS, signal, task: 'repair' })
   return llm.call(system, user, {
     baseUrl: BASE_URL,
     apiKey: API_KEY,

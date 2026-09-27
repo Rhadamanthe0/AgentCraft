@@ -1,74 +1,97 @@
 'use strict'
-// Chaine de modeles par usage, choisie dans le .env (demande du proprietaire,
-// 2026-09-26 : quota hebdomadaire Go epuise, modeles gratuits a la place).
+// Modele par usage, choisi dans le .env (demande du proprietaire, 2026-09-26) :
+// UN seul modele par usage, AUCUN repli vers un autre modele.
 //
-//   PLANNER_MODEL=space-bunny-free,longcat-2.5-preview-free
-//   PLANNER_MODEL_PLAN=...      plans de mission        (tache plan)
-//   PLANNER_MODEL_BRIEF=...     lecture de l objectif   (readBrief)
+//   PLANNER_MODEL=...           defaut (prechauffage, usage sans variable)
+//   PLANNER_MODEL_PLAN=...      actions (plans de mission)
 //   PLANNER_MODEL_CHAT=...      chat du joueur          (interpretMessage, classify)
-//   PLANNER_MODEL_COMPACT=...   resume de la memoire    (compact)
+//   PLANNER_MODEL_BRIEF=...     reflexion : lecture de l objectif (readBrief)
+//   PLANNER_MODEL_COMPACT=...   generation de la memoire (compact)
+//   PLANNER_MODEL_REPAIR=...    demander de l aide, reviser les actions (repair.js)
 //
-// Chaque usage prend sa liste, sinon PLANNER_MODEL. Une entree `modele@url`
-// passe par une autre base, SANS cle (ex : l offre gratuite anonyme de Zen,
-// `space-bunny-free@https://opencode.ai/zen/v1`) : la cle du gateway principal
-// n est jamais envoyee ailleurs. On essaie dans l ordre ; un refus HTTP du
-// fournisseur (quota 429, modele inconnu ou indisponible, 401/403, 5xx) met le
-// modele de cote `PLANNER_MODEL_COOLDOWN_MS` et passe au suivant dans le meme
-// appel. Delai, annulation, JSON illisible : jamais de bascule (le modele a
-// repondu, ou c est le code qui a coupe).
+// Avec pour chacun PLANNER_REASONING_EFFORT_<USAGE> et PLANNER_TIMEOUT_MS_<USAGE>.
+// Tous les modeles passent par PLANNER_BASE_URL. Deux cles possibles pour ce
+// gateway : `primary` (PLANNER_API_KEY) et `secondary` (OPENCODE_SECONDARY_API_KEY,
+// second espace OpenCode). PLANNER_KEY_FIRST dit laquelle essayer d abord ; un
+// refus de cle (quota 429, 401/402/403) rejoue le MEME modele avec l autre cle
+// et met la cle refusee de cote PLANNER_KEY_COOLDOWN_MS. C est le seul repli :
+// jamais un autre modele. Tout `modele@...` est refuse (erreur claire).
 
 const TASK_VARS = {
   plan: 'PLANNER_MODEL_PLAN',
   readBrief: 'PLANNER_MODEL_BRIEF',
   interpretMessage: 'PLANNER_MODEL_CHAT',
   classify: 'PLANNER_MODEL_CHAT',
-  compact: 'PLANNER_MODEL_COMPACT'
+  compact: 'PLANNER_MODEL_COMPACT',
+  // demander_aide et reviser_actions (bot/repair.js)
+  repair: 'PLANNER_MODEL_REPAIR'
 }
 
 function parse (text) {
   return String(text ?? '').split(',').map(s => s.trim()).filter(Boolean).map(entry => {
     const at = entry.indexOf('@')
     if (at <= 0) return { model: entry, baseUrl: null, label: entry }
-    const baseUrl = entry.slice(at + 1).trim().replace(/\/+$/, '')
-    return { model: entry.slice(0, at).trim(), baseUrl: baseUrl || null, label: entry }
+    // Plus aucune base tierce (fournisseurs gratuits retires du code) ni alias :
+    // la cle se choisit par PLANNER_KEY_FIRST, pas par le nom du modele.
+    return { model: entry.slice(0, at).trim(), invalid: true, label: entry }
   })
 }
 
-function chainFor (task, env = process.env, fallback = '') {
+// Le modele de l usage : PLANNER_MODEL_<USAGE>, sinon PLANNER_MODEL. Une liste
+// (ancien format) ne garde que sa premiere entree. null si sa cle manque.
+function modelFor (task, env = process.env, fallback = '') {
   const own = TASK_VARS[task] ? env[TASK_VARS[task]] : ''
-  return parse(String(own ?? '').trim() || env.PLANNER_MODEL || fallback)
+  const entry = parse(String(own ?? '').trim() || env.PLANNER_MODEL || fallback)[0]
+  if (!entry || entry.invalid) return null
+  return entry
 }
 
-// Refus du fournisseur qui justifie d essayer un autre modele. 400 seulement
-// s il dit que le modele n est pas servi (un 400 de schema resterait un 400).
-function isSwitchError (err) {
-  if (err?.code !== 'LLM_HTTP') return false
-  const s = Number(err.status)
-  if ([401, 402, 403, 404, 429].includes(s) || s >= 500) return true
-  return s === 400 && /model is unavailable|not supported|unknown model|model.*not found/i.test(String(err.message ?? ''))
+// Effort de raisonnement par usage : PLANNER_REASONING_EFFORT_<USAGE> sinon
+// PLANNER_REASONING_EFFORT (vide = rien envoye). Les actions (plan, chat)
+// gagnent a raisonner peu ; la lecture de l objectif garde le defaut.
+function effortFor (task, env = process.env) {
+  const own = TASK_VARS[task] ? env[TASK_VARS[task].replace('PLANNER_MODEL_', 'PLANNER_REASONING_EFFORT_')] : ''
+  const value = String(own ?? '').trim() || String(env.PLANNER_REASONING_EFFORT ?? '').trim()
+  return value.toLowerCase() || null
 }
 
-function createState (cooldownMs = 600000) {
+// Delai d un appel par usage : PLANNER_TIMEOUT_MS_<USAGE> (vide = delai commun).
+function timeoutFor (task, env = process.env) {
+  const name = TASK_VARS[task]?.replace('PLANNER_MODEL_', 'PLANNER_TIMEOUT_MS_')
+  const value = Number(name ? env[name] : NaN)
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+
+const KEY_VARS = { primary: 'PLANNER_API_KEY', secondary: 'OPENCODE_SECONDARY_API_KEY' }
+
+// Cles dans l ordre d essai (PLANNER_KEY_FIRST=primary|secondary, defaut
+// primary), sans les cles vides.
+function keyOrder (env = process.env) {
+  const first = String(env.PLANNER_KEY_FIRST ?? '').trim().toLowerCase() === 'secondary' ? 'secondary' : 'primary'
+  return [first, first === 'primary' ? 'secondary' : 'primary']
+    .map(name => ({ name, key: String(env[KEY_VARS[name]] ?? '').trim() }))
+    .filter(k => k.key)
+}
+
+// Refus qui tient a la CLE (quota, droits) : l autre cle peut passer. Un delai,
+// une 5xx ou un 400 de schema ne changent rien d une cle a l autre.
+function isKeySwitchError (err) {
+  return err?.code === 'LLM_HTTP' && [401, 402, 403, 429].includes(Number(err.status))
+}
+
+function createKeyState (cooldownMs = 600000) {
   const until = new Map()
-  const reasons = new Map()
   return {
-    cooldownMs,
-    order (chain, now = Date.now()) {
-      const ready = chain.filter(e => !(until.get(e.label) > now))
-      const cooled = chain.filter(e => until.get(e.label) > now)
-        .sort((a, b) => until.get(a.label) - until.get(b.label))
-      return [...ready, ...cooled]
+    order (keys, now = Date.now()) {
+      const ready = keys.filter(k => !(until.get(k.name) > now))
+      return [...ready, ...keys.filter(k => until.get(k.name) > now)]
     },
-    bench (entry, err, now = Date.now()) {
-      until.set(entry.label, now + cooldownMs)
-      reasons.set(entry.label, String(err?.message ?? err ?? '').slice(0, 160))
-    },
-    clear (entry) { until.delete(entry.label); reasons.delete(entry.label) },
+    bench (k, now = Date.now()) { until.set(k.name, now + cooldownMs) },
+    clear (k) { until.delete(k.name) },
     status (now = Date.now()) {
-      return Object.fromEntries([...until].filter(([, t]) => t > now)
-        .map(([label, t]) => [label, { jusqu_a: new Date(t).toISOString(), raison: reasons.get(label) }]))
+      return Object.fromEntries([...until].filter(([, t]) => t > now).map(([n, t]) => [n, new Date(t).toISOString()]))
     }
   }
 }
 
-module.exports = { parse, chainFor, isSwitchError, createState, TASK_VARS }
+module.exports = { parse, modelFor, effortFor, timeoutFor, keyOrder, isKeySwitchError, createKeyState, KEY_VARS, TASK_VARS }

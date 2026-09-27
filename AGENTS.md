@@ -323,6 +323,12 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   fois (16 bots au meme instant : space-bunny muet 30 s, muse en quota,
   deepseek indisponible ; quatre ordres perdus sur bc79aae). Banc : 4000
   jetons de sortie (space-bunny tronquait 7 % des plans a 2000).
+  Delai CI ramene a 20 s (p95 14,6 s, p99 18,1 s sur 288ce66) : un appel
+  muet est re-essaye, et 30 + 30 s depassaient les 60 s sans progres.
+  Cible de matiere : la face du DESSOUS ne compte pas comme visible sous les
+  pieds du bot, et une cible en `no_path`/`dug_out_of_reach` est mise de cote
+  3 min (craft/stone-pickaxe, craft/furnace : dessous de la couche de pierre
+  sous l arene vise trois fois, bot creusant vers le bas, puits).
   `build.placeOne` pose d ici quand la case est deja a portee (corps hors de
   la case, appui present) : l etabli a poser contre le rocher partait vers un
   « meilleur » poste injoignable (12 s), pioche en pierre jamais fabriquee.
@@ -330,6 +336,188 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   de 6 se pose du sol (build/tower, 6e couche injoignable a -4).
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
+  Effort de raisonnement par usage (`PLANNER_REASONING_EFFORT[_PLAN|_BRIEF|
+  _CHAT|_COMPACT]`, champ `reasoning_effort`) : mesure space-bunny-free
+  2026-09-26, defaut ~200-800 jetons de raisonnement et 4-10 s par plan,
+  `low` ~50 jetons et ~2-3 s. Banc : plan/chat/compact en `low`, brief au
+  defaut. Remplace le champ thinking dans l appel ; deux 400 le retirent pour
+  le modele (retour a thinking). Autres gratuits de Zen (nemotron, ling,
+  longcat, mimo) : 403 FreeTierError, jev-1.13-free : 500.
+  Fournisseurs tiers a cle (Groq, Google AI Studio ; demande du proprietaire,
+  2026-09-26) : `PROVIDER_KEYS` (model-chain.js) associe un HOTE exact a sa
+  variable (`GROQ_API_KEY`, `GEMINI_API_KEY`, secrets GitHub) ; une cle ne part
+  jamais vers une autre base, une entree sans sa cle est ignoree. Le rapport CI
+  porte `providerModels` (ids servis, jamais la cle). Hetzner ecarte (carte).
+  OpenRouter (`OPENROUTER_API_KEY`) : ~50 appels/jour gratuits, dernier recours.
+  Mesures e742854 : Gemini 3.5 Flash-Lite ~1,2 s/plan ; Groq gratuit 8000
+  jetons/min PAR MODELE (~2 plans/min, aucun cache). Banc passe de 16 a 8 bots
+  en parallele (`POOL_SIZE`, choix du proprietaire) pour tenir sous ces limites.
+  Second espace OpenCode Go du proprietaire : alias `modele@go2` (KEY_ALIASES,
+  liste fermee) = gateway Go avec `OPENCODE_SECONDARY_API_KEY`, mis de cote a
+  part de la cle principale. Tete de chaine : deepseek-v4.1-flash@go2.
+  Sonde des modeles (`ci/model-probe.js`, `report.modelProbe`) : a chaque banc,
+  3 plans + 3 messages de chat + 1 brief par candidat avec les vrais prompts
+  (latence mediane, reponses valides) ; un processus par modele. Chaine vide
+  (toutes les cles absentes) => erreur claire, jamais la liste brute envoyee
+  comme nom de modele (« Model x@go2 is not supported »).
+  Muse Spark 1.3 (indice Artificial Analysis 45-48, le plus haut des candidats ;
+  plus gros quota Go) passe par /responses (`PILOT_MODEL`) : l effort y part
+  en `reasoning.effort`. `muse-spark-1.3-contributor@go2` est dans la sonde.
+  Quatre usages x (modele, effort) voulus par le proprietaire : PLAN (actions)
+  et CHAT en `low` (deepseek-v4.1-flash ou mimo-v2.6-flash, a trancher par la
+  sonde), BRIEF (reflexion) muse@go2 `medium`, COMPACT (memoire) muse@go2
+  `high` (`max` n est pas une valeur d API). `PLANNER_TIMEOUT_MS_<USAGE>` :
+  brief 25 s au banc (un niveau sans mission a 45 s echoue), memoire 90 s.
+  Cinquieme usage REPAIR (demander_aide, reviser_actions) : `repair.js` passe
+  par la chaine du planificateur des que `PLANNER_MODEL_REPAIR` est pose
+  (prioritaire sur REPAIR_MODEL/REPAIR_API_KEY) ; banc : muse@go2 `medium`, 60 s.
+  **Plus aucun repli de modele (2026-09-26, demande du proprietaire)** : UN
+  modele par usage (`modelFor`, une liste ne garde que sa tete), aucune bascule
+  sur refus/delai, aucune mise de cote, plus de repli Muse -> DeepSeek du
+  profil pilote. Seuls restent les rejeux du MEME modele : troncature (budget
+  elargi), panne passagere dans `llm.call`, reaiguillage de session, retrait
+  des champs thinking/effort refuses. Banc : actions/chat deepseek-v4.1-flash@go2
+  `low` ; reflexion (BRIEF, 40 s), memoire (COMPACT) et aide (REPAIR) en
+  muse@go2 `high`. Les notes plus haut sur les chaines et bascules sont
+  historiques.
+  Fournisseurs gratuits (Zen anonyme `@url`, Groq, Gemini, OpenRouter) retires
+  du code (decision du proprietaire ; cles laissees dans GitHub) : seuls
+  `modele` (cle principale) et `modele@go2` existent, tout autre `@...` est
+  refuse. Banc a 32 bots paralleles (POOL_SIZE, ~20 Go libres sur le runner ;
+  Paper 3 Go, 80 joueurs), brief muse `high` 60 s, `START_TIMEOUT_S` 75 s.
+  La sonde mesure aussi jetons de raisonnement et acceptation de l effort.
+  Repli de CLE (demande du proprietaire) : deux cles pour le gateway Go,
+  primary (PLANNER_API_KEY) et secondary (OPENCODE_SECONDARY_API_KEY) ;
+  PLANNER_KEY_FIRST dit laquelle essayer d abord. Refus de cle (429,
+  401/402/403) => MEME modele avec l autre cle, cle refusee mise de cote
+  PLANNER_KEY_COOLDOWN_MS (10 min). Jamais sur delai/5xx, jamais un autre
+  modele. L alias `modele@go2` est retire. Banc : primary d abord (quota
+  hebdo epuise) pour valider le repli, puis secondary.
+  Repli valide sur 6cea0f6 (32/32 bots passes a secondary sur 429
+  GoUsageLimitError, 64/65) : banc en secondary d abord. GLM-5.3 Flash
+  ecarte (60/65 en `medium`, 58/65 en `low`, ~3x plus rapide que DeepSeek) :
+  DeepSeek V4.1 Flash reste pour actions et chat. Appels HTTP du banc aux
+  bots a 150 s (`HTTP_TIMEOUT_S`) : /api/instruction attend la lecture
+  d objectif muse (60 s + rejeu si tronquee) ; 45 s perdait craft/sticks.
+  Fabrication : un manque de bois se dit par famille (« buche (toute
+  essence) ») avec le stock reel en poche (craft/axe : « cherry_log x1 »,
+  cerisier cherche 150 s). Chat : un ordre a cible vague (« Va sous l arbre »)
+  est new, jamais une question de precision (route/under-tree, bot muet).
+- Banc complet sur MINIPC-CLEM (2026-09-27, docs/remote-minecraft-tests.md) :
+  runner Linux en conteneur + Podman rootless par socket ; `CI_ENDPOINT_MODE=exec`,
+  bukkit.yml dans l image Paper, `ci/compose.old-api.yaml` si API < 1.44, projet
+  `mc-ci-<run id>-...`, nettoyage limite aux projets du checkout (runner
+  mutualise). Seule la cle secondaire est transmise, `report.keyCheck` le
+  verifie. Echecs classes (`failureKind`), `benchInvalid` si panne globale.
+  `avancer` sans cible : defait d abord le pilier du bot et s arrete au bord
+  d une chute de plus de deux blocs (trees/bent, 0e5dee5 : chute de 4, degats).
+  `piler` en recolte refuse sans aucune cible restante (trees/reachable :
+  plan anticipe perime, sol creuse pour un pilier inutile).
+  MINIPC-CLEM, suite (2026-09-27) : `CI_ENDPOINT_MODE=ip` (IP des conteneurs
+  par `docker inspect`, joignables depuis le runner ; `exec` rendait les
+  niveaux 3x plus lents, harness arrete a 600 s d inactivite, banc bc0cd22
+  invalide). `CI_POOL_SIZE=16` : CI plafonnee a 400 % CPU. Umask 077 du runner
+  => `chmod a+rX` dans les images. Paper sans plafond memoire de conteneur ;
+  compte CI 16 Gio. Image Paper purgeable le lundi si > 30 jours.
+- Pool a la demande (2026-09-27, demande de l agent MINIPC-CLEM,
+  docs/remote-minecraft-tests.md « Pool de workers ») : `bots` et `probes`
+  demarrent vides, `ci/pool.py` lance chaque couple TreeBotN + TestProbe<N+1>
+  par API de controle (2999/2998) et le retire en fin de file ; plus de 32
+  sondes pour 16 bots. `CI_POOL_MODE=fixed` (CI_POOL_SIZE, comparaison entre
+  commits) ou `adaptive` (`ci/capacity.py` : enveloppe CI 400 %, admissions
+  CPU < 300 % x10, reserves 4 Gio CI + hote, redescente sans tuer de niveau ;
+  mesures douteuses => repli fixe). Stats du planificateur lues AVANT le
+  retrait d un bot (le processus les emporte). Tests : ci/test_capacity.py,
+  ci/test_pool.py.
+- Latence du modele par usage (`planner.stats.latences` : 200 dernieres durees
+  par usage, issues ok/delai/erreur/annule) ; `report.plannerSummary.latences`
+  en tire p50/p95/max. Echec d un ordre sans reponse du modele (`answerError`,
+  « pas de reponse en ») classe `api`. follow/* note `missionRunningAtWalk` :
+  sur 83bbfad, follow/stairs (8,71 blocs) et route/under-tree (aucune mission)
+  venaient de lectures d objectif Muse > 20 s / 60 s x 2, pas du suivi.
+- Don non demande retire de l objectif (`conversation.js`, `DELIVERY`) : le
+  modele de chat reecrivait « Fabrique une porte » en « ... et la remettre au
+  joueur » (intermittent depuis le 2026-09-26) ; `donner` sans quantite
+  bouclait ensuite jusqu au plafond (craft/door ffda434). Seul un message du
+  joueur avec un verbe de don (donne, rapporte, ramene, livre, file...) le garde.
+  Meme garde pour une porte (`UNASKED`) : build/no-materials (bc5963d) relu
+  « ... avec une porte » depuis le niveau precedent du meme bot.
+- Etabli pose reutilise dans un rayon de 24 blocs (`craft.TABLE_REUSE_RADIUS`,
+  `placedTable`) pour le solveur, `ensureTable` (le bot y retourne) et le refus
+  d un second etabli : a 4-6 blocs, craft/furnace (28d5096) oscillait entre le
+  bouleau (plan : nouvel etabli donc bois) et la pierre a ~25 blocs.
+  L etabli que le bot a pose ou utilise (`bot.craftTable`, `rememberTable`)
+  reste le sien jusqu a 64 blocs tant que le bloc existe : a 24 blocs, la
+  pierre de craft/furnace (~26) restait hors rayon (83bbfad).
+  Cible de fabrication reduite a une famille (« pioche ») alors que l objectif
+  dit « pioche en pierre » : l objet precis (outil + « en » + matiere) est
+  repris du texte (craft/stone-pickaxe : pioche en bois puis errance).
+- `digToward` vers un joueur sans course (`joinDigMovements.allowSprinting =
+  false` ; PAS safeDig : sans course l escalier de terrain/plateau expirait) : le
+  pathfinder creuse la marche sous les pieds des que le bot touche le sol,
+  elan compris ; en courant, le bot glissait au-dela du rebord et tombait de
+  5 blocs (join/cliff-down 89fa489, premiere chute en ~30 bancs). Le solveur
+  journalise son plan a chaque changement (`[mission] solveur (etabli proche
+  : ...)`) : craft/furnace 89fa489 (« il manque bois et etabli », etabli pose)
+  n etait pas lisible dans les journaux.
+- `avancer` sans cible : bord d une chute blessante (`videDevant`) guette a
+  chaque tick de physique, touches relachees dans le meme tick. La boucle de
+  marche ne passe que toutes les 100 ms et le bot court souvent : il voyait le
+  vide puis glissait par-dessus (terrain/plateau a45b981, chute de 5 blocs).
+- Cible mise de cote apres `no_path` (`injoignable`, 3 min) : ignoree tant
+  qu il reste une autre cible, jamais la derniere. terrain/plateau (a45b981,
+  9b5fe31) : buche du haut mise de cote depuis le pied de la falaise, puis
+  invisible une fois le bot monte (« rien » partout, errance).
+- Solveur : `prefer` = essences en poche puis bois visible (ids de buches,
+  jamais une fonction de recherche). Sans, le plan hesitait entre chene et
+  bouleau (craft/furnace 212ccac : « recolter 2 oak_log » pres d un bouleau).
+- Chat sans reponse du modele dans le delai (`interpretMessage`) : UN rejeu du
+  meme modele ; sinon « Modèle trop lent, répète ? » (et non « Pas compris »).
+  Vu sur c499481 (PR #22) : chat p95 19 s, deux ordres perdus (terrain/plateau,
+  chat/join-then-tree).
+- Reflexion (BRIEF) et deblocage (REPAIR) sur deepseek-v4.1-flash `high`
+  (2026-09-27, demande du proprietaire apres comparaison) : sonde
+  d intelligence (`ci/model-probe.js --smart`, 12 ordres notes + 4 impasses)
+  sur d1983b2 : DeepSeek 25/27 et 4/4, mediane 4,2 s / 8,7 s ; Muse high 23/27
+  (un delai de 60 s) et 4/4, 20 s / 39 s. Au banc, Muse high donnait p50 17 s,
+  p95 40-58 s et 2-3 lectures sans reponse en 60 s par banc (missions jamais
+  lancees, route/*). Delais : brief 30 s (+ un rejeu), aide 45 s. COMPACT reste
+  sur Muse (non comparee). Muse n est plus sur le chemin d un ordre du joueur.
+- Chat du bot en style court (demande du proprietaire : chat Minecraft petit et
+  charge) : messages systeme raccourcis (« Reçu, je regarde… », « Compris. »,
+  « Fini : raison. »), prompt du chat et doc de `dire` en quelques mots.
+  « Je réfléchis… » des que la lecture de l objectif depasse
+  `MISSION_BRIEF_NOTICE_MS` (3 s ; 0 = aucun).
+  Heartbeat du reporter : un meme message repete attend 2x plus a chaque fois
+  (15, 30, 60 s) ; « Je réfléchis… » sortait ~12 fois en 3 min (b91985a).
+- Banc b91985a (MINIPC-CLEM, 16 bots, mode ip) : 64/65 valide, niveaux 300 s
+  (635 en exec), cle secondaire seule. Echec route/under-far-tree : lecture
+  d objectif Muse `high` tronquee deux fois a 4096 jetons (4 troncatures sur
+  ~93 lectures), 3 min, harness a 150 s. CI : `PLANNER_PILOT_MAX_TOKENS=8192`,
+  rejeu 16384 (plafond, pas un delai). Mesure CPU de l agent MINIPC-CLEM : CI a
+  199 % en moyenne, 400 % seulement au demarrage (build, Paper, connexions),
+  182 % ensuite ; 0 evenement memoire ; 16 bots gardes.
+- Solveur de prerequis (`bot/acquire-plan.js`, idee GITM / Mindcraft, table
+  de cuisson reprise de Mindcraft, MIT) : pour une fabrication, calcule depuis
+  l inventaire reel la chaine recolter / fabriquer / cuire, l outil exige par
+  chaque bloc source (`harvestTools`), l etabli d abord, la variante preferee
+  (bois, pierre) et les voies alternatives (charbon mine plutot que cuit). La
+  cuisson est planifiee mais signalee non geree (`bloque`). Servi au modele
+  dans `environnement.prerequis` ; `harvestResource()` fait viser a `casser`
+  la matiere de la premiere recolte du plan (bois puis pierre). Niveaux CI
+  `craft/stone-pickaxe`, `craft/torches`, `craft/furnace` (inventaire vide)
+  et `craft/iron-pickaxe` (informatif : cuisson impossible, fin honnete
+  attendue), chacun joue aussi `~sans-solveur` (interrupteur `solveur`).
+  Cibles en francais (`skills.normalizeFabricationTarget`) : « pioche en
+  pierre » -> stone_pickaxe (outil + matiere), four -> furnace, torche ->
+  torch..., pluriels ramenes au singulier du registre. Vu en CI (5b6f7f9) :
+  sans elles, pas de cible de fabrication, solveur jamais actif, bot visant
+  la pierre enfouie sous l arene (« aucun bloc cible sain a casser » x90).
+- `findTargetBlock` ne retient que des blocs VISIBLES (une face a l air,
+  feuilles/vitres/plantes/liquides laissent voir), filtre applique PENDANT la
+  recherche (`useExtraInfo` en fonction de `findBlocks`) :
+  la pierre enfouie sous le sol etait visee pour `avancer` (« rejoint a
+  portee ») puis introuvable pour `casser`, en boucle.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
