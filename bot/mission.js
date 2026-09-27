@@ -23,6 +23,7 @@ const build = require('./build')
 const craft = require('./craft')
 const acquirePlan = require('./acquire-plan')
 const delivery = require('./delivery')
+const { DELIVERY } = require('./conversation')
 const Vec3 = require('vec3').Vec3
 const planner = require('./planner')
 const memory = require('./memory')
@@ -296,14 +297,11 @@ function resolveFabricationCible (bot, raw) {
   return null
 }
 
-// Detecteur de blocage : quand le bot n avance plus, `demander_aide` devient la
-// seule action utile. Un seuil en etapes (et non en secondes) parce que tout ce
+// Detecteur de blocage : quand le bot n avance plus, il le dit (chat,
+// journal `[blocage]`). Un seuil en etapes (et non en secondes) parce que tout ce
 // qui compte ici est mesure par avancement : blocs casses, objets recoltes,
 // blocs poses d un chantier.
 const NO_PROGRESS_STEPS = Number(process.env.MISSION_NO_PROGRESS_STEPS || 8)
-// Reflexion de fond : au plus une revue par minute apres la fin de la
-// precedente (demande du proprietaire), ou tout de suite sur blocage.
-const REFLECTION_EVERY_MS = Number(process.env.MISSION_REFLECTION_EVERY_MS || 60000)
 
 // Bornes des actions parametrees. L ampleur renvoyee par Jev (0 a 1) est
 // interpolee entre ces valeurs.
@@ -692,6 +690,13 @@ function createMissionRunner (host, injected = {}) {
     } catch (_) {
       return null
     }
+  }
+  // Le joueur a-t-il demande qu on lui remette quelque chose ? Objectif et
+  // precisions DU DEMANDEUR seulement (jamais le plan du modele).
+  function livraisonDemandee (m) {
+    const textes = [m?.objective ?? '', ...(m?.instructions ?? [])
+      .filter(entry => entry?.de === m?.requester).map(entry => entry.message ?? '')]
+    return textes.some(texte => DELIVERY.test(texte))
   }
   function deliveryProvenFor (m) {
     let n = 0
@@ -1239,8 +1244,11 @@ function createMissionRunner (host, injected = {}) {
         compiled.errors = ['porte demandee : donne "porte": [x, z] sur le bord']
       }
       if (compiled.ok) {
-        console.log(`[mission] plan libre ${compiled.width}x${compiled.depth}x${compiled.height}, ${compiled.cells.length} blocs`)
-        mission.shape = { compiled }
+        const retires = compiled.retires?.length
+          ? ` ; ${compiled.retires.length} bloc(s) hors de portee retire(s) (ex : [${compiled.retires[0].join(',')}], forme ouverte a cet endroit)`
+          : ''
+        console.log(`[mission] plan libre ${compiled.width}x${compiled.depth}x${compiled.height}, ${compiled.cells.length} blocs${retires}`)
+        mission.shape = { compiled, note: retires ? retires.slice(3) : undefined }
         return mission.shape
       }
       erreurs = compiled.errors
@@ -2738,7 +2746,7 @@ function createMissionRunner (host, injected = {}) {
     mission.stuckWhy = stuck.raison
 
     // Ce que le modele voit du blocage : l impasse mesuree et sa cause. Le code
-    // l annonce au joueur et relance la reflexion (plan_de_mission).
+    // l annonce au joueur et le journalise (`[blocage]`).
     state.blocage = { detecte: stuck.detecte, raison: stuck.raison }
 
     // Le joueur qui a donne la consigne. Sert de deux facons au planificateur :
@@ -3561,6 +3569,13 @@ function createMissionRunner (host, injected = {}) {
         return { resultat: 'don impossible : destinataire non precise', echec: true, code: 'invalid_player' }
       }
       if (mission.cancelled) return { resultat: 'don interrompu (stop/pause)', echec: true, code: 'cancelled' }
+      // Don jamais demande : le plan (reflexion de fond d alors) ajoutait « livrer »
+      // de lui-meme, et la fabrication partait aux pieds du joueur
+      // (craft/from-tree et craft/torches 4b9eb74 : 0 en inventaire, echec).
+      // Seul un texte du joueur avec un verbe de don l autorise.
+      if (!livraisonDemandee(mission)) {
+        return { resultat: 'don refuse : le joueur n a rien demande a recevoir ; garder les objets en inventaire', echec: true, code: 'not_requested' }
+      }
       const ceiling = deliveryCeiling(mission)
       const key = deliveryLedgerKey(deliveryScope(mission), destinataire, objet)
       let ledger = deliveryLedgers.get(key)
@@ -4644,9 +4659,8 @@ function createMissionRunner (host, injected = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Blocages annonces et reflexion de fond (2026-09-27, demande du
-  // proprietaire : plus de demander_aide ; le bot dit son probleme, la
-  // reflexion met le plan a jour sans interrompre l action)
+  // Blocages annonces (2026-09-27, demande du proprietaire : plus de
+  // demander_aide ; le bot dit son probleme, analyse a chaque banc)
   // -------------------------------------------------------------------------
 
   // Le blocage se dit au joueur (chat court) et se journalise en une ligne
@@ -4669,63 +4683,6 @@ function createMissionRunner (host, injected = {}) {
     console.log(`[blocage] ${JSON.stringify(entree)}`)
     const cause = derniere?.echec ? ` (${derniere.action} : ${String(derniere.resultat ?? '').slice(0, 70)})` : ''
     announce(`Bloqué : ${raison}${cause}`)
-  }
-
-  // Ce que la reflexion lit : l etat du tour (besoins et prerequis calcules par
-  // le code), les echecs comptes par action, le temps, et sa chaine precedente.
-  function reflectionContext (raison) {
-    // Lecture sans effet : buildState consomme les notes a usage unique.
-    const etat = snapshotForPrefetch()
-    const echecs = {}
-    Object.assign(echecs, mission.echecsParAction ?? {})
-    return {
-      raison_de_la_revue: raison,
-      consigne: etat.consigne ?? mission.objective,
-      besoins: etat.besoins ?? null,
-      prerequis: etat.environnement?.prerequis ?? null,
-      inventaire: etat.inventaire ?? null,
-      progression: etat.progression ?? null,
-      chantier: etat.chantier ?? null,
-      blocage: etat.blocage ?? null,
-      echecs: { total: mission.echecs ?? 0, etapes: mission.steps, par_action: echecs },
-      dernieres_etapes: mission.history.slice(-6),
-      temps: {
-        ecoule_s: Math.round(activeDurationMs() / 1000),
-        restant_s: Math.max(0, Math.round((MAX_DURATION_MS - activeDurationMs()) / 1000))
-      },
-      chaine_precedente: mission.strategie?.chaine ?? null
-    }
-  }
-
-  // Au plus une reflexion en vol ; la suivante au plus tot REFLECTION_EVERY_MS
-  // apres la fin de la precedente, sauf sur blocage. Jamais en `geste`. Le
-  // resultat d une mission remplacee ou arretee est jete.
-  function startReflection (raison) {
-    if (!mission || mission.kind === 'geste' || !featureOn('strategie') || !planner.isEnabled()) return
-    if (mission.reflexionEnVol) return
-    const now = Date.now()
-    if (raison !== 'blocage' && mission.reflexionFinie && now - mission.reflexionFinie < REFLECTION_EVERY_MS) return
-    let contexte
-    try { contexte = reflectionContext(raison) } catch (err) {
-      console.error(`[reflexion] etat illisible : ${err.message}`)
-      return
-    }
-    const myMission = mission
-    const started = now
-    myMission.reflexionEnVol = true
-    planner.strategize(contexte).then(result => {
-      if (mission !== myMission || myMission.cancelled || !result) return
-      myMission.strategie = { ...result, maj_s: Math.round(activeDurationMs() / 1000), raison }
-      myMission.reflexions = (myMission.reflexions ?? 0) + 1
-      const enCours = result.chaine.find(e => e.statut === 'en_cours')
-      console.log(`[reflexion] ${raison} en ${Date.now() - started} ms : ${result.chaine.map(e => `${e.statut === 'fait' ? '[x]' : e.statut === 'en_cours' ? '[>]' : '[ ]'} ${e.etape}`).join(' ; ')}` +
-        (result.diagnostic ? ` | diagnostic : ${result.diagnostic}` : '') + (enCours ? '' : ' | aucune etape en cours'))
-    }).catch(err => {
-      if (mission === myMission && !myMission.cancelled) console.error(`[reflexion] ${raison} : ${err.message}`)
-    }).finally(() => {
-      myMission.reflexionEnVol = false
-      myMission.reflexionFinie = Date.now()
-    })
   }
 
   // -------------------------------------------------------------------------
@@ -5249,12 +5206,9 @@ function createMissionRunner (host, injected = {}) {
       if (state.blocage?.detecte && !mission.stuckAnnounced) {
         mission.stuckAnnounced = true
         signalBlocage(state.blocage.raison)
-        startReflection('blocage')
       } else if (!state.blocage?.detecte) {
         mission.stuckAnnounced = false
       }
-      startReflection('periodique')
-      if (mission.strategie) state.plan_de_mission = mission.strategie
 
       try {
         decision = await decide(state)
@@ -6405,12 +6359,9 @@ function createMissionRunner (host, injected = {}) {
       },
       blocage: { detecte: mission.stuck, raison: mission.stuckWhy },
       // Indicateurs suivis d un banc a l autre (demande du proprietaire) : part
-      // d actions en echec, blocages annonces (cause, derniers resultats), et
-      // la chaine critique tenue par la reflexion de fond.
+      // d actions en echec et blocages annonces (cause, derniers resultats).
       etapes_en_echec: mission.echecs ?? 0,
-      blocages: mission.blocages ?? [],
-      reflexions: mission.reflexions ?? 0,
-      plan_de_mission: mission.strategie ?? null
+      blocages: mission.blocages ?? []
     }
 
     if (mission.kind === 'construction') {

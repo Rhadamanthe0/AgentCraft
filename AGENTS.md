@@ -58,13 +58,13 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   cause, derniere action en echec, 4 dernieres etapes, position). Chaque niveau
   garde ses blocages (`result.blocages`), le resume CI les liste : a ANALYSER
   a chaque banc.
-- Reflexion de fond (`planner.strategize`, usage BRIEF, `featureOn('strategie')`) :
-  chaine critique de la mission (etapes, detail, statut, diagnostic, conseil),
-  calculee au depart puis revue au plus une fois par minute apres la fin de la
-  precedente (`MISSION_REFLECTION_EVERY_MS`), tout de suite sur blocage, sans
-  jamais interrompre l action. Servie a chaque tour (`plan_de_mission`) ; le
-  prompt d action planifie vers le but. A/B : `composite/cabin-from-scratch
-  ~sans-strategie`.
+- Reflexion de fond (`planner.strategize`, chaine critique revue <= 1/min) :
+  RETIREE le 2026-09-27 (decision du proprietaire, historique git). A/B sur
+  5 bancs de la cabane, avec/sans : 560/289, 310/344, 490/330, 354/704,
+  211/143 s ; aucun gain mesure, et sa chaine inventait des etapes non
+  demandees (« livrer ») que le modele d actions suivait (craft/from-tree et
+  craft/torches 4b9eb74 : planches et torches deposees aux pieds du joueur,
+  0 en inventaire). A ne pas remettre sans A/B favorable.
 - Besoins totaux d un chantier calcules par le code (`state.besoins` :
   blocs restants, en poche, planches, porte, etabli, buches a recolter d un
   coup) : le bot faisait ~8 allers-retours arbre/chantier par cabane.
@@ -106,6 +106,13 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   le navigateur partage vers le point debout le plus lointain du cap
   (denivele <= 2) avant d echouer ; le message d echec ne conseille plus
   `appuyer` (souvent « immobile : encastre » dans les variantes).
+  Banc 4b9eb74 (72/85, KPI 13,8 %) : `donner` refuse sans verbe de don dans
+  l objectif ou les precisions DU DEMANDEUR (`livraisonDemandee`,
+  `conversation.DELIVERY`) ; `compileBlueprint` retire lui-meme les blocs hors
+  de portee s ils font <= 10 % du volume et que rien ne flotte (`retires`) :
+  le modele redessinait trois fois la meme tour fermee, puis la boite de repli
+  perdait la hauteur (build/tower 54/54 mais 4 de haut). Restent : terrain/
+  plateau (2/3 buches, falaise), craft/torches.
 
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 

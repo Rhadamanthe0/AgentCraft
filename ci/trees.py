@@ -592,9 +592,6 @@ def base_levels():
             'kind': 'build', 'cap': COMPOSITE_CAP_S,
             'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte',
             'blocks': ['#minecraft:planks'], 'target': 40, 'door': True,
-            # A/B de la reflexion de fond (chaine critique revue <= 1/min ou sur
-            # blocage) : la variante sans elle mesure ce qu elle apporte.
-            'variants': [sans('strategie')],
             'leaves': [box for (x, z) in COMPOSITE_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
@@ -1504,7 +1501,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # 36105107224), used only to order the queue. A level missing here counts as
 # NEW_LEVEL_S (started early: unknown levels are often the long ones).
 EXPECTED_S = {
-    'composite/cabin-from-scratch': 900, 'composite/cabin-from-scratch~sans-strategie': 900,
+    'composite/cabin-from-scratch': 900,
     'trees/tall': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'terrain/plateau': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
     'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,
@@ -1574,7 +1571,7 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             result['plannerCalls'] = calls_after - calls_before
         # KPI de la mission (demande du proprietaire, 2026-09-27) : part
         # d actions en echec, blocages annonces (cause et derniers resultats,
-        # a analyser a chaque banc), revues de la reflexion de fond.
+        # a analyser a chaque banc).
         try:
             m = (bot_api(worker.bot, '/api/mission') or {}).get('mission') or {}
             steps = m.get('etapes') or 0
@@ -1582,7 +1579,7 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             blocages = m.get('blocages') or []
             result['kpi'] = {'etapes': steps, 'echecs': fails,
                              'tauxEchec': round(fails / steps, 3) if steps else None,
-                             'blocages': len(blocages), 'reflexions': m.get('reflexions') or 0}
+                             'blocages': len(blocages)}
             if blocages:
                 result['blocages'] = [{k: b.get(k) for k in ('secondes', 'raison', 'derniere_action')} for b in blocages[-5:]]
         except Exception:

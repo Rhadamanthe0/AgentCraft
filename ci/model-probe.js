@@ -118,7 +118,7 @@ async function briefOnly (spec) {
 }
 
 // Intelligence (demande du proprietaire, 2026-09-27) : reflexion (lecture
-// d objectif) et reflexion de fond (chaine critique) notes sur des cas connus,
+// d objectif) notee sur des cas connus,
 // modele:effort par modele:effort (CI_PROBE_SMART). Un point par critere tenu.
 // Tranche le 2026-09-27 (d1983b2) : deepseek-v4.1-flash high 25/27 et 4/4,
 // muse high 23/27 et 4/4, 4-5x plus lent. Vide par defaut (la sonde muse
@@ -143,20 +143,6 @@ function fab (raw) {
   const skills = require(path.join(__dirname, '..', 'bot', 'skills'))
   return raw ? skills.normalizeFabricationTarget(raw) : null
 }
-// Impasses vues au banc : la reflexion de fond doit changer de moyen dans sa
-// chaine (une etape en_cours qui cite l une des actions attendues).
-const STRATEGY_CASES = [
-  { raison: 'blocage', consigne: 'coupe moi un arbre', blocage: { detecte: true, raison: '3 action(s) en echec d affilee' },
-    dernieres_etapes: [{ action: 'casser', resultat: 'bloc trop loin (4.6 blocs)', echec: true }, { action: 'casser', resultat: 'bloc trop loin (4.6 blocs)', echec: true }],
-    good: /avanc|approch|rapproch/ },
-  { raison: 'blocage', consigne: 'coupe moi un arbre', inventaire: { dirt: 6 }, blocage: { detecte: true, raison: 'aucun progres' },
-    dernieres_etapes: [{ action: 'casser', resultat: 'bloc trop haut (+5)', echec: true }, { action: 'avancer', resultat: 'deja au pied de l arbre' }],
-    good: /pil|mont|terre/ },
-  { raison: 'depart', consigne: 'Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte',
-    besoins: { blocs_restants: 54, en_poche: 0, porte_a_fabriquer: true, etabli_a_fabriquer: true, planches_a_fabriquer: 64, buches_a_recolter: 16 },
-    good: /16|buche|bois/ }
-]
-
 async function smartOnly (spec) {
   console.log = (...a) => console.error(...a)
   const [model, effort] = spec.split(':')
@@ -182,23 +168,9 @@ async function smartOnly (spec) {
       got: b && { route: b.route, kind: b.kind, resource: b.resource, landmark: b.landmark, door: b.door,
         needsTransfer: b.needsTransfer, fabrication: b.fabrication, fabricationQuantite: b.fabricationQuantite } })
   }
-  const help = []
-  let helpOk = 0
-  for (const c of STRATEGY_CASES) {
-    const t = Date.now()
-    const { good: attendu, ...contexte } = c
-    let r = null
-    let error = null
-    try { r = await planner.strategize(contexte) } catch (err) { error = String(err?.message ?? err).slice(0, 120) }
-    const enCours = r?.chaine?.find(e => e.statut === 'en_cours') ?? r?.chaine?.[0]
-    const good = Boolean(enCours && attendu.test(`${enCours.etape} ${enCours.detail}`.toLowerCase()))
-    helpOk += good ? 1 : 0
-    help.push({ cas: c.consigne.slice(0, 40), raison: c.raison, ms: Date.now() - t, good, error, en_cours: enCours ?? null })
-  }
   const med = a => { const v = [...a].sort((x, y) => x - y); return v[Math.floor(v.length / 2)] }
   return { smartProbe: spec, briefScore: `${points}/${total}`, briefMedianMs: med(brief.map(x => x.ms)),
-    briefMaxMs: Math.max(...brief.map(x => x.ms)), strategyScore: `${helpOk}/${STRATEGY_CASES.length}`,
-    strategyMedianMs: med(help.map(x => x.ms)), brief, help }
+    briefMaxMs: Math.max(...brief.map(x => x.ms)), brief }
 }
 
 function summarize (r) {

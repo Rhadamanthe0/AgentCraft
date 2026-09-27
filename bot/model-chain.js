@@ -19,9 +19,6 @@
 const TASK_VARS = {
   plan: 'PLANNER_MODEL_PLAN',
   readBrief: 'PLANNER_MODEL_BRIEF',
-  // Reflexion de fond (chaine critique de la mission) : meme modele, meme
-  // effort et meme delai que la lecture d objectif.
-  strategie: 'PLANNER_MODEL_BRIEF',
   interpretMessage: 'PLANNER_MODEL_CHAT',
   classify: 'PLANNER_MODEL_CHAT',
   compact: 'PLANNER_MODEL_COMPACT'

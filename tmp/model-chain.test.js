@@ -36,7 +36,6 @@ test('modele de l usage : PLANNER_MODEL_<USAGE> sinon PLANNER_MODEL ; une liste 
   assert.equal(chain.modelFor('plan', env).model, 'a')
   assert.equal(chain.modelFor('interpretMessage', env).model, 'c')
   assert.equal(chain.modelFor('classify', env).model, 'c')
-  assert.equal(chain.modelFor('strategie', { PLANNER_MODEL: 'a', PLANNER_MODEL_BRIEF: 'r' }).model, 'r')
 })
 
 test('refus du fournisseur : l erreur remonte, AUCUN autre modele n est essaye', async () => {
@@ -149,16 +148,6 @@ test('troncature : UN reessai du meme modele a budget elargi, jamais un autre', 
   await p.plan({}, 'recolte', 'harvest')
   assert.deepEqual(seen.map(x => x[0]), ['a', 'a'])
   assert.ok(seen[1][1] > seen[0][1])
-})
-
-test('reflexion de fond : modele PLANNER_MODEL_BRIEF avec son effort', async () => {
-  const seen = []
-  const chaine = JSON.stringify({ chaine: [{ etape: 'couper le bois', detail: '16 buches', statut: 'en_cours' }], diagnostic: '', conseil: 'avancer' })
-  llm.call = async (s, u, o) => { seen.push([o.model, o.reasoning?.effort ?? o.reasoningEffort ?? null]); return { content: chaine, usage: null, ms: 1 } }
-  const p = load({ PLANNER_MODEL: 'a', PLANNER_MODEL_BRIEF: 'b1', PLANNER_REASONING_EFFORT_BRIEF: 'high' })
-  const r = await p.strategize({ consigne: 'cabane' })
-  assert.deepEqual(seen[0], ['b1', 'high'])
-  assert.equal(r.chaine[0].statut, 'en_cours')
 })
 
 test('chat sans reponse dans le delai : UN rejeu du meme modele, puis l erreur', async () => {
