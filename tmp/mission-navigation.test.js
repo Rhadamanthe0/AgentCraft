@@ -237,7 +237,9 @@ test('approche ressource : delegation du trajet, budget et signal, sans gestes d
   const state = await finished(r)
   assert.equal(calls.length, 1)
   assert.deepEqual(calls[0].position, target.offset(0.5, 0.5, 0.5))
-  assert.equal(calls[0].options.distanceBudget, 12)
+  // Budget = distance du modele, au moins 1,5 x la ligne droite + 2 (48 max) :
+  // cible a 8,02 blocs => ceil(12,02) + 2 = 15 > 12 demandes.
+  assert.equal(calls[0].options.distanceBudget, 15)
   assert.equal(calls[0].options.interaction, true)
   assert.ok(calls[0].options.signal instanceof AbortSignal)
   // Avancer partiellement ne prouve ni collecte ni objectif termine.

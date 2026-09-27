@@ -130,8 +130,8 @@ services:
       # Budget de temps d un plan, en secondes de jeu. Le code complete tout plan
       # plus court que le minimum avec `regarder_autour`, donc une valeur trop
       # haute ne cree pas d action inutile, elle allonge seulement chaque plan.
-      PLANNER_BUDGET_MIN_S: "${PLANNER_BUDGET_MIN_S:-1}"
-      PLANNER_BUDGET_MAX_S: "${PLANNER_BUDGET_MAX_S:-2}"
+      PLANNER_BUDGET_MIN_S: "${PLANNER_BUDGET_MIN_S:-6}"
+      PLANNER_BUDGET_MAX_S: "${PLANNER_BUDGET_MAX_S:-10}"
       # Documentation/exemples ajoutes aux actions natives par l'aide distante
       # (`documenter`), conservee entre deux demarrages dans ACTIONS_DOC_FILE
       # (defaut /data/actions-doc.json).

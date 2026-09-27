@@ -3612,9 +3612,16 @@ function createMissionRunner (host, injected = {}) {
 
       // Destination de travail : A* choisit un poste libre d ou le bloc est
       // visible et a portee. Le LLM ne pilote plus les virages/contournements.
+      // Budget de trajet : la distance du modele, mais au moins 1,5 fois la
+      // ligne droite jusqu a la cible (48 au plus). Le modele recopie la
+      // distance HORIZONTALE de l indice navigation, le chemin reel contourne :
+      // `avancer` s arretait court et le `casser` suivant echouait « trop
+      // loin » (82 echecs par banc, revue de performance du 2026-09-27).
+      const ligne = host.getBot()?.entity?.position?.distanceTo(cible.position.offset(0.5, 0.5, 0.5)) ?? distance
+      const budget = Math.max(distance, Math.min(48, Math.ceil(ligne * 1.5) + 2))
       const approach = () => host.navigateToPosition(cible.position.offset(0.5, 0.5, 0.5), {
         signal: mission.navigationAbort.signal, __owner: stepToken,
-        interaction: true, allowHighApproach: true, distanceBudget: distance
+        interaction: true, allowHighApproach: true, distanceBudget: budget
       })
       let result = await approach()
       // Tronc enferme dans des feuilles : sans degagement, no_path en boucle et

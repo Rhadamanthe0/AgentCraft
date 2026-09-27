@@ -16,10 +16,19 @@ function assertBuildable (cells) {
   }
 }
 
-test('tour creuse : enveloppe seule, posable dans l ordre', () => {
+test('tour creuse fermee 3x3x6 : centre du toit hors de portee, refusee', () => {
+  // Vu en jeu (build/tower 559d03e, a9f44ad) : 49/50, le centre du toit a
+  // +5 n est a portee d aucun poste que le bot rejoint a pied.
   const r = build.compileBlueprint({ largeur: 3, profondeur: 3, hauteur: 6, elements: [{ type: 'creux', de: [0, 0, 0], a: [2, 5, 2] }] })
+  assert.equal(r.ok, false)
+  assert.match(r.errors[0], /impossibles a poser.*\[1,5,1\]/)
+})
+
+test('tour creuse ouverte en haut : enveloppe seule, posable dans l ordre', () => {
+  const r = build.compileBlueprint({ largeur: 3, profondeur: 3, hauteur: 6,
+    elements: [{ type: 'creux', de: [0, 0, 0], a: [2, 5, 2] }, { type: 'vide', de: [1, 5, 1] }] })
   assert.equal(r.ok, true)
-  assert.equal(r.cells.length, 9 * 2 + 8 * 4)
+  assert.equal(r.cells.length, 9 * 2 + 8 * 4 - 1)
   assertBuildable(r.cells)
 })
 

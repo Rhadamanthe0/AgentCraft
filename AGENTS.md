@@ -76,6 +76,19 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   sur les arbres) contre 289 s sans (17 %). Un seul echantillon : A/B garde
   sur plusieurs bancs avant de trancher. build/tower : postes perches jamais
   essayes (3 postes au sol d abord) => `placeOne` tente ensuite 2 perches.
+- PR #37 fusionnee (b411686 : 75/84, KPI 10 %, cabane 310 s avec reflexion,
+  344 s sans). Suite : `avancer` avec cible a un budget de trajet d au moins
+  1,5 x la ligne droite + 2 (48 max ; la distance du modele copiait la distance
+  HORIZONTALE de l indice, chemin reel plus long, `casser` suivant « trop
+  loin ») ; consigne de 6 a 10 s de jeu par plan (au lieu de 1-2 s, latence
+  d un appel 4-6 s) ; 16 tests unitaires rapides ajoutes a `UNIT` (ci/run.py,
+  314 tests en 14 s).
+  a9f44ad : 73/84 ; `mission-context.test.js` exige `tmp/mission-context-
+  fixture.js` (copie dans ci/Dockerfile). build/tower encore 49/50 : plan libre
+  3x3x6 ferme, centre du toit hors de portee de tout poste rejoignable =>
+  `compileBlueprint` refuse les blocs qu aucun poste debout, rejoint a pied
+  depuis l exterieur par pas d un bloc, n atteint (`unreachableCells`) ; le
+  modele redessine. KPI 17 % (10 % au banc precedent) : a suivre.
 
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 

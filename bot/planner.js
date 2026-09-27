@@ -63,8 +63,11 @@ const PLAN_MAX = Number(process.env.PLANNER_PLAN_MAX || 5)
 //
 // Seul `attendre` a le droit d etre seul et court : c est le cas ou le
 // planificateur ne voit rien d utile a faire tout de suite.
-const BUDGET_MIN_S = Number(process.env.PLANNER_BUDGET_MIN_S || 1)
-const BUDGET_MAX_S = Number(process.env.PLANNER_BUDGET_MAX_S || 2)
+// Duree de jeu visee par plan : couvrir la latence d un appel (4 a 6 s en
+// mediane au banc), sinon le bot attend le modele entre deux plans (45 % du
+// temps de la cabane, revue du 2026-09-27). Consigne du prompt, jamais appliquee.
+const BUDGET_MIN_S = Number(process.env.PLANNER_BUDGET_MIN_S || 6)
+const BUDGET_MAX_S = Number(process.env.PLANNER_BUDGET_MAX_S || 10)
 // Marge de sortie : les jetons de raisonnement comptent dans max_tokens. Avec
 // `deepseek-v4.1-flash` et le vrai prompt, 700 ne suffisait pas (raisonnement
 // seul, contenu vide) ; 2000 laisse la place au raisonnement ET au plan.
@@ -641,8 +644,9 @@ liste ci-dessous lui demande. Tu decides toi-meme de ces valeurs. Exemples :
   devient accessible. Le code conserve la valeur demandee.
   Si tu ne vois rien d utile a faire tout de suite, prends "regarder_autour" :
   elle ne change pas le monde mais te rend de quoi decider au tour suivant.
-  Prefere deux ou trois actions courtes a une seule grosse rafale : le premier
-  echec annule le reste du plan et tu es rappele avec l etat a jour.
+  Enchaine deux a quatre actions qui se suivent logiquement (aller, casser,
+  ramasser) : le premier echec annule le reste du plan et tu es rappele avec
+  l etat a jour.
 - Les actions sans valeur numerique (choisir_terrain, poser_porte,
   sortir, terminer, regarder_autour) n en prennent pas : ne leur invente aucun
   parametre.

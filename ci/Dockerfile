@@ -3,7 +3,7 @@ WORKDIR /work/bot
 COPY bot/package.json ci/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 COPY bot/*.js ./
-COPY tmp/*.test.js /work/tmp/
+COPY tmp/*.test.js tmp/*-fixture.js /work/tmp/
 COPY tmp/probe-bot.js /work/tmp/probe-bot.js
 COPY ci/harness.js ci/multi-bot.js ci/probes.js ci/model-probe.js /work/ci/
 # Lisible par tous quel que soit l umask du checkout : sur MINIPC-CLEM les
