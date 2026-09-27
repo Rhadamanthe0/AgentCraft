@@ -456,7 +456,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         def run_model_probe():
             started = time.monotonic()
             result = compose('run', '--rm', '--no-deps', BOTS_SERVICE, 'node', '/work/ci/model-probe.js',
-                             timeout=300, check=False)
+                             timeout=900, check=False)
             try:
                 probe_results.extend(json.loads(result.stdout.strip().splitlines()[-1]))
             except (ValueError, IndexError):
@@ -679,7 +679,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             if thread:
                 thread.join()
         if probe_thread:
-            probe_thread.join(timeout=320)
+            probe_thread.join(timeout=920)
             report['modelProbe'] = probe_results
         report['tests'].extend(unit_results + nav_results + level_results)
         # Services arretes en fin de banc (conteneur tue de l exterieur, moteur

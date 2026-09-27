@@ -18,8 +18,9 @@ const RUNS = Number(process.env.CI_PROBE_RUNS || 8)
 // Lecture d objectif (usage BRIEF) : modele:effort compares sur de vrais
 // ordres du banc (2026-09-27 : muse high, p50 17,8 s, p95 45 s, 3 delais de
 // 60 s sur 64 au banc a685869).
-const BRIEF_DEFAULT = ['muse-spark-1.3-contributor:high', 'muse-spark-1.3-contributor:medium',
-  'muse-spark-1.3-contributor:low', 'deepseek-v4.1-flash:high']
+// Mesure faite (c4c1501 : muse high 33,8 s, medium 20,8 s, low 17,8 s, deepseek
+// high 6,2 s de mediane) : vide par defaut, CI_PROBE_BRIEFS pour la refaire.
+const BRIEF_DEFAULT = []
 // Trois ordres : au pire 3 x 60 s, sous le plafond de la sonde (compose run 300 s).
 const BRIEF_ORDERS = ['Va sous l arbre', 'Fabrique une pioche en pierre', 'Coupe moi un arbre et rapporte moi le bois']
 
@@ -116,6 +117,92 @@ async function briefOnly (spec) {
     medianMs: ms[Math.floor(ms.length / 2)], maxMs: ms[ms.length - 1], rows }
 }
 
+// Intelligence (demande du proprietaire, 2026-09-27) : reflexion (lecture
+// d objectif) et deblocage (demander_aide) notes sur des cas a reponse connue,
+// modele:effort par modele:effort (CI_PROBE_SMART). Un point par critere tenu.
+const SMART_DEFAULT = ['muse-spark-1.3-contributor:high', 'deepseek-v4.1-flash:high']
+const has = (route, type) => Array.isArray(route) && route.some(s => s.type === type)
+const BRIEF_CASES = [
+  ['Va sous l arbre', b => [has(b.route, 'sous_arbre')]],
+  ['Suis moi', b => [has(b.route, 'suivre')]],
+  ['Fais deux allers-retours entre toi et moi', b => [(b.route || []).filter(s => s.type === 'rejoindre').length === 2, has(b.route, 'retour')]],
+  ['Viens me voir, attends 3 secondes, puis retourne a ta place', b => [has(b.route, 'rejoindre'), (b.route || []).some(s => s.type === 'attendre' && s.secondes === 3), has(b.route, 'retour')]],
+  ['Fabrique une pioche en pierre', b => [fab(b.fabrication) === 'stone_pickaxe', b.kind !== 'construction']],
+  ['Fabrique un four', b => [fab(b.fabrication) === 'furnace']],
+  ['Fabrique 3 torches', b => [fab(b.fabrication) === 'torch', b.fabricationQuantite === 3]],
+  ['Coupe moi un arbre et rapporte moi le bois', b => [b.kind === 'recolte', b.resource === 'bois', b.needsTransfer === true]],
+  ['Coupe un arbre', b => [b.kind === 'recolte', b.resource === 'bois', b.needsTransfer === false, !b.fabrication]],
+  ['Ramasse 4 blocs de sable', b => [b.kind === 'recolte', b.resource === 'sable']],
+  ['Construis une maison en terre de 5 par 5 a cote de l arbre avec une porte', b => [b.kind === 'construction', b.resource === 'terre', b.landmark === 'arbre', b.door === true]],
+  ['Fabrique une porte en bois', b => [fab(b.fabrication) === 'oak_door' || /door|porte/.test(String(b.fabrication)), b.needsTransfer === false]]
+]
+function fab (raw) {
+  const skills = require(path.join(__dirname, '..', 'bot', 'skills'))
+  return raw ? skills.normalizeFabricationTarget(raw) : null
+}
+// Impasses vues au banc : l aide doit documenter une action qui en sort.
+const REPAIR_CASES = [
+  { probleme: 'casser echoue 3 fois : bloc trop loin (4.6 blocs), il faut d abord avancer', kind: 'recolte',
+    etat: { consigne: { objectif: 'coupe moi un arbre' }, environnement: { bloc_cible: { nom: 'oak_log', distance: 4.6, a_portee: false } } },
+    historique: [{ action: 'casser', resultat: 'bloc trop loin (4.6 blocs)' }, { action: 'casser', resultat: 'bloc trop loin (4.6 blocs)' }, { action: 'casser', resultat: 'bloc trop loin (4.6 blocs)' }],
+    good: ['avancer'] },
+  { probleme: 'buche la plus basse a +5 au-dessus des pieds, casser refuse : trop haut', kind: 'recolte',
+    etat: { consigne: { objectif: 'coupe moi un arbre' }, inventaire: { dirt: 6 }, environnement: { bloc_cible: { nom: 'oak_log', hauteur_relative: 5, a_portee: false } } },
+    historique: [{ action: 'casser', resultat: 'bloc trop haut (+5)' }, { action: 'avancer', resultat: 'deja au pied de l arbre' }, { action: 'casser', resultat: 'bloc trop haut (+5)' }],
+    good: ['piler'] },
+  { probleme: 'fabriquer echoue : ingredients manquants (buche) ; regarder_autour ne voit aucun arbre', kind: 'recolte',
+    etat: { consigne: { objectif: 'fabrique une hache en bois' }, inventaire: { oak_planks: 1 }, environnement: { bloc_cible: null } },
+    historique: [{ action: 'fabriquer', resultat: 'ingredients manquants : buche x1' }, { action: 'regarder_autour', resultat: 'nord : rien | ouest : rien | sud : rien | est : rien' }, { action: 'fabriquer', resultat: 'ingredients manquants : buche x1' }],
+    good: ['pivoter', 'avancer', 'regarder_autour', 'appuyer'] },
+  { probleme: 'avancer bloque apres 0 bloc : obstacle trop haut (mur de 2 blocs devant)', kind: 'recolte',
+    etat: { consigne: { objectif: 'coupe moi un arbre' }, environnement: { navigation: { angle: 0, distance_horizontale: 9 } } },
+    historique: [{ action: 'avancer', resultat: 'bloque apres 0.0 bloc : obstacle trop haut' }, { action: 'avancer', resultat: 'bloque apres 0.0 bloc : obstacle trop haut' }, { action: 'avancer', resultat: 'bloque apres 0.0 bloc : obstacle trop haut' }],
+    good: ['pivoter', 'appuyer', 'piler', 'casser'] }
+]
+
+async function smartOnly (spec) {
+  console.log = (...a) => console.error(...a)
+  const [model, effort] = spec.split(':')
+  Object.assign(process.env, {
+    PLANNER_MODEL: model, PLANNER_MODEL_BRIEF: model, PLANNER_REASONING_EFFORT_BRIEF: effort || '',
+    PLANNER_MODEL_REPAIR: model, PLANNER_REASONING_EFFORT_REPAIR: effort || '',
+    PLANNER_TIMEOUT_MS_BRIEF: '60000', PLANNER_TIMEOUT_MS_REPAIR: '90000', PLANNER_WARMUP_TIMEOUT_MS: '60000',
+    BOT_USERNAME: 'ProbeSmart', PLANNER_KEY_FIRST: process.env.OPENCODE_SECONDARY_API_KEY ? 'secondary' : 'primary'
+  })
+  const planner = require(path.join(__dirname, '..', 'bot', 'planner'))
+  const repair = require(path.join(__dirname, '..', 'bot', 'repair'))
+  const brief = []
+  let points = 0
+  let total = 0
+  for (const [order, check] of BRIEF_CASES) {
+    const t = Date.now()
+    let b = null
+    let error = null
+    try { b = await planner.readBrief(order) } catch (err) { error = String(err?.message ?? err).slice(0, 120) }
+    const got = b ? check(b).map(Boolean) : [false]
+    const n = b ? got.length : check({}).length
+    points += got.filter(Boolean).length
+    total += n
+    brief.push({ order, ms: Date.now() - t, score: `${got.filter(Boolean).length}/${n}`, error,
+      got: b && { route: b.route, kind: b.kind, resource: b.resource, landmark: b.landmark, door: b.door,
+        needsTransfer: b.needsTransfer, fabrication: b.fabrication, fabricationQuantite: b.fabricationQuantite } })
+  }
+  const help = []
+  let helpOk = 0
+  for (const c of REPAIR_CASES) {
+    const t = Date.now()
+    const r = await repair.askForAction({ probleme: c.probleme, kind: c.kind, supply: 'harvest', etat: c.etat, historique: c.historique })
+    const good = Boolean(r.ok && c.good.includes(r.operation?.action) && r.operation?.quand)
+    helpOk += good ? 1 : 0
+    help.push({ probleme: c.probleme.slice(0, 60), ms: Date.now() - t, ok: r.ok, action: r.operation?.action ?? null,
+      good, attendu: c.good, quand: String(r.operation?.quand ?? r.error ?? '').slice(0, 160) })
+  }
+  const med = a => { const v = [...a].sort((x, y) => x - y); return v[Math.floor(v.length / 2)] }
+  return { smartProbe: spec, briefScore: `${points}/${total}`, briefMedianMs: med(brief.map(x => x.ms)),
+    briefMaxMs: Math.max(...brief.map(x => x.ms)), repairScore: `${helpOk}/${REPAIR_CASES.length}`,
+    repairMedianMs: med(help.map(x => x.ms)), brief, help }
+}
+
 function summarize (r) {
   const agg = (rows) => {
     const ok = rows.filter(x => x.ok)
@@ -142,6 +229,11 @@ async function main () {
     process.stdout.write(JSON.stringify(await one(process.argv[at + 1])))
     return
   }
+  const smartAt = process.argv.indexOf('--smart')
+  if (smartAt > 0) {
+    process.stdout.write(JSON.stringify(await smartOnly(process.argv[smartAt + 1])))
+    return
+  }
   const briefAt = process.argv.indexOf('--brief')
   if (briefAt > 0) {
     process.stdout.write(JSON.stringify(await briefOnly(process.argv[briefAt + 1])))
@@ -150,17 +242,20 @@ async function main () {
   const models = String(process.env.CI_PROBE_MODELS || '').split(',').map(s => s.trim()).filter(Boolean)
   const list = models.length ? models : DEFAULT
   const briefs = String(process.env.CI_PROBE_BRIEFS ?? BRIEF_DEFAULT.join(',')).split(',').map(s => s.trim()).filter(Boolean)
-  const jobs = [...list.map(entry => ['--one', entry]), ...briefs.map(spec => ['--brief', spec])]
+  const smart = String(process.env.CI_PROBE_SMART ?? SMART_DEFAULT.join(',')).split(',').map(s => s.trim()).filter(Boolean)
+  const jobs = [...list.map(entry => ['--one', entry]), ...briefs.map(spec => ['--brief', spec]),
+    ...smart.map(spec => ['--smart', spec])]
   const results = await Promise.all(jobs.map(([flag, entry]) => new Promise(resolve => {
     const child = spawn(process.execPath, [__filename, flag, entry], { env: process.env })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', d => { stdout += d })
     child.stderr.on('data', d => { stderr += d })
-    const kill = setTimeout(() => child.kill('SIGKILL'), 240000)
+    // La sonde d intelligence enchaine 12 lectures et 4 aides (muse : ~20-35 s chacune).
+    const kill = setTimeout(() => child.kill('SIGKILL'), flag === '--smart' ? 840000 : 240000)
     child.on('close', () => {
       clearTimeout(kill)
-      try { const r = JSON.parse(stdout); resolve(flag === '--brief' ? r : summarize(r)) } catch {
+      try { const r = JSON.parse(stdout); resolve(flag === '--one' ? summarize(r) : r) } catch {
         resolve({ model: entry, error: (stderr || stdout).slice(-300) })
       }
     })
