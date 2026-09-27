@@ -416,6 +416,12 @@
   CPU en part de l enveloppe (admission 75 %, plafond 90 %),
   `CI_ENVELOPE_CPU_PCT` 800 ; `cpu.max` attendu `800000 100000`.
   `CI_POOL_SIZE` (repli fixe) reste 16, mesure a 400 % : a remesurer.
+- Delai du modele depasse => reaiguillage de session pour les appels SUIVANTS
+  (`<session>-rN`, sans rejeu dans l appel ; 6 reaiguillages au plus, 400
+  upstream compris) : les delais se groupent par bot (TreeBot10 5 fois en
+  2 min, les autres jamais), trees/bent 189799a perdu sur deux delais de 20 s.
+  Premier banc adaptatif (189799a, enveloppe 800 % lue) : 17 workers, 347 s,
+  CPU moyen 176 %, pic 1 s 565 %, 8,7 Gio, 64/65.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
