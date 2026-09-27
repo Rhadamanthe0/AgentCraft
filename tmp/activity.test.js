@@ -16,7 +16,13 @@ test('heartbeat pendant attente longue, sans flot de messages', () => {
     now = 16000; a.tick()
     assert.equal(said.length, 1)
     now = 30000; a.tick()
+    assert.equal(said.length, 1, 'meme message : attente doublee (30 s)')
+    now = 45000; a.tick()
     assert.equal(said.length, 2)
+    now = 80000; a.tick()
+    assert.equal(said.length, 2, 'puis 60 s')
+    now = 105000; a.tick()
+    assert.equal(said.length, 3)
   } finally { a.finish('cancelled') }
 })
 test('resultat final immediat et aucun message apres fermeture', () => {

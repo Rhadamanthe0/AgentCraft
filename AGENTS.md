@@ -366,6 +366,15 @@
   « Fini : raison. »), prompt du chat et doc de `dire` en quelques mots.
   « Je réfléchis… » des que la lecture de l objectif depasse
   `MISSION_BRIEF_NOTICE_MS` (3 s ; 0 = aucun).
+  Heartbeat du reporter : un meme message repete attend 2x plus a chaque fois
+  (15, 30, 60 s) ; « Je réfléchis… » sortait ~12 fois en 3 min (b91985a).
+- Banc b91985a (MINIPC-CLEM, 16 bots, mode ip) : 64/65 valide, niveaux 300 s
+  (635 en exec), cle secondaire seule. Echec route/under-far-tree : lecture
+  d objectif Muse `high` tronquee deux fois a 4096 jetons (4 troncatures sur
+  ~93 lectures), 3 min, harness a 150 s. CI : `PLANNER_PILOT_MAX_TOKENS=8192`,
+  rejeu 16384 (plafond, pas un delai). Mesure CPU de l agent MINIPC-CLEM : CI a
+  199 % en moyenne, 400 % seulement au demarrage (build, Paper, connexions),
+  182 % ensuite ; 0 evenement memoire ; 16 bots gardes.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
