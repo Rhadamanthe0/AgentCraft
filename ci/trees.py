@@ -311,6 +311,8 @@ def base_levels():
             'kind': 'gather', 'instruction': 'Cueille 3 fleurs', 'items': ['dandelion'],
             'terrain': [(p[0], 200, p[1], p[0], 200, p[1], 'dandelion') for p in ((14, 10), (22, 26), (28, 14), (8, 28), (24, 6))],
             'target': 3, 'leaves': [], 'logs': [], 'rules': {},
+            # A/B du prompt par type de mission (regles bois/fabrication retirees).
+            'variants': [sans('prompt_type')],
         },
         {
             'name': 'gather/sand-walled',
@@ -366,6 +368,7 @@ def base_levels():
             'about': '64 planches, « Construis une cabane en bois de 3 par 3 par 3 » : 20 planches posees au moins.',
             'kind': 'build', 'give': [('oak_planks', 64)], 'instruction': 'Construis une cabane en bois de 3 par 3 par 3',
             'blocks': ['#minecraft:planks'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
+            'variants': [sans('prompt_type')],
         },
         # Route levels: a spoken itinerary (go to the player, come back, twice,
         # under a tree), positions sampled twice a second; see run_route_script.
