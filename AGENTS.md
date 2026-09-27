@@ -382,6 +382,8 @@
   joueur » (intermittent depuis le 2026-09-26) ; `donner` sans quantite
   bouclait ensuite jusqu au plafond (craft/door ffda434). Seul un message du
   joueur avec un verbe de don (donne, rapporte, ramene, livre, file...) le garde.
+  Meme garde pour une porte (`UNASKED`) : build/no-materials (bc5963d) relu
+  « ... avec une porte » depuis le niveau precedent du meme bot.
 - Chat sans reponse du modele dans le delai (`interpretMessage`) : UN rejeu du
   meme modele ; sinon « Modèle trop lent, répète ? » (et non « Pas compris »).
   Vu sur c499481 (PR #22) : chat p95 19 s, deux ordres perdus (terrain/plateau,

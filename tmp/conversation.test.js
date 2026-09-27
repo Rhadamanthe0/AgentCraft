@@ -244,3 +244,13 @@ test('un don demande par le joueur reste dans l objectif', async () => {
   await f.conversation.receive('A', 'Coupe un arbre et rapporte moi le bois')
   assert.deepEqual(f.events.filter(e => e[0] === 'start'), [['start', 'Couper un arbre et rapporter le bois au joueur.']])
 })
+test('une porte non demandee est retiree de l objectif (build/no-materials, bc5963d)', async () => {
+  const f = fixture()
+  f.host.interpret = async () => ({ relation: 'new', objective: 'Construire une maison en terre de 3 par 3 par 3 avec une porte.' })
+  await f.conversation.receive('A', 'Construis une maison en terre de 3 par 3 par 3')
+  assert.deepEqual(f.events.filter(e => e[0] === 'start'), [['start', 'Construis une maison en terre de 3 par 3 par 3']])
+  f.events.length = 0
+  f.host.interpret = async () => ({ relation: 'new', objective: 'Construire une maison en bois avec une porte.' })
+  await f.conversation.receive('A', 'Construis une maison en bois avec une porte')
+  assert.deepEqual(f.events.filter(e => e[0] === 'start'), [['start', 'Construire une maison en bois avec une porte.']])
+})
