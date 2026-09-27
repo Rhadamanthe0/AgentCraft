@@ -24,6 +24,7 @@ const craft = require('./craft')
 const acquirePlan = require('./acquire-plan')
 const delivery = require('./delivery')
 const { DELIVERY } = require('./conversation')
+const reflexes = require('./reflexes')
 const Vec3 = require('vec3').Vec3
 const planner = require('./planner')
 const memory = require('./memory')
@@ -1314,6 +1315,8 @@ function createMissionRunner (host, injected = {}) {
   async function reflexPass (owner, lastAction) {
     const bot = host.getBot()
     if (!mission || mission.cancelled || !bot?.entity || lastAction === 'terminer') return
+    // Interrupteur A/B `reflexes`.
+    if (!featureOn('reflexes')) return
     const myMission = mission
     const note = (reflexe, detail) => {
       myMission.reflexes = (myMission.reflexes ?? []).concat({ apres_etape: myMission.steps + 1, reflexe, detail }).slice(-6)
@@ -1349,7 +1352,9 @@ function createMissionRunner (host, injected = {}) {
       }
       // Jamais apres un don ni pendant une livraison : le bot reprendrait
       // ce qu il vient de poser aux pieds du joueur.
-      if (myMission.cancelled || lastAction === 'donner' || deliveryLedgersFor(myMission).length > 0) return
+      // Ni apres ramasser/recolter : ils viennent de tenter ces memes objets.
+      if (myMission.cancelled || ['donner', 'ramasser', 'recolter'].includes(lastAction) ||
+        deliveryLedgersFor(myMission).length > 0) return
       // Objet deja tente sans succes : ignore ensuite (pas 4 s par etape).
       myMission.reflexSkip = myMission.reflexSkip ?? new Set()
       const drops = reflexes.detectDrops(bot).filter(e => !myMission.reflexSkip.has(e.id)).slice(0, 3)
@@ -2623,6 +2628,9 @@ function createMissionRunner (host, injected = {}) {
         // utile existe (la hache, ou planches/batons/etabli vers elle). Le code
         // mesure la faisabilite, le modele decide de l ordre.
         hache_recommandee: hacheRecommandee(),
+        // Gestes faits par les reflexes (sans toi) depuis peu : ramassage,
+        // mise a l abri, pas de cote. Tiens-en compte, ne les refais pas.
+        reflexes_recents: (mission.reflexes ?? []).slice(-3),
         // Fabrication : chaine de prerequis calculee par le code depuis
         // l inventaire reel (recolter / fabriquer / outil exige, etabli).
         // La premiere etape est la prochaine chose utile ; `bloque` dit ce
@@ -5466,7 +5474,11 @@ function createMissionRunner (host, injected = {}) {
             try {
               envelope = await exec.run(
                 { id: stepId, kind: 'work' },
-                async () => run(decision.scale, decision.choices))
+                async () => {
+                  const value = await run(decision.scale, decision.choices)
+                  await reflexPass(token, decision.step)
+                  return value
+                })
             } catch (refus) {
               outcome = { resultat: `action refusee (${refus.code || 'refus'}) : ${refus.message}`, echec: true, code: refus.code || 'refused' }
             }
@@ -5489,6 +5501,7 @@ function createMissionRunner (host, injected = {}) {
           // Repli heritage/tests sans executeur : execution directe. En prod
           // l executeur est exige (index.runPhysical fail-closed).
           outcome = await run(decision.scale, decision.choices)
+          await reflexPass(null, decision.step)
         }
       } catch (err) {
         outcome = { resultat: `erreur : ${err.message}`, echec: true }

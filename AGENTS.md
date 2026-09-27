@@ -151,6 +151,17 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   18,5 k. Le profil entre dans la cle du cache de prompt. Coupe : prompt
   complet. A/B `gather/flowers` et `build/planks ~sans-prompt_type`.
 
+- Reflexes (`bot/reflexes.js`, modes de Mindcraft ; ecrits le 2026-09-25 sur
+  une branche jamais fusionnee, main n avait que `reflexPass`, jamais
+  appele ; branches le 2026-09-27) : entre deux etapes, dans le slot de
+  l etape et sans le modele, `reflexPass` degage une tete prise dans un bloc,
+  s ecarte d un bloc qui tombe / du feu / de la lave, fuit un monstre hostile,
+  fait un pas de cote si un joueur est colle, et ramasse les objets au sol a
+  <= 4 blocs au meme niveau (jamais apres `donner`, `ramasser`, `recolter` ni pendant une livraison ;
+  un objet rate est ignore ensuite ; 4 s max). Journal servi au modele :
+  `environnement.reflexes_recents`. Interrupteur `reflexes` ; A/B
+  `trees/tall ~sans-reflexes`.
+
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
 - Banc CI `trees` (`ci/trees.py`, docs/remote-minecraft-tests.md) : quatre

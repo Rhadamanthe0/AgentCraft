@@ -500,6 +500,9 @@ def base_levels():
             'leaves': [(TX-2, 208, TZ-2, TX+2, 209, TZ+2)],
             'logs': _logs(*[(TX, 200 + i, TZ) for i in range(8)]),
             'rules': {'standing_y_min': 203.9},
+            # A/B des reflexes (objets tombes ramasses entre deux etapes, mise
+            # a l abri) : buches coupees depuis le pilier, dispersees au sol.
+            'variants': [sans('reflexes')],
         },
         {
             'name': 'trees/double',
@@ -1520,7 +1523,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # NEW_LEVEL_S (started early: unknown levels are often the long ones).
 EXPECTED_S = {
     'composite/cabin-from-scratch': 900, 'craft/iron-pickaxe': 400, 'craft/iron-pickaxe~sans-solveur': 480,
-    'trees/tall': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
+    'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
     'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,
     'chat/question-keeps-mission': 27, 'chat/stop-tree': 27, 'join/tall-cliff': 26, 'terrain/dirt-wall': 25,
