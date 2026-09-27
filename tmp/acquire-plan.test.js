@@ -56,15 +56,17 @@ test('torche : charbon mine plutot que charbon de bois cuit', () => {
   assert.equal(coal.outil, 'wooden_pickaxe')
 })
 
-test('pioche en fer : minerai a la pioche en pierre, cuisson signalee non geree', () => {
+test('pioche en fer : minerai a la pioche en pierre, puis cuisson au four', () => {
   const p = plan('iron_pickaxe')
-  assert.equal(p.ok, false)
+  assert.equal(p.ok, true)
   const fer = p.etapes.find(s => s.objet === 'raw_iron')
   assert.equal(fer.op, 'recolter')
   assert.equal(fer.bloc, 'iron_ore')
   assert.equal(fer.outil, 'stone_pickaxe')
-  assert.ok(p.bloque.some(b => b.objet === 'iron_ingot' && /cuire/.test(b.raison)))
-  assert.ok(p.etapes.some(s => s.op === 'cuire' && s.objet === 'iron_ingot'))
+  assert.equal(p.bloque.length, 0)
+  const cuire = p.etapes.find(s => s.op === 'cuire' && s.objet === 'iron_ingot')
+  assert.equal(cuire.depuis, 'raw_iron')
+  assert.ok(p.etapes.indexOf(cuire) > p.etapes.findIndex(s => s.objet === 'furnace'))
 })
 
 test('objet sans aucune voie : bloque, jamais un succes invente', () => {

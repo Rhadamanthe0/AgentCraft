@@ -3427,6 +3427,35 @@ function createMissionRunner (host, injected = {}) {
       }
     },
 
+    // Cuisson au four (craft.smelt). L objet vient du modele (nom du jeu ou
+    // mot francais), sinon de la prochaine cuisson du solveur de prerequis.
+    async cuire (scale, params = {}) {
+      const bot = host.getBot()
+      const brut = String(params.objet ?? '').trim().toLowerCase()
+      const alias = [[/charbon de bois|charcoal/, 'charcoal'], [/fer|iron/, 'iron_ingot'], [/\bor\b|gold/, 'gold_ingot'],
+        [/cuivre|copper/, 'copper_ingot'], [/verre|glass/, 'glass'], [/pierre|^stone$/, 'stone']]
+      let objet = acquirePlan.SMELT[brut] ? brut : (alias.find(([re]) => re.test(brut))?.[1] ?? null)
+      const etape = acquisition()?.etapes?.find(e => e.op === 'cuire')
+      if (!objet && etape) objet = etape.objet
+      if (!objet && acquirePlan.SMELT[mission.fabricationCible]) objet = mission.fabricationCible
+      if (!objet) return { resultat: `cuisson impossible : objet non reconnu (${brut || 'vide'}) ; ex : iron_ingot, charcoal, glass`, echec: true, code: 'unknown' }
+      const quantite = Number.isFinite(Number(params.quantite))
+        ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
+        : (etape?.objet === objet ? etape.quantite : scaled(scale, 1, 16))
+      try {
+        const r = await craft.smelt(bot, objet, quantite, {
+          move: async stand => (await host.navigateToPosition(stand, {
+            signal: mission.navigationAbort.signal, __owner: stepToken, radius: 1, timeoutMs: 20000, distanceBudget: 48
+          }))?.reached === true
+        })
+        const res = `${r.produced}/${r.wanted} ${objet} cuit(s) depuis ${r.input} (combustible : ${r.fuelCount} ${r.fuel})`
+        return r.produced > 0 ? { resultat: res } : { resultat: `${res} : rien sorti du four`, echec: true }
+      } catch (err) {
+        const manque = (err.missing ?? []).map(m => `${m.count} ${m.name}`).join(', ')
+        return { resultat: `cuisson de ${objet} impossible : ${err.message}${manque ? ` (manque : ${manque})` : ''}`, echec: true, code: err.code }
+      }
+    },
+
     // Le seul endroit ou une action lit un parametre autre que l ampleur : le
     // second etage de classification a repondu « quoi fabriquer », parmi les
     // recettes que craft.js a declarees faisables au moment de la question.

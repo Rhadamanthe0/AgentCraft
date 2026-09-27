@@ -923,7 +923,116 @@ async function makeOnce (bot, targetName, wanted = 1, opts = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Cuisson au four (2026-09-27 : fer, charbon de bois, verre, pierre lisse...)
+// ---------------------------------------------------------------------------
+
+// Combustibles, du meilleur au moins bon, avec le nombre d objets cuits par
+// unite (valeurs du jeu). Jamais l objet a cuire lui-meme (buche pour du
+// charbon de bois).
+const FUELS = [
+  [/^(coal|charcoal)$/, 8],
+  [/^coal_block$/, 80],
+  [/_log$|_wood$|_stem$/, 1.5],
+  [/_planks$/, 1.5],
+  [/^stick$/, 0.5]
+]
+const SMELT_TICK_MS = 10000 // 200 ticks par objet
+
+function furnaceBlock (bot, radius = TABLE_REUSE_RADIUS) {
+  const id = bot.registry?.blocksByName?.furnace?.id
+  if (!id || typeof bot.findBlock !== 'function') return null
+  try { return bot.findBlock({ matching: id, maxDistance: radius }) } catch (_) { return null }
+}
+
+// Un four a portee : celui qui traine (24 blocs), sinon celui de l inventaire
+// pose a cote. Sans four, erreur `missing` : le solveur le fait fabriquer.
+async function ensureFurnace (bot, { move = null } = {}) {
+  let four = furnaceBlock(bot)
+  if (!four) {
+    if (!findItem(bot, 'furnace')) {
+      throw Object.assign(new Error('pas de four (8 cobblestone sur un etabli)'), { code: 'missing', missing: [{ name: 'furnace', count: 1 }] })
+    }
+    const spot = freeSpotNear(bot)
+    if (!spot) throw new Error('aucune place libre pour poser le four')
+    await build.placeOne(bot, spot, 'furnace')
+    await sleep(350)
+    four = furnaceBlock(bot, 6)
+    if (!four) throw new Error('four pose mais introuvable')
+  }
+  if (bot.entity.position.distanceTo(four.position) > 3.5) {
+    const vantage = build.findVantage(bot, four.position)
+    let reached = false
+    if (vantage && move) {
+      try { reached = await move(vantage.stand) } catch (_) { reached = false }
+    }
+    if (vantage && !reached && bot.entity.position.distanceTo(four.position) > 4.5) await build.moveTo(bot, vantage.stand)
+    if (bot.entity.position.distanceTo(four.position) > 4.5) {
+      throw new Error(`four a ${bot.entity.position.distanceTo(four.position).toFixed(1)} blocs, pas rejoint`)
+    }
+  }
+  await bot.lookAt(four.position.offset(0.5, 0.5, 0.5), true)
+  return four
+}
+
+// Cuit `wanted` `output` (iron_ingot, charcoal, glass...). L entree vient de
+// la table SMELT (acquire-plan) ; une autre essence de buche fait l affaire
+// pour le charbon de bois. Mesure le produit REEL en inventaire.
+async function smelt (bot, output, wanted = 1, { move = null, input = null, timeoutMs = null } = {}) {
+  const { SMELT } = require('./acquire-plan')
+  const n = Math.max(1, Math.round(Number(wanted) || 1))
+  const raw = input ?? SMELT[output]
+  if (!raw) throw Object.assign(new Error(`${output} ne se cuit pas`), { code: 'unknown' })
+  const suffix = raw.slice(raw.lastIndexOf('_'))
+  const entree = items(bot).find(i => i.name === raw) ??
+    items(bot).find(i => i.name.endsWith(suffix) && suffix === '_log')
+  if (!entree) {
+    throw Object.assign(new Error(`rien a cuire : il faut ${n} ${raw}`), { code: 'missing', missing: [{ name: raw, count: n }] })
+  }
+  const aCuire = Math.min(n, countOf(bot, new RegExp(`^${escapeRegExp(entree.name)}$`)))
+  const combustible = (() => {
+    for (const [pattern, par] of FUELS) {
+      const it = items(bot).filter(i => pattern.test(i.name) && i.name !== entree.name)
+        .sort((a, b) => b.count - a.count)[0]
+      if (it) return { item: it, parUnite: par }
+    }
+    return null
+  })()
+  if (!combustible) {
+    throw Object.assign(new Error('pas de combustible (charbon, buches ou planches)'), { code: 'missing', missing: [{ name: 'coal', count: 1 }] })
+  }
+  const fuelCount = Math.min(combustible.item.count, Math.ceil(aCuire / combustible.parUnite))
+  const avant = countOf(bot, new RegExp(`^${escapeRegExp(output)}$`))
+  const four = await ensureFurnace(bot, { move })
+  const fenetre = await bot.openFurnace(four)
+  let pris = 0
+  try {
+    const cuitDeja = fenetre.outputItem()
+    if (cuitDeja) { await fenetre.takeOutput(); pris += cuitDeja.count }
+    await fenetre.putFuel(combustible.item.type, null, fuelCount)
+    await fenetre.putInput(entree.type, null, aCuire)
+    const fin = Date.now() + (timeoutMs ?? aCuire * SMELT_TICK_MS + 8000)
+    while (Date.now() < fin && pris < aCuire) {
+      await sleep(500)
+      const out = fenetre.outputItem()
+      if (out && out.count > 0) {
+        await fenetre.takeOutput()
+        pris += out.count
+      }
+    }
+  } finally {
+    try { fenetre.close() } catch (_) {}
+  }
+  await sleep(300)
+  await resyncInventory(bot)
+  const produit = Math.max(0, countOf(bot, new RegExp(`^${escapeRegExp(output)}$`)) - avant)
+  return { item: output, produced: produit, wanted: n, input: entree.name, fuel: combustible.item.name, fuelCount }
+}
+
 module.exports = {
+  smelt,
+  ensureFurnace,
+  furnaceBlock,
   TABLE_REUSE_RADIUS,
   TABLE_KNOWN_MAX,
   placedTable,

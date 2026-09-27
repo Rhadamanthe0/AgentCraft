@@ -113,6 +113,15 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   le modele redessinait trois fois la meme tour fermee, puis la boite de repli
   perdait la hauteur (build/tower 54/54 mais 4 de haut). Restent : terrain/
   plateau (2/3 buches, falaise), craft/torches.
+  PR #39 fusionnee (a87d4d2 : 75/84, KPI 8,4 %, 0 blocage, cabane 216 s ;
+  trees/double 77 s avec recolter, 91 s sans).
+- Cuisson au four (2026-09-27) : `craft.smelt` (four pose a 24 blocs ou pose
+  depuis l inventaire, combustible charbon > buches > planches > batons, jamais
+  l objet a cuire, 10 s par objet, produit mesure en inventaire) et action
+  `cuire` (objet du jeu ou mot francais, sinon la prochaine cuisson du
+  solveur). Le solveur ne marque plus la cuisson « non geree ».
+  craft/iron-pickaxe attend maintenant la pioche (cible 1, plafond 480 s :
+  chaine bois -> pierre -> fer -> four -> cuisson), toujours informatif.
 
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
