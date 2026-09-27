@@ -195,6 +195,40 @@ test('partiel honnête sans doublon : -2 bûches / +4 planches au lieu de +8', a
   assert.equal(bot._state.stock.oak_log ?? 0, 0)
 })
 
+test('ingredients restes dans la grille 2x2 : rendus a la fermeture, craft rejoue', async () => {
+  // Vu sur craft/torches (4ee01ef) : craft desynchronise, planches restees dans
+  // la grille de l inventaire (slots 1 a 4), comptees comme consommees.
+  const recipes = [{ result: { id: 'oak_planks', count: 4 }, ingredients: [{ id: 'oak_log', count: 1 }] }]
+  let calls = 0
+  let closed = 0
+  const bot = makeFake({
+    stock: { oak_log: 1 },
+    recipes,
+    craftBehavior: async (recipe, n, state, b) => {
+      calls += 1
+      state.stock.oak_log -= 1
+      if (state.stock.oak_log <= 0) delete state.stock.oak_log
+      if (calls === 1) {
+        b.inventory.slots[1] = { name: 'oak_log', count: 1 }
+        return
+      }
+      state.stock.oak_planks = (state.stock.oak_planks ?? 0) + 4
+    }
+  })
+  bot.inventory.slots = []
+  bot.closeWindow = async (win) => {
+    closed += 1
+    assert.equal(win, bot.inventory)
+    win.slots[1] = null
+    bot._state.stock.oak_log = (bot._state.stock.oak_log ?? 0) + 1
+  }
+  const res = await craft.make(bot, 'oak_planks', 4)
+  assert.equal(closed, 1, 'grille rendue par fermeture de l inventaire')
+  assert.equal(calls, 2, 'rejoue apres recuperation, pas d arret incertain')
+  assert.equal(res.produced, 4)
+  assert.equal(bot._state.stock.oak_log ?? 0, 0)
+})
+
 test('ABI préservée : make(bot, cibleFR, n) rend {item, produced, usedTable}', async () => {
   const bot = makeFake({ stock: { oak_log: 1 }, recipes: RECIPES_BOIS })
   const res = await craft.make(bot, 'batons', 4)

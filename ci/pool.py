@@ -76,6 +76,7 @@ class Worker:
     mem_peak: float = None
     learned: bool = False
     levels: int = 0
+    batch: int = 1      # workers admitted together (their memory rise is shared)
 
 
 class Pool:
@@ -232,13 +233,13 @@ class Pool:
             w.state = 'idle'
 
     # ---------------------------------------------------------- main loop
-    def admit(self, reason, m):
+    def admit(self, reason, m, batch=1):
         index = self.free_index()
         if index is None:
             return
         w = Worker(index=index, bot=self.api_base_port + index, username=f'TreeBot{index}',
                    probe=f'TestProbe{index + 1}', admitted_at=self.clock(),
-                   mem_at_admission=m.mem if m else None, mem_peak=m.mem if m else None)
+                   mem_at_admission=m.mem if m else None, mem_peak=m.mem if m else None, batch=batch)
         self.workers[index] = w
         self.controller.admitted(self.clock())
         self.event('admission', reason, w, m)
@@ -262,7 +263,7 @@ class Pool:
             w.mem_peak = max(w.mem_peak or 0, m.mem)
             if w.ready_at is not None and now - w.ready_at >= self.config.settle_s:
                 w.learned = True
-                self.controller.learn_worker_mem(w.mem_peak - w.mem_at_admission)
+                self.controller.learn_worker_mem((w.mem_peak - w.mem_at_admission) / w.batch)
 
     def run(self):
         last_point = -1.0
@@ -288,7 +289,8 @@ class Pool:
                 decision = None
             if decision is not None:
                 if decision.kind == 'admit':
-                    self.admit(decision.reason, m)
+                    for _ in range(max(1, decision.count)):
+                        self.admit(decision.reason, m, batch=max(1, decision.count))
                     self.last_refusal = None
                 elif decision.kind == 'shrink':
                     self.event('reduction', decision.reason, metrics=m)

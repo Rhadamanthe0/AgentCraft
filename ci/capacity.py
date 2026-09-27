@@ -4,13 +4,13 @@ A worker is one real bot (TreeBotN, ci/multi-bot.js) plus its silent probe
 (TestProbe<N+1>, ci/probes.js). ci/pool.py starts workers one at a time while
 this module says there is room, and retires idle ones when there is not.
 
-Units: CPU in % of ONE logical core (400 % = four cores), memory in bytes.
+Units: CPU in % of ONE logical core (800 % = eight threads), memory in bytes.
 
 Sources (files only, read 10 times a second; no `docker exec`/`podman stats`):
 - the CI envelope cgroup (cgroup v2): cpu.stat, cpu.pressure, memory.current,
   memory.high/max (and those of its readable ancestors), memory.events.
   CI_METRICS_CGROUP names it; otherwise a unique cgroup under /sys/fs/cgroup
-  whose cpu.max is CI_ENVELOPE_CPU_PCT (400 %) is taken, and reported as such.
+  whose cpu.max is CI_ENVELOPE_CPU_PCT (800 %) is taken, and reported as such.
   The runner's own cgroup is NOT the envelope (Paper, bots and probes are
   sibling containers): it is only reported for diagnosis.
 - the host: MemAvailable (never MemFree) and the aggregate CPU line of
@@ -22,10 +22,12 @@ holds, and without any usable metric at start the pool falls back to a fixed
 size (CI_POOL_SIZE), logged as such.
 
 The admission rule (defaults, all overridable by environment, see Config):
-- CPU: the 1 s mean CPU of the envelope below 300 % on 10 consecutive checks
+- CPU (thresholds are shares of the envelope, 800 % on MINIPC-CLEM: cpu-arbiter
+  reserves 4 physical cores / 8 threads to the CI during a job): the 1 s mean
+  CPU of the envelope below 75 % of it (600 %) on 10 consecutive checks
   (100 ms apart; overlapping windows, so ~2 s of evidence, not 10 independent
   observations), AND the max 1 s mean over the last 30 s plus an estimate of
-  one more active worker below 360 %. The long window keeps bots that wait on
+  one more active worker below 90 % of it (720 %). The long window keeps bots that wait on
   the model (idle CPU, active again at any time) from passing for spare room;
 - no sustained throttling (share of CFS periods throttled over 10 s) nor CPU
   pressure (PSI some over 10 s), and a host CPU below 90 % busy;
@@ -60,10 +62,17 @@ def _env(name, default, cast=float):
 @dataclass
 class Config:
     interval_s: float = 0.1
-    admit_cpu_pct: float = 300.0
+    # CPU thresholds: None = share of the envelope (75 % / 90 %). Explicit
+    # values (CI_ADMIT_CPU_PCT, CI_ADMIT_CEILING_PCT) win.
+    admit_cpu_pct: float = None
     admit_checks: int = 10
+    # Workers admitted together when every limit leaves room for them (the
+    # all-awake projection, memory reserves, useful levels): one at a time took
+    # 280 s to reach 17 workers on 189799a, CPU never the limit (fixed: 219 s).
+    batch_max: int = 8
+    worker_cpu_prior_pct: float = 60.0  # per-worker peak assumed to size a batch, first long window
     long_window_s: float = 30.0
-    ceiling_pct: float = 360.0
+    ceiling_pct: float = None
     worker_cpu_pct: float = 15.0       # floor of the per-worker CPU estimate
     worker_cpu_window_s: float = 120.0  # per-worker peaks older than this are forgotten
     settle_s: float = 15.0
@@ -78,7 +87,15 @@ class Config:
     shrink_cooldown_s: float = 30.0
     stale_s: float = 1.0
     pool_max: int = 32
-    envelope_cpu_pct: float = 400.0
+    envelope_cpu_pct: float = 800.0
+    admit_share: float = 0.75
+    ceiling_share: float = 0.90
+
+    def __post_init__(self):
+        if self.admit_cpu_pct is None:
+            self.admit_cpu_pct = self.admit_share * self.envelope_cpu_pct
+        if self.ceiling_pct is None:
+            self.ceiling_pct = self.ceiling_share * self.envelope_cpu_pct
 
     @classmethod
     def from_env(cls, pool_max=32):
@@ -86,6 +103,7 @@ class Config:
             interval_s=_env('CI_ADMIT_INTERVAL_S', cls.interval_s),
             admit_cpu_pct=_env('CI_ADMIT_CPU_PCT', cls.admit_cpu_pct),
             admit_checks=_env('CI_ADMIT_CHECKS', cls.admit_checks, int),
+            batch_max=_env('CI_ADMIT_BATCH_MAX', cls.batch_max, int),
             long_window_s=_env('CI_ADMIT_LONG_WINDOW_S', cls.long_window_s),
             ceiling_pct=_env('CI_ADMIT_CEILING_PCT', cls.ceiling_pct),
             worker_cpu_pct=_env('CI_WORKER_CPU_PCT', cls.worker_cpu_pct),
@@ -148,7 +166,7 @@ def cpu_max_pct(text):
     return None
 
 
-def find_envelope(root='/sys/fs/cgroup', cpu_pct=400.0, max_depth=6):
+def find_envelope(root='/sys/fs/cgroup', cpu_pct=800.0, max_depth=6):
     """Cgroups under `root` whose cpu.max equals `cpu_pct` (candidates for the CI envelope)."""
     found = []
     root = Path(root)
@@ -504,6 +522,7 @@ class Decision:
     kind: str            # admit | hold | shrink
     reason: str
     target: int
+    count: int = 1       # workers to start now (admit only)
 
 
 class Controller:
@@ -650,6 +669,34 @@ class Controller:
         self.ok_checks += 1
         if self.ok_checks < c.admit_checks:
             return Decision('hold', f'verification {self.ok_checks}/{c.admit_checks}', self.target)
-        return Decision('admit', f'CPU 1 s {m.cpu_1s:.0f} %, max {c.long_window_s:.0f} s {m.cpu_long_max:.0f} % '
-                                 f'+ {estimate:.0f} %, marges {m.mem_margin / GIB:.1f}/{m.host_available / GIB:.1f} Gio',
-                        self.target)
+        count = self.batch_size(m, pool, base, estimate, now)
+        return Decision('admit', f'{count} worker(s) : CPU 1 s {m.cpu_1s:.0f} %, max {c.long_window_s:.0f} s '
+                                 f'{m.cpu_long_max:.0f} % + {count} x {estimate:.0f} %, '
+                                 f'marges {m.mem_margin / GIB:.1f}/{m.host_available / GIB:.1f} Gio',
+                        self.target, count)
+
+    def batch_size(self, m, pool, base, estimate, now=None):
+        """How many workers every limit leaves room for, at least 1 (the checks above passed for one)."""
+        c = self.config
+        # Until the first workers have been watched for a full long window, a
+        # batch assumes a pessimistic per-worker peak: peaks measured while bots
+        # wait on the model are low (5 %), and a batch sized on them overshot
+        # the all-awake ceiling in simulation. Kept for the whole run, the prior
+        # (60 %) capped bb045ed at 11 workers by batch while the measured peak
+        # was 25-42 %. One at a time keeps the measured estimate (checks above).
+        if self.first_admit is None or now is None or now - self.first_admit < c.long_window_s:
+            estimate = max(estimate, c.worker_cpu_prior_pct)
+        need = self.worker_mem
+        rooms = [
+            c.batch_max,
+            min(self.target, c.pool_max) - pool.active,
+            pool.queued - pool.idle - pool.starting,
+            int((c.ceiling_pct - m.cpu_long_max) // estimate),
+            int((c.ceiling_pct - base) // estimate) - pool.active,
+            int((m.mem_margin - pool.pending_mem - c.mem_reserve) // need),
+            int((m.host_available - pool.pending_mem - c.mem_reserve) // need),
+        ]
+        for used, limit in (m.containers or {}).values():
+            if limit and used is not None:
+                rooms.append(int((limit - used) // need))
+        return max(1, min(rooms))
