@@ -56,10 +56,6 @@ function isPlainObject (v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v)
 }
 
-function toInt (v, fallback) {
-  return Number.isInteger(v) ? v : fallback
-}
-
 // Normalise une reference d'objet (ingredient ou resultat).
 // Rend null pour l'air (a ignorer dans les grilles), sinon {id,metadata,count}.
 // Ne leve pas : l'appelant ecarte les recettes invalides sans planter.

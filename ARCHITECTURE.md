@@ -628,7 +628,7 @@ Points structurants :
 | `bot/index.js` | Connexion Minecraft, API HTTP, UI, chien de garde, handlers de commandes | `connectBot()` :661 |
 | `bot/skills.js` | Table unique : commandes, actions, durées, types, matières, repères, **documentation/exemples des actions**, audit | `audit()` :1037 |
 | `bot/planner.js` | **Le cerveau** : prompt système mis en cache, plan JSON, valeurs numériques, coercition | `plan()` :763 |
-| `bot/mission.js` | Boucle de mission, file d'étapes, garde-fou d'arrêt, détecteur de blocage, 23 actions | `createMissionRunner()` :374 |
+| `bot/mission.js` | Boucle de mission, file d'étapes, garde-fou d'arrêt, détecteur de blocage, 24 actions | `createMissionRunner()` :374 |
 | `bot/memory.js` | Mémoire du modèle (`travail` / `long_terme`), budget de jetons | `write()` :186 |
 | `bot/repair.js` | Aide distante : `demander_aide` et `reviser_actions` rendent des opérations sur la documentation des actions | `askForAction()` :130 |
 | `bot/llm.js` | Transport OpenAI `/chat/completions` partagé + lecture JSON | `call()` :15 |
@@ -738,7 +738,7 @@ journaux. Il n'y a plus de `fitToBudget()`. La file n'est pas un scénario :
 
 ### 3.5 Exécution d'une action
 
-Les 23 actions vivent dans `ACTIONS` (`bot/mission.js:1345`). Chaque action rend
+Les 24 actions vivent dans `ACTIONS` (`createMissionRunner`, `bot/mission.js`). Chaque action rend
 `{ resultat, echec?, fin?, reparation?, revision? }`. Le résultat part dans
 `mission.history` et dans l'état du tour suivant.
 
@@ -867,7 +867,7 @@ Les autres types de `params` servent au repli Jev :
 `skills.audit()` (`:1037`) compare au démarrage les commandes déclarées aux
 handlers branchés, et les actions déclarées aux actions de `mission.js`. Une
 divergence est imprimée dans les logs et servie par `GET /api/commands`.
-Référence live : 13 commandes (2 routables, 11 sur préfixe seul), **23 actions
+Référence live : 13 commandes (2 routables, 11 sur préfixe seul), **24 actions
 dont 7 paramétrées**, 4 types de mission, 9 matières, 3 repères.
 
 Trois comportements que le catalogue seul ne montre pas :

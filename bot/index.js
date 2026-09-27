@@ -63,9 +63,6 @@ const STUCK_EPSILON = 0.15
 // delai d une etape de mission, sinon les deux se battent.
 const RESCUE_COOLDOWN_MS = Number(process.env.RESCUE_COOLDOWN_MS || 25000)
 
-// Un message d excuse par fenetre : sans repli mots-cles, une panne de Jev rend
-// le bot muet, autant le dire, mais pas a chaque phrase prononcee.
-const CLASSIFIER_NOTICE_MS = 30000
 
 let bot = null
 let spawned = false
@@ -98,7 +95,6 @@ let lastPathLength = null
 let followMode = false
 
 let lastIntent = null
-let lastClassifierNotice = 0
 
 // Derniers messages du chat, joueurs et commandes compris, du plus ancien au
 // plus recent. Le planificateur les relit a chaque etape : sans cela, un joueur
@@ -1165,14 +1161,6 @@ async function runCommand (username, cmd, args, raw) {
 // le prefixe explicite. C est ce qui evite qu une phrase floue declenche la
 // mauvaise commande, qui etait le defaut recurrent.
 // ---------------------------------------------------------------------------
-
-function noticeClassifierDown (detail) {
-  const now = Date.now()
-  if (now - lastClassifierNotice < CLASSIFIER_NOTICE_MS) return
-
-  lastClassifierNotice = now
-  say(`Je ne peux pas interpreter le chat (${detail}). Utilise ${CMD_PREFIX}aide.`)
-}
 
 // Mode d objectif valide pour l admission directe (chat passe par
 // l interpretation ; le controleur revalide de toute facon a l admission).
