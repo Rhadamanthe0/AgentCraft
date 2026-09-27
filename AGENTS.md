@@ -355,6 +355,17 @@
   d une chute de plus de deux blocs (trees/bent, 0e5dee5 : chute de 4, degats).
   `piler` en recolte refuse sans aucune cible restante (trees/reachable :
   plan anticipe perime, sol creuse pour un pilier inutile).
+  MINIPC-CLEM, suite (2026-09-27) : `CI_ENDPOINT_MODE=ip` (IP des conteneurs
+  par `docker inspect`, joignables depuis le runner ; `exec` rendait les
+  niveaux 3x plus lents, harness arrete a 600 s d inactivite, banc bc0cd22
+  invalide). `CI_POOL_SIZE=16` : CI plafonnee a 400 % CPU. Umask 077 du runner
+  => `chmod a+rX` dans les images. Paper sans plafond memoire de conteneur ;
+  compte CI 16 Gio. Image Paper purgeable le lundi si > 30 jours.
+- Chat du bot en style court (demande du proprietaire : chat Minecraft petit et
+  charge) : messages systeme raccourcis (« Reçu, je regarde… », « Compris. »,
+  « Fini : raison. »), prompt du chat et doc de `dire` en quelques mots.
+  « Je réfléchis… » des que la lecture de l objectif depasse
+  `MISSION_BRIEF_NOTICE_MS` (3 s ; 0 = aucun).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

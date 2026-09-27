@@ -183,7 +183,7 @@ function createConversation (host) {
       active = before?.etat === 'running' ? before : null
       const waiting = setTimeout(() => {
         if (own === generation && !abort.signal.aborted) {
-          try { host.say('J ai recu ton message, je regarde ce que tu me demandes.') } catch (_) {}
+          try { host.say('Reçu, je regarde…') } catch (_) {}
         }
       }, 1500)
       try {
@@ -213,7 +213,7 @@ function createConversation (host) {
         if (decision.relation === 'amend' && decision.objective && now?.etat !== 'running') {
           active = null
         } else {
-          try { host.say('La mission a change entre-temps ; peux-tu reformuler ta precision ?') } catch (_) {}
+          try { host.say('La mission a changé, reformule ?') } catch (_) {}
           return { ignored: true }
         }
       }
@@ -223,11 +223,11 @@ function createConversation (host) {
     // Disposition SANS le tour (start/revise peuvent bloquer sur un brief) :
     // les gardes existantes (startGeneration, cles, generation) tranchent.
     const relation = decision.relation
-    const acknowledge = () => host.say(decision.response || 'J ai compris, je verifie les etapes necessaires.')
+    const acknowledge = () => host.say(decision.response || 'Compris.')
     const rejected = result => {
       if (result?.ok !== false) return null
       if (own !== generation || abort.signal.aborted) { noteIgnored(username, raw); return { ignored: true } }
-      host.say(`Je ne peux pas lancer cette demande : ${result.error}`)
+      host.say(`Impossible : ${result.error}`)
       return { ...decision, error: result.error }
     }
     if (relation === 'question') {
@@ -249,10 +249,10 @@ function createConversation (host) {
         const result = host.context(message, username, { clearanceBlocks: decision.clearanceBlocks })
         if (result === false || result?.ok === false) throw new Error(result?.error || 'mission indisponible ou enregistrement refuse')
       } catch (err) {
-        host.say(`Precision refusee : ${err.message}. Je ne l ai pas ajoutee au contexte de la mission.`)
+        host.say(`Precision refusee : ${err.message}`)
         return { ...decision, error: err.message }
       }
-      host.say(decision.response || 'Compris, je prends cette precision en compte.')
+      host.say(decision.response || 'Noté.')
     } else if (relation === 'amend' && active) {
       acknowledge()
       const result = await host.revise(decision.objective, username, { signal: abort.signal, clearanceBlocks: decision.clearanceBlocks, mode: decision.mode ?? directMode })

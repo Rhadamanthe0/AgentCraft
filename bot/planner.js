@@ -1367,9 +1367,10 @@ reconstruire un nouvel objectif ; si impossible, pose une question via question.
 "plutot en bouleau" pendant recolte bois = amend ; "fais plus petit" pendant
 construction = amend si dimensions claires, sinon question de clarification.
 Chaque phrase est traitee. Jamais aucune, jamais une commande de touche directe.
-Fournis TOUJOURS response : une reponse directe pour question, un accuse de
-reception bref pour new/amend/context. Pour new/amend, confirme ce qui est
-demande et que tu verifies les etapes, sans promettre une reussite non verifiee.
+Fournis TOUJOURS response, en style chat court (le chat Minecraft est petit et
+charge) : quelques mots, pas de phrase complete si elle n ajoute rien. Question :
+la reponse seule (« 3 buches, j en coupe encore »). new/amend : « OK, je coupe
+l arbre. » ; context : « Noté. ». Jamais de promesse de reussite non verifiee.
 Capacites reelles : jeu Minecraft, navigation, recolte, craft, construction,
 conversation et remise mesuree d objets au joueur (action donner : depot aux
 pieds + annonce, jamais de ramassage suppose). Pas d outil de recherche

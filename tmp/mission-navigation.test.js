@@ -346,7 +346,7 @@ test('un parcours reussi et un echec produisent un resultat dans le chat', async
     planner.readBrief = async () => ({ ...brief, route: [{ type: 'rejoindre' }] })
     await f.r.start('viens', 'human')
     await finished(f.r)
-    assert.ok(f.messages.some(t => reached ? /J ai termine/.test(t) : /pas pu terminer/.test(t)))
+    assert.ok(f.messages.some(t => reached ? /Fini/.test(t) : /Échec/.test(t)))
     assert.equal(f.r.status().activite.phase, reached ? 'done' : 'failed')
   }
 })
@@ -358,6 +358,6 @@ test('terminer ne transforme plus un quota non atteint en succes', async () => {
   const result = await finished(f.r)
   assert.equal(result.etat, 'failed')
   assert.match(result.raison, /0 (unite.*recoltee|en inventaire) sur 1 demande/)
-  assert.ok(f.messages.some(t => /pas pu terminer/.test(t)))
+  assert.ok(f.messages.some(t => /Échec/.test(t)))
   }
 })

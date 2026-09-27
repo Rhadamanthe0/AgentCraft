@@ -68,7 +68,9 @@ services:
     init: true
     environment:
       NODE_PATH: /work/bot/node_modules
-    command: ["node", "/work/ci/harness.js", "TestProbe1", "--idle-secs", "600"]
+    # Meme borne que les sondes : a 600 s, un banc lent (MINIPC-CLEM, mode exec)
+    # perdait le harness en plein banc (bc0cd22).
+    command: ["node", "/work/ci/harness.js", "TestProbe1", "--idle-secs", "1700"]
     ports:
       - "127.0.0.1::3101"
     depends_on:
@@ -138,7 +140,8 @@ services:
       # Jeune generation V8 plafonnee a 4 MB par demi-espace (defaut bien plus
       # grand) : mesure locale, 16 bots au repos 1,98 GB -> 1,10 GB, CPU egal.
       NODE_OPTIONS: "--max-semi-space-size=4"
-      POOL_SIZE: "32"
+      # CI_POOL_SIZE (defaut 32) : 16 sur MINIPC-CLEM, CI plafonnee a 400 % CPU.
+      POOL_SIZE: "${CI_POOL_SIZE:-32}"
       API_BASE_PORT: "3000"
       # V8 heap cap of each bot process (NODE_OPTIONS=--max-old-space-size).
       # Offline, a bot idles at ~110-135 MB RSS with ~25 MB of heap; chunks,

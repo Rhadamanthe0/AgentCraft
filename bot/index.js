@@ -603,7 +603,7 @@ async function walkToSafety (reason) {
     lastRescue = { at: new Date().toISOString(), reason, action: 'failed', detail: err.message }
     console.error(`[rescue] ${reason} -> impossible de rejoindre la terre ferme : ${err.message}`)
     // Sans pouvoir se teleporter, le bot n a plus qu a demander de l aide.
-    say(`Je suis coince (${reason}) et je ne peux pas me degager tout seul. Viens me sortir de la.`)
+    say(`Coincé (${reason}), aide-moi.`)
     return false
   } finally {
     if (timer) clearTimeout(timer)
@@ -942,8 +942,8 @@ const HANDLERS = {
     } catch (err) { errors.push(err) }
     if (errors.length > 0) {
       say(`Pause exige : ${errors.map(e => e.message).join(' ; ')} (physique coupe, a verifier)`)
-    } else if (!hadMission) say('Je m arrete')
-    else say('Je mets le travail en pause, progression conservee.')
+    } else if (!hadMission) say('Stop.')
+    else say('Pause.')
   },
 
   va (username, args) {
@@ -984,7 +984,7 @@ const HANDLERS = {
   async viens (username) {
     const target = bot.players[username]?.entity
     if (!target) {
-      say(`${username}, je ne te vois pas d ici`)
+      say('Je ne te vois pas.')
       return
     }
     try {
@@ -994,7 +994,7 @@ const HANDLERS = {
       return
     }
 
-    say(`J arrive ${username}`)
+    say('J arrive.')
     let result
     try {
       const envelope = await runPhysical(`cmd-viens-${username}-${Date.now()}`, 'work',
@@ -1009,14 +1009,14 @@ const HANDLERS = {
         ? { code: 'cancelled', reached: false }
         : envelope.value
     } catch (err) {
-      say(`Je ne peux pas te rejoindre (${err.code || 'refus'}) : ${err.message}`)
+      say(`Rejoindre impossible (${err.code || 'refus'}) : ${err.message}`)
       return
     }
-    if (result.code !== 'cancelled' && !result.reached) say(`Je ne peux pas te rejoindre : ${result.code}`)
+    if (result.code !== 'cancelled' && !result.reached) say(`Rejoindre impossible : ${result.code}`)
   },
 
   sors (username) {
-    say('Je me degage')
+    say('Je me dégage…')
     rescue(`requested by ${username}`, { escalate: true })
   },
 
@@ -1031,7 +1031,7 @@ const HANDLERS = {
     const target = bot.players[username]?.entity
 
     if (!target) {
-      say(`${username}, non, je ne te vois pas d ici`)
+      say('Je ne te vois pas.')
       return
     }
 
@@ -1043,7 +1043,7 @@ const HANDLERS = {
       ? (dx >= 0 ? 'est' : 'ouest')
       : (dz >= 0 ? 'sud' : 'nord')
 
-    say(`Oui ${username}, je te vois a ${distance.toFixed(1)} blocs vers le ${direction}`)
+    say(`Vu : ${distance.toFixed(1)} blocs, ${direction}.`)
     // Se tourner vers le joueur : une reponse « je te vois » qui regarde ailleurs
     // se voit tout de suite en jeu.
     bot.lookAt(target.position.offset(0, 1, 0), true).catch(() => {})
@@ -1068,7 +1068,7 @@ function handleHardStop () {
   resetWatchdog()
   if (missionRunner.isRunning()) missionRunner.pauseWork('arret total')
   if (errors.length > 0) say(`Arret total partiel : ${errors.map(e => e.message).join(' ; ')} (physique coupe, a verifier)`)
-  else say('Arret total : tout est annule, aucune reprise automatique. Dis reprends pour relancer.')
+  else say('Arrêt total. « reprends » pour relancer.')
 }
 
 function handleResume () {
@@ -1081,14 +1081,14 @@ function handleResume () {
       say(`Reprise impossible : ${err.message} (pause maintenue)`)
       return
     }
-    if (missionRunner.resumeWork?.()) say('Je reprends le travail ou je m etais arrete.')
-    else say('Je suis pret, donne-moi un objectif.')
+    if (missionRunner.resumeWork?.()) say('Je reprends.')
+    else say('Prêt.')
     return
   }
   // 2. Permanent en attente de maintenance : pas de boucle aveugle, on
   // attend une observation pertinente (moteur de maintenance non livrable).
   if (m0 && m0.maintenance === 'waiting-maintenance') {
-    say('Objectif permanent en entretien : j attends une observation pertinente, sans recolte aveugle.')
+    say('En entretien, j observe.')
     return
   }
   // 3. Apres restart : aucun objet vivant, mais un engagement durable.
@@ -1118,7 +1118,7 @@ function handleResume () {
       return
     }
     if (out && out.ok) {
-      say(`Mission reprise apres restart : « ${cur.texte} » (progression conservee, monde reobserve).`)
+      say(`Reprise : « ${cur.texte} ».`)
     } else {
       try { objectives.pauseWork('en attente de reprise explicite') } catch (_) {}
       say(`Reprise impossible : ${out?.error ?? 'inconnu'} (engagement conserve, nouvel objectif possible)`)
@@ -1134,7 +1134,7 @@ function handleResume () {
       return
     }
   }
-  say('Je suis pret, donne-moi un objectif.')
+  say('Prêt.')
 }
 
 async function runCommand (username, cmd, args, raw) {
@@ -1211,22 +1211,22 @@ function resolveArbitrationNow ({ choice, actor } = {}) {
       // Suspension vraie (objet vivant preserve) au lieu d un pauseWork
       // ecrase par le start suivant : a la cloture, resumeSuspended relance.
       try { missionRunner.suspend?.('arbitrage pause_reprise') } catch (_) {}
-      say(`Je passe a « ${out.objective.texte} », l ancien attendra.`)
+      say(`OK : « ${out.objective.texte} » (l ancien attend).`)
     } else {
       missionRunner.stop('arbitrage remplacement')
-      say(`J abandonne l ancien pour « ${out.objective.texte} ».`)
+      say(`OK : « ${out.objective.texte} ».`)
     }
     // Le resultat {ok:false} n etait jamais lu : un echec de lecture laissait
     // le bot immobile et muet apres « remplace ». On le dit au joueur.
     missionRunner.start(out.objective.texte, out.objective.auteur, { objectiveId: out.objective.id, mode: out.objective.mode })
       .then(result => {
         if (result && result.ok === false && !/annule/.test(String(result.error))) {
-          say(`Je ne peux pas lancer « ${out.objective.texte} » : ${result.error}. Redis-le moi.`)
+          say(`« ${out.objective.texte} » impossible : ${result.error}`)
         }
       })
       .catch(err => {
         console.error(`[arbitrage] demarrage impossible : ${err.message}`)
-        say(`Je ne peux pas lancer « ${out.objective.texte} » : ${err.message}. Redis-le moi.`)
+        say(`« ${out.objective.texte} » impossible : ${err.message}`)
       })
   }
   return out
@@ -1245,7 +1245,7 @@ async function startObjectiveDurable (objective, requester, opts = {}) {
     try { objectives.proposeObjective({ auteur: requester, texte: objective }) } catch (err) {
       return { ok: false, error: `mise en attente impossible : ${err.message}`, pending: true }
     }
-    say('Arret total en cours : ta demande reste en attente. Dis reprends pour relancer.')
+    say('Arrêt total : demande en attente, « reprends » pour relancer.')
     return { ok: false, error: 'arret total, demande en attente', pending: true }
   }
   let proposal
@@ -1282,8 +1282,8 @@ async function startObjectiveDurable (objective, requester, opts = {}) {
   }
   // Une question d arbitrage attend encore sa reponse : la reposer clairement
   // plutot que d annoncer une file que le joueur ne comprend pas.
-  if (proposal.question) say('J attends d abord ta reponse : dis « remplace » pour abandonner l ancienne tache, ou « reprends apres » pour la garder.')
-  else say('Je note ta demande, je la traiterai apres celle en cours.')
+  if (proposal.question) say('« remplace » ou « reprends après » ?')
+  else say('Noté, après la tâche en cours.')
   return { ok: true, queued: true, status: proposal.status, objective: proposal.objective, mode: proposalMode }
 }
 
@@ -1349,7 +1349,7 @@ async function resolveIntent (username, raw, opts) {
   } catch (err) {
     if (err.name === 'AbortError' || /annule|abort/i.test(err.message)) return { ignored: true }
     console.error(`[chat] ${err.message}`)
-    say('Je n ai pas pu interpreter ta demande pour le moment. Peux-tu reessayer ?')
+    say('Pas compris, réessaie ?')
     return { error: err.message }
   }
 }
@@ -1374,7 +1374,7 @@ function handleObjectiveEvent (evt) {
       if (m && m.etat === 'paused') {
         try { missionRunner.resumeWork?.() } catch (_) {}
       }
-      say('Sans reponse, je reprends l ancien objectif ; la nouvelle demande reste en attente.')
+      say('Sans réponse : je reprends l ancien, ta demande attend.')
     } else if (evt.type === 'arbitration-resolved') {
       // Traite par l appelant explicite (resolveArbitration) : no-op.
     } else if (evt.type === 'complete') {
@@ -1382,7 +1382,7 @@ function handleObjectiveEvent (evt) {
       // l engagement restaure (vrai redemarrage) ou bascule en attente
       // explicite. Annoncer ici dupliquerait et contredirait la reprise.
     } else if (evt.type === 'maintaining') {
-      say('Objectif permanent en entretien.')
+      say('En entretien.')
     }
   } catch (_) {}
 }

@@ -3,6 +3,8 @@
 process.env.MISSION_MAX_DURATION_MS = '1000'
 process.env.MISSION_TICK_MS = '1'
 process.env.MISSION_QUEUE_TICK_MS = '1'
+// Pas d annonce « Je réfléchis… » : ses timers fausseraient l ordre de ceux du parcours.
+process.env.MISSION_BRIEF_NOTICE_MS = '0'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { Vec3 } = require('vec3')

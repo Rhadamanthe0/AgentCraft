@@ -227,7 +227,7 @@ test('interpretation lente : accuse de reception intermediaire, puis vraie repon
   f.host.interpret = () => new Promise(resolve => { release = resolve })
   const pending = f.conversation.receive('A', '3+3 ?')
   await new Promise(resolve => setTimeout(resolve, 1600))
-  assert.match(f.events[0][1], /recu ton message/)
+  assert.match(f.events[0][1], /Reçu/)
   release({ relation: 'question', response: '3 + 3 = 6.' })
   await pending
   assert.deepEqual(f.events[1], ['say', '3 + 3 = 6.'])

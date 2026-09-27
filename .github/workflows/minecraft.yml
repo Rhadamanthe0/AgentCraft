@@ -22,7 +22,7 @@ jobs:
     if: github.event.repository.private == true
     # MINIPC-CLEM : Linux, runner en conteneur, Podman rootless par socket
     # (clients docker et docker compose). Ports publies injoignables depuis le
-    # conteneur du runner (localhost = le runner) : CI_ENDPOINT_MODE=exec.
+    # conteneur du runner (localhost = le runner) : CI_ENDPOINT_MODE=ip, IP des conteneurs du projet.
     runs-on: [self-hosted, linux, x64, minipc, podman]
     timeout-minutes: 30
     defaults:
@@ -41,7 +41,9 @@ jobs:
         env:
           OPENCODE_SECONDARY_API_KEY: ${{ secrets.OPENCODE_SECONDARY_API_KEY }}
           CI_EXPECT_KEY: secondary
-          CI_ENDPOINT_MODE: exec
+          CI_ENDPOINT_MODE: ip
+          # 400 % CPU pour toute la CI du runner : 16 bots, pas 32.
+          CI_POOL_SIZE: '16'
         run: python3 ci/run.py --suite all
       - name: Remove any remaining disposable test containers
         if: always()

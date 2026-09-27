@@ -39,26 +39,26 @@ function createActivityReporter ({ say, isActive = () => true, intervalMs = 1500
 }
 
 const SUBGOALS = {
-  rejoindre: 'Je cherche un chemin pour te rejoindre.',
-  retour: 'Je reviens a mon point de depart.',
+  rejoindre: 'Je te rejoins…',
+  retour: 'Retour au départ…',
   regarder: 'Je me tourne vers toi.',
-  suivre: 'Je continue a te suivre.',
-  attendre: 'J attends comme demande.',
-  sous_arbre: 'Je cherche une place accessible sous la couronne d un arbre.'
+  suivre: 'Je te suis…',
+  attendre: 'J attends.',
+  sous_arbre: 'Je cherche une place sous l arbre…'
 }
 const ACTIONS = {
-  regarder_autour: 'Je regarde autour de moi pour reperer ma cible.',
-  avancer: 'Je cherche a avancer vers ma cible.',
-  casser: 'Je casse les blocs demandes.',
-  ramasser: 'Je cherche a recuperer les objets tombes.',
-  fabriquer: 'Je prepare la fabrication avec mon inventaire.',
-  construire: 'Je travaille sur les blocs du chantier.',
-  choisir_terrain: 'Je cherche un emplacement pour le chantier.',
-  piler: 'Je prepare une montee avec les blocs de mon inventaire.',
-  sortir: 'Je tente de me degager.',
-  attendre: 'J attends comme demande.',
-  demander_aide: 'Je suis bloque. Je demande une autre approche avec mes actions disponibles.',
-  reviser_actions: 'Je revois la documentation de mes actions pour trouver une autre approche.'
+  regarder_autour: 'Je cherche…',
+  avancer: 'J avance…',
+  casser: 'Je casse…',
+  ramasser: 'Je ramasse…',
+  fabriquer: 'Je fabrique…',
+  construire: 'Je construis…',
+  choisir_terrain: 'Je cherche un terrain…',
+  piler: 'Je monte…',
+  sortir: 'Je me dégage…',
+  attendre: 'J attends.',
+  demander_aide: 'Bloqué, je cherche autrement…',
+  reviser_actions: 'Je revois mes méthodes…'
 }
 
 module.exports = { createActivityReporter, SUBGOALS, ACTIONS }

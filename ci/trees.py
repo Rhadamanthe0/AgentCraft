@@ -1132,7 +1132,8 @@ def run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # 32 (owner's choice, 2026-09-26): the planner runs on a paid OpenCode Go key
 # (large quota), no free-tier per-minute cap left; ~20 GB RAM free on the
 # runner. Keep in step with ci/compose.yaml (ports, POOL_SIZE, probes).
-POOL_SIZE = 32
+# CI_POOL_SIZE : bots en parallele (16 sur MINIPC-CLEM, 400 % CPU pour toute la CI).
+POOL_SIZE = int(os.environ.get('CI_POOL_SIZE', '32'))
 
 
 # All pool bots live in ONE compose service (`bots`, ci/multi-bot.js); each bot

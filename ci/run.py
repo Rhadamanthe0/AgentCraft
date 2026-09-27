@@ -24,9 +24,13 @@ ROOT = Path(__file__).resolve().parents[1]
 # Docker Desktop) ou `exec` (docker compose exec). Sur un runner qui tourne
 # lui-meme en conteneur (MINIPC-CLEM, Podman par socket), 127.0.0.1 est le
 # conteneur du runner, pas l hote : les ports publies y sont injoignables.
+# `ip` (MINIPC-CLEM) : IP du conteneur sur le reseau du projet (lue par
+# `docker inspect`, change a chaque execution) et port interne ; le runner
+# joint ce reseau directement (verifie par l agent de la machine), sans les
+# ~1 600 `compose exec` du mode `exec` (niveaux 635 s au lieu de ~190 s).
 ENDPOINT_MODE = os.environ.get('CI_ENDPOINT_MODE', 'direct')
-if ENDPOINT_MODE not in ('direct', 'exec'):
-    raise SystemExit('CI_ENDPOINT_MODE doit valoir direct ou exec')
+if ENDPOINT_MODE not in ('direct', 'ip', 'exec'):
+    raise SystemExit('CI_ENDPOINT_MODE doit valoir direct, ip ou exec')
 
 
 # Classement d un echec (report.tests[].failureKind), pour ne jamais corriger le
@@ -172,6 +176,8 @@ def main():
     endpoints = {}
 
     def load_endpoints():
+        if ENDPOINT_MODE == 'ip':
+            return  # IP lues a la demande (service_ip).
         # Every published port of the project in ONE call (a `compose port`
         # costs ~1 s on Windows, and there are 18 of them).
         out = compose('ps', '--format', 'json', timeout=30, check=False).stdout.strip()
@@ -185,7 +191,23 @@ def main():
                     endpoints.setdefault((row.get('Service'), int(pub['TargetPort'])),
                                          ('127.0.0.1', int(pub['PublishedPort'])))
 
+    service_ips = {}
+
+    def service_ip(service):
+        if service not in service_ips:
+            ids = compose('ps', '-q', service, timeout=30).stdout.split()
+            if not ids:
+                raise ConnectionError(f'{service} : aucun conteneur')
+            out = command(['docker', 'inspect', '--format',
+                           '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}', ids[0]], timeout=30).stdout.split()
+            if not out:
+                raise ConnectionError(f'{service} : aucune IP')
+            service_ips[service] = out[0]
+        return service_ips[service]
+
     def endpoint(service, port):
+        if ENDPOINT_MODE == 'ip':
+            return service_ip(service), port
         key = (service, port)
         if key not in endpoints:
             out = compose('port', service, str(port), timeout=30).stdout.strip().splitlines()[-1]
@@ -233,7 +255,7 @@ def main():
 
     def rcon(text):
         value = None
-        if ENDPOINT_MODE == 'direct' and not rcon_state.get('exec'):
+        if ENDPOINT_MODE != 'exec' and not rcon_state.get('exec'):
             try:
                 value = rcon_direct(text).strip()
             except Exception as error:

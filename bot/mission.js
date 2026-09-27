@@ -540,6 +540,7 @@ function choisirCoteContournement (yaw, cible, relief) {
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const movementTask = require('./movement-task')
 const activity = require('./activity')
+const BRIEF_NOTICE_MS = Number(process.env.MISSION_BRIEF_NOTICE_MS || 3000)
 
 // Borne une promesse qui pourrait ne jamais se resoudre. La promesse continue
 // sa vie en arriere-plan, mais l appelant reprend la main.
@@ -3056,7 +3057,7 @@ function createMissionRunner (host, injected = {}) {
             toPosition: (p, o) => host.navigateToPosition(p, { ...o, __owner: getStepToken() })
           },
           announce: (texte) => { try { host.chat(texte) } catch (_) {} },
-          onActivity: (evt) => { try { mission.activity?.update('execution', evt?.text ?? 'Je depose les objets demandes.', true) } catch (_) {} }
+          onActivity: (evt) => { try { mission.activity?.update('execution', evt?.text ?? 'Je dépose…', true) } catch (_) {} }
         })
       } catch (err) {
         return { resultat: `don impossible : ${err.message}`, echec: true, code: 'error', livraison: deliveryLedgerView(ledger) }
@@ -4084,7 +4085,7 @@ function createMissionRunner (host, injected = {}) {
 
       mission.repairs += 1
       mission.restartAfterAction = true
-      mission.activity?.update('replanning', 'J ai obtenu de nouveaux conseils pour mes actions ; je vais les essayer.', 'important')
+      mission.activity?.update('replanning', 'Nouvelle approche, j essaie.', 'important')
 
       console.log(
         `[mission] reparation ${mission.repairs}/${repair.MAX_PER_MISSION} : ` +
@@ -4219,10 +4220,10 @@ function createMissionRunner (host, injected = {}) {
     let message
     if (state === 'done') {
       message = completed.movementTask?.steps.at(-1)?.type === 'sous_arbre'
-        ? 'Je suis sous la couronne d un arbre, au sol.'
-        : `J ai termine : ${reason}. ${completed.summaryText}`
-    } else if (state === 'failed') message = `Je n ai pas pu terminer : ${reason}.`
-    else if (!reason.startsWith('remplacee')) message = `Je m arrete : ${reason}.`
+        ? 'Sous l arbre.'
+        : `Fini : ${reason}.`
+    } else if (state === 'failed') message = `Échec : ${reason}.`
+    else if (!reason.startsWith('remplacee')) message = `Stop : ${reason}.`
     // Dire le resultat au moment de la transition, avant tout await/commit.
     // Sinon un ancien finish pouvait parler apres le debut du nouvel objectif.
     completed.activity?.finish(state, message)
@@ -4249,23 +4250,23 @@ function createMissionRunner (host, injected = {}) {
           if (out && out.restaure && activated && activated.id === out.restaure.id && activated.statut === 'active') {
             const r = resumeSuspended(activated.id)
             if (r.ok) {
-              completed.activity?.update?.('execution', `« ${activated.texte} » repris (progression conservee, monde reobserve).`, true)
+              completed.activity?.update?.('execution', `« ${activated.texte} » repris.`, true)
             } else {
               try { injectedObjectives.pauseWork('en attente de reprise explicite') } catch (_) {}
-              completed.activity?.update?.('execution', `Objectif clos ; « ${activated.texte} » attend (dis reprends pour le relancer, reprise : ${r.error}).`, true)
+              completed.activity?.update?.('execution', `Fini. « ${activated.texte} » attend (« reprends » ; ${r.error}).`, true)
             }
           } else if (activated && out && (!oid || activated.id !== oid) && activated.statut === 'active') {
             // Pending auto-active sans objet suspendu : meme regle, pas de fantome.
             const r2 = resumeSuspended(activated.id)
             if (!r2.ok) {
               try { injectedObjectives.pauseWork('en attente de reprise explicite') } catch (_) {}
-              completed.activity?.update?.('execution', `Objectif clos ; « ${activated.texte} » attend (dis reprends pour le relancer).`, true)
+              completed.activity?.update?.('execution', `Fini. « ${activated.texte} » attend (« reprends »).`, true)
             }
           } else if (after && after.current && after.current.statut === 'maintaining') {
             // Permanent : but durable garde, moteur de maintenance non livrable
             // => attente explicite, jamais de boucle de recolte aveugle.
             completed.maintenance = 'waiting-maintenance'
-            completed.activity?.update?.('execution', 'Objectif permanent atteint : en attente de maintenance (observation pertinente, pas de recolte aveugle).', true)
+            completed.activity?.update?.('execution', 'Fini, en entretien.', true)
           }
         }
       } catch (_) { /* fin d abord */ }
@@ -4515,7 +4516,7 @@ function createMissionRunner (host, injected = {}) {
         // booleen `capture_presente`, le planificateur recoit la data URL en 5e
         // argument. Desactive, `capture` est null et rien ne change.
         const capture = capturePourPlan()
-        mission.activity?.update('planning', 'Je prepare la suite a partir de ce que je vois dans le jeu.')
+        mission.activity?.update('planning', 'Je réfléchis…')
         if (SCREENSHOT_ON && state.environnement) {
           state.environnement.capture_presente = Boolean(capture)
         }
@@ -4727,7 +4728,7 @@ function createMissionRunner (host, injected = {}) {
       // se rearme des que le bot re-progresse, pour pouvoir le redire plus tard.
       if (state.blocage?.detecte && !mission.stuckAnnounced) {
         mission.stuckAnnounced = true
-        announce(`je suis bloque : ${state.blocage.raison}`)
+        announce(`Bloqué : ${state.blocage.raison}`)
       } else if (!state.blocage?.detecte) {
         mission.stuckAnnounced = false
       }
@@ -4842,7 +4843,7 @@ function createMissionRunner (host, injected = {}) {
 
       try {
         const message = activity.ACTIONS[decision.step] ?? activity.SUBGOALS[decision.step === 'rejoindre_demandeur' ? 'rejoindre' : '']
-        mission.activity?.update('execution', message || 'Je poursuis les gestes demandes.', Boolean(message))
+        mission.activity?.update('execution', message || 'Je continue…', Boolean(message))
         const exec = physicalExecutor()
         if (exec) {
           // Entree physique via l executeur (kind 'work', un seul writer).
@@ -4990,7 +4991,7 @@ function createMissionRunner (host, injected = {}) {
       // Repeter la meme action ratee indefiniment ne mene nulle part : mieux
       // vaut rendre la main au joueur que de bruler des appels.
       if (outcome.echec) {
-        mission.activity?.update('blocked', `Cette tentative a echoue : ${outcome.resultat}`, true)
+        mission.activity?.update('blocked', `Raté : ${outcome.resultat}`, true)
         mission.failures += 1
 
         // Un deplacement qui vient d echouer sur un obstacle : le signal du
@@ -5082,7 +5083,7 @@ function createMissionRunner (host, injected = {}) {
         controller.signal, task => {
           if (current.navigationAbort !== controller) return
           const activeStep = task.steps[task.cursor]
-          if (activeStep?.state === 'running') current.activity?.update('execution', activity.SUBGOALS[activeStep.type] || 'Je poursuis le parcours.', true)
+          if (activeStep?.state === 'running') current.activity?.update('execution', activity.SUBGOALS[activeStep.type] || 'Je continue…', true)
           current.steps = task.cursor
           const step = task.steps[task.cursor - 1]
           if (step?.state === 'done') current.lastPlan = { step: step.type, subgoal: task.cursor, total: task.steps.length }
@@ -5168,7 +5169,13 @@ function createMissionRunner (host, injected = {}) {
       reporter: activity.createActivityReporter({ say: host.chat,
         isActive: () => generation === startGeneration && !request.signal.aborted }) }
     preparation = preparing
-    preparing.reporter.update('brief', 'Je verifie les etapes et les capacites necessaires pour ta demande.')
+    // Lecture de l objectif (reflexion, jusqu a 60 s) : un mot au joueur des
+    // qu elle depasse ~3 s, sinon le bot semble ignorer l ordre (demande du
+    // proprietaire). Le heartbeat du reporter le repete ensuite.
+    preparing.reporter.update('brief', 'Je réfléchis…')
+    const thinkingNotice = BRIEF_NOTICE_MS > 0 ? setTimeout(() => {
+      if (generation === startGeneration && !request.signal.aborted) preparing.reporter.update('brief', 'Je réfléchis…', 'important')
+    }, BRIEF_NOTICE_MS) : null
     opts.signal?.addEventListener('abort', abortRequest, { once: true })
     if (loopPromise) {
       const waitStarted = Date.now()
@@ -5197,6 +5204,7 @@ function createMissionRunner (host, injected = {}) {
     } catch (err) {
       return { ok: false, error: `lecture de l objectif impossible : ${err.message}` }
     } finally {
+      if (thinkingNotice) clearTimeout(thinkingNotice)
       preparing.reporter.finish('ended')
       if (preparation === preparing) preparation = null
       opts.signal?.removeEventListener('abort', abortRequest)
@@ -5440,7 +5448,7 @@ function createMissionRunner (host, injected = {}) {
     const current = mission
     mission.activity = activity.createActivityReporter({ say: host.chat,
       isActive: () => mission === current && current.state === 'running' })
-    mission.activity.update('preparing', 'J ai prepare les etapes, je commence leur execution.')
+    mission.activity.update('preparing', 'C est parti.')
     if (mission.movementTask) mission.movementTask.clearance = mission.clearance
     // Une revision conserve le prefixe deja prouve s il a le meme contrat.
     const previousTask = opts.revisionOf?.movementTask
@@ -5790,7 +5798,7 @@ function createMissionRunner (host, injected = {}) {
     const current = mission
     mission.activity = activity.createActivityReporter({ say: host.chat,
       isActive: () => mission === current && current.state === 'running' })
-    mission.activity.update('preparing', 'Mission reprise apres restart : monde reobserve, compteurs non rejoues.')
+    mission.activity.update('preparing', 'Reprise après redémarrage.')
     if (mission.movementTask) mission.movementTask.clearance = mission.clearance
     try { physicalExecutor?.resume?.() } catch (_) {}
     loopPromise = (mission.movementTask ? runMovementMission(mission) : loop()).catch(err => {

@@ -566,7 +566,7 @@ const ACTIONS = {
     summary: 'ecrire une phrase dans le chat du serveur',
     scale: 'sans effet',
     secondes: 0.3,
-    intent: "Dire quelque chose au joueur dans le chat : rendre compte d une avancee, signaler un blocage, repondre a une question. A utiliser sobrement, une ou deux fois par mission, pas a chaque etape",
+    intent: "Dire quelque chose au joueur dans le chat : rendre compte d une avancee, signaler un blocage, repondre a une question. A utiliser sobrement, une ou deux fois par mission, pas a chaque etape. Style chat court : quelques mots utiles, pas de phrase complete si elle n ajoute rien (« bloque : plus de terre »)",
     params: {
       texte: {
         json: { kind: 'text', max: 120 },
@@ -1186,7 +1186,7 @@ const ACTION_EXEMPLES = {
   sortir: ['bot.dans_liquide vrai -> sortir avant tout le reste'],
   attendre: ['une action longue est deja en cours -> attendre, mais preferer regarder_autour si on ne sait pas quoi faire'],
   terminer: ['objectif atteint et rien d utile ne reste -> terminer'],
-  dire: ['signal de blocage -> {"action":"dire","texte":"je suis coince, il me manque du bois"}'],
+  dire: ['signal de blocage -> {"action":"dire","texte":"coince : plus de bois"}'],
   regarder: ['viser une case en hauteur -> regarder horizontal 0 vertical 45'],
   sauter: ['consigne saute sur place -> {"action":"sauter","duree":0.3}'],
   appuyer: ['consigne decale-toi a droite une seconde -> {"action":"appuyer","touches":["right"],"duree":1}'],
