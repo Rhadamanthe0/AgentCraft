@@ -71,6 +71,11 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
 - KPI suivis d un banc a l autre (`result.kpi`, `report.kpi`, resume) : taux
   d actions en echec et nombre de blocages, par famille ; a faire baisser.
 - Pas de double appel au modele (refuse : sur-ingenierie).
+- Premier banc (559d03e) : 74/84, KPI 14,1 % d actions en echec, 9 blocages
+  bloquants ; cabane 560 s avec reflexion (31 % d echecs, surtout casser/avancer
+  sur les arbres) contre 289 s sans (17 %). Un seul echantillon : A/B garde
+  sur plusieurs bancs avant de trancher. build/tower : postes perches jamais
+  essayes (3 postes au sol d abord) => `placeOne` tente ensuite 2 perches.
 
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 

@@ -573,6 +573,7 @@ function findVantages (bot, target, sol = null) {
     }
   }
   const perche = v => sol !== null && v.stand.y > sol + 2 ? 1 : 0
+  for (const v of all) v.perche = Boolean(perche(v))
   return all.sort((a, b) => perche(a) - perche(b) || a.fromBot - b.fromBot)
 }
 
@@ -841,7 +842,13 @@ async function placeOne (bot, target, itemName, { accept = null, move = null, so
   if (move) {
     // Navigateur partage sur les trois postes les plus proches du bot, puis
     // repli sur l ancien trajet en gestes vers le meilleur poste.
-    for (const candidate of findVantages(bot, target, sol).slice(0, 3)) {
+    // Trois postes au sol d abord, puis deux perches au plus : le centre du
+    // toit d une tour fermee ne se pose que debout sur ses murs (build/tower
+    // 559d03e : 49/50, les trois premiers postes au sol, perches jamais
+    // essayes, plafond de 300 s).
+    const vantages = findVantages(bot, target, sol)
+    const essais = [...vantages.filter(v => !v.perche).slice(0, 3), ...vantages.filter(v => v.perche).slice(0, 2)]
+    for (const candidate of essais) {
       arrived = await move(candidate.stand).catch(() => false)
       if (arrived) { vantage = candidate; break }
     }
