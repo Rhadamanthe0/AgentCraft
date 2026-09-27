@@ -3312,7 +3312,12 @@ function createMissionRunner (host, injected = {}) {
           }
         }
       }
-      if (mission.fabricationCible && !dansLePlan && !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
+      // Une etape reprise du plan (reorientation) est utile par definition :
+      // `dansLePlan` avait ete calcule sur l objet demande. Vu sur
+      // craft/furnace (8d6a7b8) : batons redemandes, pioche en bois du plan
+      // substituee puis refusee « pas utile pour furnace ».
+      if (mission.fabricationCible && !dansLePlan && !reorientation &&
+        !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
         return {
           resultat: `${target} n est pas utile pour ${mission.fabricationCible} : fabrique ${mission.fabricationCible} ` +
             'ou ses ingredients (planches, batons, etabli), rien d autre',

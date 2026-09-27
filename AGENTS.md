@@ -600,6 +600,10 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   les objets proches cessent de tomber (2 s max) avant de juger leur hauteur
   (trees/tall : buches coupees depuis le pilier encore en chute, descente
   d echafaudage jamais declenchee, 0/1 deux fois).
+  craft/furnace (8d6a7b8) : l etape du plan reprise par le refus « assez de
+  batons » (pioche en bois) etait ensuite refusee « pas utile pour furnace »
+  (appartenance au plan calculee sur l objet demande) ; une etape reprise du
+  plan n est plus soumise a ce filtre. Composite 2e mesure : 660 s.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
