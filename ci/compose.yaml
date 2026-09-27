@@ -101,8 +101,9 @@ services:
     # Base et modeles du planificateur, par usage : ci/models.env (sans secret).
     env_file: [models.env]
     # Bot APIs reached directly by ci/run.py; loopback only, random host ports.
-    # One line per pool worker (POOL_SIZE in ci/trees.py).
+    # One line per possible worker (trees.POOL_MAX), plus the launcher's control.
     ports:
+      - "127.0.0.1::2999"
       - "127.0.0.1::3001"
       - "127.0.0.1::3002"
       - "127.0.0.1::3003"
@@ -140,8 +141,11 @@ services:
       # Jeune generation V8 plafonnee a 4 MB par demi-espace (defaut bien plus
       # grand) : mesure locale, 16 bots au repos 1,98 GB -> 1,10 GB, CPU egal.
       NODE_OPTIONS: "--max-semi-space-size=4"
-      # CI_POOL_SIZE (defaut 32) : 16 sur MINIPC-CLEM, CI plafonnee a 400 % CPU.
-      POOL_SIZE: "${CI_POOL_SIZE:-32}"
+      # Aucun bot au demarrage : ci/pool.py les lance un par un (CONTROL_PORT),
+      # en mode fixe (CI_POOL_SIZE) ou adaptatif (ci/capacity.py).
+      POOL_SIZE: "0"
+      POOL_MAX: "32"
+      CONTROL_PORT: "2999"
       API_BASE_PORT: "3000"
       # V8 heap cap of each bot process (NODE_OPTIONS=--max-old-space-size).
       # Offline, a bot idles at ~110-135 MB RSS with ~25 MB of heap; chunks,
@@ -203,7 +207,12 @@ services:
       NODE_PATH: /work/bot/node_modules
       # Same V8 young-generation cap as `bots`.
       NODE_OPTIONS: "--max-semi-space-size=4"
-    command: ["node", "/work/ci/probes.js", "TestProbe2", "TestProbe3", "TestProbe4", "TestProbe5", "TestProbe6", "TestProbe7", "TestProbe8", "TestProbe9", "TestProbe10", "TestProbe11", "TestProbe12", "TestProbe13", "TestProbe14", "TestProbe15", "TestProbe16", "TestProbe17", "TestProbe18", "TestProbe19", "TestProbe20", "TestProbe21", "TestProbe22", "TestProbe23", "TestProbe24", "TestProbe25", "TestProbe26", "TestProbe27", "TestProbe28", "TestProbe29", "TestProbe30", "TestProbe31", "TestProbe32", "TestProbe33", "--idle-secs", "1700"]
+      # Aucune sonde au demarrage : une par worker, lancee avec son bot
+      # (TestProbe<N+1> pour TreeBotN) par ci/pool.py ; TestProbe1 reste au harness.
+      CONTROL_PORT: "2998"
+    command: ["node", "/work/ci/probes.js", "--idle-secs", "1700"]
+    ports:
+      - "127.0.0.1::2998"
     mem_limit: 1536m
     depends_on:
       minecraft:

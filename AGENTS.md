@@ -361,6 +361,27 @@
   invalide). `CI_POOL_SIZE=16` : CI plafonnee a 400 % CPU. Umask 077 du runner
   => `chmod a+rX` dans les images. Paper sans plafond memoire de conteneur ;
   compte CI 16 Gio. Image Paper purgeable le lundi si > 30 jours.
+- Pool a la demande (2026-09-27, demande de l agent MINIPC-CLEM,
+  docs/remote-minecraft-tests.md « Pool de workers ») : `bots` et `probes`
+  demarrent vides, `ci/pool.py` lance chaque couple TreeBotN + TestProbe<N+1>
+  par API de controle (2999/2998) et le retire en fin de file ; plus de 32
+  sondes pour 16 bots. `CI_POOL_MODE=fixed` (CI_POOL_SIZE, comparaison entre
+  commits) ou `adaptive` (`ci/capacity.py` : enveloppe CI 400 %, admissions
+  CPU < 300 % x10, reserves 4 Gio CI + hote, redescente sans tuer de niveau ;
+  mesures douteuses => repli fixe). Stats du planificateur lues AVANT le
+  retrait d un bot (le processus les emporte). Tests : ci/test_capacity.py,
+  ci/test_pool.py.
+- Latence du modele par usage (`planner.stats.latences` : 200 dernieres durees
+  par usage, issues ok/delai/erreur/annule) ; `report.plannerSummary.latences`
+  en tire p50/p95/max. Echec d un ordre sans reponse du modele (`answerError`,
+  « pas de reponse en ») classe `api`. follow/* note `missionRunningAtWalk` :
+  sur 83bbfad, follow/stairs (8,71 blocs) et route/under-tree (aucune mission)
+  venaient de lectures d objectif Muse > 20 s / 60 s x 2, pas du suivi.
+- Don non demande retire de l objectif (`conversation.js`, `DELIVERY`) : le
+  modele de chat reecrivait « Fabrique une porte » en « ... et la remettre au
+  joueur » (intermittent depuis le 2026-09-26) ; `donner` sans quantite
+  bouclait ensuite jusqu au plafond (craft/door ffda434). Seul un message du
+  joueur avec un verbe de don (donne, rapporte, ramene, livre, file...) le garde.
 - Chat du bot en style court (demande du proprietaire : chat Minecraft petit et
   charge) : messages systeme raccourcis (« Reçu, je regarde… », « Compris. »,
   « Fini : raison. »), prompt du chat et doc de `dire` en quelques mots.

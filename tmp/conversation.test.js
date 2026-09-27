@@ -232,3 +232,15 @@ test('interpretation lente : accuse de reception intermediaire, puis vraie repon
   await pending
   assert.deepEqual(f.events[1], ['say', '3 + 3 = 6.'])
 })
+test('un don non demande par le joueur est retire de l objectif (craft/door, ffda434)', async () => {
+  const f = fixture()
+  f.host.interpret = async () => ({ relation: 'new', objective: 'Fabriquer une porte en bois et la remettre au joueur.' })
+  await f.conversation.receive('A', 'Fabrique une porte en bois')
+  assert.deepEqual(f.events.filter(e => e[0] === 'start'), [['start', 'Fabrique une porte en bois']])
+})
+test('un don demande par le joueur reste dans l objectif', async () => {
+  const f = fixture()
+  f.host.interpret = async () => ({ relation: 'new', objective: 'Couper un arbre et rapporter le bois au joueur.' })
+  await f.conversation.receive('A', 'Coupe un arbre et rapporte moi le bois')
+  assert.deepEqual(f.events.filter(e => e[0] === 'start'), [['start', 'Couper un arbre et rapporter le bois au joueur.']])
+})

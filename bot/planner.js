@@ -296,11 +296,41 @@ const stats = {
 syncProfileStats()
 Object.defineProperty(stats, 'routing', { enumerable: true, get: () => routing.status() })
 
+// Duree reelle de chaque appel par usage (rejeux compris), issue comprise :
+// ok, delai (pas de reponse), erreur, annule. /api/status.planner.latences
+// garde les 200 dernieres par usage ; le banc en tire p50/p95/max (une lecture
+// d objectif Muse a 60 s x 2 faisait echouer des niveaux sans que le rapport
+// le montre).
+const LATENCY_KEEP = 200
+const latencies = {}
+Object.defineProperty(stats, 'latences', { enumerable: true, get: () => latencies })
+
+function recordLatency (task, ms, outcome) {
+  const entry = latencies[task] ?? (latencies[task] = { ms: [], ok: 0, delai: 0, erreur: 0, annule: 0 })
+  entry.ms.push(ms)
+  if (entry.ms.length > LATENCY_KEEP) entry.ms.shift()
+  entry[outcome] += 1
+}
+
+async function callWithProfile (system, user, opts = {}) {
+  const task = opts.task ?? 'plan'
+  const started = Date.now()
+  try {
+    const result = await callWithProfileOnce(system, user, opts)
+    recordLatency(task, Date.now() - started, 'ok')
+    return result
+  } catch (err) {
+    const outcome = opts.signal?.aborted ? 'annule' : /pas de reponse|timeout|abort/i.test(String(err?.message)) ? 'delai' : 'erreur'
+    recordLatency(task, Date.now() - started, outcome)
+    throw err
+  }
+}
+
 // Helper UNIQUE (plan, chat, brief, compaction, aide) : le modele de l usage,
 // un appel, jamais d autre modele. Troncature : UN reessai du meme modele a
 // budget elargi, meme delai et meme signal. Mauvais JSON (apres un call
 // reussi) : ni reessai ni repli ici (voir plan/readBrief : parse hors transport).
-async function callWithProfile (system, user, opts = {}) {
+async function callWithProfileOnce (system, user, opts = {}) {
   const { image = null, signal = null, temperature = TEMPERATURE, task = 'plan', state = {}, route = null } = opts
   if (routing.isDual()) {
     stats.tentatives += 1

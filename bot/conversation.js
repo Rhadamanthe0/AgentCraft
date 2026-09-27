@@ -1,5 +1,8 @@
 'use strict'
 
+// Verbes de don / livraison au joueur (demande explicite requise).
+const DELIVERY = /\b(?:remet\w*|remett\w*|donn\w*|livr\w*|apport\w*|rapport\w*|ram[eè]n\w*|fil(?:e|es|er)\b|passe[-\s]moi|au joueur)/i
+
 // Le chat est un flux d intentions, pas une deuxieme file de touches.
 // Une reponse distante obsolete ne peut ni parler ni modifier une mission.
 //
@@ -198,6 +201,13 @@ function createConversation (host) {
       // L interpretation est finie. Une question suivante ne doit pas annuler
       // le readBrief d un objectif deja accepte ; stop/new le feront explicitement.
       controllers.delete(abort)
+      // Un don que le joueur n a pas demande n entre jamais dans l objectif :
+      // « Fabrique une porte » relu « ... et la remettre au joueur » (vu en CI,
+      // craft/door ffda434 : 3 portes puis boucle sur un don sans quantite).
+      if (decision.relation === 'new' && decision.objective && DELIVERY.test(decision.objective) && !DELIVERY.test(message)) {
+        console.log(`[chat] don non demande retire de l objectif : "${decision.objective}" -> "${message}"`)
+        decision = { ...decision, objective: message }
+      }
       if (decision.relation === 'stop') {
         try { host.cancelPendingStart?.() } catch (_) {}
         try { host.stop() } catch (_) {}

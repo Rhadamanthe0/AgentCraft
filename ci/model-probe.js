@@ -15,6 +15,13 @@ const path = require('node:path')
 // du banc), jetons de raisonnement et acceptation du champ effort mesures.
 const DEFAULT = ['deepseek-v4.1-flash', 'glm-5.3-flash']
 const RUNS = Number(process.env.CI_PROBE_RUNS || 8)
+// Lecture d objectif (usage BRIEF) : modele:effort compares sur de vrais
+// ordres du banc (2026-09-27 : muse high, p50 17,8 s, p95 45 s, 3 delais de
+// 60 s sur 64 au banc a685869).
+const BRIEF_DEFAULT = ['muse-spark-1.3-contributor:high', 'muse-spark-1.3-contributor:medium',
+  'muse-spark-1.3-contributor:low', 'deepseek-v4.1-flash:high']
+// Trois ordres : au pire 3 x 60 s, sous le plafond de la sonde (compose run 300 s).
+const BRIEF_ORDERS = ['Va sous l arbre', 'Fabrique une pioche en pierre', 'Coupe moi un arbre et rapporte moi le bois']
 
 const STATE = {
   consigne: { objectif: 'coupe moi un arbre', type: 'recolte', matiere: 'bois', arbre_entier: true },
@@ -85,6 +92,30 @@ async function one (entry) {
   return out
 }
 
+async function briefOnly (spec) {
+  console.log = (...a) => console.error(...a)
+  const [model, effort] = spec.split(':')
+  Object.assign(process.env, {
+    PLANNER_MODEL: model, PLANNER_MODEL_BRIEF: model, PLANNER_REASONING_EFFORT_BRIEF: effort || '',
+    PLANNER_TIMEOUT_MS_BRIEF: '60000', PLANNER_WARMUP_TIMEOUT_MS: '60000', BOT_USERNAME: 'ProbeBrief',
+    PLANNER_KEY_FIRST: process.env.OPENCODE_SECONDARY_API_KEY ? 'secondary' : 'primary'
+  })
+  const planner = require(path.join(__dirname, '..', 'bot', 'planner'))
+  const rows = []
+  for (const order of BRIEF_ORDERS) {
+    const t = Date.now()
+    try {
+      const r = await planner.readBrief(order)
+      rows.push({ order, ok: true, ms: Date.now() - t, brief: JSON.stringify(r ?? null).slice(0, 200) })
+    } catch (err) {
+      rows.push({ order, ok: false, ms: Date.now() - t, error: String(err?.message ?? err).slice(0, 160) })
+    }
+  }
+  const ms = rows.map(r => r.ms).sort((a, b) => a - b)
+  return { briefProbe: spec, ok: rows.filter(r => r.ok).length, of: rows.length,
+    medianMs: ms[Math.floor(ms.length / 2)], maxMs: ms[ms.length - 1], rows }
+}
+
 function summarize (r) {
   const agg = (rows) => {
     const ok = rows.filter(x => x.ok)
@@ -111,10 +142,17 @@ async function main () {
     process.stdout.write(JSON.stringify(await one(process.argv[at + 1])))
     return
   }
+  const briefAt = process.argv.indexOf('--brief')
+  if (briefAt > 0) {
+    process.stdout.write(JSON.stringify(await briefOnly(process.argv[briefAt + 1])))
+    return
+  }
   const models = String(process.env.CI_PROBE_MODELS || '').split(',').map(s => s.trim()).filter(Boolean)
   const list = models.length ? models : DEFAULT
-  const results = await Promise.all(list.map(entry => new Promise(resolve => {
-    const child = spawn(process.execPath, [__filename, '--one', entry], { env: process.env })
+  const briefs = String(process.env.CI_PROBE_BRIEFS ?? BRIEF_DEFAULT.join(',')).split(',').map(s => s.trim()).filter(Boolean)
+  const jobs = [...list.map(entry => ['--one', entry]), ...briefs.map(spec => ['--brief', spec])]
+  const results = await Promise.all(jobs.map(([flag, entry]) => new Promise(resolve => {
+    const child = spawn(process.execPath, [__filename, flag, entry], { env: process.env })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', d => { stdout += d })
@@ -122,7 +160,7 @@ async function main () {
     const kill = setTimeout(() => child.kill('SIGKILL'), 240000)
     child.on('close', () => {
       clearTimeout(kill)
-      try { resolve(summarize(JSON.parse(stdout))) } catch {
+      try { const r = JSON.parse(stdout); resolve(flag === '--brief' ? r : summarize(r)) } catch {
         resolve({ model: entry, error: (stderr || stdout).slice(-300) })
       }
     })

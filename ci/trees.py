@@ -739,6 +739,7 @@ def run_route_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
         'visits': visits, 'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
         'botStart': start, 'botFinalPosition': p, 'probe': probe_name,
+        'answerError': answer.get('error') if isinstance(answer, dict) else None,
     }
 
 
@@ -887,8 +888,12 @@ def run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     answers['follow'] = bot_api(bot, '/api/instruction', {'message': 'Suis moi', 'requester': probe_name})
     # Leave the bot time to accept the objective before the player walks away.
     until = time.monotonic() + 20
-    while time.monotonic() < until and not bot_api(bot, '/api/status').get('missionRunning'):
-        time.sleep(.5)
+    running_at_walk = False
+    while time.monotonic() < until and not running_at_walk:
+        running_at_walk = bool(bot_api(bot, '/api/status').get('missionRunning'))
+        if not running_at_walk:
+            time.sleep(.5)
+    start_wait = round(time.monotonic() - started, 1)
     time.sleep(2)
     probe = list(path[0])
     lags, walked, stop_at, stop_pos, drift = [], 0, None, None, 0.0
@@ -960,6 +965,11 @@ def run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         'expectedLogs': 0, 'logsInInventory': 0, 'elapsedS': round(time.monotonic() - started, 1),
         'maxLag': round(max(lags), 2) if lags else None, 'driftAfterStop': round(drift, 2) if stop_pos else None,
         'answers': {k: {kk: v.get(kk) for kk in ('relation', 'kind', 'error')} for k, v in answers.items()},
+        # Mission pas encore lancee quand le joueur part (lecture d objectif
+        # lente) : l ecart mesure alors le modele, pas le suivi.
+        'missionStartS': start_wait, 'missionRunningAtWalk': running_at_walk,
+        'answerError': (answers['follow'].get('error') if isinstance(answers.get('follow'), dict) else None)
+        or (None if running_at_walk else f'pas de reponse en {start_wait} s : mission pas encore lancee au depart du joueur'),
         'damageTaken': damage, 'botFinalPosition': final.get('position'), 'probe': probe_name,
     }
 
@@ -1132,8 +1142,10 @@ def run_join_steps(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # 32 (owner's choice, 2026-09-26): the planner runs on a paid OpenCode Go key
 # (large quota), no free-tier per-minute cap left; ~20 GB RAM free on the
 # runner. Keep in step with ci/compose.yaml (ports, POOL_SIZE, probes).
-# CI_POOL_SIZE : bots en parallele (16 sur MINIPC-CLEM, 400 % CPU pour toute la CI).
+# CI_POOL_SIZE : taille du pool en mode fixe (et repli du mode adaptatif) ;
+# POOL_MAX : ports publies et sondes possibles (ci/compose.yaml), plafond de l adaptatif.
 POOL_SIZE = int(os.environ.get('CI_POOL_SIZE', '32'))
+POOL_MAX = 32
 
 
 # All pool bots live in ONE compose service (`bots`, ci/multi-bot.js); each bot
@@ -1148,11 +1160,11 @@ def bot_services():
     """(API port inside the `bots` container, username) per pool worker.
 
     The port is the bot's identity for `bot_api(port, route)`."""
-    return [(API_BASE_PORT + i, f'TreeBot{i}') for i in range(1, POOL_SIZE + 1)]
+    return [(API_BASE_PORT + i, f'TreeBot{i}') for i in range(1, POOL_MAX + 1)]
 
 
 def probe_names():
-    return [f'TestProbe{i + 1}' for i in range(1, POOL_SIZE + 1)]
+    return [f'TestProbe{i + 1}' for i in range(1, POOL_MAX + 1)]
 
 
 def arena_origins():
@@ -1358,7 +1370,8 @@ EXPECTED_S = {
 NEW_LEVEL_S = 90
 
 
-def run_levels(output, rcon, bot_api):
+def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
+    """Every level once, on the workers of `pool_factory(queue, run_one)` (ci/pool.py)."""
     seed = variation_seed()
     print(f'Arenes variees : graine {seed!r}', flush=True)
     all_levels = [vary(level, seed) for level in levels()]
@@ -1370,7 +1383,6 @@ def run_levels(output, rcon, bot_api):
     # finished a short join first, ~25 s after the start. Order only: every
     # level still runs, with the same checks, and results keep levels() order.
     queue = sorted(range(len(all_levels)), key=lambda i: -EXPECTED_S.get(all_levels[i]['name'], NEW_LEVEL_S))
-    lock = threading.Lock()
 
     def reset(bot):
         # Previous level's mission and working notes must not leak into the next one.
@@ -1380,29 +1392,28 @@ def run_levels(output, rcon, bot_api):
             except Exception:
                 pass
 
-    def worker(bot, username, probe):
-        first = True
-        while True:
-            with lock:
-                if not queue:
-                    return
-                index = queue.pop(0)
-            level = all_levels[index]
-            if not first:
-                reset(bot)
-            first = False
-            print(f'{level["name"]} ({username}) started', flush=True)
-            result = run_level(level, origins[index], bot, username, output, rcon, bot_api, probe)
-            result['type'] = mission_type(level['name'])
-            if level.get('variation'):
-                result['variation'] = level['variation']
-            results[index] = result
-            print(f'{level["name"]} finished in {result.get("elapsedS")} s', flush=True)
+    def run_one(worker, index, first):
+        level = all_levels[index]
+        if not first:
+            reset(worker.bot)
+        print(f'{level["name"]} ({worker.username}) started', flush=True)
+        try:
+            if before_level:
+                before_level()
+            result = run_level(level, origins[index], worker.bot, worker.username, output, rcon, bot_api, worker.probe)
+        except Exception as error:  # a crashing level never takes its worker down silently
+            result = {'test': level['name'], 'success': False, 'bot': worker.username, 'error': str(error)}
+        result['type'] = mission_type(level['name'])
+        if level.get('variation'):
+            result['variation'] = level['variation']
+        results[index] = result
+        print(f'{level["name"]} finished in {result.get("elapsedS")} s', flush=True)
 
-    threads = [threading.Thread(target=worker, args=(bot, username, probe))
-               for (bot, username), probe in zip(bot_services(), probe_names())]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    return results
+    pool = pool_factory(queue, run_one)
+    summary = pool.run()
+    # A level no worker could take (every worker dead) still shows up, as a failure.
+    for index, result in enumerate(results):
+        if result is None:
+            results[index] = {'test': all_levels[index]['name'], 'success': False, 'type': mission_type(all_levels[index]['name']),
+                              'error': 'aucun worker disponible (workers morts ou demarrages en echec)'}
+    return results, summary
