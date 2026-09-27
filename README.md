@@ -366,7 +366,7 @@ côté serveur. Le chat et l'état de jeu quittent la machine dans tous les cas.
 ### Au démarrage
 
 ```
-[commandes] 13 commandes (2 routables par le routeur, 11 sur prefixe seul), 23 actions dont 7 a deux etages, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
+[commandes] 13 commandes (2 routables par le routeur, 11 sur prefixe seul), 24 actions dont 7 a deux etages, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
 [planner] deepseek-v4.1-flash sur https://opencode.ai/zen/go/v1 : plans de 5 etapes, 0 action(s)
 documentee(s) par l aide, seuil de fin 0.75
 [planner] deepseek-v4.1-flash charge et pret en 3.6 s
@@ -581,7 +581,7 @@ declarees aux handlers reellement branches, ainsi que les actions de mission aux
 actions branchees :
 
 ```
-[commandes] 13 commandes (2 routables par le routeur, 11 sur prefixe seul), 23 actions dont 7 a deux etages, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
+[commandes] 13 commandes (2 routables par le routeur, 11 sur prefixe seul), 24 actions dont 7 a deux etages, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
 ```
 
 Une commande ajoutee d'un cote mais pas de l'autre apparait ici, et dans
@@ -662,6 +662,19 @@ process, un username, un fichier `/tmp/hN.js` par harness —
 `recentChat` est pollue), jamais ops, survie (`playerGameType = 0`), `TP` rcon
 reserve au placement du harness, arret propre par `pkill -f /tmp/hN.js`. Voir
 `CLAUDE.md` (« Harness multi-bots ») pour le cycle de vie complet.
+
+## Tests unitaires
+
+Depuis la racine du dépôt, avec les modules du bot (`npm ci` dans `bot/`) :
+
+```bash
+NODE_PATH=$PWD/bot/node_modules node --test tmp/navigation.test.js
+```
+
+Sans `NODE_PATH`, les tests échouent sur « Cannot find module 'vec3' » :
+`tmp/` n'a pas de `node_modules`. La CI le pose dans `ci/Dockerfile` et lance
+la liste `UNIT` de `ci/run.py`. Ne pas lancer `kernel-docker-backend.test.js`
+(il attend un Docker et bloque).
 
 ## Arrêt sans supprimer le monde
 

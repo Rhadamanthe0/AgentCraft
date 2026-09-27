@@ -559,7 +559,30 @@ async function resyncInventory (bot) {
 // Échec sans production : throw avec .code ('unknown' | 'missing' |
 // 'partial-uncertain' | 'craft-failed'), .missing (ressources à obtenir, à
 // récolter, jamais inventées), .item, .wanted, .produced.
+// Profondeur des `make` imbriques (sous-crafts recursifs) : seul l appel
+// exterieur resynchronise a la sortie.
+let makeDepth = 0
+
+// Apres un craft, l inventaire local peut encore mentir (craft/door f61180a :
+// buche restante invisible, « il manque des buches », porte jamais faite
+// alors que 1 buche + 4 planches suffisaient) : grille rendue et
+// resynchronisation avant que la mission relise l inventaire.
 async function make (bot, targetName, wanted = 1, opts = {}) {
+  makeDepth += 1
+  try {
+    return await makeOnce(bot, targetName, wanted, opts)
+  } finally {
+    makeDepth -= 1
+    if (makeDepth === 0) {
+      try {
+        if (await recoverStranded(bot)) await waitInventorySettled(bot)
+        await resyncInventory(bot)
+      } catch (_) { /* inventaire local tel quel */ }
+    }
+  }
+}
+
+async function makeOnce (bot, targetName, wanted = 1, opts = {}) {
   const wantedUnits = Number.isFinite(Number(wanted))
     ? Math.max(1, Math.round(Number(wanted)))
     : 1

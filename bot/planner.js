@@ -738,7 +738,9 @@ Lis l etat avant de repondre : consigne dit ce qui est demande, progression et
 chantier disent ce qui est fait, environnement dit ce qui est atteignable et ou
 aller (navigation), inventaire dit ce qui est posable, bot.orientation et
 environnement.bloc_regarde disent ou tu regardes et ce que tu as sous les yeux,
-dernieres_etapes dit ce qui vient d etre tente, chat_recent dit ce que les
+dernieres_etapes dit ce qui vient d etre tente, etapes_en_cours (si present)
+liste les etapes deja lancees ou en file, pas encore faites : planifie ce qui
+vient APRES elles en les supposant reussies, sans les repeter, chat_recent dit ce que les
 joueurs viennent d ecrire, et memoire dit tes budgets de memoire (ta memoire
 elle-meme est dans ce prompt : memoire long terme ci-dessus, memoire de mission
 a la fin). Une action qui vient d echouer deux fois ne doit pas etre

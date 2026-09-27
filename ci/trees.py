@@ -42,6 +42,10 @@ START_TIMEOUT_S = 75
 NO_PROGRESS_S = 60
 GRACE_AFTER_WOOD_S = 10
 LEVEL_CAP_S = 300
+# Scenarios composites : plafond du proprietaire, 45 min par scenario.
+COMPOSITE_CAP_S = 2700
+# Cinq arbres (tronc de 5) loin du depart (10.5, 18.5) et de la sonde (4.5, 32.5).
+COMPOSITE_TREES = [(4, 6), (30, 6), (30, 18), (30, 30), (18, 32)]
 
 
 def _logs(*positions, axis=None):
@@ -577,6 +581,22 @@ def base_levels():
             'blocks': ['#minecraft:planks'], 'target': 30, 'door': True,
             'variants': [sans('plans')], 'leaves': [], 'logs': [], 'rules': {},
         },
+        # Scenarios composites (2026-09-27, demande du proprietaire) : le joueur
+        # donne le BUT, jamais les etapes. Inventaire vide, cinq arbres : le bot
+        # coupe, fabrique planches, etabli et porte (hache s il la juge utile),
+        # puis construit. Palier 1, bloquant.
+        {
+            'name': 'composite/cabin-from-scratch',
+            'about': 'Inventaire vide, cinq chenes, « Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte » : '
+                     'couper, fabriquer planches et porte, construire, sans qu aucune etape soit donnee.',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S,
+            'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte',
+            'blocks': ['#minecraft:planks'], 'target': 40, 'door': True,
+            'leaves': [box for (x, z) in COMPOSITE_TREES
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
+            'rules': {},
+        },
     ]
 
 
@@ -829,8 +849,9 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     started = time.monotonic()
     timeline = []
     answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
-    seen, end_reason, last_count_at, now_placed = False, f'plafond de {BUILD_CAP_S} s', 0, before
-    while time.monotonic() - started < BUILD_CAP_S:
+    cap = level.get('cap', BUILD_CAP_S)
+    seen, end_reason, last_count_at, now_placed = False, f'plafond de {cap} s', 0, before
+    while time.monotonic() - started < cap:
         s = bot_api(bot, '/api/status')
         running = bool(s.get('missionRunning'))
         seen = seen or running
@@ -1336,13 +1357,31 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
         rcon(f'clear {username}')
         rcon(f'scoreboard players set {username} degats 0')
         until = time.monotonic() + 20
+        # Bot au repos (au sol, aucune touche, aucune mission) mais ailleurs que
+        # le depart : repositionne par tp, deux fois au plus, et note. Vu deux
+        # fois apres un niveau clos au plafond (follow/stop 05a529, follow/
+        # stairs f61180a : bot deplace de ~2 blocs, au repos) ; mise en place
+        # de l arene, pas une capacite du bot.
+        retps = 0
+        next_retp = time.monotonic() + 5
         while True:
             s = bot_api(bot, '/api/status')
             p = s.get('position') or {}
             if s.get('onGround') and all(abs(p.get(k, -999) - v) < .2 for k, v in zip('xyz', start)):
                 break
+            idle = s.get('onGround') and not s.get('controls') and not s.get('pathfinding')
+            if idle and retps < 2 and time.monotonic() > next_retp:
+                retps += 1
+                print(f'{level["name"]} : bot au repos hors du depart ({p}), nouveau tp {retps}/2', flush=True)
+                rcon(f'tp {username} ' + ' '.join(map(str, start)))
+                next_retp = time.monotonic() + 5
             if time.monotonic() > until:
-                raise RuntimeError('Bot did not settle at level start')
+                # Etat du bot joint a l erreur : un seul cas vu (follow/stop
+                # 05a529, apres un plafond ou le bot etait encastre), cause
+                # inconnue faute de mesure.
+                etat = {k: s.get(k) for k in ('position', 'onGround', 'controls', 'navigation', 'pathfinding', 'followMode')}
+                etat['mission'] = {k: (s.get('mission') or {}).get(k) for k in ('state', 'reason', 'etape')} if isinstance(s.get('mission'), dict) else s.get('mission')
+                raise RuntimeError(f'Bot did not settle at level start (attendu {start}) : {json.dumps(etat, default=str)[:600]}')
             time.sleep(.25)
         before = measure()
         expected_logs = len(level['logs'])
@@ -1462,6 +1501,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # 36105107224), used only to order the queue. A level missing here counts as
 # NEW_LEVEL_S (started early: unknown levels are often the long ones).
 EXPECTED_S = {
+    'composite/cabin-from-scratch': 900,
     'trees/tall': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'terrain/plateau': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
     'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,
@@ -1492,7 +1532,10 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
 
     def reset(bot):
         # Previous level's mission and working notes must not leak into the next one.
+        # Nor the action docs rewritten by demander_aide / reviser_actions: they
+        # carried one level's lessons into the bot's next levels.
         for route, body, method in (('/api/stop', {}, 'POST'), ('/api/memory', None, 'DELETE'),
+                                    ('/api/actions', None, 'DELETE'),
                                     ('/api/features', {'reset': True}, 'POST')):
             try:
                 bot_api(bot, route, body, method=method)

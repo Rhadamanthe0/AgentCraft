@@ -534,3 +534,15 @@ code auquel on ne fait pas confiance.
 - [Ajouter un runner auto-heberge](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners)
 - [Securite des runners](https://docs.github.com/en/actions/reference/security/secure-use)
 - [Artefacts GitHub Actions](https://github.com/actions/upload-artifact)
+
+## Scenarios composites
+
+Le joueur donne un BUT, jamais les etapes : le bot enchaine lui-meme recolte,
+fabrication et construction. Plafond 45 min par scenario (`COMPOSITE_CAP_S`),
+lances en premier (`EXPECTED_S`, file LPT) ; `MISSION_MAX_STEPS` 1500 et
+`MISSION_MAX_DURATION_MS` 45 min cote bot ; job a 75 min.
+
+- `composite/cabin-from-scratch` (palier 1, bloquant) : inventaire vide, cinq
+  arbres, « Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte ».
+  Exige 40 planches posees, la porte, 0 degat et une mission close par le bot.
+

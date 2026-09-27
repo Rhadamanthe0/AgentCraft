@@ -29,6 +29,25 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   resume donnent reussite, duree, appels au modele et degats cote a cote.
   Un mode qui n apporte rien de mesurable n est pas garde.
 
+## Scenarios composites : la vraie finalite (2026-09-27, demande du proprietaire)
+
+- Le joueur donne un BUT, jamais les etapes : « construis-moi une cabane »
+  sans aucun materiel => le bot coupe un arbre, se fait une hache, coupe le
+  bois necessaire, fabrique planches et porte, construit. « Va miner du fer »
+  => il fait lui-meme toute la chaine (outils, recherche d une grotte,
+  fouille). Quelques scenarios peuvent donner les etapes ; la cible, non.
+- Paliers : but a deux etapes liees, longue chaine depuis rien, imprevus en
+  cours (changement d avis, stop/reprise, question), terrain hostile combine,
+  missions ouvertes. Les plus simples BLOQUENT la fusion, la difficulte
+  bloquante monte ensuite peu a peu ; les plus durs restent informatifs.
+- Composites lances EN PREMIER (chemin critique du banc). Plafond : 45 min
+  par scenario, garde meme si l agent MINIPC-CLEM proposait 30 min de job
+  (choix du proprietaire) ; la duree de realisation (`elapsedS`) est un
+  critere suivi d un banc a l autre : la faire baisser, sans relacher le cap. Quota du modele : pas une contrainte (DeepSeek peu cher).
+- Minage : monde NATUREL (terrain genere, graine fixe, zone variee par banc).
+  Le bot cherche d abord une grotte ; s il galere, il creuse en ESCALIER
+  (jamais un puits vertical). Difficulte paisible pour l instant.
+
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
 - Banc CI `trees` (`ci/trees.py`, docs/remote-minecraft-tests.md) : quatre
@@ -573,8 +592,46 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   bot, « moi » = le joueur) et nomme les deux s il reformule (route/wait-and-
   back bb2a9f8 : « retourne a ta place » reecrit « revenir a ma position
   actuelle », bot revenu pres du joueur).
-- 4 tests unitaires echouent deja sur main (runtime-objectives S5,
-  tree-pillar-support, tree-height-access, tree-target-visibility).
+- Premier composite `composite/cabin-from-scratch` (5f0545a) : cabane 4x4x4
+  avec porte depuis un inventaire vide, reussie en 703 s (54/54, porte).
+  Deux correctifs du meme banc : `piler` accepte la terre posee devenue
+  `grass_block` (join/shaft : « bloc non pose au niveau 1 (case :
+  grass_block) », sortie du puits abandonnee a 3/6) ; `ramasser` attend que
+  les objets proches cessent de tomber (2 s max) avant de juger leur hauteur
+  (trees/tall : buches coupees depuis le pilier encore en chute, descente
+  d echafaudage jamais declenchee, 0/1 deux fois).
+  craft/furnace (8d6a7b8) : l etape du plan reprise par le refus « assez de
+  batons » (pioche en bois) etait ensuite refusee « pas utile pour furnace »
+  (appartenance au plan calculee sur l objet demande) ; une etape reprise du
+  plan n est plus soumise a ce filtre. Composite 2e mesure : 660 s.
+  05a529 : composite 479 s. `piler` en recolte refuse aussi une hauteur qui
+  depasse le sommet du tronc vise (trees/pillar : buche a +4, piler(5),
+  feuille cassee dans la couronne) ; l intervalle utile est dit, la valeur
+  n est pas changee. follow/stop « Bot did not settle » (une fois, apres un
+  plafond encastre) : l erreur porte desormais l etat du bot.
+  f1f762d : composite echoue (992 s, porte absente, 1 degat). Pose des
+  blocs : postes de tir plus hauts que le sol du chantier + 2 (debout sur
+  ses propres murs) essayes en dernier (`findVantages(..., sol)`) ; le bot
+  restait perche a +4, 236 s, sans pouvoir redescendre chercher 2 planches.
+  `appuyer` guette le bord d une chute blessante a chaque tick, dans le sens
+  du mouvement (`videDevant(bot, dir)`) : il a marche hors du toit (chute de
+  4). `poser_porte` : pose d ici si l embrasure est a portee, sinon le
+  navigateur partage, `moveTo` en repli (sept « trajet trop long »).
+  f61180a : composite 554 s, build/tower et build/windows passent. craft/door :
+  inventaire local faux apres un craft (buche restante invisible, « il manque
+  des buches », porte jamais faite) => `craft.make` rend la grille et
+  resynchronise aussi a la SORTIE (appel exterieur seulement). Appel anticipe :
+  `etapes_en_cours` (etape lancee + file) dans l etat, le prompt dit de
+  planifier la suite sans les repeter (revue perf : 55/55 refus « chantier
+  deja commence » et ~40 % des « bloc trop loin » venaient de plans anticipes).
+  Banc : un bot au repos hors du depart d un niveau est re-teleporte (2 fois
+  au plus ; follow/stop puis follow/stairs apres un plafond, cause inconnue).
+- Tests unitaires en local : `NODE_PATH=$PWD/bot/node_modules node --test
+  tmp/X.test.js` depuis la racine (sans NODE_PATH : « Cannot find module
+  vec3/minecraft-data », faux echecs ; la CI le pose dans ci/Dockerfile).
+  Echecs reels restants : tree-height-access et tree-target-visibility lisent
+  une fixture json non versionnee ; runtime-objectives S5 est saute en root
+  (chmod ignore). `kernel-docker-backend` bloque : ne pas le lancer.
 
 ## Outil facultatif et stock de montee du 2026-09-24 (prioritaire)
 
@@ -1395,6 +1452,10 @@ un plan long.
 
 ### Un modele = un endpoint, et le bot n'en parle qu'un
 
+**Historique (2026-09-23)** : `llm.js` parle desormais aussi `/responses`
+(`resolveProtocol`, `extractResponsesText`) ; Muse sert la memoire (COMPACT)
+au banc. Les interdits ci-dessous sur `muse-spark` ne valent plus.
+
 Le gateway Go sert ses modeles sur **trois** endpoints selon le modele
 (`/chat/completions`, `/responses`, `/messages`), pas un seul. `llm.js` ne parle
 que **`/chat/completions`** : un modele servi ailleurs est inutilisable par le
@@ -1743,7 +1804,7 @@ liste de `!aide`, `jev.js` en derive les options de ses questions.
 demarrage et signale toute divergence :
 
 ```
-[commandes] 13 commandes (2 routables par le routeur, 11 sur prefixe seul), 23 actions dont 7 a deux etages, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
+[commandes] 13 commandes (2 routables par le routeur, 11 sur prefixe seul), 24 actions dont 7 a deux etages, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
 ```
 
 Le meme resultat est servi par `GET /api/commands`. Ajouter une commande = une
@@ -2165,7 +2226,7 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | Variable | Defaut | Role |
 | --- | --- | --- |
 | `PLANNER_BASE_URL` | `https://opencode.ai/zen/go/v1` | **La variable maitresse.** Non vide = le planificateur JSON distant pilote tout. Vide = repli sur Jev. Dans le code la valeur par defaut est vide ; c'est le compose qui pose l'URL Zen. |
-| `PLANNER_MODEL` | `deepseek-v4.1-flash` | Modele du gateway Go. Doit etre **servi sur `/chat/completions`** : un modele d'un autre endpoint (`muse-spark` -> `/responses`) repond `503`, un nom inconnu `400`/`404`. Voir « Un modele = un endpoint ». |
+| `PLANNER_MODEL` | code : `muse-spark-1.3-contributor` (`PILOT_MODEL`) ; compose : `deepseek-v4.1-flash` | Modele par defaut de tous les usages ; chaque usage a le sien via `PLANNER_MODEL_<USAGE>` (voir ci-dessous). Un nom inconnu du gateway repond `400`/`404`. |
 | `PLANNER_API_KEY` | vide | Cle `opencode-go` du gateway Zen, mise dans `.env`. Sans elle, les appels echouent en `401`. |
 | `PLANNER_SESSION_ID` | `minecraft-bot-<BOT_USERNAME>` | En-tete `x-opencode-session` : **stable** par conversation, pour le routage et le cache de prompt cote Zen. |
 | `PLANNER_USER_AGENT` | `minecraft-bot/1.0` | En-tete `user-agent` identifiable exige par Zen. |
@@ -2195,7 +2256,7 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `MISSION_DIRE_COOLDOWN_MS` | `20000` | Delai minimal entre deux phrases du bot dans le chat, et jamais deux fois la meme. |
 | `MISSION_ANNOUNCE_COOLDOWN_MS` | `5000` | Delai minimal entre deux messages **systeme** du bot (impasse signalee), qui echappent a la limite de `dire`. |
 | `ACTIONS_DOC_FILE` | `/data/actions-doc.json` | Ou vit la documentation/exemples ajoutee aux actions par l'aide. Le fichier herite `MACROS_FILE` (`/data/macros.json`) n'est plus lu. |
-| `MEMORY_FILE` | `/data/memory.json` | Ou vit la portee `long_terme` de la memoire. |
+| `MEMORY_FILE` | code : `bot/data/memory.json` ; compose : `/data/memory.json` | Ou vit la portee `long_terme` de la memoire. |
 | `MEMORY_LONG_TERM_TOKENS` | `10000` | Plafond de la memoire long terme (couche 3 du prompt mis en cache, ecrite au `finish()`). |
 | `MEMORY_WORK_TOKENS` | `10000` | Plafond de la memoire de mission (couche 4, en ajout seul). |
 | `MEMORY_WORK_COMPACT_AT` | `8000` | Seuil de compaction du fil de mission : au-dela, resume par le modele. |
@@ -2227,7 +2288,6 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `MISSION_SCREENSHOT` | vide | `1` active la mini-carte PNG jointe au planificateur. Desactive par defaut : sans elle, aucune image n'est generee. |
 | `MISSION_SCREENSHOT_EVERY` | `5` | Une capture toutes N etapes (cooldown : l'image coute des jetons). |
 | `MISSION_SCREENSHOT_RAYON` | `16` | Demi-cote de la carte en blocs (33x33 pour 16). |
-| `CLASSIFIER_NOTICE_MS` | `30000` | **Constante interne** (`bot/index.js`), pas une variable d'environnement : non configurable. Delai minimal entre deux messages d'excuse quand le planificateur est indisponible. |
 | `MISSION_SEARCH_RADIUS` | `32` | Rayon de recherche des blocs cibles. |
 | `MISSION_STEP_TIMEOUT_MS` | `20000` | Delai d'un deplacement d'etape. |
 | `MISSION_CRAFT_MAX` | `16` | Exemplaires max d'une fabrication. |
@@ -2247,6 +2307,25 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `MC_HOST` | `minecraft` | Hote du serveur Minecraft auquel le bot se connecte. |
 | `MC_PORT` | `25565` | Port du serveur Minecraft. |
 | `API_PORT` | `3000` | Port de l'API Express et de l'interface web. |
+| `PLANNER_MODEL_PLAN` / `_BRIEF` / `_CHAT` / `_COMPACT` / `_REPAIR` | `PLANNER_MODEL` | Modele par usage (`model-chain.js`) ; une liste ne garde que sa tete. Banc : `ci/models.env`. |
+| `PLANNER_REASONING_EFFORT[_<USAGE>]` | vide | Champ `reasoning_effort` (`reasoning.effort` sur `/responses`) ; retire apres deux 400. |
+| `PLANNER_TIMEOUT_MS_<USAGE>` | `PLANNER_TIMEOUT_MS` | Delai propre a un usage. |
+| `PLANNER_KEY_FIRST` | `primary` | Cle essayee d abord : `primary` (`PLANNER_API_KEY`) ou `secondary` (`OPENCODE_SECONDARY_API_KEY`). |
+| `OPENCODE_SECONDARY_API_KEY` | vide | Seconde cle du gateway Go (secret, jamais versionnee). |
+| `PLANNER_KEY_COOLDOWN_MS` | `600000` | Mise de cote d une cle refusee (429, 401-403). |
+| `PLANNER_PILOT_MAX_TOKENS` / `PLANNER_PILOT_RETRY_MAX_TOKENS` | `4096` / `8192` | Budget de sortie du modele `/responses` (Muse), et du rejeu apres troncature. |
+| `MEMORY_COMPACTOR_MAX_TOKENS` | `1000` | Budget du resume de memoire. |
+| `PLANNER_ROUTING_MODE` | `legacy` | `dual` = routage MiMo/Muse (`model-routing.js`), hors banc. |
+| `FEATURE_<MODE>` | selon le mode | Interrupteurs A/B (`featureOn`, `/api/features`). |
+| `MISSION_BRIEF_NOTICE_MS` | `3000` | « Je réfléchis… » si la lecture d objectif depasse ce delai (0 = jamais). |
+| `MISSION_CLIMB_MAX` | `12` | Niveaux max de `climbOutToward`. |
+| `MISSION_GESTE_MAX_PLANS` | `3` | Plans max d une mission `geste`. |
+| `MISSION_JUMP_FIRST_MS` / `_RETRY_MS` / `_MAX_ATTEMPTS` | `600` / `700` / `3` | Sauts de franchissement de la marche a pied. |
+| `CRAFT_TABLE_REUSE_RADIUS` / `CRAFT_TABLE_KNOWN_MAX` | `24` / `64` | Etabli pose reutilise ; etabli du bot garde jusqu a cette distance. |
+| `ARBITRATION_MS` | `60000` | Attente d une reponse a « pause ou remplacement ? » (mode `question`). |
+| `OBJECTIVES_FILE` / `OBJECTIVES_EVENTS_FILE` | sous `/data` | Persistance des objectifs du controleur. |
+| `LOG_CHAT_MAX_LEN` / `LOG_CRASH_DRAIN_MS` | `200` / `250` | Voir « Journalisation ». |
+| `BOT_USERNAME` / `MC_VERSION` | `TestBot` / `26.1` | Pseudo du bot, protocole minecraft-data (piege 1). |
 
 Les deux dernieres sont les outils de diagnostic a allumer en premier quand une
 mission n'avance pas.
@@ -2297,7 +2376,7 @@ constantes du module, surchargeables mais non listees dans le tableau.
 | `bot/logger.js` | journalisation ERREUR/WARNING vers `/data/bot.log` **et** le chat ; capture `console.error`/`console.warn` et handlers globaux |
 | `bot/memory.js` | memoire du planificateur : portees `travail` / `long_terme`, budget de jetons, refus de depassement |
 | `bot/jev.js` | l'ancien pilote (questions typees TypeSafe) ; repli quand `PLANNER_BASE_URL` est vide |
-| `bot/mission.js` | boucle de mission, file d'etapes, garde-fou d'arret, detecteur de blocage, les 23 actions |
+| `bot/mission.js` | boucle de mission, file d'etapes, garde-fou d'arret, detecteur de blocage, les 24 actions (dont `donner`) |
 | `bot/craft.js` | recettes, etabli, verification d'outil avant de casser |
 | `bot/build.js` | geometrie de la maison et pose des blocs ; ne parle a aucun modele |
 | `bot/public/index.html` | interface web : pilotage, mission, audit des commandes |

@@ -34,7 +34,8 @@ jobs:
     # (clients docker et docker compose). Ports publies injoignables depuis le
     # conteneur du runner (localhost = le runner) : CI_ENDPOINT_MODE=ip, IP des conteneurs du projet.
     runs-on: [self-hosted, linux, x64, minipc, podman]
-    timeout-minutes: 30
+    # Scenarios composites jusqu a 45 min, lances en premier (chemin critique).
+    timeout-minutes: 75
     defaults:
       run:
         shell: bash

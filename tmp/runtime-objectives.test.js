@@ -1038,7 +1038,9 @@ test('S5 resume explicite leve le verrou sans descripteur, attente honnete', () 
   // Laisse un etat d'attente honnete documente pour la suite du fichier.
 })
 
-test('S5 panne persist : verrou maintenu, executor stoppe (fail-closed)', () => {
+test('S5 panne persist : verrou maintenu, executor stoppe (fail-closed)', (t) => {
+  // chmod 0555 ne bloque pas root : la panne d ecriture ne se simule pas.
+  if (process.getuid?.() === 0) return t.skip('root ignore chmod')
   const ctrl = realIndex.getController()
   const ex = realIndex.getExecutor()
   ctrl.proposeObjective({ auteur: 'S5b', texte: 'truc panne persist' })

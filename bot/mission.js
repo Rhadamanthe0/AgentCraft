@@ -440,11 +440,15 @@ function marcheDevant (bot) {
 // depuis un pilier de 4, chute de 4). Rend la hauteur de chute, ou null si le
 // sol devant est a deux blocs au plus (marche, descente d un ou deux blocs).
 const CHUTE_MAX = 2
-function videDevant (bot) {
+// `dir` : direction horizontale {x, z} du mouvement (defaut : le cap du bot).
+function videDevant (bot, dir = null) {
   try {
     if (!bot?.entity || typeof bot.blockAt !== 'function' || !bot.entity.onGround) return null
     const p = bot.entity.position
-    const devant = p.offset(-Math.sin(bot.entity.yaw) * 0.8, 0, -Math.cos(bot.entity.yaw) * 0.8)
+    const n = dir ? Math.hypot(dir.x, dir.z) : 0
+    const devant = dir && n > 1e-6
+      ? p.offset(dir.x / n * 0.8, 0, dir.z / n * 0.8)
+      : p.offset(-Math.sin(bot.entity.yaw) * 0.8, 0, -Math.cos(bot.entity.yaw) * 0.8)
     const pieds = bot.blockAt(devant.floored())
     if (!pieds || estSolide(pieds)) return null
     for (let d = 1; d <= CHUTE_MAX + 1; d += 1) {
@@ -1828,6 +1832,18 @@ function createMissionRunner (host, injected = {}) {
         a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))
   }
 
+  // Hauteurs des objets proches stables sur deux releves (150 ms), 2 s max.
+  async function waitItemsSettled (maxMs = 2000) {
+    const fin = Date.now() + maxMs
+    let avant = null
+    while (Date.now() < fin) {
+      const releve = new Map(nearbyItems().map(e => [e.id, e.position.y]))
+      if (avant && [...releve].every(([id, y]) => avant.has(id) && Math.abs(avant.get(id) - y) < 0.05)) return
+      avant = releve
+      await sleep(150)
+    }
+  }
+
   // L inventaire est la verite terrain : on compte ce qui y est entre depuis le
   // debut de la mission plutot que de faire confiance aux evenements de ramassage.
   function countResourceItems () {
@@ -3119,6 +3135,11 @@ function createMissionRunner (host, injected = {}) {
       const budget = Number.isFinite(Number(params.quantite))
         ? Math.max(PICKUP_MIN, Math.min(PICKUP_MAX, Math.round(Number(params.quantite))))
         : scaled(scale, PICKUP_MIN, PICKUP_MAX)
+      // Objets encore en chute (buche coupee depuis un pilier) : attendre
+      // qu ils se posent, sinon leur hauteur trompe la descente d echafaudage
+      // (trees/tall 5f0545a : buches tombees de +5, ramasser 0/1 deux fois,
+      // bot reste perche).
+      await waitItemsSettled()
       const items = nearbyItems()
       if (items.length === 0) return { resultat: 'aucun objet au sol a proximite', echec: true }
 
@@ -3295,7 +3316,12 @@ function createMissionRunner (host, injected = {}) {
           }
         }
       }
-      if (mission.fabricationCible && !dansLePlan && !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
+      // Une etape reprise du plan (reorientation) est utile par definition :
+      // `dansLePlan` avait ete calcule sur l objet demande. Vu sur
+      // craft/furnace (8d6a7b8) : batons redemandes, pioche en bois du plan
+      // substituee puis refusee « pas utile pour furnace ».
+      if (mission.fabricationCible && !dansLePlan && !reorientation &&
+        !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
         return {
           resultat: `${target} n est pas utile pour ${mission.fabricationCible} : fabrique ${mission.fabricationCible} ` +
             'ou ses ingredients (planches, batons, etabli), rien d autre',
@@ -3725,6 +3751,22 @@ function createMissionRunner (host, injected = {}) {
             echec: true
           }
         }
+        // Symetrique : plus haut que le sommet du tronc vise, le bot monte dans
+        // la couronne (feuilles cassees au-dessus de la tete) sans rien gagner.
+        // Vu sur trees/pillar (05a529) : derniere buche a +4, piler(5), une
+        // feuille cassee, « saut trop bas » au niveau 5. La valeur n est pas
+        // changee : refus qui dit l intervalle utile.
+        if (haute && mission?.kind === 'recolte' && !params.interne) {
+          let sommet = haute.position
+          while (/_(log|stem)$/.test(bot.blockAt(sommet.offset(0, 1, 0))?.name ?? '')) sommet = sommet.offset(0, 1, 0)
+          const maximum = sommet.y - Math.floor(bot.entity.position.y) - 1
+          if (maximum >= Math.max(1, minimum) && hauteur > maximum) {
+            return {
+              resultat: `hauteur ${hauteur} trop haute : sommet du tronc a +${maximum + 1}, piler entre ${Math.max(1, minimum)} et ${maximum}`,
+              echec: true
+            }
+          }
+        }
       }
 
       let available = scaffoldingStock(bot)
@@ -3805,6 +3847,10 @@ function createMissionRunner (host, injected = {}) {
           failure = 'plus de blocs d echafaudage en inventaire'
           break
         }
+        // Terre posee pres de l herbe : grass_block des le tick suivant (vu sur
+        // join/shaft 5f0545a, « bloc non pose au niveau 1 (case : grass_block) »).
+        const poseConforme = nom => nom === stock.nom ||
+          (/dirt$/.test(stock.nom) && (nom === 'grass_block' || nom === 'dirt'))
 
         const ancre = live.entity.position.floored()
         const appui = live.blockAt(ancre.offset(0, -1, 0))
@@ -3895,7 +3941,7 @@ function createMissionRunner (host, injected = {}) {
             await sleep(300)
             // La case a pu se remplir entre-temps : verifier avant de resauter.
             const recheck = live.blockAt(ancre)
-            if (recheck?.name === stock.nom) {
+            if (poseConforme(recheck?.name)) {
               poseOk = true
               failure = null
             }
@@ -3918,7 +3964,7 @@ function createMissionRunner (host, injected = {}) {
         // Le serveur a le dernier mot : si la case est toujours vide, compter
         // une reussite masquerait le refus (meme regle que `casser`).
         const pose = live.blockAt(ancre)
-        if (pose?.name !== stock.nom) {
+        if (!poseConforme(pose?.name)) {
           failure = `bloc non pose au niveau ${poses + 1} (case : ${pose?.name ?? 'inconnue'})`
           break
         }
@@ -4067,6 +4113,7 @@ function createMissionRunner (host, injected = {}) {
           const result = await withTimeout(
             build.placeOne(bot, entry.position, material, {
               accept: mission.buildMatch,
+              sol: mission.plan?.origin?.y ?? null,
               move: async stand => (await host.navigateToPosition(stand, {
                 signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.35, timeoutMs: 5000
               }))?.reached === true
@@ -4132,7 +4179,11 @@ function createMissionRunner (host, injected = {}) {
       }
 
       try {
-        await build.placeDoor(host.getBot(), mission.plan, item)
+        await build.placeDoor(host.getBot(), mission.plan, item, {
+          move: async stand => (await host.navigateToPosition(stand, {
+            signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.6, timeoutMs: 15000, distanceBudget: 48
+          }))?.reached === true
+        })
       } catch (err) {
         return { resultat: `porte impossible : ${err.message}`, echec: true }
       }
@@ -4283,10 +4334,28 @@ function createMissionRunner (host, injected = {}) {
       // Un objectif de pathfinder en cours se battrait avec les touches tenues.
       host.stopPathfinding()
 
+      // Meme garde que `avancer` sans cible, a chaque tick, dans le sens du
+      // mouvement reel : vu sur composite/cabin-from-scratch (f1f762d),
+      // appuyer(forward, 1,5 s) sur le toit de la cabane, 10,7 blocs, chute
+      // de 4, degats.
+      const directions = touches.filter(t => ['forward', 'back', 'left', 'right'].includes(t))
+      let videVu = null
+      const surveilleBord = () => {
+        if (videVu !== null || directions.length === 0) return
+        const v = bot.entity?.velocity
+        const dir = v && Math.hypot(v.x, v.z) > 0.02 ? { x: v.x, z: v.z } : null
+        const chute = dir || directions.includes('forward') ? videDevant(bot, dir) : null
+        if (chute === null) return
+        videVu = chute
+        try { bot.clearControlStates() } catch (_) {}
+      }
+      if (typeof bot.on === 'function') bot.on('physicsTick', surveilleBord)
       try {
         for (const touche of touches) bot.setControlState(touche, true)
-        await sleep(Math.round(duree * 1000))
+        const fin = Date.now() + Math.round(duree * 1000)
+        while (Date.now() < fin && videVu === null) await sleep(Math.min(50, Math.max(0, fin - Date.now())))
       } finally {
+        if (typeof bot.removeListener === 'function') bot.removeListener('physicsTick', surveilleBord)
         for (const touche of touches) {
           try { bot.setControlState(touche, false) } catch (_) {}
         }
@@ -4302,7 +4371,8 @@ function createMissionRunner (host, injected = {}) {
 
       return {
         resultat: `${touches.join('+')} tenu ${duree.toFixed(1)} s, deplacement de ${moved.toFixed(2)} bloc` +
-          (bloque ? ' (immobile : probablement encastre)' : ''),
+          (bloque ? ' (immobile : probablement encastre)' : '') +
+          (videVu !== null ? `, arret au bord d une chute de ${videVu} blocs` : ''),
         echec: bloque
       }
     },
@@ -4742,7 +4812,9 @@ function createMissionRunner (host, injected = {}) {
       boussoleIdx: mission.boussoleIdx
     }
     try {
-      return buildState()
+      const snap = buildState()
+      if (mission.enCours?.length) snap.etapes_en_cours = mission.enCours
+      return snap
     } finally {
       mission.lastBlocked = saved.lastBlocked
       mission.refusalNote = saved.refusalNote
@@ -4897,7 +4969,13 @@ function createMissionRunner (host, injected = {}) {
 
     // La file descend a 1 : on lance l appel suivant pendant que cette etape
     // tourne, sans l attendre. Le run() de la boucle recouvre la latence.
-    if (mission.queue.length === 1) startPrefetch()
+    // L appel anticipe voit les etapes pas encore faites (en cours + file) :
+    // sans elles, le modele les replanifiait (choisir_terrain deux fois, 55
+    // refus « chantier deja commence » sur 5 bancs ; avancer/casser en double).
+    if (mission.queue.length === 1) {
+      mission.enCours = [step, ...mission.queue].map(e => ({ action: e.action, ...(e.choices ?? {}) }))
+      startPrefetch()
+    }
 
     return {
       finished: false,
