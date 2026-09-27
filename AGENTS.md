@@ -525,6 +525,10 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   consommes (craft/torches 4ee01ef : etabli « -8 ingredients sans produit »,
   plus de bois). `craft.recoverStranded` ferme la fenetre 0 (le serveur rend
   grille et curseur) avant de conclure a une consommation incertaine.
+- Etabli pose loin (autre bout de l arene) : `craft.make(..., { move })` le
+  rejoint par le navigateur partage (20 s, 48 blocs), gestes de
+  `build.moveTo` en repli seulement (craft/furnace 811c888 : 8 pierres en
+  poche, etabli a 29 blocs, « trajet trop long (12000 ms) », four jamais fait).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

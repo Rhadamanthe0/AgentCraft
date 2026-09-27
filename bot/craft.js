@@ -463,7 +463,7 @@ function rememberTable (bot, table) {
 // Un etabli a portee : celui qui traine (a TABLE_REUSE_RADIUS blocs au plus),
 // celui qu on pose, ou celui qu on fabrique d abord. Le bot est ensuite amene
 // a cote, faute de quoi le serveur refuse d ouvrir la fenetre de craft.
-async function ensureTable (bot) {
+async function ensureTable (bot, { move = null } = {}) {
   const blockId = bot.registry.blocksByName.crafting_table?.id
   let table = placedTable(bot)
 
@@ -488,7 +488,16 @@ async function ensureTable (bot) {
   // La fenetre de craft ne s ouvre que si le bloc est a portee du serveur.
   if (bot.entity.position.distanceTo(table.position) > 3.5) {
     const vantage = build.findVantage(bot, table.position)
-    if (vantage) await build.moveTo(bot, vantage.stand)
+    // Trajet par le navigateur de l appelant d abord (A*, obstacles) : les
+    // gestes de build.moveTo expiraient a 12 s sur un etabli a ~29 blocs
+    // (craft/furnace 811c888 : 8 pierres en poche, four jamais fabrique).
+    let reached = false
+    if (vantage && move) {
+      try { reached = await move(vantage.stand) } catch (_) { reached = false }
+    }
+    if (vantage && !reached && bot.entity.position.distanceTo(table.position) > 4.5) {
+      await build.moveTo(bot, vantage.stand)
+    }
     if (bot.entity.position.distanceTo(table.position) > 4.5) {
       throw new Error(`etabli pose a ${bot.entity.position.distanceTo(table.position).toFixed(1)} blocs, pas rejoint`)
     }
@@ -528,7 +537,7 @@ async function recoverStranded (bot) {
 // Échec sans production : throw avec .code ('unknown' | 'missing' |
 // 'partial-uncertain' | 'craft-failed'), .missing (ressources à obtenir, à
 // récolter, jamais inventées), .item, .wanted, .produced.
-async function make (bot, targetName, wanted = 1) {
+async function make (bot, targetName, wanted = 1, opts = {}) {
   const wantedUnits = Number.isFinite(Number(wanted))
     ? Math.max(1, Math.round(Number(wanted)))
     : 1
@@ -670,8 +679,8 @@ async function make (bot, targetName, wanted = 1) {
   const needsTable = bestPlan.operations.some(op => op.requiresTable)
   if (needsTable && bestItem !== 'crafting_table' && !findItem(bot, 'crafting_table')) {
     if (!placedTable(bot)) {
-      await make(bot, 'crafting_table', 1)
-      return make(bot, targetName, wanted)
+      await make(bot, 'crafting_table', 1, opts)
+      return make(bot, targetName, wanted, opts)
     }
   }
 
@@ -695,7 +704,7 @@ async function make (bot, targetName, wanted = 1) {
   for (const op of bestPlan.operations) {
     if (lastError || stoppedUncertain) break
     if (op.requiresTable && !table) {
-      table = await ensureTable(bot)
+      table = await ensureTable(bot, opts)
       usedTable = true
     }
     const tableForOp = op.requiresTable ? table : null
@@ -708,7 +717,7 @@ async function make (bot, targetName, wanted = 1) {
       let fresh = recipeFor(bot, op.target.name, tableForOp)
       if (!fresh && op.requiresTable) {
         try {
-          table = await ensureTable(bot)
+          table = await ensureTable(bot, opts)
           usedTable = true
           fresh = recipeFor(bot, op.target.name, table)
         } catch (err) {
@@ -779,7 +788,7 @@ async function make (bot, targetName, wanted = 1) {
         let retryTable = tableForOp ?? table ?? null
         if (op.requiresTable) {
           try {
-            table = await ensureTable(bot)
+            table = await ensureTable(bot, opts)
             usedTable = true
             retryTable = table
           } catch (_) { /* garde la table existante */ }

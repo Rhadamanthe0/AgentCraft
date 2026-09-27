@@ -3165,7 +3165,12 @@ function createMissionRunner (host, injected = {}) {
       }
 
       try {
-        const made = await craft.make(bot, target, wanted)
+        const made = await craft.make(bot, target, wanted, {
+          // Etabli pose loin (autre bout du chantier) : rejoint par le navigateur.
+          move: async stand => (await host.navigateToPosition(stand, {
+            signal: mission.navigationAbort.signal, __owner: stepToken, radius: 1, timeoutMs: 20000, distanceBudget: 48
+          }))?.reached === true
+        })
         // Succes vers la cible du brief : efface le manque signale.
         if (mission.fabricationCible && (target === mission.fabricationCible || made.item === mission.fabricationCible)) {
           mission.fabricationLastError = null
