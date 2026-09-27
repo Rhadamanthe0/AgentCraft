@@ -441,6 +441,10 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   chaque tick de physique, touches relachees dans le meme tick. La boucle de
   marche ne passe que toutes les 100 ms et le bot court souvent : il voyait le
   vide puis glissait par-dessus (terrain/plateau a45b981, chute de 5 blocs).
+- Cible mise de cote apres `no_path` (`injoignable`, 3 min) : ignoree tant
+  qu il reste une autre cible, jamais la derniere. terrain/plateau (a45b981,
+  9b5fe31) : buche du haut mise de cote depuis le pied de la falaise, puis
+  invisible une fois le bot monte (« rien » partout, errance).
 - Chat sans reponse du modele dans le delai (`interpretMessage`) : UN rejeu du
   meme modele ; sinon « Modèle trop lent, répète ? » (et non « Pas compris »).
   Vu sur c499481 (PR #22) : chat p95 19 s, deux ordres perdus (terrain/plateau,

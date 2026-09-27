@@ -1478,9 +1478,12 @@ function createMissionRunner (host, injected = {}) {
       return { x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, z0: Math.min(...zs) - 1, z1: Math.max(...zs) + 1, y: Math.min(...ys) }
     })() : null
 
+    // Cible mise de cote (sans chemin) : ignoree tant qu il en reste une
+    // autre, jamais quand c est la derniere. Vu sur terrain/plateau (a45b981,
+    // 9b5fe31) : buche du haut mise de cote depuis le pied de la falaise, puis
+    // invisible une fois le bot monte (« rien » partout, errance, chute).
     const candidates = []
-    for (const position of positions) {
-      if (injoignable(position)) continue
+    const collect = list => { for (const position of list) {
       if (emprise && position.x >= emprise.x0 && position.x <= emprise.x1 &&
         position.z >= emprise.z0 && position.z <= emprise.z1) continue
       if (!anyHeight && position.y < feetY - MAX_DIG_DEPTH) continue
@@ -1515,7 +1518,10 @@ function createMissionRunner (host, injected = {}) {
         // Distance 3D centre a centre : celle que le serveur applique a la casse.
         reach: here.distanceTo(position.offset(0.5, 0.5, 0.5))
       })
-    }
+    } }
+    collect(positions.filter(p => !injoignable(p)))
+    if (candidates.length === 0) collect(positions.filter(p => injoignable(p)))
+
 
     if (candidates.length === 0) return null
 
