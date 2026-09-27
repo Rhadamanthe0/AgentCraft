@@ -23,6 +23,7 @@ const build = require('./build')
 const craft = require('./craft')
 const acquirePlan = require('./acquire-plan')
 const delivery = require('./delivery')
+const { DELIVERY } = require('./conversation')
 const Vec3 = require('vec3').Vec3
 const planner = require('./planner')
 const memory = require('./memory')
@@ -99,8 +100,17 @@ function setFeatures (changes = {}) {
   for (const [key, value] of Object.entries(changes ?? {})) {
     if (key !== 'reset' && /^[a-z_]{1,24}$/.test(key) && typeof value === 'boolean') featureOverrides[key] = value
   }
+  syncActionFeatures()
   return { ...featureOverrides }
 }
+// Actions a interrupteur (`spec.feature` dans skills.js) : catalogue et
+// validation du planificateur suivent featureOn.
+function syncActionFeatures () {
+  for (const spec of Object.values(skills.ACTIONS)) {
+    if (spec.feature) skills.setFeatureEnabled(spec.feature, featureOn(spec.feature))
+  }
+}
+syncActionFeatures()
 const SCREENSHOT_EVERY = Math.max(1, Number(process.env.MISSION_SCREENSHOT_EVERY || 5))
 const SCREENSHOT_RAYON = Math.max(1, Number(process.env.MISSION_SCREENSHOT_RAYON || 16))
 // Portee de casse cote serveur : ~4.5 blocs. On garde une marge.
@@ -287,19 +297,18 @@ function resolveFabricationCible (bot, raw) {
   return null
 }
 
-// Detecteur de blocage : quand le bot n avance plus, `demander_aide` devient la
-// seule action utile. Un seuil en etapes (et non en secondes) parce que tout ce
+// Detecteur de blocage : quand le bot n avance plus, il le dit (chat,
+// journal `[blocage]`). Un seuil en etapes (et non en secondes) parce que tout ce
 // qui compte ici est mesure par avancement : blocs casses, objets recoltes,
 // blocs poses d un chantier.
 const NO_PROGRESS_STEPS = Number(process.env.MISSION_NO_PROGRESS_STEPS || 8)
-// Reflexion de fond : au plus une revue par minute apres la fin de la
-// precedente (demande du proprietaire), ou tout de suite sur blocage.
-const REFLECTION_EVERY_MS = Number(process.env.MISSION_REFLECTION_EVERY_MS || 60000)
 
 // Bornes des actions parametrees. L ampleur renvoyee par Jev (0 a 1) est
 // interpolee entre ces valeurs.
 const HARVEST_MIN = 2
 const HARVEST_MAX = Number(process.env.MISSION_HARVEST_BURST_MAX || 16)
+// Duree max d une action `recolter` (chaine avancer/casser/ramasser).
+const RECOLTER_MAX_MS = Number(process.env.MISSION_RECOLTER_MAX_MS || 60000)
 const HARVEST_BURST_MS = Number(process.env.MISSION_HARVEST_BURST_MS || 15000)
 const PICKUP_MIN = 1
 const PICKUP_MAX = 6
@@ -681,6 +690,13 @@ function createMissionRunner (host, injected = {}) {
     } catch (_) {
       return null
     }
+  }
+  // Le joueur a-t-il demande qu on lui remette quelque chose ? Objectif et
+  // precisions DU DEMANDEUR seulement (jamais le plan du modele).
+  function livraisonDemandee (m) {
+    const textes = [m?.objective ?? '', ...(m?.instructions ?? [])
+      .filter(entry => entry?.de === m?.requester).map(entry => entry.message ?? '')]
+    return textes.some(texte => DELIVERY.test(texte))
   }
   function deliveryProvenFor (m) {
     let n = 0
@@ -1228,8 +1244,11 @@ function createMissionRunner (host, injected = {}) {
         compiled.errors = ['porte demandee : donne "porte": [x, z] sur le bord']
       }
       if (compiled.ok) {
-        console.log(`[mission] plan libre ${compiled.width}x${compiled.depth}x${compiled.height}, ${compiled.cells.length} blocs`)
-        mission.shape = { compiled }
+        const retires = compiled.retires?.length
+          ? ` ; ${compiled.retires.length} bloc(s) hors de portee retire(s) (ex : [${compiled.retires[0].join(',')}], forme ouverte a cet endroit)`
+          : ''
+        console.log(`[mission] plan libre ${compiled.width}x${compiled.depth}x${compiled.height}, ${compiled.cells.length} blocs${retires}`)
+        mission.shape = { compiled, note: retires ? retires.slice(3) : undefined }
         return mission.shape
       }
       erreurs = compiled.errors
@@ -2727,7 +2746,7 @@ function createMissionRunner (host, injected = {}) {
     mission.stuckWhy = stuck.raison
 
     // Ce que le modele voit du blocage : l impasse mesuree et sa cause. Le code
-    // l annonce au joueur et relance la reflexion (plan_de_mission).
+    // l annonce au joueur et le journalise (`[blocage]`).
     state.blocage = { detecte: stuck.detecte, raison: stuck.raison }
 
     // Le joueur qui a donne la consigne. Sert de deux facons au planificateur :
@@ -2990,6 +3009,43 @@ function createMissionRunner (host, injected = {}) {
     return { ok: false, texte: `operation inconnue : ${op || '?'}` }
   }
 
+  // `avancer` sans cible bloque (mur, marche de 2, arbre) : au lieu de
+  // renvoyer le modele a `appuyer` (souvent immobile, encastre : banc de la
+  // PR #38), le navigateur partage cherche un detour vers le point debout le
+  // plus lointain du cap (denivele de 2 au plus). Rend la distance gagnee.
+  function pointDansLeCap (yaw, distance) {
+    const bot = host.getBot()
+    if (!bot?.entity || typeof bot.blockAt !== 'function') return null
+    const p = bot.entity.position
+    const dx = -Math.sin(yaw)
+    const dz = -Math.cos(yaw)
+    for (let k = Math.min(24, Math.round(distance)); k >= 3; k -= 1) {
+      const x = Math.floor(p.x + dx * k)
+      const z = Math.floor(p.z + dz * k)
+      for (const dy of [0, 1, -1, 2, -2]) {
+        const y = Math.floor(p.y) + dy
+        try {
+          if (build.standable(bot, x, y, z)) return new Vec3(x + 0.5, y, z + 0.5)
+        } catch (_) { return null }
+      }
+    }
+    return null
+  }
+  async function detourDansLeCap (yaw, restant) {
+    if (mission.cancelled || typeof host.navigateToPosition !== 'function' || restant < 1) return 0
+    const point = pointDansLeCap(yaw, restant)
+    if (!point) return 0
+    const avant = host.getBot()?.entity?.position?.clone?.()
+    const r = await host.navigateToPosition(point, {
+      signal: mission.navigationAbort.signal, __owner: stepToken,
+      radius: 1.5, timeoutMs: 15000, distanceBudget: Math.min(48, Math.ceil(restant * 2) + 4)
+    })
+    const apres = host.getBot()?.entity?.position
+    const gagne = avant && apres ? Math.hypot(apres.x - avant.x, apres.z - avant.z) : 0
+    console.log(`[mission] avancer : detour vers ${point.x.toFixed(1)} ${point.y} ${point.z.toFixed(1)} -> ${r.code}, ${gagne.toFixed(1)} bloc(s)`)
+    return r.reached || gagne >= 1 ? gagne : 0
+  }
+
   const ACTIONS = {
     // Il y avait ici `approcher`, qui deleguait au pathfinder (GoalNearXZ). Le
     // pathfinder est casse au-dela de quelques blocs sur cette version (arret a
@@ -3158,6 +3214,82 @@ function createMissionRunner (host, injected = {}) {
             (refusal ? `, arret : ${refusal}` : '') +
             (ramasses ? `, ${ramasses} objet(s) ramasse(s) aussitot` : '')
       }
+    },
+
+    // Chaine d une recolte en une action : rejoindre le bloc vise le plus
+    // proche (`avancer`), le casser (`casser`), ramasser ce qui tombe
+    // (`ramasser`), recommencer jusqu a la quantite. Memes gestes, memes
+    // garde-fous, mais sans un appel au modele entre chaque geste. Rend la
+    // main au premier echec de trajet ou de casse, avec son resultat : le
+    // modele decide alors (piler, fabriquer un outil, autre cible).
+    async recolter (scale, params = {}) {
+      const visee = Number.isFinite(Number(params.quantite))
+        ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
+        : scaled(scale, 1, 16)
+      if (!skills.RESOURCES[harvestResource()]?.items) {
+        return { resultat: 'aucune matiere a recolter pour cette mission', echec: true }
+      }
+      const debut = Date.now()
+      const avant = countResourceItems()
+      const gagne = () => Math.max(0, countResourceItems() - avant)
+      const etapes = []
+      let arret = null
+      let rienARamasser = 0
+      while (!mission.cancelled && gagne() < visee && Date.now() - debut < RECOLTER_MAX_MS) {
+        const bot = host.getBot()
+        if (!bot?.entity) break
+        const cible = findTargetBlock()
+        const aPortee = cible &&
+          bot.entity.position.distanceTo(cible.position.offset(0.5, 0.5, 0.5)) <= REACH
+        let r
+        if (aPortee) {
+          r = await ACTIONS.casser(null, { duree: 8 })
+          etapes.push('casser')
+        } else if (nearbyItems().length > 0 && rienARamasser < 2) {
+          // Rien a portee mais des objets au sol (buches tombees d un arbre
+          // fini) : les prendre avant de chercher un autre bloc.
+          r = await ACTIONS.ramasser(null, { quantite: 6 })
+          etapes.push('ramasser')
+          if (r.echec) { rienARamasser += 1; continue }
+        } else if (cible || findTargetBlock(undefined, { anyHeight: true }) || highTargetHint()) {
+          r = await ACTIONS.avancer(null, { distance: 24 })
+          etapes.push('avancer')
+        } else {
+          // Jamais de marche a l aveugle : `avancer` sans cible irait droit
+          // devant. Explorer reste une decision du modele.
+          r = { resultat: 'aucun bloc de la matiere visee en vue : explorer (regarder_autour, avancer) puis recolter', echec: true, code: 'aucune_cible' }
+        }
+        if (r.echec) { arret = r; break }
+        rienARamasser = 0
+        if (etapes[etapes.length - 1] === 'casser' && gagne() < visee) {
+          await waitItemsSettled()
+          if (nearbyItems().length > 0) {
+            const pris = await ACTIONS.ramasser(null, { quantite: 6 })
+            etapes.push('ramasser')
+            if (pris.echec) rienARamasser += 1
+          }
+        }
+      }
+      // Ce qui reste au sol a la fin (quantite atteinte en cours de casse).
+      if (!mission.cancelled && !arret && nearbyItems().length > 0 && harvestResource() === 'bois') {
+        await waitItemsSettled()
+        await ACTIONS.ramasser(null, { quantite: 6 })
+        etapes.push('ramasser')
+      }
+      const n = gagne()
+      const ecoule = Math.round((Date.now() - debut) / 100) / 10
+      const bilan = `${n}/${visee} objet(s) de la matiere en ${ecoule} s (${etapes.length} geste(s) : ${etapes.slice(-6).join(', ')})`
+      if (arret) {
+        return {
+          resultat: `${bilan} ; arret : ${arret.resultat}`,
+          echec: n === 0,
+          code: arret.code
+        }
+      }
+      if (n === 0) {
+        return { resultat: `${bilan} ; rien obtenu`, echec: true }
+      }
+      return { resultat: n >= visee ? bilan : `${bilan} ; delai de ${RECOLTER_MAX_MS / 1000} s atteint` }
     },
 
     // Fix 2 : `ramasser` marche VRAIMENT sur les objets, en gestes unitaires,
@@ -3437,6 +3569,13 @@ function createMissionRunner (host, injected = {}) {
         return { resultat: 'don impossible : destinataire non precise', echec: true, code: 'invalid_player' }
       }
       if (mission.cancelled) return { resultat: 'don interrompu (stop/pause)', echec: true, code: 'cancelled' }
+      // Don jamais demande : le plan (reflexion de fond d alors) ajoutait « livrer »
+      // de lui-meme, et la fabrication partait aux pieds du joueur
+      // (craft/from-tree et craft/torches 4b9eb74 : 0 en inventaire, echec).
+      // Seul un texte du joueur avec un verbe de don l autorise.
+      if (!livraisonDemandee(mission)) {
+        return { resultat: 'don refuse : le joueur n a rien demande a recevoir ; garder les objets en inventaire', echec: true, code: 'not_requested' }
+      }
       const ceiling = deliveryCeiling(mission)
       const key = deliveryLedgerKey(deliveryScope(mission), destinataire, objet)
       let ledger = deliveryLedgers.get(key)
@@ -3581,10 +3720,14 @@ function createMissionRunner (host, injected = {}) {
           if (!walk.blocked && walk.moved >= 0.5) continue
           if (parcouruLibre >= distance) break
           if (strafesLibres >= NAV_MAX_STRAFES) {
+            const detour = await detourDansLeCap(capYaw, restantLibre)
+            if (detour) {
+              return { resultat: `avance de ${(parcouruLibre + detour).toFixed(1)} bloc(s) sur ${distance} demande(s) (detour calcule autour de l obstacle)` }
+            }
             return {
               resultat: `bloque apres ${parcouruLibre.toFixed(1)} bloc(s) sur ${distance} demande(s) : ` +
-                'obstacle trop haut, contourne (appuyer left ou right + forward + jump) ' +
-                'puis re-pivote vers la cible.' + conseilPilier(),
+                'aucun chemin dans ce cap, meme par un detour calcule : changer de cap (pivoter) ' +
+                'ou viser une cible.' + conseilPilier(),
               echec: true
             }
           }
@@ -3596,11 +3739,15 @@ function createMissionRunner (host, injected = {}) {
           coteLibre = cote === 'left' ? 'right' : 'left'
           restantLibre = Math.max(0, distance - parcouruLibre)
         }
+        const detourFinal = parcouruLibre < 0.5 ? await detourDansLeCap(capYaw, restantLibre) : 0
+        if (detourFinal) {
+          return { resultat: `avance de ${(parcouruLibre + detourFinal).toFixed(1)} bloc(s) sur ${distance} demande(s) (detour calcule autour de l obstacle)` }
+        }
         if (parcouruLibre < 0.5) {
           return {
             resultat: `bloque apres ${parcouruLibre.toFixed(1)} bloc(s) sur ${distance} demande(s) : ` +
-              'obstacle trop haut, contourne (appuyer left ou right + forward + jump) ' +
-              'puis re-pivote vers la cible.' + conseilPilier(),
+              'aucun chemin dans ce cap, meme par un detour calcule : changer de cap (pivoter) ' +
+              'ou viser une cible.' + conseilPilier(),
             echec: true
           }
         }
@@ -4512,9 +4659,8 @@ function createMissionRunner (host, injected = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Blocages annonces et reflexion de fond (2026-09-27, demande du
-  // proprietaire : plus de demander_aide ; le bot dit son probleme, la
-  // reflexion met le plan a jour sans interrompre l action)
+  // Blocages annonces (2026-09-27, demande du proprietaire : plus de
+  // demander_aide ; le bot dit son probleme, analyse a chaque banc)
   // -------------------------------------------------------------------------
 
   // Le blocage se dit au joueur (chat court) et se journalise en une ligne
@@ -4537,63 +4683,6 @@ function createMissionRunner (host, injected = {}) {
     console.log(`[blocage] ${JSON.stringify(entree)}`)
     const cause = derniere?.echec ? ` (${derniere.action} : ${String(derniere.resultat ?? '').slice(0, 70)})` : ''
     announce(`Bloqué : ${raison}${cause}`)
-  }
-
-  // Ce que la reflexion lit : l etat du tour (besoins et prerequis calcules par
-  // le code), les echecs comptes par action, le temps, et sa chaine precedente.
-  function reflectionContext (raison) {
-    // Lecture sans effet : buildState consomme les notes a usage unique.
-    const etat = snapshotForPrefetch()
-    const echecs = {}
-    Object.assign(echecs, mission.echecsParAction ?? {})
-    return {
-      raison_de_la_revue: raison,
-      consigne: etat.consigne ?? mission.objective,
-      besoins: etat.besoins ?? null,
-      prerequis: etat.environnement?.prerequis ?? null,
-      inventaire: etat.inventaire ?? null,
-      progression: etat.progression ?? null,
-      chantier: etat.chantier ?? null,
-      blocage: etat.blocage ?? null,
-      echecs: { total: mission.echecs ?? 0, etapes: mission.steps, par_action: echecs },
-      dernieres_etapes: mission.history.slice(-6),
-      temps: {
-        ecoule_s: Math.round(activeDurationMs() / 1000),
-        restant_s: Math.max(0, Math.round((MAX_DURATION_MS - activeDurationMs()) / 1000))
-      },
-      chaine_precedente: mission.strategie?.chaine ?? null
-    }
-  }
-
-  // Au plus une reflexion en vol ; la suivante au plus tot REFLECTION_EVERY_MS
-  // apres la fin de la precedente, sauf sur blocage. Jamais en `geste`. Le
-  // resultat d une mission remplacee ou arretee est jete.
-  function startReflection (raison) {
-    if (!mission || mission.kind === 'geste' || !featureOn('strategie') || !planner.isEnabled()) return
-    if (mission.reflexionEnVol) return
-    const now = Date.now()
-    if (raison !== 'blocage' && mission.reflexionFinie && now - mission.reflexionFinie < REFLECTION_EVERY_MS) return
-    let contexte
-    try { contexte = reflectionContext(raison) } catch (err) {
-      console.error(`[reflexion] etat illisible : ${err.message}`)
-      return
-    }
-    const myMission = mission
-    const started = now
-    myMission.reflexionEnVol = true
-    planner.strategize(contexte).then(result => {
-      if (mission !== myMission || myMission.cancelled || !result) return
-      myMission.strategie = { ...result, maj_s: Math.round(activeDurationMs() / 1000), raison }
-      myMission.reflexions = (myMission.reflexions ?? 0) + 1
-      const enCours = result.chaine.find(e => e.statut === 'en_cours')
-      console.log(`[reflexion] ${raison} en ${Date.now() - started} ms : ${result.chaine.map(e => `${e.statut === 'fait' ? '[x]' : e.statut === 'en_cours' ? '[>]' : '[ ]'} ${e.etape}`).join(' ; ')}` +
-        (result.diagnostic ? ` | diagnostic : ${result.diagnostic}` : '') + (enCours ? '' : ' | aucune etape en cours'))
-    }).catch(err => {
-      if (mission === myMission && !myMission.cancelled) console.error(`[reflexion] ${raison} : ${err.message}`)
-    }).finally(() => {
-      myMission.reflexionEnVol = false
-      myMission.reflexionFinie = Date.now()
-    })
   }
 
   // -------------------------------------------------------------------------
@@ -5117,12 +5206,9 @@ function createMissionRunner (host, injected = {}) {
       if (state.blocage?.detecte && !mission.stuckAnnounced) {
         mission.stuckAnnounced = true
         signalBlocage(state.blocage.raison)
-        startReflection('blocage')
       } else if (!state.blocage?.detecte) {
         mission.stuckAnnounced = false
       }
-      startReflection('periodique')
-      if (mission.strategie) state.plan_de_mission = mission.strategie
 
       try {
         decision = await decide(state)
@@ -6273,12 +6359,9 @@ function createMissionRunner (host, injected = {}) {
       },
       blocage: { detecte: mission.stuck, raison: mission.stuckWhy },
       // Indicateurs suivis d un banc a l autre (demande du proprietaire) : part
-      // d actions en echec, blocages annonces (cause, derniers resultats), et
-      // la chaine critique tenue par la reflexion de fond.
+      // d actions en echec et blocages annonces (cause, derniers resultats).
       etapes_en_echec: mission.echecs ?? 0,
-      blocages: mission.blocages ?? [],
-      reflexions: mission.reflexions ?? 0,
-      plan_de_mission: mission.strategie ?? null
+      blocages: mission.blocages ?? []
     }
 
     if (mission.kind === 'construction') {

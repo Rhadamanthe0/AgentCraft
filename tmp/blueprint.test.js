@@ -16,12 +16,24 @@ function assertBuildable (cells) {
   }
 }
 
-test('tour creuse fermee 3x3x6 : centre du toit hors de portee, refusee', () => {
+test('tour creuse fermee 3x3x6 : centre du toit hors de portee, retire par le code', () => {
   // Vu en jeu (build/tower 559d03e, a9f44ad) : 49/50, le centre du toit a
-  // +5 n est a portee d aucun poste que le bot rejoint a pied.
+  // +5 n est a portee d aucun poste que le bot rejoint a pied. Puis (4b9eb74)
+  // le modele redessinait trois fois la meme tour : le code retire lui-meme
+  // ce seul bloc (tour ouverte en haut) au lieu de refuser le plan.
   const r = build.compileBlueprint({ largeur: 3, profondeur: 3, hauteur: 6, elements: [{ type: 'creux', de: [0, 0, 0], a: [2, 5, 2] }] })
+  assert.equal(r.ok, true)
+  assert.deepEqual(r.retires, [[1, 5, 1]])
+  assert.equal(r.cells.length, 9 * 2 + 8 * 4 - 1)
+  assertBuildable(r.cells)
+})
+
+test('trop de blocs hors de portee : plan refuse avec la raison', () => {
+  // Boite fermee 7x7x7 : tout le toit (49 blocs) est hors de portee, bien
+  // plus que 10 % du volume ; le modele doit redessiner.
+  const r = build.compileBlueprint({ largeur: 7, profondeur: 7, hauteur: 7, elements: [{ type: 'creux', de: [0, 0, 0], a: [6, 6, 6] }] })
   assert.equal(r.ok, false)
-  assert.match(r.errors[0], /impossibles a poser.*\[1,5,1\]/)
+  assert.match(r.errors[0], /impossibles a poser/)
 })
 
 test('tour creuse ouverte en haut : enveloppe seule, posable dans l ordre', () => {

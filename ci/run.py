@@ -70,11 +70,11 @@ def kpi_summary(tests):
         k = t.get('kpi')
         if not k or t.get('informative'):
             continue
-        f = fam.setdefault(t['test'].split('/')[0], {'etapes': 0, 'echecs': 0, 'blocages': 0, 'reflexions': 0, 'niveaux': 0})
+        f = fam.setdefault(t['test'].split('/')[0], {'etapes': 0, 'echecs': 0, 'blocages': 0, 'niveaux': 0})
         f['niveaux'] += 1
-        for key in ('etapes', 'echecs', 'blocages', 'reflexions'):
+        for key in ('etapes', 'echecs', 'blocages'):
             f[key] += k.get(key) or 0
-    total = {key: sum(f[key] for f in fam.values()) for key in ('etapes', 'echecs', 'blocages', 'reflexions', 'niveaux')}
+    total = {key: sum(f[key] for f in fam.values()) for key in ('etapes', 'echecs', 'blocages', 'niveaux')}
     for f in list(fam.values()) + [total]:
         f['tauxEchec'] = round(f['echecs'] / f['etapes'], 3) if f['etapes'] else None
     return {'total': total, 'familles': fam}
@@ -86,7 +86,7 @@ def kpi_lines(report):
     if not t or not t.get('etapes'):
         return []
     lines = ['', f"KPI (niveaux bloquants) : {t['echecs']}/{t['etapes']} actions en echec "
-                 f"({round(100 * (t['tauxEchec'] or 0), 1)} %), {t['blocages']} blocage(s), {t['reflexions']} reflexion(s)"]
+                 f"({round(100 * (t['tauxEchec'] or 0), 1)} %), {t['blocages']} blocage(s)"]
     for name, f in sorted(k['familles'].items()):
         lines.append(f"- {name} : {round(100 * (f['tauxEchec'] or 0), 1)} % d echecs ({f['echecs']}/{f['etapes']}), "
                      f"{f['blocages']} blocage(s)")
@@ -129,7 +129,7 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
         'mission-delivery.test.js', 'piler-materials.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
         'delivery.test.js', 'planner-profile.test.js', 'llm.test.js', 'executor.test.js', 'objective-controller.test.js',
-        'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js']
+        'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js']
 
 
 

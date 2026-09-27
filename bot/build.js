@@ -412,31 +412,49 @@ function compileBlueprint (bp) {
   if (errors.length) return { ok: false, errors }
 
   // Relie au sol : parcours en largeur depuis la couche y 0 (posee sur le sol).
-  const dist = new Map()
-  const queue = []
-  for (const c of cells.values()) if (c.y === 0) { dist.set(key(c.x, c.y, c.z), 0); queue.push(c) }
-  for (let i = 0; i < queue.length; i++) {
-    const c = queue[i]
-    const d = dist.get(key(c.x, c.y, c.z))
-    for (const [ox, oy, oz] of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
-      const k = key(c.x + ox, c.y + oy, c.z + oz)
-      const n = cells.get(k)
-      if (n && !dist.has(k)) { dist.set(k, d + 1); queue.push(n) }
+  const connexite = () => {
+    const d0 = new Map()
+    const queue = []
+    for (const c of cells.values()) if (c.y === 0) { d0.set(key(c.x, c.y, c.z), 0); queue.push(c) }
+    for (let i = 0; i < queue.length; i++) {
+      const c = queue[i]
+      const d = d0.get(key(c.x, c.y, c.z))
+      for (const [ox, oy, oz] of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
+        const k = key(c.x + ox, c.y + oy, c.z + oz)
+        const n = cells.get(k)
+        if (n && !d0.has(k)) { d0.set(k, d + 1); queue.push(n) }
+      }
     }
+    return d0
   }
+  let dist = connexite()
   const floating = [...cells.values()].filter(c => !dist.has(key(c.x, c.y, c.z)))
   if (floating.length) {
     const ex = floating[0]
     return { ok: false, errors: [`${floating.length} bloc(s) flottant(s), relies au sol par aucun bloc (ex : [${ex.x},${ex.y},${ex.z}]) : ajoute un appui (pilier, mur) ou retire-les`] }
   }
   const horsPortee = unreachableCells(cells, width, depth, key)
-  if (horsPortee.length) {
+  // Quelques blocs hors de portee (centre du toit d une tour fermee) : le
+  // code les retire au lieu de refuser tout le plan. Le modele redessinait
+  // trois fois la meme tour fermee malgre le refus, puis la boite de repli
+  // perdait la hauteur demandee (build/tower 4b9eb74). Au-dela de 10 % du
+  // volume, ou si le retrait laisse des blocs flottants, refus comme avant.
+  let retires = []
+  if (horsPortee.length && horsPortee.length <= Math.max(1, Math.floor(cells.size * 0.1))) {
+    for (const c of horsPortee) cells.delete(key(c.x, c.y, c.z))
+    dist = connexite()
+    if ([...cells.values()].every(c => dist.has(key(c.x, c.y, c.z)))) retires = horsPortee
+    else for (const c of horsPortee) cells.set(key(c.x, c.y, c.z), c)
+  }
+  if (horsPortee.length && !retires.length) {
+    dist = connexite()
     const ex = horsPortee[0]
     return { ok: false, errors: [`${horsPortee.length} bloc(s) impossibles a poser (ex : [${ex.x},${ex.y},${ex.z}]) : aucun endroit ou le bot peut se tenir et qu il rejoint a pied n est a portee (${PLACE_REACH} blocs). Plus bas, plus etroit, ouvert en haut, ou une porte pour poser depuis l interieur`] }
   }
   const ordered = [...cells.values()].sort((a, b) =>
     dist.get(key(a.x, a.y, a.z)) - dist.get(key(b.x, b.y, b.z)) || a.y - b.y)
-  return { ok: true, errors: [], width, depth, height, cells: ordered, door }
+  return { ok: true, errors: [], width, depth, height, cells: ordered, door,
+    retires: retires.map(c => [c.x, c.y, c.z]) }
 }
 
 function planFromBlueprint (compiled, origin) {
@@ -958,6 +976,7 @@ async function placeDoor (bot, plan, itemName, { move = null } = {}) {
 }
 
 module.exports = {
+  standable,
   parseDimensions,
   parseQuota,
   planHouse,
