@@ -1349,7 +1349,8 @@ async function resolveIntent (username, raw, opts) {
   } catch (err) {
     if (err.name === 'AbortError' || /annule|abort/i.test(err.message)) return { ignored: true }
     console.error(`[chat] ${err.message}`)
-    say('Pas compris, réessaie ?')
+    // Modele muet (delai) : le dire tel quel, ce n est pas une incomprehension.
+    say(/pas de reponse/i.test(err.message) ? 'Modèle trop lent, répète ?' : 'Pas compris, réessaie ?')
     return { error: err.message }
   }
 }

@@ -1437,7 +1437,18 @@ function parseInterpretMode (raw) {
 }
 
 async function interpretMessage (message, context, opts = {}) {
-  const response = await call(CONVERSATION_PROMPT, JSON.stringify({ message, ...context }), null, { ...opts, task: 'interpretMessage', state: context })
+  const ask = () => call(CONVERSATION_PROMPT, JSON.stringify({ message, ...context }), null, { ...opts, task: 'interpretMessage', state: context })
+  let response
+  try {
+    response = await ask()
+  } catch (err) {
+    // Pas de reponse dans le delai : UN rejeu du meme modele (panne passagere
+    // du fournisseur ; vu en CI, 12:06 sur c499481 : deux ordres perdus, chat
+    // p95 19 s). Jamais apres une annulation, jamais un autre modele.
+    if (opts.signal?.aborted || !/pas de reponse/i.test(String(err?.message))) throw err
+    console.log(`[planner] chat sans reponse (${err.message}), nouvel essai`)
+    response = await ask()
+  }
   const value = parseJson(response.content)
   const relation = value?.relation
   if (!['new', 'amend', 'context', 'question', 'stop'].includes(relation)) throw new Error('relation de chat invalide')
