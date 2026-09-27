@@ -83,6 +83,12 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   loin ») ; consigne de 6 a 10 s de jeu par plan (au lieu de 1-2 s, latence
   d un appel 4-6 s) ; 16 tests unitaires rapides ajoutes a `UNIT` (ci/run.py,
   314 tests en 14 s).
+  a9f44ad : 73/84 ; `mission-context.test.js` exige `tmp/mission-context-
+  fixture.js` (copie dans ci/Dockerfile). build/tower encore 49/50 : plan libre
+  3x3x6 ferme, centre du toit hors de portee de tout poste rejoignable =>
+  `compileBlueprint` refuse les blocs qu aucun poste debout, rejoint a pied
+  depuis l exterieur par pas d un bloc, n atteint (`unreachableCells`) ; le
+  modele redessine. KPI 17 % (10 % au banc precedent) : a suivre.
 
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 

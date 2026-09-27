@@ -305,6 +305,44 @@ function planHouse ({ origin, width, depth, height }) {
 const BLUEPRINT_MAX_SIZE = 12
 const BLUEPRINT_MAX_BLOCKS = 300
 
+// Blocs d un plan libre qu aucun poste ne peut poser : postes = cases ou le bot
+// tient debout dans la forme FINIE (deux cases libres, appui dessous : le sol
+// en y -1, ou un bloc de la forme), rejointes a pied depuis l exterieur par
+// pas de un bloc au plus (le navigateur ne grimpe pas plus, ne pose rien).
+// Vu sur build/tower (559d03e, a9f44ad) : tour pleine 3x3x6, centre du toit a
+// 4,37 blocs des postes au sol, murs trop hauts, interieur clos : 49/50 et
+// plafond de 300 s. Refuse ici, le modele redessine.
+function unreachableCells (cells, width, depth, key) {
+  const bloc = (x, y, z) => cells.has(key(x, y, z))
+  const debout = (x, f, z) => !bloc(x, f, z) && !bloc(x, f + 1, z) && (f === 0 || bloc(x, f - 1, z))
+  const top = Math.max(0, ...[...cells.values()].map(c => c.y))
+  const seen = new Set()
+  const queue = []
+  const inBox = (x, z) => x >= -2 && z >= -2 && x <= width + 1 && z <= depth + 1
+  for (let x = -2; x <= width + 1; x++) {
+    for (let z = -2; z <= depth + 1; z++) {
+      if ((x < 0 || z < 0 || x >= width || z >= depth) && debout(x, 0, z)) { seen.add(key(x, 0, z)); queue.push([x, 0, z]) }
+    }
+  }
+  for (let i = 0; i < queue.length; i++) {
+    const [x, f, z] = queue[i]
+    for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + ox; const nz = z + oz
+      if (!inBox(nx, nz)) continue
+      for (const nf of [f - 1, f, f + 1]) {
+        if (nf < 0 || nf > top + 1 || seen.has(key(nx, nf, nz)) || !debout(nx, nf, nz)) continue
+        seen.add(key(nx, nf, nz))
+        queue.push([nx, nf, nz])
+      }
+    }
+  }
+  const postes = queue.map(([x, f, z]) => ({ x: x + 0.5, y: f, z: z + 0.5 }))
+  return [...cells.values()].filter(c => !postes.some(p => {
+    const d = Math.hypot(p.x - (c.x + 0.5), p.y + 1.62 - (c.y + 0.5), p.z - (c.z + 0.5))
+    return d <= PLACE_REACH && !(Math.floor(p.x) === c.x && Math.floor(p.z) === c.z && c.y >= p.y && c.y <= p.y + 1)
+  }))
+}
+
 function compileBlueprint (bp) {
   const errors = []
   const size = (v, name) => {
@@ -390,6 +428,11 @@ function compileBlueprint (bp) {
   if (floating.length) {
     const ex = floating[0]
     return { ok: false, errors: [`${floating.length} bloc(s) flottant(s), relies au sol par aucun bloc (ex : [${ex.x},${ex.y},${ex.z}]) : ajoute un appui (pilier, mur) ou retire-les`] }
+  }
+  const horsPortee = unreachableCells(cells, width, depth, key)
+  if (horsPortee.length) {
+    const ex = horsPortee[0]
+    return { ok: false, errors: [`${horsPortee.length} bloc(s) impossibles a poser (ex : [${ex.x},${ex.y},${ex.z}]) : aucun endroit ou le bot peut se tenir et qu il rejoint a pied n est a portee (${PLACE_REACH} blocs). Plus bas, plus etroit, ouvert en haut, ou une porte pour poser depuis l interieur`] }
   }
   const ordered = [...cells.values()].sort((a, b) =>
     dist.get(key(a.x, a.y, a.z)) - dist.get(key(b.x, b.y, b.z)) || a.y - b.y)
