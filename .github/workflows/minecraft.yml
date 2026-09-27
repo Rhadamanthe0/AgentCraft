@@ -9,8 +9,10 @@ permissions:
   contents: read
 
 # One pending run per branch (a shared group let GitHub cancel the pending run
-# of one branch when another branch pushed). The single self-hosted runner
-# already runs one job at a time; a new push never interrupts a running bench.
+# of one branch when another branch pushed); a new push never interrupts a
+# running bench. The runner is shared by the organisation's private projects:
+# every run has its own compose project (mc-ci-<run id>-...) and cleans up only
+# what it recorded (ci/cleanup.py).
 concurrency:
   group: minecraft-bench-${{ github.ref }}
   cancel-in-progress: false
@@ -18,26 +20,32 @@ concurrency:
 jobs:
   minecraft:
     if: github.event.repository.private == true
-    runs-on: [self-hosted, Windows, X64, minecraft]
+    # MINIPC-CLEM : Linux, runner en conteneur, Podman rootless par socket
+    # (clients docker et docker compose). Ports publies injoignables depuis le
+    # conteneur du runner (localhost = le runner) : CI_ENDPOINT_MODE=exec.
+    runs-on: [self-hosted, linux, x64, minipc, podman]
     timeout-minutes: 30
     defaults:
       run:
-        shell: powershell
+        shell: bash
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Run unit regressions and real Minecraft tests
-        # The planner keys only reach the disposable bot container (tree missions).
+        # Le banc n a QUE la cle secondaire (espace OpenCode de test) : aucune
+        # bascule possible vers la cle principale, qui n est pas transmise.
+        # Elle ne va qu au conteneur jetable des bots, jamais dans une image,
+        # un artefact ou un journal. report.keyCheck verifie la cle servie.
         env:
-          PLANNER_API_KEY: ${{ secrets.PLANNER_API_KEY }}
-          # Second espace OpenCode (alias `modele@go2`, bot/model-chain.js KEY_ALIASES).
           OPENCODE_SECONDARY_API_KEY: ${{ secrets.OPENCODE_SECONDARY_API_KEY }}
-        run: python ci/run.py --suite all
+          CI_EXPECT_KEY: secondary
+          CI_ENDPOINT_MODE: exec
+        run: python3 ci/run.py --suite all
       - name: Remove any remaining disposable test containers
         if: always()
-        run: python ci/cleanup.py
+        run: python3 ci/cleanup.py
       - name: Publish report, logs and movement traces
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

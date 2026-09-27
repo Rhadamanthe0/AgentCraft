@@ -16,10 +16,61 @@ import urllib.error
 import urllib.request
 import uuid
 
-from cleanup import paper_image
+from cleanup import compose_files, paper_image
 from trees import BOTS_SERVICE, PROBES_SERVICE, arena_origins, bot_services, levels, probe_names, run_levels
 
 ROOT = Path(__file__).resolve().parents[1]
+# Acces aux ports publies : `direct` (TCP/HTTP sur 127.0.0.1, poste Windows +
+# Docker Desktop) ou `exec` (docker compose exec). Sur un runner qui tourne
+# lui-meme en conteneur (MINIPC-CLEM, Podman par socket), 127.0.0.1 est le
+# conteneur du runner, pas l hote : les ports publies y sont injoignables.
+ENDPOINT_MODE = os.environ.get('CI_ENDPOINT_MODE', 'direct')
+if ENDPOINT_MODE not in ('direct', 'exec'):
+    raise SystemExit('CI_ENDPOINT_MODE doit valoir direct ou exec')
+
+
+# Classement d un echec (report.tests[].failureKind), pour ne jamais corriger le
+# bot a cause d une panne du banc :
+#   infrastructure : moteur/conteneur/Minecraft/banc (service arrete, commande
+#                    compose en echec, RCON) ; invalide le banc s il est global.
+#   api            : fournisseur du modele (HTTP 4xx/5xx, quota, delai du planificateur).
+#   garde-fou      : plafond de duree ou d etapes du niveau atteint.
+#   bot            : le reste (mauvaise action, mission non lancee, verification ratee) ;
+#                    le modele et le code du bot se departagent en lisant la timeline.
+INFRA_MARKERS = ('command failed', 'is not running', 'published port', 'rcon', 'connection refused',
+                 'connection reset', 'no such container', 'cannot connect to the docker daemon')
+API_MARKERS = ('http 4', 'http 5', 'gousagelimit', 'planificateur indisponible', 'upstream request failed')
+
+
+def failure_kind(test):
+    text = ' '.join(str(test.get(k) or '') for k in ('error', 'endReason')).lower()
+    if any(m in text for m in INFRA_MARKERS):
+        return 'infrastructure'
+    if any(m in text for m in API_MARKERS):
+        return 'api'
+    if 'plafond' in text:
+        return 'garde-fou'
+    return 'bot'
+
+
+def classify_failures(report):
+    failed = [t for t in report['tests'] if not t.get('success')]
+    for t in failed:
+        t['failureKind'] = failure_kind(t)
+    infra = [t['test'] for t in failed if t['failureKind'] == 'infrastructure']
+    reasons = []
+    if report.get('servicesDown'):
+        reasons.append('services arretes en fin de banc : ' + ', '.join(report['servicesDown']))
+    if len(infra) >= 3:
+        reasons.append(f'{len(infra)} niveaux en echec d infrastructure : ' + ', '.join(infra[:8]))
+    if reasons:
+        report['benchInvalid'] = ' ; '.join(reasons)
+
+
+def planner_key_present():
+    # Le banc tourne avec la seule cle secondaire (secret OPENCODE_SECONDARY_API_KEY) ;
+    # PLANNER_API_KEY reste admise pour un poste local.
+    return bool(os.environ.get('OPENCODE_SECONDARY_API_KEY') or os.environ.get('PLANNER_API_KEY'))
 # Delai des appels HTTP aux bots : /api/instruction attend la lecture de
 # l objectif (PLANNER_TIMEOUT_MS_BRIEF, 60 s, rejouee une fois si tronquee).
 HTTP_TIMEOUT_S = 150
@@ -60,7 +111,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--suite', choices=['unit', 'minecraft', 'trees', 'all'], default='all')
     args = parser.parse_args()
-    project = 'mc-ci-' + uuid.uuid4().hex[:12]
+    # Un nom par job : deux executions en parallele (branches, depots du
+    # runner mutualise) ne partagent ni conteneur, ni reseau, ni volume.
+    run_id = os.environ.get('GITHUB_RUN_ID', '')
+    project = f'mc-ci-{run_id}-{uuid.uuid4().hex[:8]}' if run_id.isdigit() else 'mc-ci-' + uuid.uuid4().hex[:12]
     output = ROOT / 'test-results' / project
     output.mkdir(parents=True)
     marker = output / 'active.json'
@@ -75,7 +129,7 @@ def main():
         if key.startswith('COMPOSE_') and key != 'COMPOSE_DISABLE_ENV_FILE':
             del env[key]
     base = ['docker', 'compose', '--env-file', str(ROOT / 'ci/empty.env'),
-            '--project-directory', str(ROOT / 'ci'), '-f', str(ROOT / 'ci/compose.yaml'), '-p', project]
+            '--project-directory', str(ROOT / 'ci'), *compose_files(), '-p', project]
     report = {'schemaVersion': 1, 'project': project, 'image': image, 'suite': args.suite,
               'startedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
               'sha': None, 'dirty': None, 'success': False, 'tests': [], 'errors': [],
@@ -178,17 +232,33 @@ def main():
                         raise
 
     def rcon(text):
-        try:
-            value = rcon_direct(text).strip()
-        except Exception:
+        value = None
+        if ENDPOINT_MODE == 'direct' and not rcon_state.get('exec'):
+            try:
+                value = rcon_direct(text).strip()
+            except Exception as error:
+                # Une seule tentative : sans cela chaque commande repayait le delai.
+                rcon_state['exec'] = True
+                print(f'RCON direct indisponible ({error}) : docker compose exec pour la suite', flush=True)
+        if value is None:
             value = compose('exec', '-T', 'minecraft', 'rcon-cli', text).stdout.strip()
         if any(word in value.lower() for word in ['incorrect argument', 'unknown command', 'not loaded']):
             raise RuntimeError('Fixture command rejected: ' + value)
         return value
 
+    def services_down():
+        out = compose('ps', '-a', '--format', 'json', timeout=30, check=False).stdout.strip()
+        try:
+            rows = json.loads(out) if out.startswith('[') else [json.loads(line) for line in out.splitlines() if line.strip()]
+        except ValueError:
+            return None
+        return sorted({row.get('Service') for row in rows if str(row.get('State', '')).lower() != 'running'} - {None})
+
     unreachable = set()  # (service, port) whose published port refused or dropped the connection.
 
     def http(service, port, route, body=None, method=None):
+        if ENDPOINT_MODE == 'exec':
+            return http_exec(service, port, route, body, method)
         try:
             if (service, port) in unreachable:
                 raise ConnectionError('published port unusable')
@@ -339,7 +409,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             phase('modelProbe', started)
 
         probe_thread = None
-        if args.suite in ('trees', 'all') and os.environ.get('PLANNER_API_KEY'):
+        if args.suite in ('trees', 'all') and planner_key_present():
             probe_thread = threading.Thread(target=run_model_probe, daemon=True)
             probe_thread.start()
 
@@ -376,9 +446,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 phase('forceloadArenas', arena_started)
             arena_errors = []
             arena_thread = threading.Thread(target=forceload_arenas, daemon=True)
-            if args.suite in ('trees', 'all') and os.environ.get('PLANNER_API_KEY'):
+            if args.suite in ('trees', 'all') and planner_key_present():
                 arena_thread.start()
-            bots_wanted = args.suite in ('trees', 'all') and bool(os.environ.get('PLANNER_API_KEY'))
+            bots_wanted = args.suite in ('trees', 'all') and bool(planner_key_present())
             # Two containers host all pool bots and all probe players.
             extra = [BOTS_SERVICE, PROBES_SERVICE] if bots_wanted else []
             compose('up', '-d', '--wait', '--wait-timeout', '240', 'harness', *extra, timeout=290)
@@ -429,7 +499,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             nav_thread = threading.Thread(target=run_navigation, daemon=True)
             nav_thread.start()
         if args.suite in ('trees', 'all'):
-            if os.environ.get('PLANNER_API_KEY'):
+            if planner_key_present():
                 # The probes healthcheck only proves the process: wait until each one is in the world.
                 started = time.monotonic()
                 until = time.monotonic() + 60
@@ -503,9 +573,20 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     'cles_servies': sorted({v['cle_servie'] for v in stats.values() if v.get('cle_servie')}),
                     'bascules_cle': sum(v.get('bascules_cle') or 0 for v in stats.values()),
                 }
+                # Cle attendue (CI_EXPECT_KEY, `secondary` au banc) : toute autre cle
+                # servie, ou une bascule, rend le banc non conforme.
+                expected = os.environ.get('CI_EXPECT_KEY')
+                if expected:
+                    served = report['plannerSummary']['cles_servies']
+                    switches = report['plannerSummary']['bascules_cle']
+                    ok = served == [expected] and not switches
+                    report['keyCheck'] = {'expected': expected, 'served': served, 'switches': switches, 'ok': ok}
+                    print(f"Cle du planificateur : attendue {expected}, servie {served}, bascules {switches} -> {'OK' if ok else 'NON CONFORME'}", flush=True)
+                    if not ok:
+                        report['errors'].append(f'Cle du planificateur non conforme : attendue {expected}, servie {served}, {switches} bascule(s)')
             else:
                 level_results = [{'test': level, 'success': False,
-                                  'error': 'PLANNER_API_KEY absent : secret GitHub du depot non configure'}
+                                  'error': 'aucune cle du planificateur (OPENCODE_SECONDARY_API_KEY ou PLANNER_API_KEY) : secret GitHub non configure'}
                                  for level in [level['name'] for level in levels()]]
         else:
             level_results = []
@@ -516,6 +597,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             probe_thread.join(timeout=320)
             report['modelProbe'] = probe_results
         report['tests'].extend(unit_results + nav_results + level_results)
+        # Services arretes en fin de banc (conteneur tue de l exterieur, moteur
+        # redemarre...) : le banc est invalide, pas le code (vu sur b2da858).
+        report['servicesDown'] = services_down()
     except (Exception, KeyboardInterrupt) as error:
         report['errors'].append(str(error) or 'Interrupted')
     finally:
@@ -541,6 +625,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             report['errors'].append('Cleanup failed: ' + str(error))
         phase('teardown', started)
         report['phases']['total'] = round(time.monotonic() - run_started, 1)
+        classify_failures(report)
         report['success'] = bool(report['tests']) and all(t['success'] for t in report['tests']) and not report['errors']
         report['finishedAt'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         (output / 'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
@@ -555,8 +640,11 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             info = f" ({t['logsInInventory']}/{t['expectedLogs']} buches, {t['elapsedS']} s, {t['endReason']})"
             return info + (' ; echec : ' + ', '.join(failed) if failed else '')
         summary = '\n'.join([f"Commit: {report['sha'] or 'local export (no Git SHA)'}",
-                             f"Result: {'PASS' if report['success'] else 'FAIL'}", '',
-                             *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '') + detail(t)
+                             f"Result: {'PASS' if report['success'] else 'FAIL'}",
+                             *([f"BANC INVALIDE (infrastructure) : {report['benchInvalid']}"] if report.get('benchInvalid') else []),
+                             *([f"Cle du planificateur : {report['keyCheck']}"] if report.get('keyCheck') else []), '',
+                             *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '')
+                               + (f" <{t['failureKind']}>" if t.get('failureKind') else '') + detail(t)
                                for t in report['tests']],
                              *([f"Planificateur : {report['plannerSummary']}"] if report.get('plannerSummary') else []),
                              f"Phases (s) : {report['phases']}",

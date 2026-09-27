@@ -35,8 +35,9 @@ services:
       RCON_CMDS_STARTUP: |-
         time set day
         gamerule advance_time false
-      # /config is copied into /data before Paper starts: ci/paper/bukkit.yml
-      # disables the per-IP login throttle (16 bots share one container IP).
+      # /config is copied into /data before Paper starts: ci/paper/bukkit.yml,
+      # baked into the Paper image (no bind mount: see ci/paper/Dockerfile),
+      # disables the per-IP login throttle (32 bots share one container IP).
       COPY_CONFIG_DEST: /data
       # One line per GC on stdout (containers.log): ci/run.py reads the live
       # heap after each collection to size MEMORY on measurements.
@@ -56,7 +57,6 @@ services:
     # Anonymous, disposable volume; never the live mc-data volume.
     volumes:
       - /data
-      - ./paper/bukkit.yml:/config/bukkit.yml:ro
   # One test image per run (built once, from the harness service); every other
   # service reuses it. CI_TAG is the disposable project name set by ci/run.py,
   # and ci/run.py / ci/cleanup.py remove minebot-ci:<project> at the end.

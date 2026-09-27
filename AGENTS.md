@@ -345,6 +345,16 @@
   essence) ») avec le stock reel en poche (craft/axe : « cherry_log x1 »,
   cerisier cherche 150 s). Chat : un ordre a cible vague (« Va sous l arbre »)
   est new, jamais une question de precision (route/under-tree, bot muet).
+- Banc complet sur MINIPC-CLEM (2026-09-27, docs/remote-minecraft-tests.md) :
+  runner Linux en conteneur + Podman rootless par socket ; `CI_ENDPOINT_MODE=exec`,
+  bukkit.yml dans l image Paper, `ci/compose.old-api.yaml` si API < 1.44, projet
+  `mc-ci-<run id>-...`, nettoyage limite aux projets du checkout (runner
+  mutualise). Seule la cle secondaire est transmise, `report.keyCheck` le
+  verifie. Echecs classes (`failureKind`), `benchInvalid` si panne globale.
+  `avancer` sans cible : defait d abord le pilier du bot et s arrete au bord
+  d une chute de plus de deux blocs (trees/bent, 0e5dee5 : chute de 4, degats).
+  `piler` en recolte refuse sans aucune cible restante (trees/reachable :
+  plan anticipe perime, sol creuse pour un pilier inutile).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

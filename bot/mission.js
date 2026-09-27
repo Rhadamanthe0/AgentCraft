@@ -406,6 +406,29 @@ function marcheDevant (bot) {
   }
 }
 
+// Vide devant le bot (~0,8 bloc sur son cap) : chute seche de plus de deux
+// blocs, donc des degats (vu sur trees/bent, 0e5dee5 : `avancer` sans cible
+// depuis un pilier de 4, chute de 4). Rend la hauteur de chute, ou null si le
+// sol devant est a deux blocs au plus (marche, descente d un ou deux blocs).
+const CHUTE_MAX = 2
+function videDevant (bot) {
+  try {
+    if (!bot?.entity || typeof bot.blockAt !== 'function' || !bot.entity.onGround) return null
+    const p = bot.entity.position
+    const devant = p.offset(-Math.sin(bot.entity.yaw) * 0.8, 0, -Math.cos(bot.entity.yaw) * 0.8)
+    const pieds = bot.blockAt(devant.floored())
+    if (!pieds || estSolide(pieds)) return null
+    for (let d = 1; d <= CHUTE_MAX + 1; d += 1) {
+      const b = bot.blockAt(devant.offset(0, -d, 0).floored())
+      if (!b) return null
+      if (estSolide(b) || /water|lava/.test(b.name)) return d - 1 > CHUTE_MAX ? d - 1 : null
+    }
+    return CHUTE_MAX + 1
+  } catch (_) {
+    return null
+  }
+}
+
 function sondeAlentours (lire, baseX, piedsY, baseZ) {
   const relief = {}
   try {
@@ -921,10 +944,10 @@ function createMissionRunner (host, injected = {}) {
           return null
         }
       }
-      let pile = await ACTIONS.piler(null, { hauteur: 1 })
+      let pile = await ACTIONS.piler(null, { hauteur: 1, interne: true })
       if (pile?.echec && /atterrissage/.test(pile.resultat || '')) {
         await sleep(400)
-        pile = await ACTIONS.piler(null, { hauteur: 1 })
+        pile = await ACTIONS.piler(null, { hauteur: 1, interne: true })
       }
       if (pile?.echec) {
         console.log(`[mission] sortie par le haut : pilier refuse au niveau ${niveau} (${pile.resultat})`)
@@ -1077,7 +1100,7 @@ function createMissionRunner (host, injected = {}) {
     if (!sol || sol.boundingBox !== 'block' || /_leaves$|_log$|_wood$/.test(sol.name)) return null
     const creuses = await gatherDirt(hauteur)
     if (scaffoldingStock(bot).total < hauteur) return null
-    const pile = await ACTIONS.piler(null, { hauteur })
+    const pile = await ACTIONS.piler(null, { hauteur, interne: true })
     if (pile?.echec) return `montee impossible : ${pile.resultat}`
     return `${creuses} bloc(s) de terre pris, pilier de ${hauteur}`
   }
@@ -2436,6 +2459,12 @@ function createMissionRunner (host, injected = {}) {
           return { moved: Number(moved.toFixed(2)), blocked: moved < 0.5 }
         }
 
+        // Jamais de chute de plus de deux blocs a la marche : arret au bord.
+        const chute = videDevant(live)
+        if (chute !== null) {
+          return { moved: Number(moved.toFixed(2)), blocked: true, vide: chute }
+        }
+
         // Saut PREVENTIF : franchir la marche d un bloc AVANT le contact.
         // Cause racine mesuree : une fois pousse contre le mur, `onGround` est
         // faux en continu (prismarine-physics ne saute que si onGround), donc
@@ -3102,6 +3131,13 @@ function createMissionRunner (host, injected = {}) {
         // d echouer proprement. Meme convention qu avec cible : echec = file
         // videe, le planificateur replanifie sur l etat reel.
         const capBot = host.getBot()
+        // Perche sur son propre pilier : redescendre d abord (colonne isolee
+        // seulement, jamais le sol), plutot que de marcher dans le vide.
+        const porteurLibre = capBot?.entity ? capBot.blockAt(capBot.entity.position.offset(0, -0.5, 0)) : null
+        if (porteurLibre && isPillarBlock(capBot, porteurLibre)) {
+          const defaits = await descendScaffold(-Infinity, { pillarOnly: true })
+          if (defaits) console.log(`[mission] avancer : pilier defait avant de marcher (${defaits} bloc(s))`)
+        }
         const capYaw = capBot?.entity ? capBot.entity.yaw : 0
         let restantLibre = distance
         let parcouruLibre = 0
@@ -3117,6 +3153,13 @@ function createMissionRunner (host, injected = {}) {
           const walk = await walkForward(palier)
           parcouruLibre += walk.moved
           restantLibre -= walk.moved
+          if (walk.vide) {
+            return {
+              resultat: `arret au bord apres ${parcouruLibre.toFixed(1)} bloc(s) : vide de ${walk.vide}+ bloc(s) devant ` +
+                '(chute blessante). Descendre d abord (defaire le pilier, ou avancer vers une cible) ou changer de cap.',
+              echec: true
+            }
+          }
           if (!walk.blocked && walk.moved >= 0.5) continue
           if (parcouruLibre >= distance) break
           if (strafesLibres >= NAV_MAX_STRAFES) {
@@ -3304,6 +3347,14 @@ function createMissionRunner (host, injected = {}) {
       // trois minutes sans atteindre le tronc). La valeur n est pas changee.
       if (!cible) {
         const haute = findTargetBlock(undefined, { anyHeight: true })
+        // Recolte sans aucune cible restante, a aucune hauteur : rien a
+        // atteindre. Un plan anticipe calcule avant la derniere coupe
+        // demandait encore piler(1) ; faute de terre, le bot creusait le sol
+        // pour un pilier inutile (trees/reachable, 0e5dee5 : sol_intact faux).
+        // Les montees internes (sortie de trou, falaise) passent `interne`.
+        if (!haute && !params.interne && mission?.kind === 'recolte') {
+          return { resultat: 'aucune cible restante a atteindre, a aucune hauteur : pas de pilier, reobserver', echec: true }
+        }
         const ecartHaut = haute ? haute.position.y - Math.floor(bot.entity.position.y) : null
         const minimum = ecartHaut === null ? 0 : ecartHaut - MAX_REACH_UP
         if (haute && minimum > hauteur && minimum <= PILER_MAX) {
