@@ -70,7 +70,7 @@ class Config:
     # all-awake projection, memory reserves, useful levels): one at a time took
     # 280 s to reach 17 workers on 189799a, CPU never the limit (fixed: 219 s).
     batch_max: int = 8
-    worker_cpu_prior_pct: float = 60.0  # per-worker peak assumed to size a batch (> 1 worker)
+    worker_cpu_prior_pct: float = 60.0  # per-worker peak assumed to size a batch, first long window
     long_window_s: float = 30.0
     ceiling_pct: float = None
     worker_cpu_pct: float = 15.0       # floor of the per-worker CPU estimate
@@ -669,20 +669,23 @@ class Controller:
         self.ok_checks += 1
         if self.ok_checks < c.admit_checks:
             return Decision('hold', f'verification {self.ok_checks}/{c.admit_checks}', self.target)
-        count = self.batch_size(m, pool, base, estimate)
+        count = self.batch_size(m, pool, base, estimate, now)
         return Decision('admit', f'{count} worker(s) : CPU 1 s {m.cpu_1s:.0f} %, max {c.long_window_s:.0f} s '
                                  f'{m.cpu_long_max:.0f} % + {count} x {estimate:.0f} %, '
                                  f'marges {m.mem_margin / GIB:.1f}/{m.host_available / GIB:.1f} Gio',
                         self.target, count)
 
-    def batch_size(self, m, pool, base, estimate):
+    def batch_size(self, m, pool, base, estimate, now=None):
         """How many workers every limit leaves room for, at least 1 (the checks above passed for one)."""
         c = self.config
-        # Several at once only on a pessimistic per-worker peak: peaks measured
-        # while bots wait on the model are low (5 %), and a batch sized on them
-        # overshot the all-awake ceiling in simulation. One at a time keeps the
-        # measured estimate (the checks above).
-        estimate = max(estimate, c.worker_cpu_prior_pct)
+        # Until the first workers have been watched for a full long window, a
+        # batch assumes a pessimistic per-worker peak: peaks measured while bots
+        # wait on the model are low (5 %), and a batch sized on them overshot
+        # the all-awake ceiling in simulation. Kept for the whole run, the prior
+        # (60 %) capped bb045ed at 11 workers by batch while the measured peak
+        # was 25-42 %. One at a time keeps the measured estimate (checks above).
+        if self.first_admit is None or now is None or now - self.first_admit < c.long_window_s:
+            estimate = max(estimate, c.worker_cpu_prior_pct)
         need = self.worker_mem
         rooms = [
             c.batch_max,
