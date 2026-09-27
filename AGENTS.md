@@ -563,6 +563,12 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   (5x5x3 : un bloc de vide, toit dans la tete du bot, build/windows 63/64) ;
   `interpretMessage` rejoue UNE fois une reponse sans relation valide
   (« rapporte moi le bois » perdu, chat/tree-then-bring).
+  Suite (0b1d4a3) : `craft.make` resynchronise l inventaire avec le serveur
+  (`bot._syncWindow`, 1,5 s max) avant de planifier ; la fermeture forcee de
+  la fenetre 0 n empechait pas les objets de disparaitre du modele local
+  (craft/door : buche puis etabli invisibles). `piler` en construction ne
+  juge plus sur la cible de recolte (terre « deja a portee ») : bot emmure au
+  pied d une tour creuse, derniere case du toit a +5 (build/tower).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

@@ -3682,8 +3682,11 @@ function createMissionRunner (host, injected = {}) {
       }
 
       // Un pilier sous une cible deja cassable gaspille de la dirt : le dire au
-      // lieu de monter pour rien.
-      const cible = findTargetBlock()
+      // lieu de monter pour rien. Recolte seulement : en construction la cible
+      // est la terre a prendre, pas la case a atteindre (build/tower 0b1d4a3 :
+      // bot emmure au pied d une tour creuse, derniere case du toit a +5,
+      // piler(4) refuse « grass_block deja a portee », plafond de 300 s).
+      const cible = mission?.kind === 'construction' ? null : findTargetBlock()
       if (cible && blockInReach(bot, bot.entity.position, cible.position.offset(0.5, 0.5, 0.5), REACH)) {
         return { resultat: `${cible.name} deja a portee : casser directement, pas de pilier`, echec: true }
       }
@@ -3716,7 +3719,7 @@ function createMissionRunner (host, injected = {}) {
         }
         const ecartHaut = haute ? haute.position.y - Math.floor(bot.entity.position.y) : null
         const minimum = ecartHaut === null ? 0 : ecartHaut - MAX_REACH_UP
-        if (haute && minimum > hauteur && minimum <= PILER_MAX) {
+        if (haute && mission?.kind !== 'construction' && minimum > hauteur && minimum <= PILER_MAX) {
           return {
             resultat: `hauteur ${hauteur} trop courte : ${haute.name} a +${ecartHaut}, piler au moins ${minimum} pour l atteindre`,
             echec: true

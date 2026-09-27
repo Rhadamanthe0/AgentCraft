@@ -527,15 +527,27 @@ async function waitInventorySettled (bot) {
   }
 }
 
-async function recoverStranded (bot, { force = false } = {}) {
+async function recoverStranded (bot) {
   const inv = bot?.inventory
   if (!inv || bot.currentWindow || typeof bot.closeWindow !== 'function') return false
   const stranded = Boolean(inv.selectedItem) ||
     [1, 2, 3, 4].some(slot => inv.slots?.[slot])
-  if (!stranded && !force) return false
+  if (!stranded) return false
   try { await bot.closeWindow(inv) } catch (_) { return false }
-  if (!stranded) await sleep(150)
-  return stranded
+  return true
+}
+
+// Resynchronisation complete de l inventaire (clic a numero d etat perime,
+// `_syncWindow` du mineflayer patche) : 1,5 s au plus, sans effet sinon.
+async function resyncInventory (bot) {
+  if (!bot?.inventory || bot.currentWindow || typeof bot._syncWindow !== 'function') return
+  let timer
+  try {
+    await Promise.race([
+      bot._syncWindow(bot.inventory),
+      new Promise(resolve => { timer = setTimeout(resolve, 1500) })
+    ])
+  } catch (_) { /* inventaire local tel quel */ } finally { clearTimeout(timer) }
 }
 
 // Fabrique `wanted` UNITES (pas des executions) de la cible, alias FR ou nom
@@ -574,9 +586,12 @@ async function make (bot, targetName, wanted = 1, opts = {}) {
   // Restes d un craft precedent dans la grille ou sur le curseur : les rendre
   // avant de planifier sur l inventaire (craft/axe 33abea6 : etabli fabrique,
   // 8 planches invisibles, batons « impossibles, buche manquante »).
-  // Fermer la fenetre 0 est sans effet cote serveur quand la grille est vide ;
-  // on la ferme aussi quand le modele local l a perdue de vue (desynchro).
-  if (await recoverStranded(bot, { force: true })) await waitInventorySettled(bot)
+  if (await recoverStranded(bot)) await waitInventorySettled(bot)
+  // Inventaire local desynchronise apres un craft (objets disparus du modele,
+  // presents cote serveur : craft/axe 33abea6, 8 planches ; craft/door
+  // 0b1d4a3, une buche puis l etabli) : le serveur renvoie l inventaire
+  // complet avant qu on planifie dessus.
+  await resyncInventory(bot)
 
   const invBase = inventoryMap(bot)
   const dataset = getDataset(bot)

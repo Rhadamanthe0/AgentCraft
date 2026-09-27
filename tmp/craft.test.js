@@ -224,7 +224,7 @@ test('ingredients restes dans la grille 2x2 : rendus a la fermeture, craft rejou
     bot._state.stock.oak_log = (bot._state.stock.oak_log ?? 0) + 1
   }
   const res = await craft.make(bot, 'oak_planks', 4)
-  assert.equal(closed, 2, 'fermeture preventive puis grille rendue par fermeture')
+  assert.equal(closed, 1, 'grille rendue par fermeture de l inventaire')
   assert.equal(calls, 2, 'rejoue apres recuperation, pas d arret incertain')
   assert.equal(res.produced, 4)
   assert.equal(bot._state.stock.oak_log ?? 0, 0)
