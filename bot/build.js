@@ -427,6 +427,17 @@ function compileBlueprint (bp) {
     }
     return d0
   }
+  // Piege a bot : une seule case d air entre un bloc et un bloc au-dessus
+  // (plancher + toit d une maison de 3 de haut). Le bot qui y entre pendant
+  // le chantier ne peut plus ni s y tenir debout ni en sortir, et la derniere
+  // case du toit est dans sa tete (build/windows 66d7caf : 60/61, porte
+  // jamais posee, plafond de 300 s).
+  const piege = [...cells.values()].find(c =>
+    !cells.has(key(c.x, c.y + 1, c.z)) && cells.has(key(c.x, c.y + 2, c.z)) &&
+    c.x > 0 && c.z > 0 && c.x < width - 1 && c.z < depth - 1)
+  if (piege) {
+    return { ok: false, errors: [`une seule case d air sous un bloc en [${piege.x},${piege.y + 1},${piege.z}] : le bot y serait coince ; laisse au moins 2 cases d air sous un toit (hauteur 4 ou plus pour une maison)`] }
+  }
   let dist = connexite()
   const floating = [...cells.values()].filter(c => !dist.has(key(c.x, c.y, c.z)))
   if (floating.length) {
@@ -685,7 +696,7 @@ function findVantage (bot, target) {
 // quelques blocs). Une pose coute donc le temps d un trajet, et un poste
 // geometriquement valide peut etre injoignable : c est le prix d un bot qui
 // joue au jeu.
-async function walkStep (bot, distance, deadline) {
+async function walkStep (bot, distance, deadline, signal = null) {
   const start = bot.entity.position.clone()
   const stepDeadline = Math.min(deadline, Date.now() + distance * STEP_MS_PER_BLOCK + WALK_EXTRA_MS)
   let lastAnchor = start.clone()
@@ -699,6 +710,7 @@ async function walkStep (bot, distance, deadline) {
       if (!bot?.entity) return { moved: 0, blocked: true }
       const here = bot.entity.position
       const moved = horizontalDistance(start, here)
+      if (signal?.aborted) return { moved: Number(moved.toFixed(2)), blocked: false, annule: true }
       if (moved >= distance) return { moved: Number(moved.toFixed(2)), blocked: false }
       if (Date.now() > stepDeadline || Date.now() > deadline) {
         return { moved: Number(moved.toFixed(2)), blocked: moved < 0.5 }
@@ -770,7 +782,11 @@ async function walkStep (bot, distance, deadline) {
   }
 }
 
-async function moveTo (bot, destination) {
+// `signal` (AbortSignal de la mission) : un stop arrete la marche aussitot.
+// Sans lui, la boucle d une mission arretee pendant une pose continuait de
+// marcher jusqu a 12 s (follow/straight 66d7caf : suivi demarre 9 s trop
+// tard, joueur perdu a 15 blocs).
+async function moveTo (bot, destination, signal = null) {
   if (!bot?.entity) throw new Error('poste de tir injoignable a pied : bot non connecte')
   if (horizontalDistance(bot.entity.position, destination) < ARRIVE_XZ) return true
 
@@ -779,6 +795,7 @@ async function moveTo (bot, destination) {
 
   while (true) {
     if (!bot?.entity) throw new Error('poste de tir injoignable a pied : bot deconnecte en route')
+    if (signal?.aborted) throw new Error('trajet annule (mission arretee)')
     if (Date.now() > deadline) {
       throw new Error(`poste de tir injoignable a pied : trajet trop long (${MOVE_TIMEOUT_MS} ms)`)
     }
@@ -796,7 +813,7 @@ async function moveTo (bot, destination) {
 
     // Avance par palier de 10 blocs au plus, puis re-pivote : un long trajet
     // sans re-viser derive, comme en mission.
-    const step = await walkStep(bot, Math.min(dist, 10), deadline)
+    const step = await walkStep(bot, Math.min(dist, 10), deadline, signal)
     const now = bot.entity?.position
     if (!now) throw new Error('poste de tir injoignable a pied : bot deconnecte en route')
     if (horizontalDistance(now, destination) < ARRIVE_XZ) return true
@@ -877,7 +894,7 @@ async function clearOfTarget (bot, target) {
 // devient grass_block ; sans cela le bot la cassait pour la reposer).
 // `move` : trajet vers le poste de tir (le navigateur partage de la mission),
 // l ancien `moveTo` en gestes restant le repli.
-async function placeOne (bot, target, itemName, { accept = null, move = null, sol = null } = {}) {
+async function placeOne (bot, target, itemName, { accept = null, move = null, sol = null, signal = null } = {}) {
   const existing = bot.blockAt(target)
   if (existing && (existing.name === itemName || accept?.test(existing.name))) return 'deja'
 
@@ -914,7 +931,7 @@ async function placeOne (bot, target, itemName, { accept = null, move = null, so
       if (arrived) { vantage = candidate; break }
     }
   }
-  if (!arrived) await moveTo(bot, vantage.stand)
+  if (!arrived) await moveTo(bot, vantage.stand, signal)
   // moveTo s arrete a ARRIVE_XZ (0,8) du poste : le corps reel (0,6 de large)
   // peut alors deborder sur la case visee et le serveur refuse la pose
   // (« the block is still air », piege 11 ; vu sur build/dirt-box, bot en
@@ -950,7 +967,7 @@ async function placeOne (bot, target, itemName, { accept = null, move = null, so
 // sinon le navigateur partage (`move`), les gestes de `moveTo` en repli. Vu
 // sur composite/cabin-from-scratch (f1f762d) : 54/54 blocs, puis sept
 // `poser_porte` en « trajet trop long (12000 ms) », porte jamais posee.
-async function placeDoor (bot, plan, itemName, { move = null } = {}) {
+async function placeDoor (bot, plan, itemName, { move = null, signal = null } = {}) {
   const target = plan.door.position
   const existing = bot.blockAt(target)
   if (existing && existing.name === itemName) return 'deja'
@@ -962,7 +979,7 @@ async function placeDoor (bot, plan, itemName, { move = null } = {}) {
     here.offset(0, 1.62, 0).distanceTo(center) <= PLACE_REACH
   if (!aPortee) {
     const reached = move ? await move(plan.doorApproach) : false
-    if (!reached) await moveTo(bot, plan.doorApproach)
+    if (!reached) await moveTo(bot, plan.doorApproach, signal)
   }
   await bot.lookAt(center, true)
 

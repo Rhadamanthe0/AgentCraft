@@ -122,6 +122,15 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   solveur). Le solveur ne marque plus la cuisson « non geree ».
   craft/iron-pickaxe attend maintenant la pioche (cible 1, plafond 480 s :
   chaine bois -> pierre -> fer -> four -> cuisson), toujours informatif.
+  Banc 66d7caf (73/84) : iron-pickaxe arrive a 2/3 fer (bois, etabli,
+  pioches bois et pierre faits) puis erre : `harvestResource` prend la
+  premiere recolte du plan dont la matiere est EN VUE (pierre du four) au lieu
+  de la premiere tout court (fer invisible). follow/straight : l ancienne
+  mission (pose de bloc) finissait 9 s apres le stop, suivi lance trop tard
+  => `build.moveTo`/`walkStep`/`placeOne`/`placeDoor` prennent le `signal`
+  de la mission. build/windows : plan libre 5x5x3 (une case d air sous le
+  toit), bot coince dessous, 60/61 => `compileBlueprint` refuse toute case
+  d air unique entre deux blocs a l interieur (piege a bot).
 - Action `explorer` (PR #40, fusionnee : far-tree 38 s avec, 61 s sans) : la
   matiere visee hors de vue est cherchee par le code, en spirale autour du
   point de depart : huit caps, point debout rejoignable le plus lointain du

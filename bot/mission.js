@@ -871,10 +871,28 @@ function createMissionRunner (host, injected = {}) {
   // Matiere a recolter maintenant : en fabrication, celle de la premiere
   // recolte du plan (bois, puis pierre pour une pioche en pierre) ; sinon la
   // matiere du brief.
+  // Premiere recolte du plan dont la matiere est EN VUE ; sinon la premiere.
+  // Sans ce choix, un plan « 3 fer puis 7 pierre » restait sur le fer invisible
+  // alors que la pierre du four etait a cote (craft/iron-pickaxe 66d7caf :
+  // 2/3 fer, puis errance jusqu au plafond). Memorise 1 s (appel frequent).
+  let harvestMemo = null
   function harvestResource () {
     if (!mission) return null
-    const step = acquisition()?.etapes.find(s => s.op === 'recolter' && s.matiere)
-    return step ? step.matiere : mission.resource
+    const etapes = acquisition()?.etapes?.filter(s => s.op === 'recolter' && s.matiere) ?? []
+    if (etapes.length === 0) return mission.resource
+    if (etapes.length === 1) return etapes[0].matiere
+    const cle = etapes.map(s => s.matiere).join('|')
+    if (harvestMemo && harvestMemo.mission === mission && harvestMemo.cle === cle && Date.now() - harvestMemo.at < 1000) {
+      return harvestMemo.valeur
+    }
+    let valeur = etapes[0].matiere
+    for (const s of etapes) {
+      let vu = null
+      try { vu = findTargetBlock(s.matiere, { anyHeight: true }) } catch (_) { vu = null }
+      if (vu) { valeur = s.matiere; break }
+    }
+    harvestMemo = { mission, cle, valeur, at: Date.now() }
+    return valeur
   }
 
   // Le meilleur bloc de la matiere visee a travailler : ni le bloc qui porte le
@@ -4337,6 +4355,7 @@ function createMissionRunner (host, injected = {}) {
             build.placeOne(bot, entry.position, material, {
               accept: mission.buildMatch,
               sol: mission.plan?.origin?.y ?? null,
+              signal: mission.navigationAbort.signal,
               move: async stand => (await host.navigateToPosition(stand, {
                 signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.35, timeoutMs: 5000
               }))?.reached === true
@@ -4403,6 +4422,7 @@ function createMissionRunner (host, injected = {}) {
 
       try {
         await build.placeDoor(host.getBot(), mission.plan, item, {
+          signal: mission.navigationAbort.signal,
           move: async stand => (await host.navigateToPosition(stand, {
             signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.6, timeoutMs: 15000, distanceBudget: 48
           }))?.reached === true
