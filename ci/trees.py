@@ -512,6 +512,17 @@ def base_levels():
             'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
             'logs': _logs(*trunk3),
             'rules': {},
+        },
+        # Arbre hors du rayon de recherche (32) : sans explorer, le bot pivote
+        # et avance a l aveugle (variantes du banc de la PR #38). Informatif
+        # jusqu a trois bancs reussis d affilee.
+        {
+            'name': 'terrain/far-tree',
+            'about': 'Arbre au coin oppose de l arene, a ~43 blocs du depart, hors du rayon de recherche : il faut le chercher.',
+            'start': (2.5, 200, 2.5), 'informative': True, 'variants': [sans('explorer')],
+            'leaves': [(31, 203, 31, 35, 204, 35)],
+            'logs': _logs(*[(33, 200 + i, 33) for i in range(3)]),
+            'rules': {},
         },        # Tour 4 : chaines de prerequis calculees par le code (acquire-plan.js).
         # Rien en poche : il faut trouver seul la chaine bois -> outil -> pierre.
         {
@@ -1502,7 +1513,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # NEW_LEVEL_S (started early: unknown levels are often the long ones).
 EXPECTED_S = {
     'composite/cabin-from-scratch': 900,
-    'trees/tall': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'terrain/plateau': 82,
+    'trees/tall': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
     'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,
     'chat/question-keeps-mission': 27, 'chat/stop-tree': 27, 'join/tall-cliff': 26, 'terrain/dirt-wall': 25,
