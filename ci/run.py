@@ -62,6 +62,44 @@ def failure_kind(test):
     return 'bot'
 
 
+def kpi_summary(tests):
+    """Taux d actions en echec et blocages annonces (demande du proprietaire,
+    2026-09-27), par famille de niveaux et au total : suivis d un banc a l autre."""
+    fam = {}
+    for t in tests:
+        k = t.get('kpi')
+        if not k or t.get('informative'):
+            continue
+        f = fam.setdefault(t['test'].split('/')[0], {'etapes': 0, 'echecs': 0, 'blocages': 0, 'reflexions': 0, 'niveaux': 0})
+        f['niveaux'] += 1
+        for key in ('etapes', 'echecs', 'blocages', 'reflexions'):
+            f[key] += k.get(key) or 0
+    total = {key: sum(f[key] for f in fam.values()) for key in ('etapes', 'echecs', 'blocages', 'reflexions', 'niveaux')}
+    for f in list(fam.values()) + [total]:
+        f['tauxEchec'] = round(f['echecs'] / f['etapes'], 3) if f['etapes'] else None
+    return {'total': total, 'familles': fam}
+
+
+def kpi_lines(report):
+    k = report.get('kpi') or {}
+    t = k.get('total')
+    if not t or not t.get('etapes'):
+        return []
+    lines = ['', f"KPI (niveaux bloquants) : {t['echecs']}/{t['etapes']} actions en echec "
+                 f"({round(100 * (t['tauxEchec'] or 0), 1)} %), {t['blocages']} blocage(s), {t['reflexions']} reflexion(s)"]
+    for name, f in sorted(k['familles'].items()):
+        lines.append(f"- {name} : {round(100 * (f['tauxEchec'] or 0), 1)} % d echecs ({f['echecs']}/{f['etapes']}), "
+                     f"{f['blocages']} blocage(s)")
+    blocs = [(t2['test'], b) for t2 in report['tests'] for b in (t2.get('blocages') or [])]
+    if blocs:
+        lines += ['', 'Blocages annonces (a analyser) :']
+        for name, b in blocs[:40]:
+            last = b.get('derniere_action') or {}
+            lines.append(f"- {name} a {b.get('secondes')} s : {b.get('raison')}"
+                         + (f" ; {last.get('action')} : {last.get('resultat')}" if last else ''))
+    return lines
+
+
 def classify_failures(report):
     failed = [t for t in report['tests'] if not t.get('success')]
     for t in failed:
@@ -750,6 +788,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         # they never gate: only the levels as written decide PASS/FAIL.
         report['success'] = bool(report['tests']) and all(t['success'] or t.get('informative') for t in report['tests']) and not report['errors']
         report['comparisons'] = compare_variants(report['tests'])
+        report['kpi'] = kpi_summary(report['tests'])
         report['finishedAt'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         (output / 'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         # Convenience copy, deliberately ignored by Git; artifacts retain per-run files.
@@ -774,6 +813,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                              *(['', 'Comparaisons A/B (niveau tel quel -> variante) :'] + [
                                  f"- {c['level']} vs {c['variant']} : {c['base']} -> {c['other']}"
                                  for c in report['comparisons']] if report.get('comparisons') else []),
+                             *kpi_lines(report),
                              *([f"Planificateur : {report['plannerSummary']}"] if report.get('plannerSummary') else []),
                              *([f"Pool : mode {report['pool']['mode']}, {report['pool']['maxActive']} workers au plus, "
                                 f"{report['pool']['workersStarted']} lances, morts {report['pool']['dead'] or 'aucun'}, "

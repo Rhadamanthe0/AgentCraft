@@ -48,6 +48,30 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   Le bot cherche d abord une grotte ; s il galere, il creuse en ESCALIER
   (jamais un puits vertical). Difficulte paisible pour l instant.
 
+## Reflexion de fond, blocages et KPI (2026-09-27, decisions du proprietaire)
+
+- `demander_aide` et `reviser_actions` sont RETIRES (et `bot/repair.js`) : ils
+  reecrivaient la doc des actions (souvent `appuyer`), relancaient la mission
+  et invalidaient le prompt en cache, sans benefice mesure (~20 appels/banc).
+- Blocage (`detectStuck`) : le bot dit son probleme dans le chat (« Bloqué :
+  cause (action : resultat) ») et journalise `[blocage] {json}` (objectif,
+  cause, derniere action en echec, 4 dernieres etapes, position). Chaque niveau
+  garde ses blocages (`result.blocages`), le resume CI les liste : a ANALYSER
+  a chaque banc.
+- Reflexion de fond (`planner.strategize`, usage BRIEF, `featureOn('strategie')`) :
+  chaine critique de la mission (etapes, detail, statut, diagnostic, conseil),
+  calculee au depart puis revue au plus une fois par minute apres la fin de la
+  precedente (`MISSION_REFLECTION_EVERY_MS`), tout de suite sur blocage, sans
+  jamais interrompre l action. Servie a chaque tour (`plan_de_mission`) ; le
+  prompt d action planifie vers le but. A/B : `composite/cabin-from-scratch
+  ~sans-strategie`.
+- Besoins totaux d un chantier calcules par le code (`state.besoins` :
+  blocs restants, en poche, planches, porte, etabli, buches a recolter d un
+  coup) : le bot faisait ~8 allers-retours arbre/chantier par cabane.
+- KPI suivis d un banc a l autre (`result.kpi`, `report.kpi`, resume) : taux
+  d actions en echec et nombre de blocages, par famille ; a faire baisser.
+- Pas de double appel au modele (refuse : sur-ingenierie).
+
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
 - Banc CI `trees` (`ci/trees.py`, docs/remote-minecraft-tests.md) : quatre

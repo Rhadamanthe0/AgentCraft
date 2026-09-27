@@ -63,9 +63,7 @@ const ACTIONS = {
   choisir_terrain: 'Je cherche un terrain…',
   piler: 'Je monte…',
   sortir: 'Je me dégage…',
-  attendre: 'J attends.',
-  demander_aide: 'Bloqué, je cherche autrement…',
-  reviser_actions: 'Je revois mes méthodes…'
+  attendre: 'J attends.'
 }
 
 module.exports = { createActivityReporter, SUBGOALS, ACTIONS }

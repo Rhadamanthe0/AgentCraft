@@ -118,7 +118,7 @@ async function briefOnly (spec) {
 }
 
 // Intelligence (demande du proprietaire, 2026-09-27) : reflexion (lecture
-// d objectif) et deblocage (demander_aide) notes sur des cas a reponse connue,
+// d objectif) et reflexion de fond (chaine critique) notes sur des cas connus,
 // modele:effort par modele:effort (CI_PROBE_SMART). Un point par critere tenu.
 // Tranche le 2026-09-27 (d1983b2) : deepseek-v4.1-flash high 25/27 et 4/4,
 // muse high 23/27 et 4/4, 4-5x plus lent. Vide par defaut (la sonde muse
@@ -143,24 +143,18 @@ function fab (raw) {
   const skills = require(path.join(__dirname, '..', 'bot', 'skills'))
   return raw ? skills.normalizeFabricationTarget(raw) : null
 }
-// Impasses vues au banc : l aide doit documenter une action qui en sort.
-const REPAIR_CASES = [
-  { probleme: 'casser echoue 3 fois : bloc trop loin (4.6 blocs), il faut d abord avancer', kind: 'recolte',
-    etat: { consigne: { objectif: 'coupe moi un arbre' }, environnement: { bloc_cible: { nom: 'oak_log', distance: 4.6, a_portee: false } } },
-    historique: [{ action: 'casser', resultat: 'bloc trop loin (4.6 blocs)' }, { action: 'casser', resultat: 'bloc trop loin (4.6 blocs)' }, { action: 'casser', resultat: 'bloc trop loin (4.6 blocs)' }],
-    good: ['avancer'] },
-  { probleme: 'buche la plus basse a +5 au-dessus des pieds, casser refuse : trop haut', kind: 'recolte',
-    etat: { consigne: { objectif: 'coupe moi un arbre' }, inventaire: { dirt: 6 }, environnement: { bloc_cible: { nom: 'oak_log', hauteur_relative: 5, a_portee: false } } },
-    historique: [{ action: 'casser', resultat: 'bloc trop haut (+5)' }, { action: 'avancer', resultat: 'deja au pied de l arbre' }, { action: 'casser', resultat: 'bloc trop haut (+5)' }],
-    good: ['piler'] },
-  { probleme: 'fabriquer echoue : ingredients manquants (buche) ; regarder_autour ne voit aucun arbre', kind: 'recolte',
-    etat: { consigne: { objectif: 'fabrique une hache en bois' }, inventaire: { oak_planks: 1 }, environnement: { bloc_cible: null } },
-    historique: [{ action: 'fabriquer', resultat: 'ingredients manquants : buche x1' }, { action: 'regarder_autour', resultat: 'nord : rien | ouest : rien | sud : rien | est : rien' }, { action: 'fabriquer', resultat: 'ingredients manquants : buche x1' }],
-    good: ['pivoter', 'avancer', 'regarder_autour', 'appuyer'] },
-  { probleme: 'avancer bloque apres 0 bloc : obstacle trop haut (mur de 2 blocs devant)', kind: 'recolte',
-    etat: { consigne: { objectif: 'coupe moi un arbre' }, environnement: { navigation: { angle: 0, distance_horizontale: 9 } } },
-    historique: [{ action: 'avancer', resultat: 'bloque apres 0.0 bloc : obstacle trop haut' }, { action: 'avancer', resultat: 'bloque apres 0.0 bloc : obstacle trop haut' }, { action: 'avancer', resultat: 'bloque apres 0.0 bloc : obstacle trop haut' }],
-    good: ['pivoter', 'appuyer', 'piler', 'casser'] }
+// Impasses vues au banc : la reflexion de fond doit changer de moyen dans sa
+// chaine (une etape en_cours qui cite l une des actions attendues).
+const STRATEGY_CASES = [
+  { raison: 'blocage', consigne: 'coupe moi un arbre', blocage: { detecte: true, raison: '3 action(s) en echec d affilee' },
+    dernieres_etapes: [{ action: 'casser', resultat: 'bloc trop loin (4.6 blocs)', echec: true }, { action: 'casser', resultat: 'bloc trop loin (4.6 blocs)', echec: true }],
+    good: /avanc|approch|rapproch/ },
+  { raison: 'blocage', consigne: 'coupe moi un arbre', inventaire: { dirt: 6 }, blocage: { detecte: true, raison: 'aucun progres' },
+    dernieres_etapes: [{ action: 'casser', resultat: 'bloc trop haut (+5)', echec: true }, { action: 'avancer', resultat: 'deja au pied de l arbre' }],
+    good: /pil|mont|terre/ },
+  { raison: 'depart', consigne: 'Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte',
+    besoins: { blocs_restants: 54, en_poche: 0, porte_a_fabriquer: true, etabli_a_fabriquer: true, planches_a_fabriquer: 64, buches_a_recolter: 16 },
+    good: /16|buche|bois/ }
 ]
 
 async function smartOnly (spec) {
@@ -168,12 +162,10 @@ async function smartOnly (spec) {
   const [model, effort] = spec.split(':')
   Object.assign(process.env, {
     PLANNER_MODEL: model, PLANNER_MODEL_BRIEF: model, PLANNER_REASONING_EFFORT_BRIEF: effort || '',
-    PLANNER_MODEL_REPAIR: model, PLANNER_REASONING_EFFORT_REPAIR: effort || '',
-    PLANNER_TIMEOUT_MS_BRIEF: '60000', PLANNER_TIMEOUT_MS_REPAIR: '90000', PLANNER_WARMUP_TIMEOUT_MS: '60000',
+    PLANNER_TIMEOUT_MS_BRIEF: '60000', PLANNER_WARMUP_TIMEOUT_MS: '60000',
     BOT_USERNAME: 'ProbeSmart', PLANNER_KEY_FIRST: process.env.OPENCODE_SECONDARY_API_KEY ? 'secondary' : 'primary'
   })
   const planner = require(path.join(__dirname, '..', 'bot', 'planner'))
-  const repair = require(path.join(__dirname, '..', 'bot', 'repair'))
   const brief = []
   let points = 0
   let total = 0
@@ -192,18 +184,21 @@ async function smartOnly (spec) {
   }
   const help = []
   let helpOk = 0
-  for (const c of REPAIR_CASES) {
+  for (const c of STRATEGY_CASES) {
     const t = Date.now()
-    const r = await repair.askForAction({ probleme: c.probleme, kind: c.kind, supply: 'harvest', etat: c.etat, historique: c.historique })
-    const good = Boolean(r.ok && c.good.includes(r.operation?.action) && r.operation?.quand)
+    const { good: attendu, ...contexte } = c
+    let r = null
+    let error = null
+    try { r = await planner.strategize(contexte) } catch (err) { error = String(err?.message ?? err).slice(0, 120) }
+    const enCours = r?.chaine?.find(e => e.statut === 'en_cours') ?? r?.chaine?.[0]
+    const good = Boolean(enCours && attendu.test(`${enCours.etape} ${enCours.detail}`.toLowerCase()))
     helpOk += good ? 1 : 0
-    help.push({ probleme: c.probleme.slice(0, 60), ms: Date.now() - t, ok: r.ok, action: r.operation?.action ?? null,
-      good, attendu: c.good, quand: String(r.operation?.quand ?? r.error ?? '').slice(0, 160) })
+    help.push({ cas: c.consigne.slice(0, 40), raison: c.raison, ms: Date.now() - t, good, error, en_cours: enCours ?? null })
   }
   const med = a => { const v = [...a].sort((x, y) => x - y); return v[Math.floor(v.length / 2)] }
   return { smartProbe: spec, briefScore: `${points}/${total}`, briefMedianMs: med(brief.map(x => x.ms)),
-    briefMaxMs: Math.max(...brief.map(x => x.ms)), repairScore: `${helpOk}/${REPAIR_CASES.length}`,
-    repairMedianMs: med(help.map(x => x.ms)), brief, help }
+    briefMaxMs: Math.max(...brief.map(x => x.ms)), strategyScore: `${helpOk}/${STRATEGY_CASES.length}`,
+    strategyMedianMs: med(help.map(x => x.ms)), brief, help }
 }
 
 function summarize (r) {

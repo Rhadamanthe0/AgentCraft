@@ -11,7 +11,6 @@ const skills = require('./skills')
 const craft = require('./craft')
 const planner = require('./planner')
 const memory = require('./memory')
-const repair = require('./repair')
 const { createMissionRunner } = require('./mission')
 const { createNavigator } = require('./navigation')
 const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText, parseArbitrationChoice } = require('./conversation')
@@ -1568,11 +1567,6 @@ app.get('/api/status', (req, res) => {
     // cle de cache a la couche 3 du prompt. Les champs historiques
     // `jetons_utilises` / `jetons_max` / `jetons_restants` restent servis.
     memory: memory.snapshot(),
-    // Auto-reparation : actif seulement si une cle distante est fournie. Sans
-    // elle, `demander_aide` est refuse et le dit, la mission continue.
-    repair: repair.isEnabled()
-      ? { base: repair.BASE_URL, model: repair.MODEL, maxParMission: repair.MAX_PER_MISSION, ...repair.stats }
-      : { actif: false, raison: repair.why() },
     lastIntent,
     recentChat,
     missionRunning: missionRunner.isRunning(),

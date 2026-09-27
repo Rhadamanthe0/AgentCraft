@@ -26,7 +26,6 @@ const delivery = require('./delivery')
 const Vec3 = require('vec3').Vec3
 const planner = require('./planner')
 const memory = require('./memory')
-const repair = require('./repair')
 const screenshot = require('./screenshot')
 const { blockInReach, clearSegment, itemInPickupRange } = require('./navigation')
 
@@ -293,6 +292,9 @@ function resolveFabricationCible (bot, raw) {
 // qui compte ici est mesure par avancement : blocs casses, objets recoltes,
 // blocs poses d un chantier.
 const NO_PROGRESS_STEPS = Number(process.env.MISSION_NO_PROGRESS_STEPS || 8)
+// Reflexion de fond : au plus une revue par minute apres la fin de la
+// precedente (demande du proprietaire), ou tout de suite sur blocage.
+const REFLECTION_EVERY_MS = Number(process.env.MISSION_REFLECTION_EVERY_MS || 60000)
 
 // Bornes des actions parametrees. L ampleur renvoyee par Jev (0 a 1) est
 // interpolee entre ces valeurs.
@@ -1878,6 +1880,52 @@ function createMissionRunner (host, injected = {}) {
 
   // Avancement du chantier, relu dans le monde plutot que compte a l aveugle :
   // un bloc pose puis casse doit redevenir « a faire ».
+  // Besoins TOTAUX d un chantier en survie, calcules par le code (le modele ne
+  // compte pas) : ce qui reste a poser, en poche, a fabriquer et a recolter,
+  // porte et etabli compris. Sans eux, le bot coupait 1 a 3 buches, posait 10
+  // a 16 blocs et recommencait (~8 allers-retours arbre/chantier par cabane,
+  // revue de performance du 2026-09-27). Avant le choix du terrain, le total
+  // est celui de la boite aux dimensions lues.
+  function besoinsConstruction (progress, stock) {
+    const bot = host.getBot()
+    if (!bot?.inventory || !mission) return null
+    const d = mission.dimensions ?? {}
+    const w = d.width ?? 0; const dp = d.depth ?? 0; const h = d.height ?? 0
+    const boite = w && dp && h ? w * dp * 2 + Math.max(0, 2 * (w + dp) - 4) * Math.max(0, h - 2) - (mission.wantsDoor ? 2 : 0) : null
+    const restants = mission.plan ? progress.left : boite
+    if (restants === null) return null
+    const aPoser = Math.max(0, restants - stock)
+    const porteManquante = Boolean(mission.wantsDoor) && !doorPlaced() && !doorItem()
+    const items = bot.inventory.items()
+    const compte = re => items.filter(i => re.test(i.name)).reduce((n, i) => n + i.count, 0)
+    const planches = /planks/.test(String(mission.buildMatch))
+    const besoins = { blocs_restants: restants, en_poche: stock, a_obtenir: aPoser, porte_a_fabriquer: porteManquante }
+    if (planches || porteManquante) {
+      const now = Date.now()
+      if (!mission.tableSeen || now - mission.tableSeen.at > 2000) {
+        let proche = false
+        try { proche = Boolean(craft.placedTable(bot)) } catch (_) {}
+        mission.tableSeen = { at: now, proche }
+      }
+      const etabli = porteManquante && !mission.tableSeen.proche && compte(/^crafting_table$/) === 0
+      const planchesPoche = planches ? 0 : compte(/_planks$/)
+      const planchesAFaire = Math.max(0, (planches ? aPoser : 0) + (porteManquante ? 6 : 0) + (etabli ? 4 : 0) - planchesPoche)
+      const buches = compte(/_(log|stem)$/)
+      besoins.etabli_a_fabriquer = etabli
+      besoins.planches_a_fabriquer = planchesAFaire
+      besoins.buches_en_poche = buches
+      besoins.buches_a_recolter = Math.max(0, Math.ceil(planchesAFaire / 4) - buches)
+      besoins.resume = besoins.buches_a_recolter > 0
+        ? `recolter ${besoins.buches_a_recolter} buche(s) d un coup, puis ${planchesAFaire} planches${etabli ? ', etabli' : ''}${porteManquante ? ', porte' : ''}, puis poser ${restants} bloc(s)`
+        : planchesAFaire > 0
+          ? `fabriquer ${planchesAFaire} planches${etabli ? ', etabli' : ''}${porteManquante ? ', porte' : ''}, puis poser ${restants} bloc(s)`
+          : `poser ${restants} bloc(s)${porteManquante ? ', fabriquer puis poser la porte' : ''}`
+    } else {
+      besoins.resume = aPoser > 0 ? `obtenir ${aPoser} bloc(s) de ${mission.resource}, puis poser ${restants} bloc(s)` : `poser ${restants} bloc(s)`
+    }
+    return besoins
+  }
+
   function buildProgress () {
     if (!mission?.plan) return { total: 0, done: 0, left: 0 }
 
@@ -2408,9 +2456,7 @@ function createMissionRunner (host, injected = {}) {
         chat_recent: host.recentChat ? host.recentChat() : [],
         blocage: {
           detecte: mission.pendingJoin || detectStuck().detecte,
-          raison: mission.pendingJoin ? 'demandeur non rejoint' : detectStuck().raison,
-          reparations_restantes: 0,
-          reparateur_disponible: repair.isEnabled()
+          raison: mission.pendingJoin ? 'demandeur non rejoint' : detectStuck().raison
         }
       }
     }
@@ -2663,6 +2709,8 @@ function createMissionRunner (host, injected = {}) {
         // « fabriquer » plutot que « construire ».
         state.chantier.materiau_manquant = Math.max(0, progress.left - stock)
         state.chantier.porte_en_inventaire = state.inventaire?.porte_en_inventaire ?? 0
+        const besoins = besoinsConstruction(progress, stock)
+        if (besoins) state.besoins = besoins
       }
     }
 
@@ -2678,15 +2726,9 @@ function createMissionRunner (host, injected = {}) {
     mission.stuck = stuck.detecte
     mission.stuckWhy = stuck.raison
 
-    // Ce que le modele voit du blocage. Sans ces trois champs il ne peut pas
-    // decider d appeler `demander_aide` au bon moment — et le code refuserait
-    // l appel de toute facon si `detecte` etait faux.
-    state.blocage = {
-      detecte: stuck.detecte,
-      raison: stuck.raison,
-      reparations_restantes: Math.max(0, repair.MAX_PER_MISSION - mission.repairs),
-      reparateur_disponible: repair.isEnabled()
-    }
+    // Ce que le modele voit du blocage : l impasse mesuree et sa cause. Le code
+    // l annonce au joueur et relance la reflexion (plan_de_mission).
+    state.blocage = { detecte: stuck.detecte, raison: stuck.raison }
 
     // Le joueur qui a donne la consigne. Sert de deux facons au planificateur :
     // repondre juste a « tu me vois ? », et savoir vers qui aller. La position
@@ -4459,145 +4501,92 @@ function createMissionRunner (host, injected = {}) {
           ? 'memoire entierement effacee'
           : `memoire ${result.portee} effacee`
       }
-    },
-
-    // Auto-reparation : decrire l impasse a une aide distante, recevoir une
-    // operation sur la documentation d une action native, puis relancer la
-    // mission. Le refus quand le detecteur n a rien vu est le coeur du
-    // garde-fou : le modele ne peut pas appeler une API payante a chaque tour
-    // sous pretexte qu il s ennuie.
-    async demander_aide () {
-      if (!repair.isEnabled()) {
-        return { resultat: `aucun reparateur distant (${repair.why()})`, echec: true }
-      }
-      if (!mission.stuck) {
-        return { resultat: 'aucun blocage detecte : demander_aide est inutile', echec: true }
-      }
-      if (mission.repairs >= repair.MAX_PER_MISSION) {
-        return { resultat: `budget de ${repair.MAX_PER_MISSION} reparation(s) epuise`, echec: true }
-      }
-
-      const bot = host.getBot()
-      const block = findTargetBlock()
-      const etat = {
-        position: {
-          x: Number(bot.entity.position.x.toFixed(1)),
-          y: Number(bot.entity.position.y.toFixed(1)),
-          z: Number(bot.entity.position.z.toFixed(1))
-        },
-        dans_liquide: host.inLiquid(),
-        bloc_cible_en_vue: block ? block.name : null,
-        inventaire: mission.supply === 'harvest' ? stocks() : null
-      }
-
-      mission.activity?.update('help', activity.ACTIONS.demander_aide, 'important')
-      const result = await repair.askForAction({
-        signal: mission.navigationAbort.signal,
-        probleme: mission.stuckWhy,
-        kind: mission.kind,
-        supply: mission.supply,
-        etat,
-        historique: mission.history.slice(-6)
-      })
-
-      if (!result.ok) {
-        return { resultat: `reparation impossible : ${result.error}`, echec: true }
-      }
-
-      const applied = applyDocOperation(result.operation)
-      if (!applied.ok) {
-        return { resultat: `reparation impossible : ${applied.texte}`, echec: true }
-      }
-
-      mission.repairs += 1
-      mission.restartAfterAction = true
-      mission.activity?.update('replanning', 'Nouvelle approche, j essaie.', 'important')
-
-      console.log(
-        `[mission] reparation ${mission.repairs}/${repair.MAX_PER_MISSION} : ` +
-        `${applied.texte} pour ${result.diagnostic || mission.stuckWhy}`
-      )
-
-      return {
-        resultat: `aide obtenue de ${repair.MODEL} : ${applied.texte}, mission relancee`,
-        reparation: true
-      }
-    },
-
-    // La tache de fond : faire le point sur la documentation des actions. L aide
-    // distante propose des operations, chacune revalidee par skills.js — le code
-    // dispose, et rien ne peut ajouter d action executable.
-    async reviser_actions () {
-      if (!repair.isEnabled()) {
-        return { resultat: `aucun reparateur distant (${repair.why()})`, echec: true }
-      }
-      if (mission.revisions >= repair.MAX_REVISIONS) {
-        return { resultat: `budget de ${repair.MAX_REVISIONS} revision(s) epuise`, echec: true }
-      }
-
-      const bot = host.getBot()
-      mission.activity?.update('help', activity.ACTIONS.reviser_actions, 'important')
-      const result = await repair.reflect({
-        signal: mission.navigationAbort.signal,
-        kind: mission.kind,
-        supply: mission.supply,
-        probleme: mission.stuckWhy,
-        historique: mission.history.slice(-6),
-        etat: {
-          position: {
-            x: Number(bot.entity.position.x.toFixed(1)),
-            y: Number(bot.entity.position.y.toFixed(1)),
-            z: Number(bot.entity.position.z.toFixed(1))
-          },
-          dans_liquide: host.inLiquid(),
-          inventaire: mission.supply === 'harvest' ? stocks() : null
-        }
-      })
-
-      if (!result.ok) {
-        return { resultat: `reflexion impossible : ${result.error}`, echec: true }
-      }
-
-      mission.revisions += 1
-
-      // Chaque operation repasse par skills.documentAction / forgetActionDoc /
-      // mergeActionDocs : action inconnue, texte hors bornes ou operation mal
-      // formee est refusee, et jamais une action native n est creee ou supprimee.
-      const applied = []
-      let accepted = 0
-      for (const operation of result.operations) {
-        const outcome = applyDocOperation(operation)
-        if (outcome.ok) accepted++
-        applied.push(outcome.ok ? `+${operation.action ?? operation.cible}` : `${operation.action ?? operation.cible ?? '?'} refuse (${outcome.texte})`)
-      }
-      mission.activity?.update('replanning', accepted
-        ? 'J ai ajuste les conseils de mes actions ; je refais le point.'
-        : 'Cette revue n a pas apporte de nouveaux conseils utilisables.', 'important')
-
-      // La documentation a change (generation), donc le prompt systeme sera
-      // reconstruit : on repart sur une ardoise propre pour que la mission
-      // essaie les exemples enrichis.
-      if (accepted > 0) {
-        mission.failures = 0
-        mission.queue = []
-        abortPrefetch('documentation revisee')
-        mission.history = []
-      }
-
-      console.log(
-        `[mission] revision ${mission.revisions}/${repair.MAX_REVISIONS} : ` +
-        `${result.diagnostic || 'sans diagnostic'} -> ${applied.join(', ') || 'aucune operation'}` +
-        (result.rejected.length ? ` (rejete : ${result.rejected.join(', ')})` : '')
-      )
-
-      return {
-        resultat: `reflexion sur la documentation des actions : ` +
-          `${applied.join(', ') || 'rien a changer'}` +
-          (result.rejected.length ? `, rejete : ${result.rejected.join(', ')}` : ''),
-        revision: accepted > 0,
-        echec: result.operations.length > 0 && accepted === 0
-      }
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Blocages annonces et reflexion de fond (2026-09-27, demande du
+  // proprietaire : plus de demander_aide ; le bot dit son probleme, la
+  // reflexion met le plan a jour sans interrompre l action)
+  // -------------------------------------------------------------------------
+
+  // Le blocage se dit au joueur (chat court) et se journalise en une ligne
+  // `[blocage] {json}` pour l analyse a posteriori de chaque banc CI.
+  function signalBlocage (raison) {
+    const derniere = [...mission.history].reverse().find(h => h.echec) ?? mission.history.at(-1) ?? null
+    const p = host.getBot()?.entity?.position
+    const entree = {
+      mission: mission.id,
+      objectif: mission.objective,
+      type: mission.kind,
+      etape: mission.steps,
+      secondes: Math.round(activeDurationMs() / 1000),
+      raison,
+      derniere_action: derniere ? { action: derniere.action, resultat: String(derniere.resultat ?? '').slice(0, 200) } : null,
+      historique: mission.history.slice(-4).map(h => `${h.action}${h.echec ? ' (echec)' : ''} : ${String(h.resultat ?? '').slice(0, 90)}`),
+      position: p ? { x: Number(p.x.toFixed(1)), y: Number(p.y.toFixed(1)), z: Number(p.z.toFixed(1)) } : null
+    }
+    mission.blocages = (mission.blocages ?? []).concat(entree).slice(-20)
+    console.log(`[blocage] ${JSON.stringify(entree)}`)
+    const cause = derniere?.echec ? ` (${derniere.action} : ${String(derniere.resultat ?? '').slice(0, 70)})` : ''
+    announce(`Bloqué : ${raison}${cause}`)
+  }
+
+  // Ce que la reflexion lit : l etat du tour (besoins et prerequis calcules par
+  // le code), les echecs comptes par action, le temps, et sa chaine precedente.
+  function reflectionContext (raison) {
+    // Lecture sans effet : buildState consomme les notes a usage unique.
+    const etat = snapshotForPrefetch()
+    const echecs = {}
+    Object.assign(echecs, mission.echecsParAction ?? {})
+    return {
+      raison_de_la_revue: raison,
+      consigne: etat.consigne ?? mission.objective,
+      besoins: etat.besoins ?? null,
+      prerequis: etat.environnement?.prerequis ?? null,
+      inventaire: etat.inventaire ?? null,
+      progression: etat.progression ?? null,
+      chantier: etat.chantier ?? null,
+      blocage: etat.blocage ?? null,
+      echecs: { total: mission.echecs ?? 0, etapes: mission.steps, par_action: echecs },
+      dernieres_etapes: mission.history.slice(-6),
+      temps: {
+        ecoule_s: Math.round(activeDurationMs() / 1000),
+        restant_s: Math.max(0, Math.round((MAX_DURATION_MS - activeDurationMs()) / 1000))
+      },
+      chaine_precedente: mission.strategie?.chaine ?? null
+    }
+  }
+
+  // Au plus une reflexion en vol ; la suivante au plus tot REFLECTION_EVERY_MS
+  // apres la fin de la precedente, sauf sur blocage. Jamais en `geste`. Le
+  // resultat d une mission remplacee ou arretee est jete.
+  function startReflection (raison) {
+    if (!mission || mission.kind === 'geste' || !featureOn('strategie') || !planner.isEnabled()) return
+    if (mission.reflexionEnVol) return
+    const now = Date.now()
+    if (raison !== 'blocage' && mission.reflexionFinie && now - mission.reflexionFinie < REFLECTION_EVERY_MS) return
+    let contexte
+    try { contexte = reflectionContext(raison) } catch (err) {
+      console.error(`[reflexion] etat illisible : ${err.message}`)
+      return
+    }
+    const myMission = mission
+    const started = now
+    myMission.reflexionEnVol = true
+    planner.strategize(contexte).then(result => {
+      if (mission !== myMission || myMission.cancelled || !result) return
+      myMission.strategie = { ...result, maj_s: Math.round(activeDurationMs() / 1000), raison }
+      myMission.reflexions = (myMission.reflexions ?? 0) + 1
+      const enCours = result.chaine.find(e => e.statut === 'en_cours')
+      console.log(`[reflexion] ${raison} en ${Date.now() - started} ms : ${result.chaine.map(e => `${e.statut === 'fait' ? '[x]' : e.statut === 'en_cours' ? '[>]' : '[ ]'} ${e.etape}`).join(' ; ')}` +
+        (result.diagnostic ? ` | diagnostic : ${result.diagnostic}` : '') + (enCours ? '' : ' | aucune etape en cours'))
+    }).catch(err => {
+      if (mission === myMission && !myMission.cancelled) console.error(`[reflexion] ${raison} : ${err.message}`)
+    }).finally(() => {
+      myMission.reflexionEnVol = false
+      myMission.reflexionFinie = Date.now()
+    })
   }
 
   // -------------------------------------------------------------------------
@@ -5120,10 +5109,13 @@ function createMissionRunner (host, injected = {}) {
       // se rearme des que le bot re-progresse, pour pouvoir le redire plus tard.
       if (state.blocage?.detecte && !mission.stuckAnnounced) {
         mission.stuckAnnounced = true
-        announce(`Bloqué : ${state.blocage.raison}`)
+        signalBlocage(state.blocage.raison)
+        startReflection('blocage')
       } else if (!state.blocage?.detecte) {
         mission.stuckAnnounced = false
       }
+      startReflection('periodique')
+      if (mission.strategie) state.plan_de_mission = mission.strategie
 
       try {
         decision = await decide(state)
@@ -5286,6 +5278,11 @@ function createMissionRunner (host, injected = {}) {
       if (!isRunning() || mission.cancelled || mission !== myMission || myMission.navigationAbort !== controller) return
 
       mission.steps += 1
+      if (outcome.echec) {
+        mission.echecs = (mission.echecs ?? 0) + 1
+        mission.echecsParAction = mission.echecsParAction ?? {}
+        mission.echecsParAction[decision.step] = (mission.echecsParAction[decision.step] ?? 0) + 1
+      }
       mission.history.push({ action: decision.step, resultat: outcome.resultat, code: outcome.code ?? null, echec: Boolean(outcome.echec) })
       if (mission.history.length > 8) mission.history.shift()
       reportProgressSafe()
@@ -5352,23 +5349,6 @@ function createMissionRunner (host, injected = {}) {
           finish('done', livrer ? 'arbre entier coupe, bois rapporte au demandeur' : 'arbre entier coupe et ramasse')
           return
         }
-      }
-
-      // Une aide obtenue enrichit la documentation des actions : la generation
-      // a bouge, donc le prompt systeme est reconstruit. On repart d une
-      // ardoise propre plutot que de trainer l historique et les echecs qui ont
-      // mene au blocage.
-      if (outcome.reparation && mission.restartAfterAction) {
-        mission.restartAfterAction = false
-        mission.failures = 0
-        mission.finishRefused = 0
-        mission.history = []
-        mission.queue = []
-        abortPrefetch('mission relancee apres reparation')
-        mission.stuck = false
-        mission.lastProgress = progressFingerprint()
-        mission.lastProgressStep = mission.steps
-        console.log(`[mission] mission relancee apres ${mission.repairs} reparation(s)`)
       }
 
       // C est le modele qui decide quand la mission est finie : `terminer` la
@@ -6284,14 +6264,14 @@ function createMissionRunner (host, injected = {}) {
         annules: mission.prefetchAnnules,
         en_vol: Boolean(mission.prefetch)
       },
-      blocage: {
-        detecte: mission.stuck,
-        raison: mission.stuckWhy,
-        reparations: mission.repairs,
-        reparations_max: repair.MAX_PER_MISSION,
-        revisions: mission.revisions,
-        revisions_max: repair.MAX_REVISIONS
-      }
+      blocage: { detecte: mission.stuck, raison: mission.stuckWhy },
+      // Indicateurs suivis d un banc a l autre (demande du proprietaire) : part
+      // d actions en echec, blocages annonces (cause, derniers resultats), et
+      // la chaine critique tenue par la reflexion de fond.
+      etapes_en_echec: mission.echecs ?? 0,
+      blocages: mission.blocages ?? [],
+      reflexions: mission.reflexions ?? 0,
+      plan_de_mission: mission.strategie ?? null
     }
 
     if (mission.kind === 'construction') {
