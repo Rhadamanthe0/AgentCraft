@@ -1,7 +1,11 @@
 'use strict'
 
-// Verbes de don / livraison au joueur (demande explicite requise).
+// Exigences que le modele de chat ajoutait sans que le joueur les demande
+// (reprises de la mission precedente) : don / livraison, porte. Chacune exige
+// son mot dans le message du joueur.
 const DELIVERY = /\b(?:remet\w*|remett\w*|donn\w*|livr\w*|apport\w*|rapport\w*|ram[eè]n\w*|fil(?:e|es|er)\b|passe[-\s]moi|au joueur)/i
+const DOOR = /\bportes?\b/i
+const UNASKED = [['don', DELIVERY], ['porte', DOOR]]
 
 // Le chat est un flux d intentions, pas une deuxieme file de touches.
 // Une reponse distante obsolete ne peut ni parler ni modifier une mission.
@@ -204,8 +208,14 @@ function createConversation (host) {
       // Un don que le joueur n a pas demande n entre jamais dans l objectif :
       // « Fabrique une porte » relu « ... et la remettre au joueur » (vu en CI,
       // craft/door ffda434 : 3 portes puis boucle sur un don sans quantite).
-      if (decision.relation === 'new' && decision.objective && DELIVERY.test(decision.objective) && !DELIVERY.test(message)) {
-        console.log(`[chat] don non demande retire de l objectif : "${decision.objective}" -> "${message}"`)
+      // Idem pour une porte (build/no-materials bc5963d : « maison 3x3x3 » relue
+      // « ... avec une porte », reprise du niveau precedent ; murs finis puis
+      // recherche de bois jusqu au plafond).
+      const unasked = decision.relation === 'new' && decision.objective
+        ? UNASKED.filter(([, re]) => re.test(decision.objective) && !re.test(message)).map(([name]) => name)
+        : []
+      if (unasked.length) {
+        console.log(`[chat] ${unasked.join(' + ')} non demande(s) retire(s) de l objectif : "${decision.objective}" -> "${message}"`)
         decision = { ...decision, objective: message }
       }
       if (decision.relation === 'stop') {

@@ -382,6 +382,20 @@
   joueur » (intermittent depuis le 2026-09-26) ; `donner` sans quantite
   bouclait ensuite jusqu au plafond (craft/door ffda434). Seul un message du
   joueur avec un verbe de don (donne, rapporte, ramene, livre, file...) le garde.
+  Meme garde pour une porte (`UNASKED`) : build/no-materials (bc5963d) relu
+  « ... avec une porte » depuis le niveau precedent du meme bot.
+- Chat sans reponse du modele dans le delai (`interpretMessage`) : UN rejeu du
+  meme modele ; sinon « Modèle trop lent, répète ? » (et non « Pas compris »).
+  Vu sur c499481 (PR #22) : chat p95 19 s, deux ordres perdus (terrain/plateau,
+  chat/join-then-tree).
+- Reflexion (BRIEF) et deblocage (REPAIR) sur deepseek-v4.1-flash `high`
+  (2026-09-27, demande du proprietaire apres comparaison) : sonde
+  d intelligence (`ci/model-probe.js --smart`, 12 ordres notes + 4 impasses)
+  sur d1983b2 : DeepSeek 25/27 et 4/4, mediane 4,2 s / 8,7 s ; Muse high 23/27
+  (un delai de 60 s) et 4/4, 20 s / 39 s. Au banc, Muse high donnait p50 17 s,
+  p95 40-58 s et 2-3 lectures sans reponse en 60 s par banc (missions jamais
+  lancees, route/*). Delais : brief 30 s (+ un rejeu), aide 45 s. COMPACT reste
+  sur Muse (non comparee). Muse n est plus sur le chemin d un ordre du joueur.
 - Chat du bot en style court (demande du proprietaire : chat Minecraft petit et
   charge) : messages systeme raccourcis (« Reçu, je regarde… », « Compris. »,
   « Fini : raison. »), prompt du chat et doc de `dire` en quelques mots.
