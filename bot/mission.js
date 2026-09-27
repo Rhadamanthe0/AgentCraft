@@ -3747,6 +3747,22 @@ function createMissionRunner (host, injected = {}) {
             echec: true
           }
         }
+        // Symetrique : plus haut que le sommet du tronc vise, le bot monte dans
+        // la couronne (feuilles cassees au-dessus de la tete) sans rien gagner.
+        // Vu sur trees/pillar (05a529) : derniere buche a +4, piler(5), une
+        // feuille cassee, « saut trop bas » au niveau 5. La valeur n est pas
+        // changee : refus qui dit l intervalle utile.
+        if (haute && mission?.kind === 'recolte' && !params.interne) {
+          let sommet = haute.position
+          while (/_(log|stem)$/.test(bot.blockAt(sommet.offset(0, 1, 0))?.name ?? '')) sommet = sommet.offset(0, 1, 0)
+          const maximum = sommet.y - Math.floor(bot.entity.position.y) - 1
+          if (maximum >= Math.max(1, minimum) && hauteur > maximum) {
+            return {
+              resultat: `hauteur ${hauteur} trop haute : sommet du tronc a +${maximum + 1}, piler entre ${Math.max(1, minimum)} et ${maximum}`,
+              echec: true
+            }
+          }
+        }
       }
 
       let available = scaffoldingStock(bot)

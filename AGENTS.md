@@ -604,6 +604,11 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   batons » (pioche en bois) etait ensuite refusee « pas utile pour furnace »
   (appartenance au plan calculee sur l objet demande) ; une etape reprise du
   plan n est plus soumise a ce filtre. Composite 2e mesure : 660 s.
+  05a529 : composite 479 s. `piler` en recolte refuse aussi une hauteur qui
+  depasse le sommet du tronc vise (trees/pillar : buche a +4, piler(5),
+  feuille cassee dans la couronne) ; l intervalle utile est dit, la valeur
+  n est pas changee. follow/stop « Bot did not settle » (une fois, apres un
+  plafond encastre) : l erreur porte desormais l etat du bot.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

@@ -1363,7 +1363,12 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
             if s.get('onGround') and all(abs(p.get(k, -999) - v) < .2 for k, v in zip('xyz', start)):
                 break
             if time.monotonic() > until:
-                raise RuntimeError('Bot did not settle at level start')
+                # Etat du bot joint a l erreur : un seul cas vu (follow/stop
+                # 05a529, apres un plafond ou le bot etait encastre), cause
+                # inconnue faute de mesure.
+                etat = {k: s.get(k) for k in ('position', 'onGround', 'controls', 'navigation', 'pathfinding', 'followMode')}
+                etat['mission'] = {k: (s.get('mission') or {}).get(k) for k in ('state', 'reason', 'etape')} if isinstance(s.get('mission'), dict) else s.get('mission')
+                raise RuntimeError(f'Bot did not settle at level start (attendu {start}) : {json.dumps(etat, default=str)[:600]}')
             time.sleep(.25)
         before = measure()
         expected_logs = len(level['logs'])
