@@ -520,6 +520,11 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   l inventaire reel, complet) n en demande plus : craft/axe (40ee116), plan
   anticipe perime, planches et batons faits deux fois, 3 buches brulees, plus
   rien pour l etabli ni la hache. Hors cible planches/batons elle-meme.
+- Craft desynchronise : ingredients restes dans la grille 2x2 de l inventaire
+  (slots 1 a 4) ou sur le curseur, invisibles pour `items()`, comptes comme
+  consommes (craft/torches 4ee01ef : etabli « -8 ingredients sans produit »,
+  plus de bois). `craft.recoverStranded` ferme la fenetre 0 (le serveur rend
+  grille et curseur) avant de conclure a une consommation incertaine.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

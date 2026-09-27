@@ -503,6 +503,22 @@ async function ensureTable (bot) {
 // Fabrication
 // ---------------------------------------------------------------------------
 
+// Ingredients restes dans la grille 2x2 de l inventaire (slots 1 a 4) ou sur
+// le curseur apres un craft desynchronise : `items()` ne les voit pas, ils
+// passaient pour consommes (craft/torches 4ee01ef : etabli « -8 ingredients
+// sans produit », plus de bois pour la suite). mineflayer ne ferme jamais la
+// fenetre 0 ; la fermer fait rendre grille et curseur par le serveur. Rend
+// vrai si quelque chose etait bloque (l inventaire se resynchronise ensuite).
+async function recoverStranded (bot) {
+  const inv = bot?.inventory
+  if (!inv || bot.currentWindow) return false
+  const stranded = Boolean(inv.selectedItem) ||
+    [1, 2, 3, 4].some(slot => inv.slots?.[slot])
+  if (!stranded) return false
+  try { await bot.closeWindow(inv) } catch (_) { return false }
+  return true
+}
+
 // Fabrique `wanted` UNITES (pas des executions) de la cible, alias FR ou nom
 // d objet direct. Renvoie le produit REEL mesuré sur l inventaire, jamais le
 // planifié : `bot.craft` ne dit pas combien il a fait, et la fenêtre 26.1 est
@@ -729,12 +745,22 @@ async function make (bot, targetName, wanted = 1) {
         continue
       }
       // Échec silencieux : produit nul sans erreur. Consommation ?
-      const afterSnap = snapshotInventory(bot)
-      let consumed = 0
-      for (const ing of op.ingredients ?? []) {
-        const b = beforeSnap.get(ing.name) ?? 0
-        const a = afterSnap.get(ing.name) ?? 0
-        if (a < b) consumed += (b - a)
+      const consumedSince = () => {
+        const afterSnap = snapshotInventory(bot)
+        let total = 0
+        for (const ing of op.ingredients ?? []) {
+          const b = beforeSnap.get(ing.name) ?? 0
+          const a = afterSnap.get(ing.name) ?? 0
+          if (a < b) total += (b - a)
+        }
+        return total
+      }
+      let consumed = consumedSince()
+      if (consumed > 0 && await recoverStranded(bot)) {
+        for (let waited = 0; waited < 1500 && consumed > 0; waited += 100) {
+          await sleep(100)
+          consumed = consumedSince()
+        }
       }
       if (consumed > 0) {
         // Incertain : des ingrédients ont disparu sans produit. Ne pas
