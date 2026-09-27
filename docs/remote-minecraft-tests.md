@@ -81,6 +81,14 @@ Enveloppe CI : `CI_METRICS_CGROUP` (chemin vu du runner), sinon le cgroup
 unique sous `/sys/fs/cgroup` dont `cpu.max` vaut 400 %. Le cgroup propre du
 runner n est PAS l enveloppe (Paper, bots et sondes sont des conteneurs
 freres) : il n est que rapporte (`report.capacity.sources.runnerCgroup`).
+Sur MINIPC-CLEM (verifie par l agent de la machine, 2026-09-27) : enveloppe
+= `/sys/fs/cgroup/user.slice/user-1008.slice` (compte `podman-ci`, `cpu.max`
+400000/100000, `memory.high` 14G, `MemoryMax` 16G) ; le runner a un cgroupns
+prive (son `/sys/fs/cgroup` est sa feuille : `cpu.max` = `max`, trompeur), donc
+la slice est montee en lecture seule sur `/host/ci-cgroup` par le quadlet du
+runner (`Volume=...:/host/ci-cgroup:ro`, infra-deploy) et le workflow pose
+`CI_METRICS_CGROUP=/host/ci-cgroup`. `/proc/meminfo` et `/proc/stat` du runner
+sont ceux de l hote (pas de lxcfs ; 16 CPU, ~30,6 Gio).
 `validate` refuse une enveloppe plus petite que la memoire des conteneurs du
 banc, un `/proc` dont `MemTotal` est sous la limite de l enveloppe, un
 `/proc/stat` fige. Dependance d infrastructure (non deployee depuis ce

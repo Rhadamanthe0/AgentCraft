@@ -57,6 +57,11 @@ jobs:
           # Pool adaptatif (ci/capacity.py) : admissions sous 400 % CPU et 4 Gio de
           # reserve CI + hote ; sans mesures fiables, repli fixe a CI_POOL_SIZE.
           CI_POOL_MODE: ${{ inputs.pool_mode || 'adaptive' }}
+          # Enveloppe CI vue du runner (cgroupns prive : son /sys/fs/cgroup n est
+          # que sa feuille) : slice user-1008 (podman-ci, 400 %, MemoryHigh 14G,
+          # MemoryMax 16G) montee en lecture seule par le quadlet du runner
+          # (infra-deploy). Absente => repli fixe, ecrit dans le rapport.
+          CI_METRICS_CGROUP: /host/ci-cgroup
           CI_POOL_SIZE: '16'
           CI_VARIATION_SEED: ${{ inputs.variation_seed }}
         run: python3 ci/run.py --suite all
