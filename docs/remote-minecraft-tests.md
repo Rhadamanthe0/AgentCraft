@@ -54,7 +54,12 @@ niveaux en attente.
   lisibles), `memory.events` de l enveloppe CI (cgroup plafonne a 800 %), plus
   `MemAvailable` et `/proc/stat` de l hote. Seuils CPU en part de l enveloppe
   (`CI_ENVELOPE_CPU_PCT`, 800 %) : admission 75 % (600 %), plafond 90 % (720 %).
-  Admission d UN worker a la fois si :
+  Admission par lots (`CI_ADMIT_BATCH_MAX`, 8) : autant de workers que toutes
+  les limites ci-dessous en laissent, calculees avec un pic de 60 % par worker
+  au moins (`worker_cpu_prior_pct` : les pics mesures pendant l attente du
+  modele sont bas) ; un seul sinon. Un a la fois, 17 workers prenaient 280 s
+  sur 189799a (CPU jamais limitant), banc 347 s contre 219 s en fixe.
+  Admission si :
   CPU 1 s < 600 % sur 10 verifications consecutives (fenetres glissantes qui
   se recouvrent : ~2 s de preuve, pas 10 mesures independantes) ; max des CPU
   1 s sur 30 s + estimation d un worker <= 720 % ; base + (N+1) x pic observe

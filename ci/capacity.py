@@ -66,6 +66,11 @@ class Config:
     # values (CI_ADMIT_CPU_PCT, CI_ADMIT_CEILING_PCT) win.
     admit_cpu_pct: float = None
     admit_checks: int = 10
+    # Workers admitted together when every limit leaves room for them (the
+    # all-awake projection, memory reserves, useful levels): one at a time took
+    # 280 s to reach 17 workers on 189799a, CPU never the limit (fixed: 219 s).
+    batch_max: int = 8
+    worker_cpu_prior_pct: float = 60.0  # per-worker peak assumed to size a batch (> 1 worker)
     long_window_s: float = 30.0
     ceiling_pct: float = None
     worker_cpu_pct: float = 15.0       # floor of the per-worker CPU estimate
@@ -98,6 +103,7 @@ class Config:
             interval_s=_env('CI_ADMIT_INTERVAL_S', cls.interval_s),
             admit_cpu_pct=_env('CI_ADMIT_CPU_PCT', cls.admit_cpu_pct),
             admit_checks=_env('CI_ADMIT_CHECKS', cls.admit_checks, int),
+            batch_max=_env('CI_ADMIT_BATCH_MAX', cls.batch_max, int),
             long_window_s=_env('CI_ADMIT_LONG_WINDOW_S', cls.long_window_s),
             ceiling_pct=_env('CI_ADMIT_CEILING_PCT', cls.ceiling_pct),
             worker_cpu_pct=_env('CI_WORKER_CPU_PCT', cls.worker_cpu_pct),
@@ -516,6 +522,7 @@ class Decision:
     kind: str            # admit | hold | shrink
     reason: str
     target: int
+    count: int = 1       # workers to start now (admit only)
 
 
 class Controller:
@@ -662,6 +669,31 @@ class Controller:
         self.ok_checks += 1
         if self.ok_checks < c.admit_checks:
             return Decision('hold', f'verification {self.ok_checks}/{c.admit_checks}', self.target)
-        return Decision('admit', f'CPU 1 s {m.cpu_1s:.0f} %, max {c.long_window_s:.0f} s {m.cpu_long_max:.0f} % '
-                                 f'+ {estimate:.0f} %, marges {m.mem_margin / GIB:.1f}/{m.host_available / GIB:.1f} Gio',
-                        self.target)
+        count = self.batch_size(m, pool, base, estimate)
+        return Decision('admit', f'{count} worker(s) : CPU 1 s {m.cpu_1s:.0f} %, max {c.long_window_s:.0f} s '
+                                 f'{m.cpu_long_max:.0f} % + {count} x {estimate:.0f} %, '
+                                 f'marges {m.mem_margin / GIB:.1f}/{m.host_available / GIB:.1f} Gio',
+                        self.target, count)
+
+    def batch_size(self, m, pool, base, estimate):
+        """How many workers every limit leaves room for, at least 1 (the checks above passed for one)."""
+        c = self.config
+        # Several at once only on a pessimistic per-worker peak: peaks measured
+        # while bots wait on the model are low (5 %), and a batch sized on them
+        # overshot the all-awake ceiling in simulation. One at a time keeps the
+        # measured estimate (the checks above).
+        estimate = max(estimate, c.worker_cpu_prior_pct)
+        need = self.worker_mem
+        rooms = [
+            c.batch_max,
+            min(self.target, c.pool_max) - pool.active,
+            pool.queued - pool.idle - pool.starting,
+            int((c.ceiling_pct - m.cpu_long_max) // estimate),
+            int((c.ceiling_pct - base) // estimate) - pool.active,
+            int((m.mem_margin - pool.pending_mem - c.mem_reserve) // need),
+            int((m.host_available - pool.pending_mem - c.mem_reserve) // need),
+        ]
+        for used, limit in (m.containers or {}).values():
+            if limit and used is not None:
+                rooms.append(int((limit - used) // need))
+        return max(1, min(rooms))

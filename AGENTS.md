@@ -422,6 +422,9 @@
   2 min, les autres jamais), trees/bent 189799a perdu sur deux delais de 20 s.
   Premier banc adaptatif (189799a, enveloppe 800 % lue) : 17 workers, 347 s,
   CPU moyen 176 %, pic 1 s 565 %, 8,7 Gio, 64/65.
+  Meme graine en fixe (16) : 219 s, 65/65, CPU moyen 271 %, pic 793 %. L
+  adaptatif admettait un worker toutes les 17,5 s (280 s pour 17) : admission
+  par lots (`batch_max` 8, pic suppose >= 60 % par worker pour un lot).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
