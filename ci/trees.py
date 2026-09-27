@@ -1357,11 +1357,24 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
         rcon(f'clear {username}')
         rcon(f'scoreboard players set {username} degats 0')
         until = time.monotonic() + 20
+        # Bot au repos (au sol, aucune touche, aucune mission) mais ailleurs que
+        # le depart : repositionne par tp, deux fois au plus, et note. Vu deux
+        # fois apres un niveau clos au plafond (follow/stop 05a529, follow/
+        # stairs f61180a : bot deplace de ~2 blocs, au repos) ; mise en place
+        # de l arene, pas une capacite du bot.
+        retps = 0
+        next_retp = time.monotonic() + 5
         while True:
             s = bot_api(bot, '/api/status')
             p = s.get('position') or {}
             if s.get('onGround') and all(abs(p.get(k, -999) - v) < .2 for k, v in zip('xyz', start)):
                 break
+            idle = s.get('onGround') and not s.get('controls') and not s.get('pathfinding')
+            if idle and retps < 2 and time.monotonic() > next_retp:
+                retps += 1
+                print(f'{level["name"]} : bot au repos hors du depart ({p}), nouveau tp {retps}/2', flush=True)
+                rcon(f'tp {username} ' + ' '.join(map(str, start)))
+                next_retp = time.monotonic() + 5
             if time.monotonic() > until:
                 # Etat du bot joint a l erreur : un seul cas vu (follow/stop
                 # 05a529, apres un plafond ou le bot etait encastre), cause

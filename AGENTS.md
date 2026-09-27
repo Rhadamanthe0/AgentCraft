@@ -617,6 +617,15 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   du mouvement (`videDevant(bot, dir)`) : il a marche hors du toit (chute de
   4). `poser_porte` : pose d ici si l embrasure est a portee, sinon le
   navigateur partage, `moveTo` en repli (sept « trajet trop long »).
+  f61180a : composite 554 s, build/tower et build/windows passent. craft/door :
+  inventaire local faux apres un craft (buche restante invisible, « il manque
+  des buches », porte jamais faite) => `craft.make` rend la grille et
+  resynchronise aussi a la SORTIE (appel exterieur seulement). Appel anticipe :
+  `etapes_en_cours` (etape lancee + file) dans l etat, le prompt dit de
+  planifier la suite sans les repeter (revue perf : 55/55 refus « chantier
+  deja commence » et ~40 % des « bloc trop loin » venaient de plans anticipes).
+  Banc : un bot au repos hors du depart d un niveau est re-teleporte (2 fois
+  au plus ; follow/stop puis follow/stairs apres un plafond, cause inconnue).
 - Tests unitaires en local : `NODE_PATH=$PWD/bot/node_modules node --test
   tmp/X.test.js` depuis la racine (sans NODE_PATH : « Cannot find module
   vec3/minecraft-data », faux echecs ; la CI le pose dans ci/Dockerfile).

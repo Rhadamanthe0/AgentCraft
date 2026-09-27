@@ -4812,7 +4812,9 @@ function createMissionRunner (host, injected = {}) {
       boussoleIdx: mission.boussoleIdx
     }
     try {
-      return buildState()
+      const snap = buildState()
+      if (mission.enCours?.length) snap.etapes_en_cours = mission.enCours
+      return snap
     } finally {
       mission.lastBlocked = saved.lastBlocked
       mission.refusalNote = saved.refusalNote
@@ -4967,7 +4969,13 @@ function createMissionRunner (host, injected = {}) {
 
     // La file descend a 1 : on lance l appel suivant pendant que cette etape
     // tourne, sans l attendre. Le run() de la boucle recouvre la latence.
-    if (mission.queue.length === 1) startPrefetch()
+    // L appel anticipe voit les etapes pas encore faites (en cours + file) :
+    // sans elles, le modele les replanifiait (choisir_terrain deux fois, 55
+    // refus « chantier deja commence » sur 5 bancs ; avancer/casser en double).
+    if (mission.queue.length === 1) {
+      mission.enCours = [step, ...mission.queue].map(e => ({ action: e.action, ...(e.choices ?? {}) }))
+      startPrefetch()
+    }
 
     return {
       finished: false,
