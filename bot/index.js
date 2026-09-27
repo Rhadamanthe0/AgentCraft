@@ -9,10 +9,8 @@ const mineflayer = require('mineflayer')
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder')
 const skills = require('./skills')
 const craft = require('./craft')
-const jev = require('./jev')
 const planner = require('./planner')
 const memory = require('./memory')
-const repair = require('./repair')
 const { createMissionRunner } = require('./mission')
 const { createNavigator } = require('./navigation')
 const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText, parseArbitrationChoice } = require('./conversation')
@@ -20,16 +18,9 @@ const { createExecutor } = require('./executor')
 const { createStateStore } = require('./state-store')
 const { createObjectiveController } = require('./objective-controller')
 
-// Qui interprete le chat. Le planificateur JSON distant prend la main des qu il
-// est configure ; Jev reste le repli. Dans les deux cas la regle est la meme :
-// pas de repli sur des mots-cles, un bot muet vaut mieux qu un bot qui devine.
-function brain () {
-  return planner.isEnabled() ? planner : jev
-}
-
-function brainName () {
-  return planner.isEnabled() ? `${planner.MODEL} (plan JSON)` : jev.MODEL
-}
+// Le chat est interprete par le planificateur JSON distant, seul cerveau (le
+// repli Jev/TypeSafe a ete retire le 2026-09-27). Pas de repli sur des
+// mots-cles : un bot muet vaut mieux qu un bot qui devine.
 
 const MC_HOST = process.env.MC_HOST || 'minecraft'
 const MC_PORT = Number(process.env.MC_PORT || 25565)
@@ -878,7 +869,7 @@ function repeatCount (text) {
 const HANDLERS = {
   aide () {
     for (const line of skills.helpLines(CMD_PREFIX)) say(line)
-    say(`Ecris aussi en langage naturel : c est ${brainName()} qui decide de l action.`)
+    say(`Ecris aussi en langage naturel : c est ${planner.MODEL} qui decide de l action.`)
   },
 
   avance () {
@@ -1285,7 +1276,7 @@ async function startObjectiveDurable (objective, requester, opts = {}) {
 const conversation = createConversation({
   interpret: (message, context, opts) => {
     if (planner.isEnabled()) return planner.interpretMessage(message, context, opts)
-    return jev.classify(message).then(r => ({ relation: r?.command === 'stop' ? 'stop' : 'new', objective: message }))
+    return Promise.reject(new Error('planificateur non configure (PLANNER_BASE_URL)'))
   },
   status: () => {
     const m = missionRunner.status()
@@ -1554,10 +1545,10 @@ app.get('/api/status', (req, res) => {
     rescues: rescueCount,
     lastRescue,
     commandPrefix: CMD_PREFIX,
-    classifier: planner.isEnabled() ? 'planner' : (jev.isEnabled() ? 'jev' : 'indisponible'),
-    classifierModel: brain().isEnabled() ? brainName() : null,
-    classifierMinConfidence: brain().isEnabled() ? brain().MIN_CONFIDENCE : null,
-    classifierError: brain().isEnabled() ? null : (planner.lastError ?? jev.initError),
+    classifier: planner.isEnabled() ? 'planner' : 'indisponible',
+    classifierModel: planner.isEnabled() ? `${planner.MODEL} (plan JSON)` : null,
+    classifierMinConfidence: planner.isEnabled() ? planner.MIN_CONFIDENCE : null,
+    classifierError: planner.isEnabled() ? null : (planner.lastError ?? 'PLANNER_BASE_URL vide'),
     // Latence reelle du planificateur : c est le chiffre a regarder avant de
     // changer de modele ou de taille de plan.
     planner: planner.isEnabled()
@@ -1576,11 +1567,6 @@ app.get('/api/status', (req, res) => {
     // cle de cache a la couche 3 du prompt. Les champs historiques
     // `jetons_utilises` / `jetons_max` / `jetons_restants` restent servis.
     memory: memory.snapshot(),
-    // Auto-reparation : actif seulement si une cle distante est fournie. Sans
-    // elle, `demander_aide` est refuse et le dit, la mission continue.
-    repair: repair.isEnabled()
-      ? { base: repair.BASE_URL, model: repair.MODEL, maxParMission: repair.MAX_PER_MISSION, ...repair.stats }
-      : { actif: false, raison: repair.why() },
     lastIntent,
     recentChat,
     missionRunning: missionRunner.isRunning(),
@@ -1986,7 +1972,7 @@ const commandAudit = skills.audit(Object.keys(HANDLERS), missionRunner.ACTION_NA
 if (commandAudit.ok) {
   console.log(
     `[commandes] ${commandAudit.counts.commandes} commandes ` +
-    `(${commandAudit.counts.routables_par_jev} routables par Jev, ${commandAudit.counts.prefixe_uniquement} sur prefixe seul), ` +
+    `(${commandAudit.counts.routables_par_jev} routables par le chat, ${commandAudit.counts.prefixe_uniquement} sur prefixe seul), ` +
     `${commandAudit.counts.actions} actions dont ${commandAudit.counts.actions_parametrees} a deux etages, ` +
     `sur ${commandAudit.counts.types_de_mission} types de mission, ` +
     `${commandAudit.counts.ressources} matieres, ${commandAudit.counts.reperes} reperes, ` +
@@ -2006,14 +1992,11 @@ if (planner.isEnabled()) {
     `${skills.documentedActions().filter(d => d.source === 'aide').length} action(s) documentee(s) par l aide, ` +
     `seuil de fin ${planner.DONE_THRESHOLD}`
   )
-  if (jev.init()) console.log('[jev] disponible mais inutilise : le planificateur JSON a la main')
   // En arriere-plan : le bot peut se connecter et obeir aux commandes prefixees
   // pendant que le modele monte en VRAM.
   planner.warmup()
-} else if (jev.init()) {
-  console.log(`[jev] seul classificateur (modele ${jev.MODEL}, confiance mini ${jev.MIN_CONFIDENCE}, seuil de fin ${jev.DONE_THRESHOLD})`)
 } else {
-  console.log(`[planner] INACTIF et [jev] INACTIF (${jev.initError}) - le bot n obeira qu aux commandes ${CMD_PREFIX}`)
+  console.log(`[planner] INACTIF (PLANNER_BASE_URL vide) - le bot n obeira qu aux commandes ${CMD_PREFIX}`)
 }
 
 // Annonce vraie degradation/recovery du profil pilote (D49) : uniquement sur

@@ -8,7 +8,6 @@ const chain = require('../bot/model-chain')
 const llm = require('../bot/llm')
 
 const PLANNER_PATH = require.resolve('../bot/planner')
-const REPAIR_PATH = require.resolve('../bot/repair')
 const KEYS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_MODEL_PLAN', 'PLANNER_MODEL_CHAT', 'PLANNER_MODEL_BRIEF',
   'PLANNER_MODEL_REPAIR', 'PLANNER_API_KEY', 'PLANNER_THINKING', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN',
   'PLANNER_REASONING_EFFORT_BRIEF', 'PLANNER_REASONING_EFFORT_REPAIR', 'PLANNER_TIMEOUT_MS_BRIEF', 'OPENCODE_SECONDARY_API_KEY', 'PLANNER_KEY_FIRST',
@@ -18,7 +17,6 @@ const origCall = llm.call
 afterEach(() => {
   llm.call = origCall
   delete require.cache[PLANNER_PATH]
-  delete require.cache[REPAIR_PATH]
   for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
 })
 
@@ -38,7 +36,7 @@ test('modele de l usage : PLANNER_MODEL_<USAGE> sinon PLANNER_MODEL ; une liste 
   assert.equal(chain.modelFor('plan', env).model, 'a')
   assert.equal(chain.modelFor('interpretMessage', env).model, 'c')
   assert.equal(chain.modelFor('classify', env).model, 'c')
-  assert.equal(chain.modelFor('repair', { PLANNER_MODEL: 'a', PLANNER_MODEL_REPAIR: 'r' }).model, 'r')
+  assert.equal(chain.modelFor('strategie', { PLANNER_MODEL: 'a', PLANNER_MODEL_BRIEF: 'r' }).model, 'r')
 })
 
 test('refus du fournisseur : l erreur remonte, AUCUN autre modele n est essaye', async () => {
@@ -153,15 +151,14 @@ test('troncature : UN reessai du meme modele a budget elargi, jamais un autre', 
   assert.ok(seen[1][1] > seen[0][1])
 })
 
-test('demander de l aide : modele PLANNER_MODEL_REPAIR avec son effort', async () => {
+test('reflexion de fond : modele PLANNER_MODEL_BRIEF avec son effort', async () => {
   const seen = []
-  llm.call = async (s, u, o) => { seen.push([o.model, o.reasoning?.effort ?? o.reasoningEffort ?? null]); return { content: '{}', usage: null, ms: 1 } }
-  load({ PLANNER_MODEL: 'a', PLANNER_MODEL_REPAIR: 'r1', PLANNER_REASONING_EFFORT_REPAIR: 'high' })
-  delete require.cache[REPAIR_PATH]
-  const repair = require('../bot/repair')
-  assert.ok(repair.isEnabled())
-  await repair.askForAction({ probleme: 'bloque', kind: 'recolte', supply: 'harvest', etat: {}, historique: [] })
-  assert.deepEqual(seen[0], ['r1', 'high'])
+  const chaine = JSON.stringify({ chaine: [{ etape: 'couper le bois', detail: '16 buches', statut: 'en_cours' }], diagnostic: '', conseil: 'avancer' })
+  llm.call = async (s, u, o) => { seen.push([o.model, o.reasoning?.effort ?? o.reasoningEffort ?? null]); return { content: chaine, usage: null, ms: 1 } }
+  const p = load({ PLANNER_MODEL: 'a', PLANNER_MODEL_BRIEF: 'b1', PLANNER_REASONING_EFFORT_BRIEF: 'high' })
+  const r = await p.strategize({ consigne: 'cabane' })
+  assert.deepEqual(seen[0], ['b1', 'high'])
+  assert.equal(r.chaine[0].statut, 'en_cours')
 })
 
 test('chat sans reponse dans le delai : UN rejeu du meme modele, puis l erreur', async () => {

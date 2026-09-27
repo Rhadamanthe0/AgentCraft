@@ -721,33 +721,6 @@ const ACTIONS = {
     scale: 'sans effet',
     secondes: 0.4,
     intent: "Faire face au joueur qui a donne la consigne, avant de lui repondre ou de marcher vers lui"
-  },
-
-  // Le seul recours quand le planificateur local est dans une impasse : une aide
-  // distante ameliore la DOCUMENTATION d une action native (quand l utiliser,
-  // exemples de composition) pour lui donner une sortie qu il n avait pas.
-  // mission.js refuse l appel si le detecteur de blocage n a rien vu — c est le
-  // code qui garde l acces, pas le modele.
-  demander_aide: {
-    kinds: ['recolte', 'deplacement', 'construction', 'geste'],
-    plannerOnly: true,
-    summary: 'demander a une aide distante une meilleure documentation d action',
-    scale: 'sans effet',
-    secondes: 3,
-    intent: "Tu es bloque, ou tu repetes la meme suite d actions sans progresser : demande a une aide distante d enrichir la documentation et les exemples d une action que tu composes mal. L aide ne peut pas inventer d action : elle precise QUAND et COMMENT employer une action existante. Ne l appelle que si etat.blocage.detecte vaut vrai et qu il te reste des reparations. Pour tout le reste, prefere regarder_autour"
-  },
-
-  // La tache de fond : revoir la documentation de ses actions. Il ne s agit pas
-  // de sortir d une impasse par une action, mais de corriger ou enrichir les
-  // exemples de composition, de fusionner deux docs qui se recoupent, ou d en
-  // retirer une qui egare. Une aide distante propose, le code valide.
-  reviser_actions: {
-    kinds: ['recolte', 'deplacement', 'construction', 'geste'],
-    plannerOnly: true,
-    summary: 'revoir la documentation des actions : enrichir, fusionner, retirer',
-    scale: 'sans effet',
-    secondes: 3,
-    intent: "Tu ne sais pas quoi faire, tu tournes en rond, ou la documentation d une action te parait insuffisante ou mal faite : fais le point sur les exemples de tes actions. Une aide distante peut enrichir, fusionner ou retirer de la documentation, visible des le tour suivant. A choisir quand aucune action evidente ne fait avancer"
   }
 }
 
@@ -1225,8 +1198,6 @@ const ACTION_EXEMPLES = {
   oublier: ['note devenue fausse -> oublier la portee concernee'],
   rejoindre_demandeur: ['consigne "viens me voir" -> rejoindre_demandeur'],
   tourner_vers_demandeur: ['repondre a "tu me vois ?" -> tourner_vers_demandeur puis dire'],
-  demander_aide: ['etat.blocage.detecte vrai et exemples insuffisants -> demander_aide, une fois'],
-  reviser_actions: ['plusieurs actions mal documentees -> reviser_actions pour corriger leurs exemples']
 }
 
 // Contre-exemples natifs : ce qu il ne faut PAS faire avec l action. Meme
@@ -1247,7 +1218,6 @@ const ACTION_CONTRE_EXEMPLES = {
   ],
   construire: ['chantier.materiau_en_inventaire a 0 -> ne pas construire, casser ou fabriquer d abord'],
   terminer: ['progression.unites_recoltees sous le quota -> ne pas terminer, continuer le travail'],
-  demander_aide: ['etat.blocage.detecte faux -> ne pas demander_aide, preferer regarder_autour']
 }
 
 // `/data` est le volume `bot-data` du conteneur (comme MEMORY_FILE) : la

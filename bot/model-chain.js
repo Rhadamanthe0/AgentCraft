@@ -7,7 +7,6 @@
 //   PLANNER_MODEL_CHAT=...      chat du joueur          (interpretMessage, classify)
 //   PLANNER_MODEL_BRIEF=...     reflexion : lecture de l objectif (readBrief)
 //   PLANNER_MODEL_COMPACT=...   generation de la memoire (compact)
-//   PLANNER_MODEL_REPAIR=...    demander de l aide, reviser les actions (repair.js)
 //
 // Avec pour chacun PLANNER_REASONING_EFFORT_<USAGE> et PLANNER_TIMEOUT_MS_<USAGE>.
 // Tous les modeles passent par PLANNER_BASE_URL. Deux cles possibles pour ce
@@ -20,11 +19,12 @@
 const TASK_VARS = {
   plan: 'PLANNER_MODEL_PLAN',
   readBrief: 'PLANNER_MODEL_BRIEF',
+  // Reflexion de fond (chaine critique de la mission) : meme modele, meme
+  // effort et meme delai que la lecture d objectif.
+  strategie: 'PLANNER_MODEL_BRIEF',
   interpretMessage: 'PLANNER_MODEL_CHAT',
   classify: 'PLANNER_MODEL_CHAT',
-  compact: 'PLANNER_MODEL_COMPACT',
-  // demander_aide et reviser_actions (bot/repair.js)
-  repair: 'PLANNER_MODEL_REPAIR'
+  compact: 'PLANNER_MODEL_COMPACT'
 }
 
 function parse (text) {

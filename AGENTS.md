@@ -48,6 +48,35 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   Le bot cherche d abord une grotte ; s il galere, il creuse en ESCALIER
   (jamais un puits vertical). Difficulte paisible pour l instant.
 
+## Reflexion de fond, blocages et KPI (2026-09-27, decisions du proprietaire)
+
+- `demander_aide` et `reviser_actions` sont RETIRES (et `bot/repair.js`) : ils
+  reecrivaient la doc des actions (souvent `appuyer`), relancaient la mission
+  et invalidaient le prompt en cache, sans benefice mesure (~20 appels/banc).
+- Blocage (`detectStuck`) : le bot dit son probleme dans le chat (« Bloqué :
+  cause (action : resultat) ») et journalise `[blocage] {json}` (objectif,
+  cause, derniere action en echec, 4 dernieres etapes, position). Chaque niveau
+  garde ses blocages (`result.blocages`), le resume CI les liste : a ANALYSER
+  a chaque banc.
+- Reflexion de fond (`planner.strategize`, usage BRIEF, `featureOn('strategie')`) :
+  chaine critique de la mission (etapes, detail, statut, diagnostic, conseil),
+  calculee au depart puis revue au plus une fois par minute apres la fin de la
+  precedente (`MISSION_REFLECTION_EVERY_MS`), tout de suite sur blocage, sans
+  jamais interrompre l action. Servie a chaque tour (`plan_de_mission`) ; le
+  prompt d action planifie vers le but. A/B : `composite/cabin-from-scratch
+  ~sans-strategie`.
+- Besoins totaux d un chantier calcules par le code (`state.besoins` :
+  blocs restants, en poche, planches, porte, etabli, buches a recolter d un
+  coup) : le bot faisait ~8 allers-retours arbre/chantier par cabane.
+- KPI suivis d un banc a l autre (`result.kpi`, `report.kpi`, resume) : taux
+  d actions en echec et nombre de blocages, par famille ; a faire baisser.
+- Pas de double appel au modele (refuse : sur-ingenierie).
+- Premier banc (559d03e) : 74/84, KPI 14,1 % d actions en echec, 9 blocages
+  bloquants ; cabane 560 s avec reflexion (31 % d echecs, surtout casser/avancer
+  sur les arbres) contre 289 s sans (17 %). Un seul echantillon : A/B garde
+  sur plusieurs bancs avant de trancher. build/tower : postes perches jamais
+  essayes (3 postes au sol d abord) => `placeOne` tente ensuite 2 perches.
+
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
 - Banc CI `trees` (`ci/trees.py`, docs/remote-minecraft-tests.md) : quatre
@@ -631,7 +660,15 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   vec3/minecraft-data », faux echecs ; la CI le pose dans ci/Dockerfile).
   Echecs reels restants : tree-height-access et tree-target-visibility lisent
   une fixture json non versionnee ; runtime-objectives S5 est saute en root
-  (chmod ignore). `kernel-docker-backend` bloque : ne pas le lancer.
+  (chmod ignore). Sous-systemes jamais branches au bot supprimes le
+  2026-09-27 (decision du proprietaire, historique git) : unlock-service,
+  opencode-client, supervisor/, kernel/, bridge/.
+  Meme jour : repli Jev/TypeSafe retire (`jev.js`, `@typesafe-ai/sdk`,
+  `decideFromJev` ; le planificateur JSON est le seul cerveau, `JEV_*` restent
+  des seuils lus par lui), routage double MiMo/Muse retire (`model-routing.js`,
+  `PLANNER_ROUTING_MODE`, `PLANNER_FAST_*`/`_STRATEGY_*`), scripts Windows
+  de tmp/ que plus rien ne cite. Les sections plus bas qui les decrivent sont
+  historiques.
 
 ## Outil facultatif et stock de montee du 2026-09-24 (prioritaire)
 

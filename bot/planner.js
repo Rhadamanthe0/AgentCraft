@@ -38,7 +38,6 @@
 const skills = require('./skills')
 const memory = require('./memory')
 const llm = require('./llm')
-const routing = require('./model-routing')
 const modelChain = require('./model-chain')
 
 const BASE_URL = (process.env.PLANNER_BASE_URL || '').replace(/\/+$/, '')
@@ -185,7 +184,6 @@ function isProfileEnabled () {
 }
 
 function effectiveModel (now = Date.now()) {
-  if (routing.isDual()) return 'dual'
   if (!isProfileEnabled()) return MODEL
   return PILOT_MODEL
 }
@@ -206,7 +204,7 @@ function isTruncationError (err, signal) {
 }
 
 function syncProfileStats () {
-  stats.modele_configure = routing.isDual() ? 'dual' : MODEL
+  stats.modele_configure = MODEL
   stats.modele_effectif = effectiveModel()
 }
 
@@ -226,11 +224,6 @@ function onProfileEvent (cb) {
 
 // Statut public SANS secret (jamais la cle) : configure/effectif.
 function profileStatus (now = Date.now()) {
-  if (routing.isDual()) return {
-    enabled: true, configured: 'dual', effective: effectiveModel(), pilot: routing.STRATEGY,
-    baseConfigured: Boolean(BASE_URL), sessionStable: Boolean(SESSION_ID), session: currentSession(),
-    routing: routing.status()
-  }
   return {
     enabled: isProfileEnabled(),
     configured: MODEL,
@@ -298,7 +291,6 @@ const stats = {
 }
 
 syncProfileStats()
-Object.defineProperty(stats, 'routing', { enumerable: true, get: () => routing.status() })
 
 // Duree reelle de chaque appel par usage (rejeux compris), issue comprise :
 // ok, delai (pas de reponse), erreur, annule. /api/status.planner.latences
@@ -335,16 +327,7 @@ async function callWithProfile (system, user, opts = {}) {
 // budget elargi, meme delai et meme signal. Mauvais JSON (apres un call
 // reussi) : ni reessai ni repli ici (voir plan/readBrief : parse hors transport).
 async function callWithProfileOnce (system, user, opts = {}) {
-  const { image = null, signal = null, temperature = TEMPERATURE, task = 'plan', state = {}, route = null } = opts
-  if (routing.isDual()) {
-    stats.tentatives += 1
-    try {
-      const result = await routing.call(task, state, system, user, { image, signal, temperature, route: route ?? routing.selectRoute(task, state) })
-      warm = true
-      if (image) stats.captures += 1
-      return result
-    } finally { syncProfileStats() }
-  }
+  const { image = null, signal = null, temperature = TEMPERATURE, task = 'plan' } = opts
   // UN seul modele par usage (bot/model-chain.js : PLANNER_MODEL_<USAGE>,
   // sinon PLANNER_MODEL) et AUCUN repli vers un autre modele (demande du
   // proprietaire, 2026-09-26) : une panne du fournisseur remonte telle quelle.
@@ -487,7 +470,7 @@ async function compact (texte) {
 memory.setCompactor(compact)
 
 function isEnabled () {
-  return routing.isDual() || Boolean(BASE_URL)
+  return Boolean(BASE_URL)
 }
 
 // ---------------------------------------------------------------------------
@@ -729,10 +712,15 @@ ton plan est UNE de cette liste, avec ses valeurs au meme niveau que "action"
 annoncees ; une etape sans valeur est refusee quand l action en exige une
 (ampleur manquante). Sers-toi des lignes "ex :" de chaque action : ce sont des
 exemples de composition deja valides. Jamais d action inventee.
-Si la documentation d une action te parait insuffisante pour composer, tu peux
-demander a une aide distante de l enrichir avec reviser_actions (elle ajoute des
-exemples, elle ne cree pas d action). Ne l appelle pas a chaque tour : une fois
-suffit, et seulement si tu es vraiment a court.${IMAGE_SECTION}
+${IMAGE_SECTION}
+
+Planifie vers le BUT, pas seulement le geste suivant. plan_de_mission (si
+present) est la chaine critique tenue par ta reflexion : la suite des
+sous-objectifs jusqu au but, avec le detail de chacun ; ton plan fait avancer
+l etape en_cours et prepare la suivante. besoins (construction) donne les
+totaux calcules par le code : recolte en une fois tout le bois annonce
+(buches_a_recolter), fabrique tout ce qui est annonce, puis pose ; ne fais pas
+d allers-retours pour 1 ou 2 blocs.
 
 Lis l etat avant de repondre : consigne dit ce qui est demande, progression et
 chantier disent ce qui est fait, environnement dit ce qui est atteignable et ou
@@ -840,18 +828,13 @@ Ce que l etat impose, et qui n est pas negociable :
 - chantier.emplacement_choisi faux => choisir_terrain avant toute pose.
 - chantier.materiau_en_inventaire a 0 alors qu il reste des blocs a poser =>
   il manque de la matiere : casser, ou fabriquer si la matiere brute est la.
-- etat.blocage.detecte vrai => tu es dans une impasse. Commence le plan par
-  demander_aide UNE fois (si reparations_restantes > 0 et reparateur_disponible),
-  puis laisse le code relancer la mission : ne replanifie pas l action qui vient
-  d echouer. demander_aide hors blocage est refuse et fait perdre le tour.
+- etat.blocage.detecte vrai => tu es dans une impasse (le code l annonce au
+  joueur et relance ta reflexion) : ne replanifie pas l action qui vient
+  d echouer, change de moyen (autre cible, autre chemin, autre ordre) en
+  suivant plan_de_mission s il a change.
 - Tu ne sais pas quoi faire, ou tu viens de te faire refuser un arret =>
   regarder_autour, jamais attendre : attendre ne t apprend rien, regarder_autour
   te dit ce qui est visible et dans quelle direction.
-- Si tu as regarde autour et qu il n y a toujours rien d utile, ou si la
-  documentation d une action te parait mal faite : reviser_actions. Une aide
-  distante peut alors enrichir, fusionner ou retirer des exemples d action,
-  visibles au tour suivant. Ne l appelle pas juste pour tourner en rond : une
-  seule fois utile vaut mieux que trois appels.
 - chat_recent non vide => ce sont les derniers messages des joueurs. Si le
   dernier message te demande quelque chose de faisable, tiens-en compte. Si tu
   es perdu ou bloque et qu un joueur peut t aider, dis-le UNE fois avec "dire",
@@ -916,13 +899,8 @@ function basePrompt (kind, supply) {
 // Le prompt systeme complet = base cachee (couches 1-3) + memoire de mission
 // fraiche (couche 4). Seule la fin du prompt bouge entre deux appels d une
 // meme mission : le prefixe reste servi du cache cote gateway.
-function systemPrompt (kind, supply, route = null) {
-  let prompt = basePrompt(kind, supply)
-  if (route?.role === 'strategy') {
-    prompt = prompt.replace(/- etat\.blocage\.detecte vrai =>[\s\S]*?perdre le tour\./,
-      '- Tu assures maintenant le diagnostic et la strategie : propose directement un plan borne avec les actions disponibles, fonde sur les mesures fraiches. Un blocage ne t oblige pas a demander_aide. Reserve cette aide a un manque precis de documentation que tu ne peux pas resoudre avec les informations presentes ; pas de second appel pour repeter ton propre diagnostic.')
-  }
-  return prompt + missionMemoryLayer()
+function systemPrompt (kind, supply) {
+  return basePrompt(kind, supply) + missionMemoryLayer()
 }
 
 // ---------------------------------------------------------------------------
@@ -946,7 +924,7 @@ async function call (system, user, image = null, opts = {}) {
     maxTokens: EFFECTIVE_MAX_TOKENS,
     temperature: TEMPERATURE,
     timeoutMs: budget,
-    task: opts.task ?? 'plan', state: opts.state ?? {}, route: opts.route ?? null
+    task: opts.task ?? 'plan'
   })
 }
 
@@ -1118,13 +1096,12 @@ function validate (raw, kind, supply) {
 async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   if (!isEnabled()) throw new Error('planificateur JSON non configure (PLANNER_BASE_URL)')
 
-  const route = routing.selectRoute('plan', state)
-  const system = systemPrompt(kind, supply, route)
+  const system = systemPrompt(kind, supply)
   const user = JSON.stringify({ ...state, ...extra })
 
   let response
   try {
-    response = await call(system, user, image, { signal: opts.signal ?? null, task: 'plan', state, route })
+    response = await call(system, user, image, { signal: opts.signal ?? null, task: 'plan' })
     lastError = null
   } catch (err) {
     // Un plan speculatif jete (stop, echec, fin) n est pas une panne du
@@ -1149,7 +1126,6 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   const result = validate(parsed, kind, supply)
   result.ms = response.ms
   result.usage = response.usage
-  if (response.routing) result.routing = response.routing
 
   stats.appels += 1
   stats.etapes_servies += result.steps.length
@@ -1370,6 +1346,59 @@ async function designBlueprint (input, opts = {}) {
   return parseJson(response.content)
 }
 
+// Reflexion de fond (usage BRIEF, modele de reflexion) : chaine critique de
+// la mission, revue au plus une fois par minute ou sur blocage, sans jamais
+// interrompre l action (mission.js). Remplace demander_aide/reviser_actions
+// (2026-09-27, demande du proprietaire) : on met a jour le PLAN, pas la
+// documentation des actions. Les quantites viennent du code (besoins,
+// prerequis) ; le modele ordonne, detaille et diagnostique.
+const STRATEGY_PROMPT = `Tu es la reflexion d un bot Minecraft en survie (paisible, sans
+commande d administration). Un autre modele choisit les gestes toutes les
+quelques secondes ; toi, tu tiens a jour la CHAINE CRITIQUE de la mission : la
+suite ordonnee des sous-objectifs qui menent au but, avec pour chacun ce qu il
+faut concretement (quantites, lieu, outil).
+
+Tu recois en JSON : consigne (le but du joueur), besoins et prerequis
+(quantites CALCULEES par le code : reprends-les, ne recompte pas), inventaire,
+chantier/etabli (positions et distances), progression, echecs (compte par
+action et derniers resultats), blocage (impasse mesuree), temps ecoule et
+restant, et chaine_precedente (ta derniere version).
+
+Rends UNIQUEMENT ce JSON :
+{"chaine": [{"etape": "<sous-objectif court>", "detail": "<quantites, ou,
+comment, en une phrase>", "statut": "fait|en_cours|a_faire"}],
+ "diagnostic": "<ce qui bloque ou ralentit, ou vide>",
+ "conseil": "<la prochaine chose a faire pour le modele d actions, une phrase>"}
+
+Regles :
+- 3 a 8 etapes, de la situation ACTUELLE au but ; une seule en_cours.
+- Grouper : recolter tout le bois necessaire d un coup, pas bloc par bloc ;
+  fabriquer tout ce qui peut l etre avant de construire.
+- Un blocage ou des echecs repetes sur la meme action => change de moyen dans
+  la chaine (autre cible, autre chemin, autre ordre), ne repete pas.
+- Ne parle que d actions possibles en survie ; jamais de coordonnees inventees.
+- Garde les etapes deja justes de chaine_precedente, mets a jour les statuts.`
+
+function validateStrategy (parsed) {
+  const chaine = (Array.isArray(parsed?.chaine) ? parsed.chaine : []).slice(0, 8).map(e => ({
+    etape: String(e?.etape ?? '').slice(0, 80),
+    detail: String(e?.detail ?? '').slice(0, 200),
+    statut: ['fait', 'en_cours', 'a_faire'].includes(e?.statut) ? e.statut : 'a_faire'
+  })).filter(e => e.etape)
+  if (chaine.length === 0) return null
+  return {
+    chaine,
+    diagnostic: String(parsed?.diagnostic ?? '').slice(0, 240),
+    conseil: String(parsed?.conseil ?? '').slice(0, 200)
+  }
+}
+
+async function strategize (context, opts = {}) {
+  if (!isEnabled()) return null
+  const response = await call(STRATEGY_PROMPT, JSON.stringify(context), null, { ...opts, task: 'strategie' })
+  return validateStrategy(parseJson(response.content))
+}
+
 async function readBrief (objective, opts = {}) {
   if (!isEnabled()) return null
 
@@ -1495,7 +1524,7 @@ function parseInterpretMode (raw) {
 }
 
 async function interpretMessage (message, context, opts = {}) {
-  const ask = () => call(CONVERSATION_PROMPT, JSON.stringify({ message, ...context }), null, { ...opts, task: 'interpretMessage', state: context })
+  const ask = () => call(CONVERSATION_PROMPT, JSON.stringify({ message, ...context }), null, { ...opts, task: 'interpretMessage' })
   let response
   try {
     response = await ask()
@@ -1542,7 +1571,7 @@ async function warmup () {
   try {
     await call('Tu reponds uniquement en JSON.', '{"ping":true}', null, { task: 'warmup' })
     const ms = Date.now() - started
-    console.log(`[planner] ${routing.isDual() ? routing.FAST : MODEL} charge et pret en ${(ms / 1000).toFixed(1)} s`)
+    console.log(`[planner] ${MODEL} charge et pret en ${(ms / 1000).toFixed(1)} s`)
     return { ok: true, ms }
   } catch (err) {
     lastError = err.message
@@ -1557,13 +1586,15 @@ module.exports = {
   plan,
   classify,
   readBrief,
+  strategize,
+  validateStrategy,
   designBlueprint,
   interpretMessage,
   compact,
   systemPrompt,
   validate,
   stats,
-  get MODEL () { return routing.isDual() ? 'dual' : MODEL },
+  MODEL,
   BASE_URL,
   SESSION_ID,
   PLAN_MAX,
@@ -1578,7 +1609,6 @@ module.exports = {
   DONE_THRESHOLD,
   DOOR_THRESHOLD,
   profileStatus,
-  selectPlanRoute: state => routing.selectRoute('plan', state),
   onProfileEvent,
   _profile,
   _resetProfile,
