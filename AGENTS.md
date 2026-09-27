@@ -430,7 +430,8 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   Cible de fabrication reduite a une famille (« pioche ») alors que l objectif
   dit « pioche en pierre » : l objet precis (outil + « en » + matiere) est
   repris du texte (craft/stone-pickaxe : pioche en bois puis errance).
-- `digToward` sans course (`allowSprinting = false` pour safe/joinDig) : le
+- `digToward` vers un joueur sans course (`joinDigMovements.allowSprinting =
+  false` ; PAS safeDig : sans course l escalier de terrain/plateau expirait) : le
   pathfinder creuse la marche sous les pieds des que le bot touche le sol,
   elan compris ; en courant, le bot glissait au-dela du rebord et tombait de
   5 blocs (join/cliff-down 89fa489, premiere chute en ~30 bancs). Le solveur

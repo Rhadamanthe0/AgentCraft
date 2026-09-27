@@ -451,11 +451,6 @@ function buildMovements () {
   safeDigMovements.allow1by1towers = true
   safeDigMovements.allowParkour = false
   safeDigMovements.maxDropDown = 3
-  // Sans course : le pathfinder creuse sous les pieds des que le bot touche
-  // le sol, elan compris. En courant, le bot glissait au-dela du rebord
-  // pendant qu il creusait la marche et tombait de 5 blocs (join/cliff-down,
-  // 89fa489 : noeud a z=21,5, bot a 21,94 en l air puis au pied).
-  safeDigMovements.allowSprinting = false
   safeDigMovements.liquidCost = LIQUID_COST
 
   joinDigMovements = new Movements(bot)
@@ -463,6 +458,12 @@ function buildMovements () {
   joinDigMovements.allow1by1towers = true
   joinDigMovements.allowParkour = false
   joinDigMovements.maxDropDown = 3
+  // Sans course (trajets vers un joueur) : le pathfinder creuse sous les pieds
+  // des que le bot touche le sol, elan compris ; en courant, le bot glissait
+  // au-dela du rebord pendant qu il creusait la marche et tombait de 5 blocs
+  // (join/cliff-down, 89fa489). PAS pour la recolte (safeDigMovements) : sans
+  // course, l escalier creuse vers le haut du plateau expirait (terrain/plateau
+  // a45b981, 9b5fe31, 212ccac ; 89fa489 : chemin creuse sur 6,5 blocs).
   joinDigMovements.allowSprinting = false
   // Le bot ne ressort pas de l eau en 26.1 : un pont de terre vaut mieux.
   joinDigMovements.liquidCost = 200
