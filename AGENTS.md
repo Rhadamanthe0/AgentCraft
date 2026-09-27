@@ -29,6 +29,23 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   resume donnent reussite, duree, appels au modele et degats cote a cote.
   Un mode qui n apporte rien de mesurable n est pas garde.
 
+## Scenarios composites : la vraie finalite (2026-09-27, demande du proprietaire)
+
+- Le joueur donne un BUT, jamais les etapes : « construis-moi une cabane »
+  sans aucun materiel => le bot coupe un arbre, se fait une hache, coupe le
+  bois necessaire, fabrique planches et porte, construit. « Va miner du fer »
+  => il fait lui-meme toute la chaine (outils, recherche d une grotte,
+  fouille). Quelques scenarios peuvent donner les etapes ; la cible, non.
+- Paliers : but a deux etapes liees, longue chaine depuis rien, imprevus en
+  cours (changement d avis, stop/reprise, question), terrain hostile combine,
+  missions ouvertes. Les plus simples BLOQUENT la fusion, la difficulte
+  bloquante monte ensuite peu a peu ; les plus durs restent informatifs.
+- Composites lances EN PREMIER (chemin critique du banc). Plafond : 45 min
+  par scenario. Quota du modele : pas une contrainte (DeepSeek peu cher).
+- Minage : monde NATUREL (terrain genere, graine fixe, zone variee par banc).
+  Le bot cherche d abord une grotte ; s il galere, il creuse en ESCALIER
+  (jamais un puits vertical). Difficulte paisible pour l instant.
+
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
 - Banc CI `trees` (`ci/trees.py`, docs/remote-minecraft-tests.md) : quatre
