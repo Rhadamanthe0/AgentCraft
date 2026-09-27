@@ -422,6 +422,9 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   `placedTable`) pour le solveur, `ensureTable` (le bot y retourne) et le refus
   d un second etabli : a 4-6 blocs, craft/furnace (28d5096) oscillait entre le
   bouleau (plan : nouvel etabli donc bois) et la pierre a ~25 blocs.
+  L etabli que le bot a pose ou utilise (`bot.craftTable`, `rememberTable`)
+  reste le sien jusqu a 64 blocs tant que le bloc existe : a 24 blocs, la
+  pierre de craft/furnace (~26) restait hors rayon (83bbfad).
   Cible de fabrication reduite a une famille (« pioche ») alors que l objectif
   dit « pioche en pierre » : l objet precis (outil + « en » + matiere) est
   repris du texte (craft/stone-pickaxe : pioche en bois puis errance).

@@ -432,14 +432,32 @@ function freeSpotNear (bot) {
 // reclamait un nouvel etabli donc du bois, allers-retours bouleau/pierre).
 const TABLE_REUSE_RADIUS = Number(process.env.CRAFT_TABLE_REUSE_RADIUS || 24)
 
+// L etabli que CE bot a pose ou utilise reste le sien tant que le bloc est la,
+// jusqu a TABLE_KNOWN_MAX blocs : un rayon fixe ne suffit pas (craft/furnace,
+// 83bbfad : pierre a ~26 blocs de l etabli, juste hors des 24).
+const TABLE_KNOWN_MAX = Number(process.env.CRAFT_TABLE_KNOWN_MAX || 64)
+
 function placedTable (bot, radius = TABLE_REUSE_RADIUS) {
   const blockId = bot.registry?.blocksByName?.crafting_table?.id
-  if (!blockId || typeof bot.findBlock !== 'function') return null
+  if (!blockId) return null
+  let found = null
   try {
-    return bot.findBlock({ matching: blockId, maxDistance: radius })
+    found = typeof bot.findBlock === 'function' ? bot.findBlock({ matching: blockId, maxDistance: radius }) : null
   } catch (_) {
-    return null
+    found = null
   }
+  if (found) return found
+  const known = bot.craftTable
+  if (!known || typeof bot.blockAt !== 'function' || !bot.entity?.position) return null
+  try {
+    const block = bot.blockAt(known)
+    if (block?.type === blockId && bot.entity.position.distanceTo(known) <= TABLE_KNOWN_MAX) return block
+  } catch (_) { /* chunk absent */ }
+  return null
+}
+
+function rememberTable (bot, table) {
+  if (table?.position) bot.craftTable = table.position.clone ? table.position.clone() : table.position
 }
 
 // Un etabli a portee : celui qui traine (a TABLE_REUSE_RADIUS blocs au plus),
@@ -476,6 +494,7 @@ async function ensureTable (bot) {
     }
   }
 
+  rememberTable(bot, table)
   await bot.lookAt(table.position.offset(0.5, 0.5, 0.5), true)
   return table
 }
@@ -816,7 +835,9 @@ async function make (bot, targetName, wanted = 1) {
 
 module.exports = {
   TABLE_REUSE_RADIUS,
+  TABLE_KNOWN_MAX,
   placedTable,
+  rememberTable,
   snapshot,
   options,
   targetCriteria,
