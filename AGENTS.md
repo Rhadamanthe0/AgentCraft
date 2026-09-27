@@ -382,6 +382,10 @@
   joueur » (intermittent depuis le 2026-09-26) ; `donner` sans quantite
   bouclait ensuite jusqu au plafond (craft/door ffda434). Seul un message du
   joueur avec un verbe de don (donne, rapporte, ramene, livre, file...) le garde.
+- Chat sans reponse du modele dans le delai (`interpretMessage`) : UN rejeu du
+  meme modele ; sinon « Modèle trop lent, répète ? » (et non « Pas compris »).
+  Vu sur c499481 (PR #22) : chat p95 19 s, deux ordres perdus (terrain/plateau,
+  chat/join-then-tree).
 - Chat du bot en style court (demande du proprietaire : chat Minecraft petit et
   charge) : messages systeme raccourcis (« Reçu, je regarde… », « Compris. »,
   « Fini : raison. »), prompt du chat et doc de `dire` en quelques mots.

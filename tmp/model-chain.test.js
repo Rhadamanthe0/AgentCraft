@@ -163,3 +163,20 @@ test('demander de l aide : modele PLANNER_MODEL_REPAIR avec son effort', async (
   await repair.askForAction({ probleme: 'bloque', kind: 'recolte', supply: 'harvest', etat: {}, historique: [] })
   assert.deepEqual(seen[0], ['r1', 'high'])
 })
+
+test('chat sans reponse dans le delai : UN rejeu du meme modele, puis l erreur', async () => {
+  const chat = JSON.stringify({ relation: 'new', objective: 'coupe un arbre', response: 'OK.' })
+  let calls = 0
+  llm.call = async (s, u, o) => {
+    calls++
+    if (calls === 1) throw new Error('pas de reponse en 20000 ms')
+    return { content: chat, usage: null, ms: 1 }
+  }
+  const p = load({ PLANNER_MODEL: 'a' })
+  assert.equal((await p.interpretMessage('coupe moi un arbre', {})).relation, 'new')
+  assert.equal(calls, 2)
+  calls = 0
+  llm.call = async () => { calls++; throw new Error('pas de reponse en 20000 ms') }
+  await assert.rejects(p.interpretMessage('coupe moi un arbre', {}), /pas de reponse/)
+  assert.equal(calls, 2, 'jamais plus d un rejeu')
+})
