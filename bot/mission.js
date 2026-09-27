@@ -99,8 +99,17 @@ function setFeatures (changes = {}) {
   for (const [key, value] of Object.entries(changes ?? {})) {
     if (key !== 'reset' && /^[a-z_]{1,24}$/.test(key) && typeof value === 'boolean') featureOverrides[key] = value
   }
+  syncActionFeatures()
   return { ...featureOverrides }
 }
+// Actions a interrupteur (`spec.feature` dans skills.js) : catalogue et
+// validation du planificateur suivent featureOn.
+function syncActionFeatures () {
+  for (const spec of Object.values(skills.ACTIONS)) {
+    if (spec.feature) skills.setFeatureEnabled(spec.feature, featureOn(spec.feature))
+  }
+}
+syncActionFeatures()
 const SCREENSHOT_EVERY = Math.max(1, Number(process.env.MISSION_SCREENSHOT_EVERY || 5))
 const SCREENSHOT_RAYON = Math.max(1, Number(process.env.MISSION_SCREENSHOT_RAYON || 16))
 // Portee de casse cote serveur : ~4.5 blocs. On garde une marge.
@@ -300,6 +309,8 @@ const REFLECTION_EVERY_MS = Number(process.env.MISSION_REFLECTION_EVERY_MS || 60
 // interpolee entre ces valeurs.
 const HARVEST_MIN = 2
 const HARVEST_MAX = Number(process.env.MISSION_HARVEST_BURST_MAX || 16)
+// Duree max d une action `recolter` (chaine avancer/casser/ramasser).
+const RECOLTER_MAX_MS = Number(process.env.MISSION_RECOLTER_MAX_MS || 60000)
 const HARVEST_BURST_MS = Number(process.env.MISSION_HARVEST_BURST_MS || 15000)
 const PICKUP_MIN = 1
 const PICKUP_MAX = 6
@@ -2990,6 +3001,43 @@ function createMissionRunner (host, injected = {}) {
     return { ok: false, texte: `operation inconnue : ${op || '?'}` }
   }
 
+  // `avancer` sans cible bloque (mur, marche de 2, arbre) : au lieu de
+  // renvoyer le modele a `appuyer` (souvent immobile, encastre : banc de la
+  // PR #38), le navigateur partage cherche un detour vers le point debout le
+  // plus lointain du cap (denivele de 2 au plus). Rend la distance gagnee.
+  function pointDansLeCap (yaw, distance) {
+    const bot = host.getBot()
+    if (!bot?.entity || typeof bot.blockAt !== 'function') return null
+    const p = bot.entity.position
+    const dx = -Math.sin(yaw)
+    const dz = -Math.cos(yaw)
+    for (let k = Math.min(24, Math.round(distance)); k >= 3; k -= 1) {
+      const x = Math.floor(p.x + dx * k)
+      const z = Math.floor(p.z + dz * k)
+      for (const dy of [0, 1, -1, 2, -2]) {
+        const y = Math.floor(p.y) + dy
+        try {
+          if (build.standable(bot, x, y, z)) return new Vec3(x + 0.5, y, z + 0.5)
+        } catch (_) { return null }
+      }
+    }
+    return null
+  }
+  async function detourDansLeCap (yaw, restant) {
+    if (mission.cancelled || typeof host.navigateToPosition !== 'function' || restant < 1) return 0
+    const point = pointDansLeCap(yaw, restant)
+    if (!point) return 0
+    const avant = host.getBot()?.entity?.position?.clone?.()
+    const r = await host.navigateToPosition(point, {
+      signal: mission.navigationAbort.signal, __owner: stepToken,
+      radius: 1.5, timeoutMs: 15000, distanceBudget: Math.min(48, Math.ceil(restant * 2) + 4)
+    })
+    const apres = host.getBot()?.entity?.position
+    const gagne = avant && apres ? Math.hypot(apres.x - avant.x, apres.z - avant.z) : 0
+    console.log(`[mission] avancer : detour vers ${point.x.toFixed(1)} ${point.y} ${point.z.toFixed(1)} -> ${r.code}, ${gagne.toFixed(1)} bloc(s)`)
+    return r.reached || gagne >= 1 ? gagne : 0
+  }
+
   const ACTIONS = {
     // Il y avait ici `approcher`, qui deleguait au pathfinder (GoalNearXZ). Le
     // pathfinder est casse au-dela de quelques blocs sur cette version (arret a
@@ -3158,6 +3206,82 @@ function createMissionRunner (host, injected = {}) {
             (refusal ? `, arret : ${refusal}` : '') +
             (ramasses ? `, ${ramasses} objet(s) ramasse(s) aussitot` : '')
       }
+    },
+
+    // Chaine d une recolte en une action : rejoindre le bloc vise le plus
+    // proche (`avancer`), le casser (`casser`), ramasser ce qui tombe
+    // (`ramasser`), recommencer jusqu a la quantite. Memes gestes, memes
+    // garde-fous, mais sans un appel au modele entre chaque geste. Rend la
+    // main au premier echec de trajet ou de casse, avec son resultat : le
+    // modele decide alors (piler, fabriquer un outil, autre cible).
+    async recolter (scale, params = {}) {
+      const visee = Number.isFinite(Number(params.quantite))
+        ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
+        : scaled(scale, 1, 16)
+      if (!skills.RESOURCES[harvestResource()]?.items) {
+        return { resultat: 'aucune matiere a recolter pour cette mission', echec: true }
+      }
+      const debut = Date.now()
+      const avant = countResourceItems()
+      const gagne = () => Math.max(0, countResourceItems() - avant)
+      const etapes = []
+      let arret = null
+      let rienARamasser = 0
+      while (!mission.cancelled && gagne() < visee && Date.now() - debut < RECOLTER_MAX_MS) {
+        const bot = host.getBot()
+        if (!bot?.entity) break
+        const cible = findTargetBlock()
+        const aPortee = cible &&
+          bot.entity.position.distanceTo(cible.position.offset(0.5, 0.5, 0.5)) <= REACH
+        let r
+        if (aPortee) {
+          r = await ACTIONS.casser(null, { duree: 8 })
+          etapes.push('casser')
+        } else if (nearbyItems().length > 0 && rienARamasser < 2) {
+          // Rien a portee mais des objets au sol (buches tombees d un arbre
+          // fini) : les prendre avant de chercher un autre bloc.
+          r = await ACTIONS.ramasser(null, { quantite: 6 })
+          etapes.push('ramasser')
+          if (r.echec) { rienARamasser += 1; continue }
+        } else if (cible || findTargetBlock(undefined, { anyHeight: true }) || highTargetHint()) {
+          r = await ACTIONS.avancer(null, { distance: 24 })
+          etapes.push('avancer')
+        } else {
+          // Jamais de marche a l aveugle : `avancer` sans cible irait droit
+          // devant. Explorer reste une decision du modele.
+          r = { resultat: 'aucun bloc de la matiere visee en vue : explorer (regarder_autour, avancer) puis recolter', echec: true, code: 'aucune_cible' }
+        }
+        if (r.echec) { arret = r; break }
+        rienARamasser = 0
+        if (etapes[etapes.length - 1] === 'casser' && gagne() < visee) {
+          await waitItemsSettled()
+          if (nearbyItems().length > 0) {
+            const pris = await ACTIONS.ramasser(null, { quantite: 6 })
+            etapes.push('ramasser')
+            if (pris.echec) rienARamasser += 1
+          }
+        }
+      }
+      // Ce qui reste au sol a la fin (quantite atteinte en cours de casse).
+      if (!mission.cancelled && !arret && nearbyItems().length > 0 && harvestResource() === 'bois') {
+        await waitItemsSettled()
+        await ACTIONS.ramasser(null, { quantite: 6 })
+        etapes.push('ramasser')
+      }
+      const n = gagne()
+      const ecoule = Math.round((Date.now() - debut) / 100) / 10
+      const bilan = `${n}/${visee} objet(s) de la matiere en ${ecoule} s (${etapes.length} geste(s) : ${etapes.slice(-6).join(', ')})`
+      if (arret) {
+        return {
+          resultat: `${bilan} ; arret : ${arret.resultat}`,
+          echec: n === 0,
+          code: arret.code
+        }
+      }
+      if (n === 0) {
+        return { resultat: `${bilan} ; rien obtenu`, echec: true }
+      }
+      return { resultat: n >= visee ? bilan : `${bilan} ; delai de ${RECOLTER_MAX_MS / 1000} s atteint` }
     },
 
     // Fix 2 : `ramasser` marche VRAIMENT sur les objets, en gestes unitaires,
@@ -3581,10 +3705,14 @@ function createMissionRunner (host, injected = {}) {
           if (!walk.blocked && walk.moved >= 0.5) continue
           if (parcouruLibre >= distance) break
           if (strafesLibres >= NAV_MAX_STRAFES) {
+            const detour = await detourDansLeCap(capYaw, restantLibre)
+            if (detour) {
+              return { resultat: `avance de ${(parcouruLibre + detour).toFixed(1)} bloc(s) sur ${distance} demande(s) (detour calcule autour de l obstacle)` }
+            }
             return {
               resultat: `bloque apres ${parcouruLibre.toFixed(1)} bloc(s) sur ${distance} demande(s) : ` +
-                'obstacle trop haut, contourne (appuyer left ou right + forward + jump) ' +
-                'puis re-pivote vers la cible.' + conseilPilier(),
+                'aucun chemin dans ce cap, meme par un detour calcule : changer de cap (pivoter) ' +
+                'ou viser une cible.' + conseilPilier(),
               echec: true
             }
           }
@@ -3596,11 +3724,15 @@ function createMissionRunner (host, injected = {}) {
           coteLibre = cote === 'left' ? 'right' : 'left'
           restantLibre = Math.max(0, distance - parcouruLibre)
         }
+        const detourFinal = parcouruLibre < 0.5 ? await detourDansLeCap(capYaw, restantLibre) : 0
+        if (detourFinal) {
+          return { resultat: `avance de ${(parcouruLibre + detourFinal).toFixed(1)} bloc(s) sur ${distance} demande(s) (detour calcule autour de l obstacle)` }
+        }
         if (parcouruLibre < 0.5) {
           return {
             resultat: `bloque apres ${parcouruLibre.toFixed(1)} bloc(s) sur ${distance} demande(s) : ` +
-              'obstacle trop haut, contourne (appuyer left ou right + forward + jump) ' +
-              'puis re-pivote vers la cible.' + conseilPilier(),
+              'aucun chemin dans ce cap, meme par un detour calcule : changer de cap (pivoter) ' +
+              'ou viser une cible.' + conseilPilier(),
             echec: true
           }
         }

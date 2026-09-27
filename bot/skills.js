@@ -292,6 +292,40 @@ const ACTIONS = {
     }
   },
 
+  // Chaine complete d une recolte en UNE action (revue de performance du
+  // 2026-09-27) : avancer / casser / ramasser coutaient un appel au modele par
+  // geste et la plupart des echecs (« bloc trop loin », « aucun objet »).
+  // Le code enchaine les memes gestes jusqu a la quantite, et rend la main au
+  // premier obstacle qu il ne sait pas lever (outil, cible haute, aucun
+  // chemin). Interrupteur A/B `recolter` (featureOn).
+  recolter: {
+    kinds: ['recolte', 'construction'],
+    harvesting: true,
+    feature: 'recolter',
+    summary: 'aller a la matiere visee, la casser et ramasser, jusqu a la quantite',
+    scale: 'nombre d objets de la matiere a obtenir, de 1 a 16',
+    secondes: 3,
+    parBloc: true,
+    intent: "Obtenir N objets de la matiere visee en une seule action : le code rejoint le bloc le plus proche, le casse, ramasse ce qui tombe et recommence jusqu a N (60 s au plus). Rend la main au premier obstacle (outil manquant, cible trop haute, aucun chemin) en le disant : piler, fabriquer ou avancer ensuite. Prefere-la a avancer + casser + ramasser pour toute recolte",
+    params: {
+      quantite: {
+        json: { kind: 'number', min: 1, max: 16 },
+        question: 'Combien d objets de la matiere obtenir ?'
+      },
+      ampleur: {
+        type: 'score',
+        question: 'Combien d objets de la matiere obtenir ?',
+        rubric: amountRubric([
+          'un seul objet',
+          'deux objets',
+          'quatre objets',
+          'huit objets',
+          'seize objets'
+        ])
+      }
+    }
+  },
+
   ramasser: {
     kinds: ['recolte', 'construction'],
     harvesting: true,
@@ -1031,9 +1065,21 @@ function intentCriteria () {
 // `lowLevel` decide si les gestes (dire, regarder, sauter, appuyer) font partie
 // du lot. Jev ne les prend pas : ses questions sont des choix fermes, il ne
 // sait produire ni un angle ni une phrase. Le planificateur JSON, si.
+// Actions coupees par leur interrupteur A/B (`spec.feature`, mission.js
+// `featureOn`) : absentes du catalogue et refusees a la validation. Un
+// changement incremente docGeneration, donc le prompt en cache est refait.
+const disabledFeatures = new Set()
+function setFeatureEnabled (feature, enabled) {
+  const before = disabledFeatures.has(feature)
+  if (enabled) disabledFeatures.delete(feature)
+  else disabledFeatures.add(feature)
+  if (before !== disabledFeatures.has(feature)) docGeneration += 1
+}
+
 function availableFor (kind, supply = 'harvest', lowLevel = false) {
   return Object.entries(ACTIONS).filter(([, spec]) => {
     if (kind && !spec.kinds.includes(kind)) return false
+    if (spec.feature && disabledFeatures.has(spec.feature)) return false
     if (supply === 'creative' && kind === 'construction' && spec.harvesting) return false
     if (spec.plannerOnly && !lowLevel) return false
     return true
@@ -1081,6 +1127,7 @@ function jsonParamsFor (action) {
 const UNITES_PAR_AMPLEUR = {
   avancer: [1, 5, 10, 20, 40],
   casser: [2, 5, 9, 13, 16],
+  recolter: [1, 2, 4, 8, 16],
   ramasser: [1, 2, 3, 5, 6],
   construire: [4, 13, 22, 31, 40],
   attendre: [1, 2, 3, 4, 5],
@@ -1153,6 +1200,11 @@ function parameterized () {
 // ---------------------------------------------------------------------------
 
 const ACTION_EXEMPLES = {
+  recolter: [
+    'mission bois, 0 buche en poche, arbre en vue -> {"action":"recolter","quantite":4}',
+    'besoins.buches_a_recolter = 3 -> {"action":"recolter","quantite":3} (tout d un coup, pas une buche par plan)',
+    'resultat « cible trop haute » -> piler, puis recolter de nouveau'
+  ],
   casser: [
     'navigation.a_portee vrai -> {"action":"casser","duree":4}',
     'tronc a portee avec plusieurs buches -> {"action":"casser","duree":8} (rafale : 4 a 6 buches d un coup, pas une par une)',
@@ -1862,6 +1914,7 @@ module.exports = {
   intentCriteria,
   actionCriteria,
   actionsFor,
+  setFeatureEnabled,
   paramsFor,
   jsonParamsFor,
   estimatedSeconds,

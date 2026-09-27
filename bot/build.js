@@ -958,6 +958,7 @@ async function placeDoor (bot, plan, itemName, { move = null } = {}) {
 }
 
 module.exports = {
+  standable,
   parseDimensions,
   parseQuota,
   planHouse,

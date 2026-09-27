@@ -96,6 +96,16 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   aucun gagnant net, A/B garde. Blocages recurrents des variantes sans
   solveur/sans plans : `appuyer` immobile (encastre), `avancer` obstacle trop
   haut, `pivoter` sans cible en vue.
+  Suite (PR #39) : action `recolter` (quantite 1-16) = `avancer`/`casser`/
+  `ramasser` enchaines par le code jusqu a la quantite (60 s max,
+  `MISSION_RECOLTER_MAX_MS`), sans appel au modele entre les gestes ; rend la
+  main au premier echec (outil, cible haute, aucun chemin) et ne marche jamais
+  a l aveugle sans cible. Interrupteur `recolter` (`spec.feature` dans
+  skills.js : action retiree du catalogue et de la validation, prompt refait) ;
+  A/B `trees/double ~sans-recolter`. `avancer` SANS cible bloque : detour par
+  le navigateur partage vers le point debout le plus lointain du cap
+  (denivele <= 2) avant d echouer ; le message d echec ne conseille plus
+  `appuyer` (souvent « immobile : encastre » dans les variantes).
 
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
@@ -2375,6 +2385,7 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `PLANNER_ROUTING_MODE` | `legacy` | `dual` = routage MiMo/Muse (`model-routing.js`), hors banc. |
 | `FEATURE_<MODE>` | selon le mode | Interrupteurs A/B (`featureOn`, `/api/features`). |
 | `MISSION_BRIEF_NOTICE_MS` | `3000` | « Je réfléchis… » si la lecture d objectif depasse ce delai (0 = jamais). |
+| `MISSION_RECOLTER_MAX_MS` | `60000` | Duree max d une action `recolter`. |
 | `MISSION_CLIMB_MAX` | `12` | Niveaux max de `climbOutToward`. |
 | `MISSION_GESTE_MAX_PLANS` | `3` | Plans max d une mission `geste`. |
 | `MISSION_JUMP_FIRST_MS` / `_RETRY_MS` / `_MAX_ATTEMPTS` | `600` / `700` / `3` | Sauts de franchissement de la marche a pied. |
