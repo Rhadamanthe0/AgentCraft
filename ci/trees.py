@@ -739,6 +739,7 @@ def run_route_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
         'visits': visits, 'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
         'botStart': start, 'botFinalPosition': p, 'probe': probe_name,
+        'answerError': answer.get('error') if isinstance(answer, dict) else None,
     }
 
 
@@ -887,8 +888,12 @@ def run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     answers['follow'] = bot_api(bot, '/api/instruction', {'message': 'Suis moi', 'requester': probe_name})
     # Leave the bot time to accept the objective before the player walks away.
     until = time.monotonic() + 20
-    while time.monotonic() < until and not bot_api(bot, '/api/status').get('missionRunning'):
-        time.sleep(.5)
+    running_at_walk = False
+    while time.monotonic() < until and not running_at_walk:
+        running_at_walk = bool(bot_api(bot, '/api/status').get('missionRunning'))
+        if not running_at_walk:
+            time.sleep(.5)
+    start_wait = round(time.monotonic() - started, 1)
     time.sleep(2)
     probe = list(path[0])
     lags, walked, stop_at, stop_pos, drift = [], 0, None, None, 0.0
@@ -960,6 +965,11 @@ def run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         'expectedLogs': 0, 'logsInInventory': 0, 'elapsedS': round(time.monotonic() - started, 1),
         'maxLag': round(max(lags), 2) if lags else None, 'driftAfterStop': round(drift, 2) if stop_pos else None,
         'answers': {k: {kk: v.get(kk) for kk in ('relation', 'kind', 'error')} for k, v in answers.items()},
+        # Mission pas encore lancee quand le joueur part (lecture d objectif
+        # lente) : l ecart mesure alors le modele, pas le suivi.
+        'missionStartS': start_wait, 'missionRunningAtWalk': running_at_walk,
+        'answerError': (answers['follow'].get('error') if isinstance(answers.get('follow'), dict) else None)
+        or (None if running_at_walk else f'pas de reponse en {start_wait} s : mission pas encore lancee au depart du joueur'),
         'damageTaken': damage, 'botFinalPosition': final.get('position'), 'probe': probe_name,
     }
 

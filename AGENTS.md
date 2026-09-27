@@ -371,6 +371,12 @@
   mesures douteuses => repli fixe). Stats du planificateur lues AVANT le
   retrait d un bot (le processus les emporte). Tests : ci/test_capacity.py,
   ci/test_pool.py.
+- Latence du modele par usage (`planner.stats.latences` : 200 dernieres durees
+  par usage, issues ok/delai/erreur/annule) ; `report.plannerSummary.latences`
+  en tire p50/p95/max. Echec d un ordre sans reponse du modele (`answerError`,
+  « pas de reponse en ») classe `api`. follow/* note `missionRunningAtWalk` :
+  sur 83bbfad, follow/stairs (8,71 blocs) et route/under-tree (aucune mission)
+  venaient de lectures d objectif Muse > 20 s / 60 s x 2, pas du suivi.
 - Chat du bot en style court (demande du proprietaire : chat Minecraft petit et
   charge) : messages systeme raccourcis (« Reçu, je regarde… », « Compris. »,
   « Fini : raison. »), prompt du chat et doc de `dire` en quelques mots.

@@ -45,11 +45,14 @@ if ENDPOINT_MODE not in ('direct', 'ip', 'exec'):
 #                    le modele et le code du bot se departagent en lisant la timeline.
 INFRA_MARKERS = ('command failed', 'is not running', 'published port', 'rcon', 'connection refused',
                  'connection reset', 'no such container', 'cannot connect to the docker daemon')
-API_MARKERS = ('http 4', 'http 5', 'gousagelimit', 'planificateur indisponible', 'upstream request failed')
+API_MARKERS = ('http 4', 'http 5', 'gousagelimit', 'planificateur indisponible', 'upstream request failed',
+               'pas de reponse en')
 
 
 def failure_kind(test):
-    text = ' '.join(str(test.get(k) or '') for k in ('error', 'endReason')).lower()
+    # answerError : l ordre du joueur rejete par le bot (lecture d objectif sans
+    # reponse du modele...), la mission n a alors jamais commence.
+    text = ' '.join(str(test.get(k) or '') for k in ('error', 'endReason', 'answerError')).lower()
     if any(m in text for m in INFRA_MARKERS):
         return 'infrastructure'
     if any(m in text for m in API_MARKERS):
@@ -92,6 +95,23 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
 PROVIDER_MODEL_LISTS = {
     'go2': ('OPENCODE_SECONDARY_API_KEY', 'https://opencode.ai/zen/go/v1/models'),
 }
+
+
+def latency_summary(stats):
+    """p50/p95/max (ms) and outcomes per planner usage, over every bot of the run."""
+    merged = {}
+    for bot in stats.values():
+        for task, entry in (bot.get('latences') or {}).items():
+            m = merged.setdefault(task, {'ms': [], 'ok': 0, 'delai': 0, 'erreur': 0, 'annule': 0})
+            m['ms'] += entry.get('ms') or []
+            for k in ('ok', 'delai', 'erreur', 'annule'):
+                m[k] += entry.get(k) or 0
+    out = {}
+    for task, m in sorted(merged.items()):
+        ms = sorted(m.pop('ms'))
+        pick = lambda q: ms[min(len(ms) - 1, int(q * len(ms)))] if ms else None
+        out[task] = {'n': len(ms), 'p50': pick(.5), 'p95': pick(.95), 'max': ms[-1] if ms else None, **m}
+    return out
 
 
 def provider_models():
@@ -592,7 +612,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                         return
                     stats[worker.username] = {k: p.get(k) for k in (
                         'appels', 'etapes_servies', 'echecs', 'moyenne_ms', 'jetons_total', 'jetons_en_cache_total',
-                        'jetons_sortie_total', 'jetons_raisonnement_total', 'modele_servi', 'cle_servie', 'bascules_cle')}
+                        'jetons_sortie_total', 'jetons_raisonnement_total', 'modele_servi', 'cle_servie', 'bascules_cle',
+                        'latences')}
 
                 def pool_factory(queue, run_one):
                     return Pool(queue, run_one, LauncherControl(http), controller, collector, rcon, capacity_config,
@@ -632,7 +653,11 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     # Repli de cle (PLANNER_KEY_FIRST) : cle du dernier appel servi, bascules.
                     'cles_servies': sorted({v['cle_servie'] for v in stats.values() if v.get('cle_servie')}),
                     'bascules_cle': sum(v.get('bascules_cle') or 0 for v in stats.values()),
+                    # Duree reelle par usage (plan, chat, brief, compact, repair), tous bots.
+                    'latences': latency_summary(stats),
                 }
+                for v in stats.values():
+                    v.pop('latences', None)
                 # Cle attendue (CI_EXPECT_KEY, `secondary` au banc) : toute autre cle
                 # servie, ou une bascule, rend le banc non conforme.
                 expected = os.environ.get('CI_EXPECT_KEY')
