@@ -569,6 +569,10 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   (craft/door : buche puis etabli invisibles). `piler` en construction ne
   juge plus sur la cible de recolte (terre « deja a portee ») : bot emmure au
   pied d une tour creuse, derniere case du toit a +5 (build/tower).
+  Prompt du chat : l objectif garde les pronoms du joueur (« ta place » = le
+  bot, « moi » = le joueur) et nomme les deux s il reformule (route/wait-and-
+  back bb2a9f8 : « retourne a ta place » reecrit « revenir a ma position
+  actuelle », bot revenu pres du joueur).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

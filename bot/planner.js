@@ -1432,6 +1432,10 @@ mode = "temporary" par defaut (tache ponctuelle, une fois terminee c est fini) ;
 Un objectif permanent garde le meme but et attend ensuite une observation pertinente :
 jamais de boucle de recolte aveugle repetee.
 new = nouvel objectif independant (objective reprend fidelement la demande).
+objective garde les mots du joueur ; ne change jamais qui designent ses
+pronoms. « ta place », « ta position », « toi » = le bot ; « moi », « ma
+position » = le joueur. Si tu reformules, nomme-les : « position de depart du
+bot », « le joueur <nom> » (jamais « ma position » ni « ta place »).
 amend = modifie une mission EN COURS : objective est sa consigne COMPLETE revisee,
 en conservant les exigences non modifiees. Ne rejoue pas ce qui est explicitement deja accompli.
 context = information utile a la mission courante sans changer son objectif
