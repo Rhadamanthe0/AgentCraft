@@ -520,6 +520,10 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   l inventaire reel, complet) n en demande plus : craft/axe (40ee116), plan
   anticipe perime, planches et batons faits deux fois, 3 buches brulees, plus
   rien pour l etabli ni la hache. Hors cible planches/batons elle-meme.
+  Si l etape suivante du plan est l autre intermediaire (batons apres les
+  planches), elle est fabriquee a la place au lieu d un refus :
+  craft/stone-pickaxe (0a2a819), planches redemandees cinq fois malgre
+  « suite du plan : fabriquer 4 stick », plafond de 300 s.
 - Craft desynchronise : ingredients restes dans la grille 2x2 de l inventaire
   (slots 1 a 4) ou sur le curseur, invisibles pour `items()`, comptes comme
   consommes (craft/torches 4ee01ef : etabli « -8 ingredients sans produit »,

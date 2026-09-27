@@ -3095,7 +3095,7 @@ function createMissionRunner (host, injected = {}) {
       const bot = host.getBot()
       // `objet` arrive en nom de cible (« batons »), mais le modele envoie
       // parfois un nom d objet (« stick ») : on traduit, jamais pris tel quel.
-      const target = fabTargetName(params.objet)
+      let target = fabTargetName(params.objet)
 
       if (!target) {
         const possible = craft.options(bot).filter(o => o.possible).map(o => o.name)
@@ -3107,9 +3107,10 @@ function createMissionRunner (host, injected = {}) {
         }
       }
 
-      const wanted = Number.isFinite(Number(params.quantite))
+      let wanted = Number.isFinite(Number(params.quantite))
         ? Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Math.round(Number(params.quantite))))
         : scaled(scale, CRAFT_MIN, CRAFT_MAX)
+      let reorientation = ''
 
       // Cible de fabrication fixee : seuls la cible et ses intermediaires
       // (planches, batons, etabli) sont utiles. Vu sur craft/axe : une pioche
@@ -3127,10 +3128,21 @@ function createMissionRunner (host, injected = {}) {
         : target === 'batons' || target === 'stick' ? /^stick$/ : null
       const familleDansLePlan = famille && (plan?.etapes ?? []).some(e => e.op === 'fabriquer' && famille.test(e.objet))
       if (plan?.ok && famille && !familleDansLePlan && !famille.test(CIBLE_ITEM[mission.fabricationCible] ?? mission.fabricationCible)) {
-        return {
-          resultat: `assez de ${target} pour ${mission.fabricationCible} : suite du plan : ` +
-            (acquirePlan.describe(plan, 3).join(' ; ') || `fabriquer ${mission.fabricationCible}`),
-          echec: true
+        // Etape suivante du plan = l autre intermediaire (batons apres les
+        // planches) : la faire au lieu de refuser. Vu sur craft/stone-pickaxe
+        // (0a2a819) : planches redemandees cinq fois malgre « suite du plan :
+        // fabriquer 4 stick », pioche jamais faite, plafond de 300 s.
+        const suivante = plan.etapes[0]
+        if (suivante?.op === 'fabriquer' && /_planks$|^stick$/.test(suivante.objet)) {
+          reorientation = `assez de ${target}, etape suivante du plan faite a la place : `
+          target = suivante.objet
+          wanted = Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Number(suivante.quantite) || CRAFT_MIN))
+        } else {
+          return {
+            resultat: `assez de ${target} pour ${mission.fabricationCible} : suite du plan : ` +
+              (acquirePlan.describe(plan, 3).join(' ; ') || `fabriquer ${mission.fabricationCible}`),
+            echec: true
+          }
         }
       }
       if (mission.fabricationCible && !dansLePlan && !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
@@ -3176,7 +3188,7 @@ function createMissionRunner (host, injected = {}) {
           mission.fabricationLastError = null
         }
         return {
-          resultat: `${made.produced} ${made.item} fabrique(s) sur ${wanted} demande(s)` +
+          resultat: reorientation + `${made.produced} ${made.item} fabrique(s) sur ${wanted} demande(s)` +
             (made.usedTable ? ' (a l etabli)' : '')
         }
       } catch (err) {
