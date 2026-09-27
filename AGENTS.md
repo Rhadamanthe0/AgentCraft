@@ -131,6 +131,11 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   de la mission. build/windows : plan libre 5x5x3 (une case d air sous le
   toit), bot coince dessous, 60/61 => `compileBlueprint` refuse toute case
   d air unique entre deux blocs a l interieur (piege a bot).
+  Banc 13208e8 : iron-pickaxe fait etabli, pioches bois et pierre, four,
+  mais le fer disparait : `casser` ne verifiait l outil qu au premier bloc,
+  la matiere visee passait de la pierre au fer en cours de rafale (plan
+  recalcule a chaque objet) et le minerai etait casse a la pioche en bois,
+  sans rien lacher. Outil verifie a CHAQUE bloc de la rafale.
 - Action `explorer` (PR #40, fusionnee : far-tree 38 s avec, 61 s sans) : la
   matiere visee hors de vue est cherchee par le code, en spirale autour du
   point de depart : huit caps, point debout rejoignable le plus lointain du

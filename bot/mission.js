@@ -3190,7 +3190,18 @@ function createMissionRunner (host, injected = {}) {
           // L outil peut changer en cours de rafale (une touffe d herbe, puis
           // la terre en dessous). equipForBlock rend la main tout de suite si
           // le bon outil est deja en main.
-          if (mission.supply === 'harvest') await craft.equipForBlock(bot, block)
+          if (mission.supply === 'harvest') {
+            // Outil verifie pour CHAQUE bloc : la matiere visee peut changer en
+            // cours de rafale (plan recalcule a chaque objet), et un minerai
+            // casse sans le bon outil disparait sans rien lacher
+            // (craft/iron-pickaxe 13208e8 : fer casse a la pioche en bois).
+            const outil = craft.harvestCheck(bot, block)
+            if (!outil.ok) {
+              refusal = `${outil.reason} : il faut d abord une ${outil.need}`
+              break
+            }
+            await craft.equipForBlock(bot, block)
+          }
           // Viser avant de creuser : le serveur refuse un bloc que le joueur ne
           // regarde pas, et l animation part quand meme cote client.
           //
