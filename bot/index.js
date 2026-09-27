@@ -458,6 +458,13 @@ function buildMovements () {
   joinDigMovements.allow1by1towers = true
   joinDigMovements.allowParkour = false
   joinDigMovements.maxDropDown = 3
+  // Sans course (trajets vers un joueur) : le pathfinder creuse sous les pieds
+  // des que le bot touche le sol, elan compris ; en courant, le bot glissait
+  // au-dela du rebord pendant qu il creusait la marche et tombait de 5 blocs
+  // (join/cliff-down, 89fa489). PAS pour la recolte (safeDigMovements) : sans
+  // course, l escalier creuse vers le haut du plateau expirait (terrain/plateau
+  // a45b981, 9b5fe31, 212ccac ; 89fa489 : chemin creuse sur 6,5 blocs).
+  joinDigMovements.allowSprinting = false
   // Le bot ne ressort pas de l eau en 26.1 : un pont de terre vaut mieux.
   joinDigMovements.liquidCost = 200
   for (const block of Object.values(bot.registry.blocksByName)) {
@@ -1705,6 +1712,14 @@ app.delete('/api/memory', (req, res) => {
   if (!result.ok) return res.status(400).json({ ok: false, error: result.error })
   console.log(`[memoire] portee "${result.portee}" effacee par l API`)
   res.json({ ok: true, portee: result.portee, ...result.snapshot })
+})
+
+// Interrupteurs A/B du banc (mission.setFeatures) : {"solveur": false} coupe
+// un mode, {"reset": true} revient aux defauts. Aucun pouvoir en jeu.
+app.post('/api/features', (req, res) => {
+  const features = missionRunner.setFeatures(req.body ?? {})
+  console.log(`[features] ${JSON.stringify(features)}`)
+  res.json({ ok: true, features })
 })
 
 app.post('/api/control', requireBot, async (req, res) => {

@@ -1,5 +1,34 @@
 # CLAUDE.md
 
+## Objectif final : l autonomie, pas la repetition (2026-09-25, prioritaire sur tout)
+
+Demande du proprietaire : le but du projet est un bot **autonome qui s adapte**
+a une situation qu il n a jamais vue, pas un bot capable de rejouer une meme
+tache. Le banc CI **mesure** cette autonomie, il n est jamais une cible a
+optimiser (pas de « benchmaxing »). Regles qui en decoulent :
+
+- Aucun code, prompt ou exemple propre a un niveau du banc (coordonnees,
+  noms de niveau, sequence d actions attendue). Un correctif doit valoir pour
+  toute une famille de situations ; s il ne sert qu au niveau qui l a revele,
+  il est refuse.
+- Ne jamais reinjecter au modele des traces de missions reussies du banc
+  (bibliotheque d experiences a la JARVIS-1) : il apprendrait les niveaux, pas
+  le jeu. Ecarte le 2026-09-25 pour cette raison.
+- Preferer ce qui generalise : connaissances du jeu calculees par le code
+  (recettes, outils requis, sources des objets), reflexes generiques,
+  verification par les chiffres. Le modele decide, le code mesure.
+- Un nouveau niveau doit tester une situation nouvelle (terrain, prerequis,
+  imprevu), pas une variante deja reussie ; varier positions et decor quand
+  c est possible. Un niveau qui ne passe qu avec un correctif dedie signale un
+  manque de generalite a corriger ailleurs.
+- Tout nouveau mode se mesure en A/B : interrupteur `featureOn('<mode>')`
+  (mission.js, `/api/features`, variable `FEATURE_<MODE>`), et ses niveaux
+  portent `variants: [sans('<mode>')]` (ou `avec` pour un mode eteint par
+  defaut). Le banc joue le niveau tel quel (il decide PASS/FAIL) puis la
+  variante, informative (`INFO-PASS/FAIL`), et `report.comparisons` / le
+  resume donnent reussite, duree, appels au modele et degats cote a cote.
+  Un mode qui n apporte rien de mesurable n est pas garde.
+
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
 - Banc CI `trees` (`ci/trees.py`, docs/remote-minecraft-tests.md) : quatre
@@ -276,6 +305,13 @@
   jetons de sortie (space-bunny tronquait 7 % des plans a 2000).
   Delai CI ramene a 20 s (p95 14,6 s, p99 18,1 s sur 288ce66) : un appel
   muet est re-essaye, et 30 + 30 s depassaient les 60 s sans progres.
+  Cible de matiere : la face du DESSOUS ne compte pas comme visible sous les
+  pieds du bot, et une cible en `no_path`/`dug_out_of_reach` est mise de cote
+  3 min (craft/stone-pickaxe, craft/furnace : dessous de la couche de pierre
+  sous l arene vise trois fois, bot creusant vers le bas, puits).
+  `build.placeOne` pose d ici quand la case est deja a portee (corps hors de
+  la case, appui present) : l etabli a poser contre le rocher partait vers un
+  « meilleur » poste injoignable (12 s), pioche en pierre jamais fabriquee.
   Offres gratuites refusees hors client OpenCode (« FreeTierError ») : ne pas
   contourner.
   Effort de raisonnement par usage (`PLANNER_REASONING_EFFORT[_PLAN|_BRIEF|
@@ -384,6 +420,35 @@
   joueur avec un verbe de don (donne, rapporte, ramene, livre, file...) le garde.
   Meme garde pour une porte (`UNASKED`) : build/no-materials (bc5963d) relu
   « ... avec une porte » depuis le niveau precedent du meme bot.
+- Etabli pose reutilise dans un rayon de 24 blocs (`craft.TABLE_REUSE_RADIUS`,
+  `placedTable`) pour le solveur, `ensureTable` (le bot y retourne) et le refus
+  d un second etabli : a 4-6 blocs, craft/furnace (28d5096) oscillait entre le
+  bouleau (plan : nouvel etabli donc bois) et la pierre a ~25 blocs.
+  L etabli que le bot a pose ou utilise (`bot.craftTable`, `rememberTable`)
+  reste le sien jusqu a 64 blocs tant que le bloc existe : a 24 blocs, la
+  pierre de craft/furnace (~26) restait hors rayon (83bbfad).
+  Cible de fabrication reduite a une famille (« pioche ») alors que l objectif
+  dit « pioche en pierre » : l objet precis (outil + « en » + matiere) est
+  repris du texte (craft/stone-pickaxe : pioche en bois puis errance).
+- `digToward` vers un joueur sans course (`joinDigMovements.allowSprinting =
+  false` ; PAS safeDig : sans course l escalier de terrain/plateau expirait) : le
+  pathfinder creuse la marche sous les pieds des que le bot touche le sol,
+  elan compris ; en courant, le bot glissait au-dela du rebord et tombait de
+  5 blocs (join/cliff-down 89fa489, premiere chute en ~30 bancs). Le solveur
+  journalise son plan a chaque changement (`[mission] solveur (etabli proche
+  : ...)`) : craft/furnace 89fa489 (« il manque bois et etabli », etabli pose)
+  n etait pas lisible dans les journaux.
+- `avancer` sans cible : bord d une chute blessante (`videDevant`) guette a
+  chaque tick de physique, touches relachees dans le meme tick. La boucle de
+  marche ne passe que toutes les 100 ms et le bot court souvent : il voyait le
+  vide puis glissait par-dessus (terrain/plateau a45b981, chute de 5 blocs).
+- Cible mise de cote apres `no_path` (`injoignable`, 3 min) : ignoree tant
+  qu il reste une autre cible, jamais la derniere. terrain/plateau (a45b981,
+  9b5fe31) : buche du haut mise de cote depuis le pied de la falaise, puis
+  invisible une fois le bot monte (« rien » partout, errance).
+- Solveur : `prefer` = essences en poche puis bois visible (ids de buches,
+  jamais une fonction de recherche). Sans, le plan hesitait entre chene et
+  bouleau (craft/furnace 212ccac : « recolter 2 oak_log » pres d un bouleau).
 - Chat sans reponse du modele dans le delai (`interpretMessage`) : UN rejeu du
   meme modele ; sinon « Modèle trop lent, répète ? » (et non « Pas compris »).
   Vu sur c499481 (PR #22) : chat p95 19 s, deux ordres perdus (terrain/plateau,
@@ -410,6 +475,27 @@
   rejeu 16384 (plafond, pas un delai). Mesure CPU de l agent MINIPC-CLEM : CI a
   199 % en moyenne, 400 % seulement au demarrage (build, Paper, connexions),
   182 % ensuite ; 0 evenement memoire ; 16 bots gardes.
+- Solveur de prerequis (`bot/acquire-plan.js`, idee GITM / Mindcraft, table
+  de cuisson reprise de Mindcraft, MIT) : pour une fabrication, calcule depuis
+  l inventaire reel la chaine recolter / fabriquer / cuire, l outil exige par
+  chaque bloc source (`harvestTools`), l etabli d abord, la variante preferee
+  (bois, pierre) et les voies alternatives (charbon mine plutot que cuit). La
+  cuisson est planifiee mais signalee non geree (`bloque`). Servi au modele
+  dans `environnement.prerequis` ; `harvestResource()` fait viser a `casser`
+  la matiere de la premiere recolte du plan (bois puis pierre). Niveaux CI
+  `craft/stone-pickaxe`, `craft/torches`, `craft/furnace` (inventaire vide)
+  et `craft/iron-pickaxe` (informatif : cuisson impossible, fin honnete
+  attendue), chacun joue aussi `~sans-solveur` (interrupteur `solveur`).
+  Cibles en francais (`skills.normalizeFabricationTarget`) : « pioche en
+  pierre » -> stone_pickaxe (outil + matiere), four -> furnace, torche ->
+  torch..., pluriels ramenes au singulier du registre. Vu en CI (5b6f7f9) :
+  sans elles, pas de cible de fabrication, solveur jamais actif, bot visant
+  la pierre enfouie sous l arene (« aucun bloc cible sain a casser » x90).
+- `findTargetBlock` ne retient que des blocs VISIBLES (une face a l air,
+  feuilles/vitres/plantes/liquides laissent voir), filtre applique PENDANT la
+  recherche (`useExtraInfo` en fonction de `findBlocks`) :
+  la pierre enfouie sous le sol etait visee pour `avancer` (« rejoint a
+  portee ») puis introuvable pour `casser`, en boucle.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

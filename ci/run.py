@@ -85,7 +85,8 @@ def planner_key_present():
 HTTP_TIMEOUT_S = 150
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
         'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js',
-        'model-chain.test.js', 'fabrication-utile.test.js', 'conversation.test.js']
+        'model-chain.test.js', 'fabrication-utile.test.js', 'conversation.test.js', 'acquire-plan.test.js',
+        'place-direct.test.js', 'craft-table-reuse.test.js']
 
 
 
@@ -131,6 +132,32 @@ def provider_models():
         except (OSError, ValueError) as error:
             found[name] = {'error': str(error)[:200]}
     return found
+
+
+def compare_variants(tests):
+    """One line per A/B pair: success, time, model calls, damage, end."""
+    by_name = {t['test']: t for t in tests}
+
+    def brief(t):
+        parts = ['PASS' if t.get('success') else 'FAIL']
+        if t.get('elapsedS') is not None:
+            parts.append(f"{t['elapsedS']} s")
+        if t.get('plannerCalls') is not None:
+            parts.append(f"{t['plannerCalls']} appels")
+        if t.get('damageTaken'):
+            parts.append(f"{t['damageTaken']} degats")
+        for key in ('itemsHeld', 'blocksPlaced', 'bonusItems'):
+            if t.get(key) is not None:
+                parts.append(f"{key}={t[key]}")
+        return ', '.join(parts)
+
+    out = []
+    for t in tests:
+        base = by_name.get(t.get('variantOf') or '')
+        if t.get('informative') and base:
+            out.append({'level': base['test'], 'variant': t['test'].split('~', 1)[-1],
+                        'features': t.get('features'), 'base': brief(base), 'other': brief(t)})
+    return out
 
 
 def main():
@@ -681,6 +708,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         if probe_thread:
             probe_thread.join(timeout=920)
             report['modelProbe'] = probe_results
+        # A level whose worker died leaves None: report it, never crash the summary.
+        level_results = [r if r else {'test': 'niveau sans resultat', 'success': False, 'error': 'worker mort'}
+                         for r in level_results]
         report['tests'].extend(unit_results + nav_results + level_results)
         # Services arretes en fin de banc (conteneur tue de l exterieur, moteur
         # redemarre...) : le banc est invalide, pas le code (vu sur b2da858).
@@ -716,7 +746,10 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         phase('teardown', started)
         report['phases']['total'] = round(time.monotonic() - run_started, 1)
         classify_failures(report)
-        report['success'] = bool(report['tests']) and all(t['success'] for t in report['tests']) and not report['errors']
+        # A/B variants (a mode switched off, or the view switched on) measure,
+        # they never gate: only the levels as written decide PASS/FAIL.
+        report['success'] = bool(report['tests']) and all(t['success'] or t.get('informative') for t in report['tests']) and not report['errors']
+        report['comparisons'] = compare_variants(report['tests'])
         report['finishedAt'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         (output / 'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         # Convenience copy, deliberately ignored by Git; artifacts retain per-run files.
@@ -729,13 +762,18 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 return ''
             info = f" ({t['logsInInventory']}/{t['expectedLogs']} buches, {t['elapsedS']} s, {t['endReason']})"
             return info + (' ; echec : ' + ', '.join(failed) if failed else '')
+        def line(t):
+            tag = ('INFO-' if t.get('informative') else '') + ('PASS' if t['success'] else 'FAIL')
+            return f"- {tag} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '') \
+                + (f" <{t['failureKind']}>" if t.get('failureKind') else '') + detail(t)
         summary = '\n'.join([f"Commit: {report['sha'] or 'local export (no Git SHA)'}",
                              f"Result: {'PASS' if report['success'] else 'FAIL'}",
                              *([f"BANC INVALIDE (infrastructure) : {report['benchInvalid']}"] if report.get('benchInvalid') else []),
                              *([f"Cle du planificateur : {report['keyCheck']}"] if report.get('keyCheck') else []), '',
-                             *[f"- {'PASS' if t['success'] else 'FAIL'} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '')
-                               + (f" <{t['failureKind']}>" if t.get('failureKind') else '') + detail(t)
-                               for t in report['tests']],
+                             *[line(t) for t in report['tests']],
+                             *(['', 'Comparaisons A/B (niveau tel quel -> variante) :'] + [
+                                 f"- {c['level']} vs {c['variant']} : {c['base']} -> {c['other']}"
+                                 for c in report['comparisons']] if report.get('comparisons') else []),
                              *([f"Planificateur : {report['plannerSummary']}"] if report.get('plannerSummary') else []),
                              *([f"Pool : mode {report['pool']['mode']}, {report['pool']['maxActive']} workers au plus, "
                                 f"{report['pool']['workersStarted']} lances, morts {report['pool']['dead'] or 'aucun'}, "

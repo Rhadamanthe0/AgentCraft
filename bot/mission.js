@@ -21,6 +21,7 @@
 const skills = require('./skills')
 const build = require('./build')
 const craft = require('./craft')
+const acquirePlan = require('./acquire-plan')
 const delivery = require('./delivery')
 const Vec3 = require('vec3').Vec3
 const jev = require('./jev')
@@ -84,6 +85,28 @@ const DEFAULT_QUOTA = Number(process.env.MISSION_DEFAULT_QUOTA || 16)
 // coute des jetons d entree et un peu de latence, donc on ne la paie pas a
 // chaque tour. `RAYON` est la demi-cote de la carte, en blocs.
 const SCREENSHOT_ON = process.env.MISSION_SCREENSHOT === '1'
+
+// Interrupteurs A/B du banc : chaque nouveau mode peut etre coupe (ou la vue
+// allumee) pour mesurer ce qu il apporte, sans redemarrer le bot. Priorite :
+// /api/features, puis la variable FEATURE_<NOM> ('0'/'1'), puis le defaut du
+// mode. Un processus = un bot, donc un etat par bot.
+const featureOverrides = {}
+function featureOn (name, fallback = true) {
+  if (Object.prototype.hasOwnProperty.call(featureOverrides, name)) return featureOverrides[name]
+  const env = process.env[`FEATURE_${name.toUpperCase()}`]
+  if (env === '0') return false
+  if (env === '1') return true
+  return fallback
+}
+function setFeatures (changes = {}) {
+  if (changes?.reset === true) {
+    for (const key of Object.keys(featureOverrides)) delete featureOverrides[key]
+  }
+  for (const [key, value] of Object.entries(changes ?? {})) {
+    if (key !== 'reset' && /^[a-z_]{1,24}$/.test(key) && typeof value === 'boolean') featureOverrides[key] = value
+  }
+  return { ...featureOverrides }
+}
 const SCREENSHOT_EVERY = Math.max(1, Number(process.env.MISSION_SCREENSHOT_EVERY || 5))
 const SCREENSHOT_RAYON = Math.max(1, Number(process.env.MISSION_SCREENSHOT_RAYON || 16))
 // Portee de casse cote serveur : ~4.5 blocs. On garde une marge.
@@ -258,6 +281,12 @@ function resolveFabricationCible (bot, raw) {
   if (craft.TARGETS[norm]) return norm
   const itemsByName = bot?.registry?.itemsByName
   if (itemsByName && itemsByName[norm]) return norm
+  // Pluriel du modele (« torches », « furnaces ») : le singulier du registre.
+  const single = norm.replace(/(?<=[a-z])e?s$/, '')
+  if (itemsByName && single !== norm) {
+    if (itemsByName[norm.slice(0, -1)]) return norm.slice(0, -1)
+    if (itemsByName[single]) return single
+  }
   // Sans registre (jamais en prod), le format suffit : le make tranchera
   // (unknown/missing honnetes). En prod le registre existe toujours.
   if (!itemsByName && /^[a-z0-9_]+$/.test(norm)) return norm
@@ -755,7 +784,77 @@ function createMissionRunner (host, injected = {}) {
   }
 
   function targetBlockIds () {
-    return mission ? blockIdsFor(mission.resource) : []
+    return mission ? blockIdsFor(harvestResource()) : []
+  }
+
+  // Solveur de prerequis (acquire-plan.js, idee GITM/Mindcraft) : en
+  // fabrication, le code calcule la chaine complete depuis l inventaire reel
+  // (recolter, fabriquer, outil exige par un bloc, etabli) ; le modele decide
+  // quoi en faire. Recalcule quand l inventaire ou l etabli proche changent.
+  function acquisition () {
+    // Interrupteur A/B `solveur` : coupe, la mission retombe sur la seule
+    // matiere du brief et le modele remonte seul la chaine.
+    if (!mission?.fabricationCible || !featureOn('solveur')) return null
+    const bot = host.getBot()
+    const registry = craft.getDataset(bot)
+    if (!bot?.entity || !registry?.itemsByName) return null
+    const inv = craft.inventoryMap(bot)
+    const now = Date.now()
+    const cache = mission.acquisition
+    let tableNearby = cache?.tableNearby ?? false
+    if (!cache || now - cache.tableAt > 2000) {
+      const tableId = bot.registry?.blocksByName?.crafting_table?.id
+      // Meme rayon que craft.ensureTable : un etabli pose plus loin reste utilisable.
+      tableNearby = Boolean(tableId && craft.placedTable(bot))
+    }
+    // Essences a preferer (acquire-plan `prefer`) : celles deja en poche, puis
+    // le bois visible. Sans elles, le plan hesitait entre chene et bouleau
+    // d un appel a l autre (craft/furnace 212ccac : « recolter 2 oak_log »
+    // pres d un bouleau, planches de bouleau en poche).
+    const prefer = []
+    for (const name of Object.keys(inv)) {
+      const m = /^([a-z_]+?)_(?:log|planks|wood)$/.exec(name)
+      if (m) prefer.push(`${m[1]}_log`, `${m[1]}_planks`)
+    }
+    if (!cache || now - cache.tableAt > 2000) {
+      try {
+        // Ids (tri rapide par palette), jamais une fonction : tout le rayon
+        // serait parcouru toutes les 2 s.
+        const logIds = Object.values(bot.registry?.blocksByName ?? {}).filter(b => /_log$/.test(b.name)).map(b => b.id)
+        const seen = logIds.length ? bot.findBlock({ matching: logIds, maxDistance: SEARCH_RADIUS }) : null
+        if (seen) mission.essenceVue = seen.name
+      } catch (_) { /* chunk absent */ }
+    }
+    if (mission.essenceVue) prefer.push(mission.essenceVue, mission.essenceVue.replace(/_log$/, '_planks'))
+    const key = JSON.stringify([mission.fabricationCible, mission.fabricationQuantite, inv, tableNearby, prefer])
+    if (cache?.key === key) return cache.plan
+    // Alias FR (pioche, hache...) : le candidat au plan le plus court.
+    const alias = craft.TARGETS[mission.fabricationCible]
+    const candidates = alias ? alias.resolve(bot) : [mission.fabricationCible]
+    const wanted = Math.max(1, (mission.fabricationQuantite ?? 1) - fabricationProduced())
+    let best = null
+    for (const target of candidates) {
+      let plan
+      try {
+        plan = acquirePlan.planAcquire({ registry, target, count: wanted, inventory: inv, resources: skills.RESOURCES, tableNearby, prefer })
+      } catch (_) { continue }
+      if (!best || (plan.ok && !best.ok) || (plan.ok === best.ok && plan.etapes.length < best.etapes.length)) best = plan
+    }
+    mission.acquisition = { key, plan: best, tableNearby, tableAt: cache && now - cache.tableAt <= 2000 ? cache.tableAt : now }
+    // Trace a chaque changement : sans elle, un echec de fabrication ne dit
+    // pas ce que le solveur a montre au modele (craft/furnace 89fa489 :
+    // « il manque bois et etabli » avec etabli pose, cause illisible).
+    if (best) console.log(`[mission] solveur (etabli proche : ${tableNearby ? 'oui' : 'non'}) : ${acquirePlan.describe(best, 4).join(' ; ') || 'rien a faire'}${best.bloque.length ? ` ; bloque : ${best.bloque.map(b => b.objet).join(', ')}` : ''}`)
+    return best
+  }
+
+  // Matiere a recolter maintenant : en fabrication, celle de la premiere
+  // recolte du plan (bois, puis pierre pour une pioche en pierre) ; sinon la
+  // matiere du brief.
+  function harvestResource () {
+    if (!mission) return null
+    const step = acquisition()?.etapes.find(s => s.op === 'recolter' && s.matiere)
+    return step ? step.matiere : mission.resource
   }
 
   // Le meilleur bloc de la matiere visee a travailler : ni le bloc qui porte le
@@ -768,7 +867,7 @@ function createMissionRunner (host, injected = {}) {
   // en jeu entre 2,7 et 10,8 blocs de l arbre.
   async function dropFromLeaves (item) {
     const bot = host.getBot()
-    if (mission?.resource !== 'bois' || !bot?.entity) return false
+    if (harvestResource() !== 'bois' || !bot?.entity) return false
     let dropped = null
     try { dropped = item.getDroppedItem?.() } catch (_) {}
     if (!dropped || !TREE_LOG.test(dropped.name)) return false
@@ -1316,6 +1415,23 @@ function createMissionRunner (host, injected = {}) {
     return cleared
   }
 
+  // Cibles sans chemin (avancer en no_path, meme en creusant) : mises de cote
+  // INJOIGNABLE_MS pour que la recherche suivante en vise une autre. Vu sur
+  // craft/stone-pickaxe : la pierre la plus proche etait la face du dessous
+  // d une couche sous le sol (a l air libre par en dessous) ; trois avancer de
+  // suite visaient ce meme bloc et le bot finissait dans un trou.
+  const injoignables = new Map()
+  const INJOIGNABLE_MS = 180000
+  const posKey = p => `${p.x},${p.y},${p.z}`
+  function injoignable (pos) {
+    const until = injoignables.get(posKey(pos))
+    return Boolean(until && until > Date.now() && injoignables.missionId === mission?.id)
+  }
+  function marquerInjoignable (pos) {
+    if (injoignables.missionId !== mission?.id) { injoignables.clear(); injoignables.missionId = mission?.id }
+    injoignables.set(posKey(pos), Date.now() + INJOIGNABLE_MS)
+  }
+
   function findTargetBlock (resource, opts = {}) {
     // Surcharge toleree : findTargetBlock({ yaw }) vaut secteur sur la matiere
     // courante. Rien d autre n utilise cette forme aujourd hui.
@@ -1336,9 +1452,31 @@ function createMissionRunner (host, injected = {}) {
     const filtreSecteur = Number.isFinite(yaw)
     const demiAngle = Number.isFinite(opts.demiAngle) ? opts.demiAngle : Math.PI / 4
 
+    // Seulement un bloc qu un joueur verrait : au moins une face a l air
+    // libre (feuilles, plantes et liquides laissent voir). La pierre enfouie
+    // sous le sol etait visee pour avancer (« rejoint a portee ») puis
+    // introuvable pour casser, en boucle (vu : craft/stone-pickaxe, 90 etapes,
+    // les 32 plus proches etant toutes sous le sol de l arene).
+    const see = pos => {
+      const b = bot.blockAt(pos)
+      return !b || b.boundingBox !== 'block' || /_leaves$|glass/.test(b.name)
+    }
+    // La face du dessous ne se voit que d en dessous : sous les pieds du bot,
+    // elle ne compte pas (vu sur craft/stone-pickaxe : dessous de la couche de
+    // pierre sous l arene, a l air libre, vise puis creuse vers le bas).
+    const feetLevel = Math.floor(bot.entity.position.y)
+    const exposed = pos => [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
+      .some(([x, y, z]) => !(y === -1 && pos.y < feetLevel) && see(pos.offset(x, y, z)))
     let positions
     try {
-      positions = bot.findBlocks({ matching: ids, maxDistance: SEARCH_RADIUS, count: 32 })
+      // Filtre PENDANT la recherche : sous une arene ou un sol de pierre, des
+      // milliers de blocs enfouis sont plus proches que le rocher visible (vu :
+      // les 256 plus proches toutes enfouies, « pierre introuvable »). La
+      // `useExtraInfo` en fonction = filtre applique aux seuls blocs de la
+      // matiere (mineflayer garde le tri rapide par palette sur `ids`).
+      positions = bot.findBlocks({
+        matching: ids, useExtraInfo: block => exposed(block.position), maxDistance: SEARCH_RADIUS, count: 64
+      }).filter(exposed).slice(0, 32)
     } catch (err) {
       return null
     }
@@ -1359,8 +1497,12 @@ function createMissionRunner (host, injected = {}) {
       return { x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, z0: Math.min(...zs) - 1, z1: Math.max(...zs) + 1, y: Math.min(...ys) }
     })() : null
 
+    // Cible mise de cote (sans chemin) : ignoree tant qu il en reste une
+    // autre, jamais quand c est la derniere. Vu sur terrain/plateau (a45b981,
+    // 9b5fe31) : buche du haut mise de cote depuis le pied de la falaise, puis
+    // invisible une fois le bot monte (« rien » partout, errance, chute).
     const candidates = []
-    for (const position of positions) {
+    const collect = list => { for (const position of list) {
       if (emprise && position.x >= emprise.x0 && position.x <= emprise.x1 &&
         position.z >= emprise.z0 && position.z <= emprise.z1) continue
       if (!anyHeight && position.y < feetY - MAX_DIG_DEPTH) continue
@@ -1395,7 +1537,10 @@ function createMissionRunner (host, injected = {}) {
         // Distance 3D centre a centre : celle que le serveur applique a la casse.
         reach: here.distanceTo(position.offset(0.5, 0.5, 0.5))
       })
-    }
+    } }
+    collect(positions.filter(p => !injoignable(p)))
+    if (candidates.length === 0) collect(positions.filter(p => injoignable(p)))
+
 
     if (candidates.length === 0) return null
 
@@ -1426,7 +1571,7 @@ function createMissionRunner (host, injected = {}) {
   // jamais touche : l appelant compte ces blocs a part (mission.dirtSecondaire).
   function findSecondaryDirtBlock () {
     const bot = host.getBot()
-    if (!mission || mission.resource !== 'bois') return null
+    if (!mission || harvestResource() !== 'bois') return null
     if (!bot?.entity || !bot.registry) return null
 
     let positions
@@ -1476,7 +1621,7 @@ function createMissionRunner (host, injected = {}) {
   // harvesting remains available when no tool is required.
   function hacheRecommandee () {
     const bot = host.getBot()
-    if (!mission || mission.resource !== 'bois') return false
+    if (!mission || harvestResource() !== 'bois') return false
     if (!bot?.inventory) return false
     if (craft.bestToolOfKind(bot, 'axe')) return false
     let possibles = []
@@ -1495,7 +1640,7 @@ function createMissionRunner (host, injected = {}) {
   // mesure le besoin, le modele decide de casser de la dirt au sol.
   function dirtSecondaireAdmise (cibleHaute) {
     const bot = host.getBot()
-    if (!mission || mission.resource !== 'bois') return false
+    if (!mission || harvestResource() !== 'bois') return false
     if (!bot?.inventory) return false
     if (!cibleHaute) return false
     return scaffoldingStock(bot).total < PILER_MAX
@@ -1543,7 +1688,7 @@ function createMissionRunner (host, injected = {}) {
   // debut de la mission plutot que de faire confiance aux evenements de ramassage.
   function countResourceItems () {
     const bot = host.getBot()
-    const pattern = mission && skills.RESOURCES[mission.resource]?.items
+    const pattern = mission && skills.RESOURCES[harvestResource()]?.items
     if (!bot?.inventory || !pattern) return 0
 
     return bot.inventory.items()
@@ -1684,7 +1829,7 @@ function createMissionRunner (host, injected = {}) {
 
     const snapshot = craft.snapshot(bot)
     const material = buildItem()
-    const raw = skills.RESOURCES[mission.resource]?.raw
+    const raw = skills.RESOURCES[harvestResource()]?.raw
 
     return {
       materiau_de_construction: material,
@@ -1942,7 +2087,7 @@ function createMissionRunner (host, injected = {}) {
   // avec avancer (15 echecs a 0.0 bloc) malgre cible_haute et dirt en stock.
   function conseilPilier () {
     try {
-      if (!mission || mission.resource !== 'bois') return ''
+      if (!mission || harvestResource() !== 'bois') return ''
       const bot = host.getBot()
       if (!bot?.entity) return ''
       const hint = highTargetHint()
@@ -2224,6 +2369,14 @@ function createMissionRunner (host, injected = {}) {
         // utile existe (la hache, ou planches/batons/etabli vers elle). Le code
         // mesure la faisabilite, le modele decide de l ordre.
         hache_recommandee: hacheRecommandee(),
+        // Fabrication : chaine de prerequis calculee par le code depuis
+        // l inventaire reel (recolter / fabriquer / outil exige, etabli).
+        // La premiere etape est la prochaine chose utile ; `bloque` dit ce
+        // que le bot ne sait pas faire (cuisson...). Nul hors fabrication.
+        prerequis: (() => {
+          const plan = acquisition()
+          return plan ? { ...acquirePlan.summarize(plan), matiere_a_recolter: harvestResource() } : null
+        })(),
         // Dirt secondaire admise : mission bois avec cible_haute et stock de
         // dirt insuffisant pour piler. Autorise `casser` sur de la dirt au sol
         // sans toucher au quota bois.
@@ -2436,6 +2589,21 @@ function createMissionRunner (host, injected = {}) {
     // des que le bot avance, il borne les tentatives sur un obstacle donne.
     let jumpAttempts = 0
 
+    // Bord d une chute blessante vu a CHAQUE tick de physique, touches
+    // relachees dans le meme tick : la boucle ne passe que toutes les 100 ms
+    // (plus sous charge) et le bot court souvent (saut preventif, sprint
+    // tenu) ; il voyait le vide puis glissait par-dessus (terrain/plateau
+    // a45b981 : « arret au bord », chute de 5 blocs).
+    let videVu = null
+    const surveilleBord = () => {
+      if (videVu !== null) return
+      const chute = videDevant(bot)
+      if (chute === null) return
+      videVu = chute
+      try { bot.clearControlStates() } catch (_) {}
+    }
+    if (typeof bot.on === 'function') bot.on('physicsTick', surveilleBord)
+
     bot.setControlState('forward', true)
     // Saut PREVENTIF en cours : `jump` (et `sprint`) tenus avant le contact.
     let sautPreventif = false
@@ -2461,7 +2629,7 @@ function createMissionRunner (host, injected = {}) {
         }
 
         // Jamais de chute de plus de deux blocs a la marche : arret au bord.
-        const chute = videDevant(live)
+        const chute = videVu ?? videDevant(live)
         if (chute !== null) {
           return { moved: Number(moved.toFixed(2)), blocked: true, vide: chute }
         }
@@ -2545,6 +2713,7 @@ function createMissionRunner (host, injected = {}) {
         await sleep(WALK_TICK_MS)
       }
     } finally {
+      try { bot.removeListener?.('physicsTick', surveilleBord) } catch (_) {}
       bot.setControlState('forward', false)
       bot.setControlState('jump', false)
       try { bot.setControlState('sprint', false) } catch (_) {}
@@ -2673,7 +2842,7 @@ function createMissionRunner (host, injected = {}) {
       // plutot que d echouer sur « bloc trop loin ». Comptee a part
       // (mission.dirtSecondaire), jamais dans le quota bois. Passe par
       // run()/outcome comme toute action : un echec vide la file.
-      const secondaireAutorise = mission.resource === 'bois' &&
+      const secondaireAutorise = harvestResource() === 'bois' &&
         dirtSecondaireAdmise(highTargetHint())
       const findBloc = secondaire =>
         secondaire ? findSecondaryDirtBlock() : findTargetBlock()
@@ -2770,9 +2939,9 @@ function createMissionRunner (host, injected = {}) {
       // casse a distance reste au sol ; le prendre aussitot (vu sur
       // gather/flowers : 4 fleurs cassees, 2 en inventaire, mission close).
       let ramasses = 0
-      if (!secondaire && mission.resource !== 'bois') {
+      if (!secondaire && harvestResource() !== 'bois') {
         const avant = countResourceItems()
-        await collectScaffoldDrops(stepToken, { budgetMs: 8000, pattern: skills.RESOURCES[mission.resource]?.items })
+        await collectScaffoldDrops(stepToken, { budgetMs: 8000, pattern: skills.RESOURCES[harvestResource()]?.items })
         ramasses = Math.max(0, countResourceItems() - avant)
       }
 
@@ -2812,7 +2981,7 @@ function createMissionRunner (host, injected = {}) {
       // le pilier restait a sec malgre la dirt cassee. La dirt compte ici
       // comme un succes, sans jamais entrer dans le quota bois (collecte
       // et `countResourceItems` restent bois seul).
-      const dirtVisee = mission?.resource === 'bois'
+      const dirtVisee = harvestResource() === 'bois'
       const beforeDirt = dirtVisee ? craft.countOf(bot, PILER_DIRT) : 0
       // La dirt n est un progres que s il manquait du carburant au debut de
       // l action (stock sous PILER_MAX) : sinon elle ne doit pas masquer un
@@ -2945,7 +3114,11 @@ function createMissionRunner (host, injected = {}) {
       // Cible de fabrication fixee : seuls la cible et ses intermediaires
       // (planches, batons, etabli) sont utiles. Vu sur craft/axe : une pioche
       // fabriquee a la place de la hache, planches et batons consommes.
-      if (mission.fabricationCible && !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
+      // Un objet de la chaine de prerequis calculee (pioche en bois pour une
+      // pioche en pierre) est utile lui aussi.
+      const dansLePlan = (acquisition()?.etapes ?? []).some(e => e.op === 'fabriquer' &&
+        (e.objet === target || FAMILLES_FAB[target]?.test(e.objet)))
+      if (mission.fabricationCible && !dansLePlan && !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
         return {
           resultat: `${target} n est pas utile pour ${mission.fabricationCible} : fabrique ${mission.fabricationCible} ` +
             'ou ses ingredients (planches, batons, etabli), rien d autre',
@@ -2957,8 +3130,7 @@ function createMissionRunner (host, injected = {}) {
       // cible gaspille 4 planches (vu sur craft/axe : deux etablis, plus de
       // planches pour la hache). Sauf si l etabli est lui-meme demande.
       if (target === 'etabli' && mission.fabricationCible && mission.fabricationCible !== 'etabli') {
-        const tableId = bot.registry?.blocksByName?.crafting_table?.id
-        const posee = tableId ? bot.findBlock({ matching: tableId, maxDistance: 6 }) : null
+        const posee = craft.placedTable(bot)
         if (posee) {
           return {
             resultat: `un etabli est deja pose a ${bot.entity.position.distanceTo(posee.position).toFixed(1)} bloc(s) : ` +
@@ -3204,7 +3376,7 @@ function createMissionRunner (host, injected = {}) {
       // aucune action ne pouvait ouvrir le passage. On casse seulement les
       // feuilles du couloir a hauteur du corps, puis on re-tente l approche.
       let feuilles = 0
-      while (result.code === 'no_path' && mission.resource === 'bois' && !mission.cancelled &&
+      while (result.code === 'no_path' && harvestResource() === 'bois' && !mission.cancelled &&
         feuilles < LEAF_CLEAR_MAX) {
         const cleared = await clearLeavesToward(cible, LEAF_CLEAR_MAX - feuilles)
         if (cleared === 0) break
@@ -3289,6 +3461,10 @@ function createMissionRunner (host, injected = {}) {
           degage += ` (${climbed})`
           result = await approach()
         }
+      }
+      if (!result.reached && ['no_path', 'dug_out_of_reach'].includes(result.code) && cible?.position) {
+        marquerInjoignable(cible.position)
+        degage += ' ; ce bloc est mis de cote, le prochain avancer en visera un autre'
       }
       return {
         resultat: (result.reached
@@ -5264,6 +5440,19 @@ function createMissionRunner (host, injected = {}) {
     } catch (_) {
       fabricationCible = null
     }
+    // Famille seule (« pioche ») alors que l objectif nomme la matiere (« une
+    // pioche en pierre ») : l objet precis du texte (vu sur craft/stone-pickaxe :
+    // cible « pioche », pioche en bois fabriquee, puis errance 4 min).
+    if (fabricationCible && FAMILLES_FAB[fabricationCible] && !/^(planches|batons|etabli)$/.test(fabricationCible)) {
+      // La matiere qui suit l outil, pas le premier mot de matiere de la
+      // phrase (« coupe du bois pour une pioche en pierre » : pierre).
+      const tool = /\b(haches?|pioches?|pelles?)\s+en\s+([a-zé]+)\b/i.exec(sansCoordonnees(text))
+      const precise = tool ? fabTargetName(tool[0]) : null
+      if (precise && precise !== fabricationCible && FAMILLES_FAB[fabricationCible].test(precise)) {
+        console.log(`[mission] cible de fabrication precisee par l objectif : ${fabricationCible} -> ${precise}`)
+        fabricationCible = precise
+      }
+    }
     let fabricationQuantite = fabricationCible
       ? fabricationWanted(text, briefFabQty)
       : 1
@@ -5930,7 +6119,9 @@ function createMissionRunner (host, injected = {}) {
     status,
     isRunning,
     SUPPLY,
-    ACTION_NAMES: Object.keys(ACTIONS)
+    ACTION_NAMES: Object.keys(ACTIONS),
+    setFeatures,
+    featureOn
   }
 }
 

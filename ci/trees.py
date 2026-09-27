@@ -49,7 +49,7 @@ def _logs(*positions, axis=None):
     return [(p, block) for p in positions]
 
 
-def levels():
+def base_levels():
     trunk3 = [(TX, 200 + i, TZ) for i in range(3)]
     trunk6 = [(TX, 200 + i, TZ) for i in range(6)]
     bent = [(TX, 200, TZ), (TX, 201, TZ), (TX, 202, TZ), (TX + 1, 203, TZ), (TX + 2, 203, TZ),
@@ -508,6 +508,43 @@ def levels():
             'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
             'logs': _logs(*trunk3),
             'rules': {},
+        },        # Tour 4 : chaines de prerequis calculees par le code (acquire-plan.js).
+        # Rien en poche : il faut trouver seul la chaine bois -> outil -> pierre.
+        {
+            'name': 'craft/stone-pickaxe',
+            'about': 'Inventaire vide, un arbre et un rocher : « Fabrique une pioche en pierre » (bois, pioche en bois, pierre).',
+            'kind': 'gather', 'instruction': 'Fabrique une pioche en pierre', 'items': ['stone_pickaxe'],
+            'target': 1, 'cap': 300, 'variants': [sans('solveur')],
+            'terrain': [(26, 200, 6, 28, 201, 8, 'stone')],
+            'leaves': [(6, 204, 26, 10, 205, 30)], 'logs': _logs(*[(8, 200 + i, 28) for i in range(4)]), 'rules': {},
+        },
+        {
+            'name': 'craft/torches',
+            'about': 'Inventaire vide, un arbre, un rocher avec un minerai de charbon : « Fabrique 4 torches ».',
+            'kind': 'gather', 'instruction': 'Fabrique 4 torches', 'items': ['torch'],
+            'target': 4, 'cap': 300, 'variants': [sans('solveur')],
+            'terrain': [(4, 200, 4, 6, 201, 6, 'stone'), (6, 200, 5, 6, 200, 5, 'coal_ore')],
+            'leaves': [(24, 204, 24, 28, 205, 28)], 'logs': _logs(*[(26, 200 + i, 26) for i in range(4)]), 'rules': {},
+        },
+        {
+            'name': 'craft/furnace',
+            'about': 'Inventaire vide, un bouleau et une falaise de pierre : « Fabrique un four » (8 pierres, pioche en bois d abord).',
+            'kind': 'gather', 'instruction': 'Fabrique un four', 'items': ['furnace'],
+            'target': 1, 'cap': 300, 'variants': [sans('solveur')],
+            'terrain': [(28, 200, 20, 34, 202, 22, 'stone')],
+            'leaves': [(2, 204, 4, 6, 205, 8)], 'logs': [((4, 200 + i, 6), 'birch_log') for i in range(4)], 'rules': {},
+        },
+        {
+            # Informatif : le bot ne sait pas cuire au four. Ce qui est mesure,
+            # c est s il le comprend et le dit (fin de mission par lui-meme)
+            # au lieu d errer jusqu au plafond.
+            'name': 'craft/iron-pickaxe',
+            'about': 'Inventaire vide, arbre, pierre, minerai de fer : « Fabrique une pioche en fer » (cuisson impossible : fin honnete attendue).',
+            'kind': 'gather', 'instruction': 'Fabrique une pioche en fer', 'items': ['iron_pickaxe'],
+            'target': 0, 'cap': 240, 'informative': True, 'variants': [sans('solveur')],
+            'terrain': [(20, 200, 26, 24, 201, 30, 'stone'), (22, 201, 26, 22, 201, 26, 'iron_ore'),
+                        (23, 201, 26, 23, 201, 26, 'iron_ore'), (24, 201, 27, 24, 201, 27, 'iron_ore')],
+            'leaves': [(6, 204, 6, 10, 205, 10)], 'logs': _logs(*[(8, 200 + i, 8) for i in range(4)]), 'rules': {},
         },
     ]
 
@@ -826,7 +863,9 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
 
     lowest, seen, count, end_reason = 200.0, False, 0, f'plafond de {GATHER_CAP_S} s'
     last_count_at = 0
-    while time.monotonic() - started < GATHER_CAP_S:
+    cap = level.get('cap', GATHER_CAP_S)
+    end_reason = f'plafond de {cap} s'
+    while time.monotonic() - started < cap:
         s = bot_api(bot, '/api/status')
         p = s.get('position') or {}
         running = bool(s.get('missionRunning'))
@@ -1172,6 +1211,29 @@ def arena_origins():
     return [FIRST_ARENA_X + i * ARENA_SPACING for i in range(len(levels()))]
 
 
+# A/B comparisons: a level with `variants` runs once as written (the gate)
+# and once per variant with its mode switched through /api/features. Variants
+# are informative: they measure what a mode brings, they never fail the run.
+def sans(mode):
+    return (f'sans-{mode}', {mode: False})
+
+
+def avec(mode):
+    return (f'avec-{mode}', {mode: True})
+
+
+def levels():
+    out = []
+    for level in base_levels():
+        out.append(level)
+        for suffix, features in level.get('variants', ()):
+            out.append(dict(level, name=f"{level['name']}~{suffix}", variants=(),
+                            features={**level.get('features', {}), **features},
+                            informative=True, variantOf=level['name'],
+                            about=f"[{suffix}] {level['about']}"))
+    return out
+
+
 def mission_type(name):
     return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre', 'gather': 'ramasser', 'craft': 'fabriquer', 'build': 'construire', 'route': 'parcours'}.get(name.split('/')[0], name.split('/')[0])
 
@@ -1386,26 +1448,46 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
 
     def reset(bot):
         # Previous level's mission and working notes must not leak into the next one.
-        for route, body, method in (('/api/stop', {}, 'POST'), ('/api/memory', None, 'DELETE')):
+        for route, body, method in (('/api/stop', {}, 'POST'), ('/api/memory', None, 'DELETE'),
+                                    ('/api/features', {'reset': True}, 'POST')):
             try:
                 bot_api(bot, route, body, method=method)
             except Exception:
                 pass
+
+    def planner_calls(bot):
+        try:
+            return (bot_api(bot, '/api/status').get('planner') or {}).get('appels')
+        except Exception:
+            return None
 
     def run_one(worker, index, first):
         level = all_levels[index]
         if not first:
             reset(worker.bot)
         print(f'{level["name"]} ({worker.username}) started', flush=True)
+        calls_before = None
         try:
             if before_level:
                 before_level()
+            if level.get('features'):
+                bot_api(worker.bot, '/api/features', level['features'])
+            calls_before = planner_calls(worker.bot)
             result = run_level(level, origins[index], worker.bot, worker.username, output, rcon, bot_api, worker.probe)
         except Exception as error:  # a crashing level never takes its worker down silently
             result = {'test': level['name'], 'success': False, 'bot': worker.username, 'error': str(error)}
         result['type'] = mission_type(level['name'])
         if level.get('variation'):
             result['variation'] = level['variation']
+        calls_after = planner_calls(worker.bot)
+        if calls_before is not None and calls_after is not None:
+            result['plannerCalls'] = calls_after - calls_before
+        if level.get('features'):
+            result['features'] = level['features']
+        if level.get('informative'):
+            result['informative'] = True
+        if level.get('variantOf'):
+            result['variantOf'] = level['variantOf']
         results[index] = result
         print(f'{level["name"]} finished in {result.get("elapsedS")} s', flush=True)
 
