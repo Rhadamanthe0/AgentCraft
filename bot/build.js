@@ -547,7 +547,11 @@ const VANTAGE_OFFSETS = (() => {
 // Tous les postes de tir valides pour cette case, les plus proches du BOT
 // d abord : enferme dans sa maison, le poste le plus proche de la cible est
 // souvent dehors et injoignable (vu sur build/big-box, toit en 4x4x4).
-function findVantages (bot, target) {
+// `sol` : hauteur des pieds au sol du chantier. Un poste plus haut que sol + 2
+// (debout sur ses propres murs) passe en dernier : le navigateur ne redescend
+// que de deux blocs, le bot y restait perche (composite/cabin-from-scratch
+// f1f762d : sur les murs a +4, 52/54, 236 s bloque, puis chute de 4).
+function findVantages (bot, target, sol = null) {
   const center = target.offset(0.5, 0.5, 0.5)
   const here = bot.entity?.position
   const all = []
@@ -568,7 +572,8 @@ function findVantages (bot, target) {
       all.push({ stand, distance, fromBot: here ? here.distanceTo(stand) : distance })
     }
   }
-  return all.sort((a, b) => a.fromBot - b.fromBot)
+  const perche = v => sol !== null && v.stand.y > sol + 2 ? 1 : 0
+  return all.sort((a, b) => perche(a) - perche(b) || a.fromBot - b.fromBot)
 }
 
 // Le meilleur poste de tir pour cette case, ou null s il n y en a aucun.
@@ -810,7 +815,7 @@ async function clearOfTarget (bot, target) {
 // devient grass_block ; sans cela le bot la cassait pour la reposer).
 // `move` : trajet vers le poste de tir (le navigateur partage de la mission),
 // l ancien `moveTo` en gestes restant le repli.
-async function placeOne (bot, target, itemName, { accept = null, move = null } = {}) {
+async function placeOne (bot, target, itemName, { accept = null, move = null, sol = null } = {}) {
   const existing = bot.blockAt(target)
   if (existing && (existing.name === itemName || accept?.test(existing.name))) return 'deja'
 
@@ -836,7 +841,7 @@ async function placeOne (bot, target, itemName, { accept = null, move = null } =
   if (move) {
     // Navigateur partage sur les trois postes les plus proches du bot, puis
     // repli sur l ancien trajet en gestes vers le meilleur poste.
-    for (const candidate of findVantages(bot, target).slice(0, 3)) {
+    for (const candidate of findVantages(bot, target, sol).slice(0, 3)) {
       arrived = await move(candidate.stand).catch(() => false)
       if (arrived) { vantage = candidate; break }
     }
@@ -873,13 +878,25 @@ async function placeOne (bot, target, itemName, { accept = null, move = null } =
 
 // La porte se pose sur le bloc du sol, depuis l exterieur : dans Minecraft une
 // porte s oriente d apres le regard du poseur.
-async function placeDoor (bot, plan, itemName) {
+// Comme `placeOne` : deja a portee (corps hors des deux cases) => pose d ici ;
+// sinon le navigateur partage (`move`), les gestes de `moveTo` en repli. Vu
+// sur composite/cabin-from-scratch (f1f762d) : 54/54 blocs, puis sept
+// `poser_porte` en « trajet trop long (12000 ms) », porte jamais posee.
+async function placeDoor (bot, plan, itemName, { move = null } = {}) {
   const target = plan.door.position
   const existing = bot.blockAt(target)
   if (existing && existing.name === itemName) return 'deja'
 
-  await moveTo(bot, plan.doorApproach)
-  await bot.lookAt(target.offset(0.5, 0.5, 0.5), true)
+  const here = bot.entity?.position
+  const center = target.offset(0.5, 0.5, 0.5)
+  const aPortee = here && bot.entity.onGround &&
+    !bodyOverlaps(here, target) && !bodyOverlaps(here, target.offset(0, 1, 0)) &&
+    here.offset(0, 1.62, 0).distanceTo(center) <= PLACE_REACH
+  if (!aPortee) {
+    const reached = move ? await move(plan.doorApproach) : false
+    if (!reached) await moveTo(bot, plan.doorApproach)
+  }
+  await bot.lookAt(center, true)
 
   const floor = bot.blockAt(target.offset(0, -1, 0))
   if (!isSolid(floor)) throw new Error('pas de sol sous la porte')

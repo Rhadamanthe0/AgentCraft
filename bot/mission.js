@@ -440,11 +440,15 @@ function marcheDevant (bot) {
 // depuis un pilier de 4, chute de 4). Rend la hauteur de chute, ou null si le
 // sol devant est a deux blocs au plus (marche, descente d un ou deux blocs).
 const CHUTE_MAX = 2
-function videDevant (bot) {
+// `dir` : direction horizontale {x, z} du mouvement (defaut : le cap du bot).
+function videDevant (bot, dir = null) {
   try {
     if (!bot?.entity || typeof bot.blockAt !== 'function' || !bot.entity.onGround) return null
     const p = bot.entity.position
-    const devant = p.offset(-Math.sin(bot.entity.yaw) * 0.8, 0, -Math.cos(bot.entity.yaw) * 0.8)
+    const n = dir ? Math.hypot(dir.x, dir.z) : 0
+    const devant = dir && n > 1e-6
+      ? p.offset(dir.x / n * 0.8, 0, dir.z / n * 0.8)
+      : p.offset(-Math.sin(bot.entity.yaw) * 0.8, 0, -Math.cos(bot.entity.yaw) * 0.8)
     const pieds = bot.blockAt(devant.floored())
     if (!pieds || estSolide(pieds)) return null
     for (let d = 1; d <= CHUTE_MAX + 1; d += 1) {
@@ -4109,6 +4113,7 @@ function createMissionRunner (host, injected = {}) {
           const result = await withTimeout(
             build.placeOne(bot, entry.position, material, {
               accept: mission.buildMatch,
+              sol: mission.plan?.origin?.y ?? null,
               move: async stand => (await host.navigateToPosition(stand, {
                 signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.35, timeoutMs: 5000
               }))?.reached === true
@@ -4174,7 +4179,11 @@ function createMissionRunner (host, injected = {}) {
       }
 
       try {
-        await build.placeDoor(host.getBot(), mission.plan, item)
+        await build.placeDoor(host.getBot(), mission.plan, item, {
+          move: async stand => (await host.navigateToPosition(stand, {
+            signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.6, timeoutMs: 15000, distanceBudget: 48
+          }))?.reached === true
+        })
       } catch (err) {
         return { resultat: `porte impossible : ${err.message}`, echec: true }
       }
@@ -4325,10 +4334,28 @@ function createMissionRunner (host, injected = {}) {
       // Un objectif de pathfinder en cours se battrait avec les touches tenues.
       host.stopPathfinding()
 
+      // Meme garde que `avancer` sans cible, a chaque tick, dans le sens du
+      // mouvement reel : vu sur composite/cabin-from-scratch (f1f762d),
+      // appuyer(forward, 1,5 s) sur le toit de la cabane, 10,7 blocs, chute
+      // de 4, degats.
+      const directions = touches.filter(t => ['forward', 'back', 'left', 'right'].includes(t))
+      let videVu = null
+      const surveilleBord = () => {
+        if (videVu !== null || directions.length === 0) return
+        const v = bot.entity?.velocity
+        const dir = v && Math.hypot(v.x, v.z) > 0.02 ? { x: v.x, z: v.z } : null
+        const chute = dir || directions.includes('forward') ? videDevant(bot, dir) : null
+        if (chute === null) return
+        videVu = chute
+        try { bot.clearControlStates() } catch (_) {}
+      }
+      if (typeof bot.on === 'function') bot.on('physicsTick', surveilleBord)
       try {
         for (const touche of touches) bot.setControlState(touche, true)
-        await sleep(Math.round(duree * 1000))
+        const fin = Date.now() + Math.round(duree * 1000)
+        while (Date.now() < fin && videVu === null) await sleep(Math.min(50, Math.max(0, fin - Date.now())))
       } finally {
+        if (typeof bot.removeListener === 'function') bot.removeListener('physicsTick', surveilleBord)
         for (const touche of touches) {
           try { bot.setControlState(touche, false) } catch (_) {}
         }
@@ -4344,7 +4371,8 @@ function createMissionRunner (host, injected = {}) {
 
       return {
         resultat: `${touches.join('+')} tenu ${duree.toFixed(1)} s, deplacement de ${moved.toFixed(2)} bloc` +
-          (bloque ? ' (immobile : probablement encastre)' : ''),
+          (bloque ? ' (immobile : probablement encastre)' : '') +
+          (videVu !== null ? `, arret au bord d une chute de ${videVu} blocs` : ''),
         echec: bloque
       }
     },

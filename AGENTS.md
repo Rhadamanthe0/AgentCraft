@@ -609,6 +609,14 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   feuille cassee dans la couronne) ; l intervalle utile est dit, la valeur
   n est pas changee. follow/stop « Bot did not settle » (une fois, apres un
   plafond encastre) : l erreur porte desormais l etat du bot.
+  f1f762d : composite echoue (992 s, porte absente, 1 degat). Pose des
+  blocs : postes de tir plus hauts que le sol du chantier + 2 (debout sur
+  ses propres murs) essayes en dernier (`findVantages(..., sol)`) ; le bot
+  restait perche a +4, 236 s, sans pouvoir redescendre chercher 2 planches.
+  `appuyer` guette le bord d une chute blessante a chaque tick, dans le sens
+  du mouvement (`videDevant(bot, dir)`) : il a marche hors du toit (chute de
+  4). `poser_porte` : pose d ici si l embrasure est a portee, sinon le
+  navigateur partage, `moveTo` en repli (sept « trajet trop long »).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
