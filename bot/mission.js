@@ -807,7 +807,26 @@ function createMissionRunner (host, injected = {}) {
       // Meme rayon que craft.ensureTable : un etabli pose plus loin reste utilisable.
       tableNearby = Boolean(tableId && craft.placedTable(bot))
     }
-    const key = JSON.stringify([mission.fabricationCible, mission.fabricationQuantite, inv, tableNearby])
+    // Essences a preferer (acquire-plan `prefer`) : celles deja en poche, puis
+    // le bois visible. Sans elles, le plan hesitait entre chene et bouleau
+    // d un appel a l autre (craft/furnace 212ccac : « recolter 2 oak_log »
+    // pres d un bouleau, planches de bouleau en poche).
+    const prefer = []
+    for (const name of Object.keys(inv)) {
+      const m = /^([a-z_]+?)_(?:log|planks|wood)$/.exec(name)
+      if (m) prefer.push(`${m[1]}_log`, `${m[1]}_planks`)
+    }
+    if (!cache || now - cache.tableAt > 2000) {
+      try {
+        // Ids (tri rapide par palette), jamais une fonction : tout le rayon
+        // serait parcouru toutes les 2 s.
+        const logIds = Object.values(bot.registry?.blocksByName ?? {}).filter(b => /_log$/.test(b.name)).map(b => b.id)
+        const seen = logIds.length ? bot.findBlock({ matching: logIds, maxDistance: SEARCH_RADIUS }) : null
+        if (seen) mission.essenceVue = seen.name
+      } catch (_) { /* chunk absent */ }
+    }
+    if (mission.essenceVue) prefer.push(mission.essenceVue, mission.essenceVue.replace(/_log$/, '_planks'))
+    const key = JSON.stringify([mission.fabricationCible, mission.fabricationQuantite, inv, tableNearby, prefer])
     if (cache?.key === key) return cache.plan
     // Alias FR (pioche, hache...) : le candidat au plan le plus court.
     const alias = craft.TARGETS[mission.fabricationCible]
@@ -817,7 +836,7 @@ function createMissionRunner (host, injected = {}) {
     for (const target of candidates) {
       let plan
       try {
-        plan = acquirePlan.planAcquire({ registry, target, count: wanted, inventory: inv, resources: skills.RESOURCES, tableNearby })
+        plan = acquirePlan.planAcquire({ registry, target, count: wanted, inventory: inv, resources: skills.RESOURCES, tableNearby, prefer })
       } catch (_) { continue }
       if (!best || (plan.ok && !best.ok) || (plan.ok === best.ok && plan.etapes.length < best.etapes.length)) best = plan
     }

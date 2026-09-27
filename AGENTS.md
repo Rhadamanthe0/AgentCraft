@@ -446,6 +446,9 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   qu il reste une autre cible, jamais la derniere. terrain/plateau (a45b981,
   9b5fe31) : buche du haut mise de cote depuis le pied de la falaise, puis
   invisible une fois le bot monte (« rien » partout, errance).
+- Solveur : `prefer` = essences en poche puis bois visible (ids de buches,
+  jamais une fonction de recherche). Sans, le plan hesitait entre chene et
+  bouleau (craft/furnace 212ccac : « recolter 2 oak_log » pres d un bouleau).
 - Chat sans reponse du modele dans le delai (`interpretMessage`) : UN rejeu du
   meme modele ; sinon « Modèle trop lent, répète ? » (et non « Pas compris »).
   Vu sur c499481 (PR #22) : chat p95 19 s, deux ordres perdus (terrain/plateau,
