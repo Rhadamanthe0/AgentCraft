@@ -10,16 +10,12 @@
 //   PLANNER_MODEL_REPAIR=...    demander de l aide, reviser les actions (repair.js)
 //
 // Avec pour chacun PLANNER_REASONING_EFFORT_<USAGE> et PLANNER_TIMEOUT_MS_<USAGE>.
-// Une entree `modele@url` passe par une autre base, avec la seule cle propre a
-// cet hote (PROVIDER_KEYS) ; `modele@go2` = gateway Go avec la cle secondaire.
-// La cle du gateway principal n est jamais envoyee ailleurs.
-
-// Alias de base a cle PROPRE (liste fermee) : `modele@go2` = gateway Go avec
-// la cle d un second espace OpenCode (secret OPENCODE_SECONDARY_API_KEY), mis
-// de cote independamment de la cle principale (quota Go distinct).
-const KEY_ALIASES = {
-  go2: { baseUrl: 'https://opencode.ai/zen/go/v1', keyVar: 'OPENCODE_SECONDARY_API_KEY' }
-}
+// Tous les modeles passent par PLANNER_BASE_URL. Deux cles possibles pour ce
+// gateway : `primary` (PLANNER_API_KEY) et `secondary` (OPENCODE_SECONDARY_API_KEY,
+// second espace OpenCode). PLANNER_KEY_FIRST dit laquelle essayer d abord ; un
+// refus de cle (quota 429, 401/402/403) rejoue le MEME modele avec l autre cle
+// et met la cle refusee de cote PLANNER_KEY_COOLDOWN_MS. C est le seul repli :
+// jamais un autre modele. Tout `modele@...` est refuse (erreur claire).
 
 const TASK_VARS = {
   plan: 'PLANNER_MODEL_PLAN',
@@ -35,10 +31,9 @@ function parse (text) {
   return String(text ?? '').split(',').map(s => s.trim()).filter(Boolean).map(entry => {
     const at = entry.indexOf('@')
     if (at <= 0) return { model: entry, baseUrl: null, label: entry }
-    const alias = KEY_ALIASES[entry.slice(at + 1).trim().toLowerCase()]
-    if (alias) return { model: entry.slice(0, at).trim(), baseUrl: alias.baseUrl, keyVar: alias.keyVar, label: entry }
-    const baseUrl = entry.slice(at + 1).trim().replace(/\/+$/, '')
-    return { model: entry.slice(0, at).trim(), baseUrl: baseUrl || null, label: entry }
+    // Plus aucune base tierce (fournisseurs gratuits retires du code) ni alias :
+    // la cle se choisit par PLANNER_KEY_FIRST, pas par le nom du modele.
+    return { model: entry.slice(0, at).trim(), invalid: true, label: entry }
   })
 }
 
@@ -47,14 +42,8 @@ function parse (text) {
 function modelFor (task, env = process.env, fallback = '') {
   const own = TASK_VARS[task] ? env[TASK_VARS[task]] : ''
   const entry = parse(String(own ?? '').trim() || env.PLANNER_MODEL || fallback)[0]
-  if (!entry) return null
-  const keyed = entry.keyVar ? String(env[entry.keyVar] ?? '').trim()
-    : !entry.baseUrl || !needsKey(entry.baseUrl) || keyFor(entry.baseUrl, env)
-  return keyed ? entry : null
-}
-
-function needsKey (baseUrl) {
-  try { return Boolean(PROVIDER_KEYS[new URL(baseUrl).hostname.toLowerCase()]) } catch { return false }
+  if (!entry || entry.invalid) return null
+  return entry
 }
 
 // Effort de raisonnement par usage : PLANNER_REASONING_EFFORT_<USAGE> sinon
@@ -66,22 +55,6 @@ function effortFor (task, env = process.env) {
   return value.toLowerCase() || null
 }
 
-// Cle d un fournisseur tiers (`modele@url`) : liste FERMEE hote -> variable.
-// Une cle ne part jamais que vers l hote exact auquel elle appartient ; toute
-// autre base est appelee sans cle (acces anonyme, ex : Zen gratuit).
-const PROVIDER_KEYS = {
-  'api.groq.com': 'GROQ_API_KEY',
-  'generativelanguage.googleapis.com': 'GEMINI_API_KEY',
-  'openrouter.ai': 'OPENROUTER_API_KEY'
-}
-
-function keyFor (baseUrl, env = process.env) {
-  let host
-  try { host = new URL(baseUrl).hostname.toLowerCase() } catch { return '' }
-  const name = PROVIDER_KEYS[host]
-  return name ? String(env[name] ?? '').trim() : ''
-}
-
 // Delai d un appel par usage : PLANNER_TIMEOUT_MS_<USAGE> (vide = delai commun).
 function timeoutFor (task, env = process.env) {
   const name = TASK_VARS[task]?.replace('PLANNER_MODEL_', 'PLANNER_TIMEOUT_MS_')
@@ -89,4 +62,36 @@ function timeoutFor (task, env = process.env) {
   return Number.isFinite(value) && value > 0 ? value : null
 }
 
-module.exports = { KEY_ALIASES, parse, modelFor, effortFor, timeoutFor, keyFor, PROVIDER_KEYS, TASK_VARS }
+const KEY_VARS = { primary: 'PLANNER_API_KEY', secondary: 'OPENCODE_SECONDARY_API_KEY' }
+
+// Cles dans l ordre d essai (PLANNER_KEY_FIRST=primary|secondary, defaut
+// primary), sans les cles vides.
+function keyOrder (env = process.env) {
+  const first = String(env.PLANNER_KEY_FIRST ?? '').trim().toLowerCase() === 'secondary' ? 'secondary' : 'primary'
+  return [first, first === 'primary' ? 'secondary' : 'primary']
+    .map(name => ({ name, key: String(env[KEY_VARS[name]] ?? '').trim() }))
+    .filter(k => k.key)
+}
+
+// Refus qui tient a la CLE (quota, droits) : l autre cle peut passer. Un delai,
+// une 5xx ou un 400 de schema ne changent rien d une cle a l autre.
+function isKeySwitchError (err) {
+  return err?.code === 'LLM_HTTP' && [401, 402, 403, 429].includes(Number(err.status))
+}
+
+function createKeyState (cooldownMs = 600000) {
+  const until = new Map()
+  return {
+    order (keys, now = Date.now()) {
+      const ready = keys.filter(k => !(until.get(k.name) > now))
+      return [...ready, ...keys.filter(k => until.get(k.name) > now)]
+    },
+    bench (k, now = Date.now()) { until.set(k.name, now + cooldownMs) },
+    clear (k) { until.delete(k.name) },
+    status (now = Date.now()) {
+      return Object.fromEntries([...until].filter(([, t]) => t > now).map(([n, t]) => [n, new Date(t).toISOString()]))
+    }
+  }
+}
+
+module.exports = { parse, modelFor, effortFor, timeoutFor, keyOrder, isKeySwitchError, createKeyState, KEY_VARS, TASK_VARS }

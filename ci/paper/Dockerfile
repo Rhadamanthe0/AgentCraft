@@ -17,3 +17,11 @@ RUN set -eux; mkdir -p /data; cd /data; \
     java -Dpaperclip.patchonly=true -jar "paper-${PAPER_VERSION}-${PAPER_BUILD}.jar"; \
     test -d /data/versions; test -d /data/libraries; \
     rm -rf /data/logs; chown -R 1000:1000 /data
+# Coupe le throttle de connexion par IP (32 bots partagent une IP de conteneur).
+# Copie dans l image plutot que montee : sur un runner en conteneur, le moteur
+# (Podman/Docker par socket) resout les chemins de montage sur l hote, ou la
+# copie de travail du job n existe pas. itzg copie /config dans /data au demarrage.
+COPY bukkit.yml /config/bukkit.yml
+# Lisible par uid 1000 quel que soit l umask du checkout (AccessDeniedException
+# sur MINIPC-CLEM : COPY garde les droits du fichier source).
+RUN chmod 0755 /config && chmod 0644 /config/bukkit.yml

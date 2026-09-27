@@ -17,9 +17,9 @@ services:
       # locale, 33 joueurs et 19 arenes chargees : tas vivant <= 662 MB apres
       # GC (-Xlog:gc ci-dessous). G1 ne grossit le tas que si le GC l exige.
       INIT_MEMORY: 1G
-      MAX_MEMORY: 2G
+      MAX_MEMORY: 3G
       # 16 bots + 16 probes + harness : au-dela de 20 le serveur refuse ("server_full").
-      MAX_PLAYERS: "48"
+      MAX_PLAYERS: "80"
       ONLINE_MODE: "FALSE"
       MODE: survival
       FORCE_GAMEMODE: "TRUE"
@@ -35,8 +35,9 @@ services:
       RCON_CMDS_STARTUP: |-
         time set day
         gamerule advance_time false
-      # /config is copied into /data before Paper starts: ci/paper/bukkit.yml
-      # disables the per-IP login throttle (16 bots share one container IP).
+      # /config is copied into /data before Paper starts: ci/paper/bukkit.yml,
+      # baked into the Paper image (no bind mount: see ci/paper/Dockerfile),
+      # disables the per-IP login throttle (32 bots share one container IP).
       COPY_CONFIG_DEST: /data
       # One line per GC on stdout (containers.log): ci/run.py reads the live
       # heap after each collection to size MEMORY on measurements.
@@ -56,7 +57,6 @@ services:
     # Anonymous, disposable volume; never the live mc-data volume.
     volumes:
       - /data
-      - ./paper/bukkit.yml:/config/bukkit.yml:ro
   # One test image per run (built once, from the harness service); every other
   # service reuses it. CI_TAG is the disposable project name set by ci/run.py,
   # and ci/run.py / ci/cleanup.py remove minebot-ci:<project> at the end.
@@ -68,7 +68,9 @@ services:
     init: true
     environment:
       NODE_PATH: /work/bot/node_modules
-    command: ["node", "/work/ci/harness.js", "TestProbe1", "--idle-secs", "600"]
+    # Meme borne que les sondes : a 600 s, un banc lent (MINIPC-CLEM, mode exec)
+    # perdait le harness en plein banc (bc0cd22).
+    command: ["node", "/work/ci/harness.js", "TestProbe1", "--idle-secs", "1700"]
     ports:
       - "127.0.0.1::3101"
     depends_on:
@@ -117,12 +119,29 @@ services:
       - "127.0.0.1::3014"
       - "127.0.0.1::3015"
       - "127.0.0.1::3016"
+      - "127.0.0.1::3017"
+      - "127.0.0.1::3018"
+      - "127.0.0.1::3019"
+      - "127.0.0.1::3020"
+      - "127.0.0.1::3021"
+      - "127.0.0.1::3022"
+      - "127.0.0.1::3023"
+      - "127.0.0.1::3024"
+      - "127.0.0.1::3025"
+      - "127.0.0.1::3026"
+      - "127.0.0.1::3027"
+      - "127.0.0.1::3028"
+      - "127.0.0.1::3029"
+      - "127.0.0.1::3030"
+      - "127.0.0.1::3031"
+      - "127.0.0.1::3032"
     environment:
       NODE_PATH: /work/bot/node_modules
       # Jeune generation V8 plafonnee a 4 MB par demi-espace (defaut bien plus
       # grand) : mesure locale, 16 bots au repos 1,98 GB -> 1,10 GB, CPU egal.
       NODE_OPTIONS: "--max-semi-space-size=4"
-      POOL_SIZE: "8"
+      # CI_POOL_SIZE (defaut 32) : 16 sur MINIPC-CLEM, CI plafonnee a 400 % CPU.
+      POOL_SIZE: "${CI_POOL_SIZE:-32}"
       API_BASE_PORT: "3000"
       # V8 heap cap of each bot process (NODE_OPTIONS=--max-old-space-size).
       # Offline, a bot idles at ~110-135 MB RSS with ~25 MB of heap; chunks,
@@ -137,12 +156,9 @@ services:
       # BOT_USERNAME, API_PORT, PLANNER_SESSION_ID and the /data/botN/ files
       # (memory, actions doc, objectives, log) are set per child by multi-bot.js.
       PLANNER_API_KEY: "${PLANNER_API_KEY:-}"
-      GROQ_API_KEY: "${GROQ_API_KEY:-}"
-      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
-      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       OPENCODE_SECONDARY_API_KEY: "${OPENCODE_SECONDARY_API_KEY:-}"
       # Bots must not take each other's chat for orders (shared server).
-      CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TreeBot9,TreeBot10,TreeBot11,TreeBot12,TreeBot13,TreeBot14,TreeBot15,TreeBot16,TestProbe1,TestProbe2,TestProbe3,TestProbe4,TestProbe5,TestProbe6,TestProbe7,TestProbe8,TestProbe9,TestProbe10,TestProbe11,TestProbe12,TestProbe13,TestProbe14,TestProbe15,TestProbe16,TestProbe17
+      CHAT_IGNORE_PLAYERS: TreeBot1,TreeBot2,TreeBot3,TreeBot4,TreeBot5,TreeBot6,TreeBot7,TreeBot8,TreeBot9,TreeBot10,TreeBot11,TreeBot12,TreeBot13,TreeBot14,TreeBot15,TreeBot16,TreeBot17,TreeBot18,TreeBot19,TreeBot20,TreeBot21,TreeBot22,TreeBot23,TreeBot24,TreeBot25,TreeBot26,TreeBot27,TreeBot28,TreeBot29,TreeBot30,TreeBot31,TreeBot32,TestProbe1,TestProbe2,TestProbe3,TestProbe4,TestProbe5,TestProbe6,TestProbe7,TestProbe8,TestProbe9,TestProbe10,TestProbe11,TestProbe12,TestProbe13,TestProbe14,TestProbe15,TestProbe16,TestProbe17,TestProbe18,TestProbe19,TestProbe20,TestProbe21,TestProbe22,TestProbe23,TestProbe24,TestProbe25,TestProbe26,TestProbe27,TestProbe28,TestProbe29,TestProbe30,TestProbe31,TestProbe32,TestProbe33
       PLANNER_USER_AGENT: minecraft-bot/1.0
       # 20 s : un appel muet de space-bunny ne revient pas, un nouvel essai si
       # (planner.callWithProfile). Mesure 288ce66 : p95 14,6 s, p99 18,1 s ;
@@ -156,9 +172,10 @@ services:
       MISSION_MAX_STEPS: "90"
       MISSION_MAX_DURATION_MS: "900000"
       MISSION_DEFAULT_QUOTA: "16"
-    # 16 processes x (256 MB heap cap + ~100 MB code/buffers) stays under it;
-    # past it the kernel kills a bot, which the healthcheck and logs show.
-    mem_limit: 6g
+    # 32 processes x (256 MB heap cap + ~100 MB code/buffers) stays under it
+    # (mesure : ~80 MB par bot au travail) ; au-dela le noyau tue un bot, ce que
+    # le healthcheck et les journaux montrent.
+    mem_limit: 12g
     # Anonymous volume: every run starts with no memory or objectives.
     volumes:
       - /data
@@ -176,8 +193,8 @@ services:
       start_interval: 1s
       retries: 3
   # Silent probe players standing in for the human requester (one per worker),
-  # TestProbe2..17: ONE node process (ci/probes.js), one shared minecraft-data
-  # registry instead of 16 processes (~100 MB each).
+  # TestProbe2..33: ONE node process (ci/probes.js), one shared minecraft-data
+  # registry instead of 32 processes (~100 MB each).
   probes:
     image: "minebot-ci:${CI_TAG:-local}"
     pull_policy: never
@@ -186,8 +203,8 @@ services:
       NODE_PATH: /work/bot/node_modules
       # Same V8 young-generation cap as `bots`.
       NODE_OPTIONS: "--max-semi-space-size=4"
-    command: ["node", "/work/ci/probes.js", "TestProbe2", "TestProbe3", "TestProbe4", "TestProbe5", "TestProbe6", "TestProbe7", "TestProbe8", "TestProbe9", "TestProbe10", "TestProbe11", "TestProbe12", "TestProbe13", "TestProbe14", "TestProbe15", "TestProbe16", "TestProbe17", "--idle-secs", "1700"]
-    mem_limit: 768m
+    command: ["node", "/work/ci/probes.js", "TestProbe2", "TestProbe3", "TestProbe4", "TestProbe5", "TestProbe6", "TestProbe7", "TestProbe8", "TestProbe9", "TestProbe10", "TestProbe11", "TestProbe12", "TestProbe13", "TestProbe14", "TestProbe15", "TestProbe16", "TestProbe17", "TestProbe18", "TestProbe19", "TestProbe20", "TestProbe21", "TestProbe22", "TestProbe23", "TestProbe24", "TestProbe25", "TestProbe26", "TestProbe27", "TestProbe28", "TestProbe29", "TestProbe30", "TestProbe31", "TestProbe32", "TestProbe33", "--idle-secs", "1700"]
+    mem_limit: 1536m
     depends_on:
       minecraft:
         condition: service_healthy

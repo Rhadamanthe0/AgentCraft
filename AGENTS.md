@@ -322,6 +322,59 @@
   `low` ; reflexion (BRIEF, 40 s), memoire (COMPACT) et aide (REPAIR) en
   muse@go2 `high`. Les notes plus haut sur les chaines et bascules sont
   historiques.
+  Fournisseurs gratuits (Zen anonyme `@url`, Groq, Gemini, OpenRouter) retires
+  du code (decision du proprietaire ; cles laissees dans GitHub) : seuls
+  `modele` (cle principale) et `modele@go2` existent, tout autre `@...` est
+  refuse. Banc a 32 bots paralleles (POOL_SIZE, ~20 Go libres sur le runner ;
+  Paper 3 Go, 80 joueurs), brief muse `high` 60 s, `START_TIMEOUT_S` 75 s.
+  La sonde mesure aussi jetons de raisonnement et acceptation de l effort.
+  Repli de CLE (demande du proprietaire) : deux cles pour le gateway Go,
+  primary (PLANNER_API_KEY) et secondary (OPENCODE_SECONDARY_API_KEY) ;
+  PLANNER_KEY_FIRST dit laquelle essayer d abord. Refus de cle (429,
+  401/402/403) => MEME modele avec l autre cle, cle refusee mise de cote
+  PLANNER_KEY_COOLDOWN_MS (10 min). Jamais sur delai/5xx, jamais un autre
+  modele. L alias `modele@go2` est retire. Banc : primary d abord (quota
+  hebdo epuise) pour valider le repli, puis secondary.
+  Repli valide sur 6cea0f6 (32/32 bots passes a secondary sur 429
+  GoUsageLimitError, 64/65) : banc en secondary d abord. GLM-5.3 Flash
+  ecarte (60/65 en `medium`, 58/65 en `low`, ~3x plus rapide que DeepSeek) :
+  DeepSeek V4.1 Flash reste pour actions et chat. Appels HTTP du banc aux
+  bots a 150 s (`HTTP_TIMEOUT_S`) : /api/instruction attend la lecture
+  d objectif muse (60 s + rejeu si tronquee) ; 45 s perdait craft/sticks.
+  Fabrication : un manque de bois se dit par famille (« buche (toute
+  essence) ») avec le stock reel en poche (craft/axe : « cherry_log x1 »,
+  cerisier cherche 150 s). Chat : un ordre a cible vague (« Va sous l arbre »)
+  est new, jamais une question de precision (route/under-tree, bot muet).
+- Banc complet sur MINIPC-CLEM (2026-09-27, docs/remote-minecraft-tests.md) :
+  runner Linux en conteneur + Podman rootless par socket ; `CI_ENDPOINT_MODE=exec`,
+  bukkit.yml dans l image Paper, `ci/compose.old-api.yaml` si API < 1.44, projet
+  `mc-ci-<run id>-...`, nettoyage limite aux projets du checkout (runner
+  mutualise). Seule la cle secondaire est transmise, `report.keyCheck` le
+  verifie. Echecs classes (`failureKind`), `benchInvalid` si panne globale.
+  `avancer` sans cible : defait d abord le pilier du bot et s arrete au bord
+  d une chute de plus de deux blocs (trees/bent, 0e5dee5 : chute de 4, degats).
+  `piler` en recolte refuse sans aucune cible restante (trees/reachable :
+  plan anticipe perime, sol creuse pour un pilier inutile).
+  MINIPC-CLEM, suite (2026-09-27) : `CI_ENDPOINT_MODE=ip` (IP des conteneurs
+  par `docker inspect`, joignables depuis le runner ; `exec` rendait les
+  niveaux 3x plus lents, harness arrete a 600 s d inactivite, banc bc0cd22
+  invalide). `CI_POOL_SIZE=16` : CI plafonnee a 400 % CPU. Umask 077 du runner
+  => `chmod a+rX` dans les images. Paper sans plafond memoire de conteneur ;
+  compte CI 16 Gio. Image Paper purgeable le lundi si > 30 jours.
+- Chat du bot en style court (demande du proprietaire : chat Minecraft petit et
+  charge) : messages systeme raccourcis (« Reçu, je regarde… », « Compris. »,
+  « Fini : raison. »), prompt du chat et doc de `dire` en quelques mots.
+  « Je réfléchis… » des que la lecture de l objectif depasse
+  `MISSION_BRIEF_NOTICE_MS` (3 s ; 0 = aucun).
+  Heartbeat du reporter : un meme message repete attend 2x plus a chaque fois
+  (15, 30, 60 s) ; « Je réfléchis… » sortait ~12 fois en 3 min (b91985a).
+- Banc b91985a (MINIPC-CLEM, 16 bots, mode ip) : 64/65 valide, niveaux 300 s
+  (635 en exec), cle secondaire seule. Echec route/under-far-tree : lecture
+  d objectif Muse `high` tronquee deux fois a 4096 jetons (4 troncatures sur
+  ~93 lectures), 3 min, harness a 150 s. CI : `PLANNER_PILOT_MAX_TOKENS=8192`,
+  rejeu 16384 (plafond, pas un delai). Mesure CPU de l agent MINIPC-CLEM : CI a
+  199 % en moyenne, 400 % seulement au demarrage (build, Paper, connexions),
+  182 % ensuite ; 0 evenement memoire ; 16 bots gardes.
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 

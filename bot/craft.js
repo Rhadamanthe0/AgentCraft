@@ -300,8 +300,24 @@ function getDataset (bot) {
   return null
 }
 
+// Une buche/planche manquante accepte toutes les essences (recettes a
+// variantes) : le planificateur en nomme une au hasard (cherry_log), le
+// modele partait chercher un cerisier. On dit la famille.
 function formatMissing (missing) {
-  return (missing ?? []).map(m => `${m.name || m.id} x${m.count}`).join(', ')
+  return (missing ?? []).map(m => {
+    const name = String(m.name || m.id)
+    const family = /_(log|stem)$/.test(name) ? 'buche (toute essence)' : /_planks$/.test(name) ? 'planches (toute essence)' : name
+    return `${family} x${m.count}`
+  }).join(', ')
+}
+
+// Stock utile a la fabrication (bois, batons, etabli) : joint a un echec
+// « ingredients manquants » pour que le modele et le journal voient le reel.
+function woodStock (inv) {
+  const parts = Object.entries(inv)
+    .filter(([name, n]) => n > 0 && /(_log|_stem|_planks|^stick|^crafting_table)$/.test(name))
+    .map(([name, n]) => `${name} x${n}`)
+  return parts.length ? parts.join(', ') : 'aucun bois'
 }
 
 // Candidats concrets pour une demande : alias FR -> resolve() selon stock,
@@ -523,7 +539,7 @@ async function make (bot, targetName, wanted = 1) {
   if (!bestPlan) {
     if (bestMissing) {
       const desc = formatMissing(bestMissing.missing) || bestItem
-      const err = new Error(`ingredients manquants pour ${bestItem} : ${desc} (a recolter, rien d invente)`)
+      const err = new Error(`ingredients manquants pour ${bestItem} : ${desc} (a recolter, rien d invente ; en poche : ${woodStock(invBase)})`)
       err.code = 'missing'
       err.item = bestItem
       err.wanted = wantedUnits

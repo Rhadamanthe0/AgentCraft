@@ -11,8 +11,8 @@ const PLANNER_PATH = require.resolve('../bot/planner')
 const REPAIR_PATH = require.resolve('../bot/repair')
 const KEYS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_MODEL_PLAN', 'PLANNER_MODEL_CHAT', 'PLANNER_MODEL_BRIEF',
   'PLANNER_MODEL_REPAIR', 'PLANNER_API_KEY', 'PLANNER_THINKING', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN',
-  'PLANNER_REASONING_EFFORT_BRIEF', 'PLANNER_REASONING_EFFORT_REPAIR', 'PLANNER_TIMEOUT_MS_BRIEF', 'OPENCODE_SECONDARY_API_KEY',
-  'GROQ_API_KEY', 'BOT_USERNAME']
+  'PLANNER_REASONING_EFFORT_BRIEF', 'PLANNER_REASONING_EFFORT_REPAIR', 'PLANNER_TIMEOUT_MS_BRIEF', 'OPENCODE_SECONDARY_API_KEY', 'PLANNER_KEY_FIRST',
+  'BOT_USERNAME']
 const saved = Object.fromEntries(KEYS.map(k => [k, process.env[k]]))
 const origCall = llm.call
 afterEach(() => {
@@ -32,7 +32,8 @@ const httpErr = (status, message) => Object.assign(new Error(`HTTP ${status} : $
 const plan = '{"fini":0,"pourquoi":"t","plan":[{"action":"regarder_autour"}]}'
 
 test('modele de l usage : PLANNER_MODEL_<USAGE> sinon PLANNER_MODEL ; une liste ne garde que la tete', () => {
-  assert.deepEqual(chain.parse(' a , b@https://x/v1/ ').map(e => [e.model, e.baseUrl]), [['a', null], ['b', 'https://x/v1']])
+  assert.deepEqual(chain.parse(' a , b ').map(e => e.model), ['a', 'b'])
+  assert.equal(chain.modelFor('plan', { PLANNER_MODEL: 'b@go2' }), null, 'plus aucun alias')
   const env = { PLANNER_MODEL: 'a,b', PLANNER_MODEL_CHAT: 'c' }
   assert.equal(chain.modelFor('plan', env).model, 'a')
   assert.equal(chain.modelFor('interpretMessage', env).model, 'c')
@@ -48,12 +49,13 @@ test('refus du fournisseur : l erreur remonte, AUCUN autre modele n est essaye',
   assert.deepEqual([...new Set(seen)], ['payant'])
 })
 
-test('entree modele@url : autre base, et JAMAIS la cle du gateway principal', async () => {
+test('base tierce `modele@url` refusee : aucun modele, aucun appel', async () => {
+  assert.equal(chain.modelFor('plan', { PLANNER_MODEL: 'x@https://opencode.ai/zen/v1' }), null)
   const seen = []
-  llm.call = async (s, u, o) => { seen.push([o.model, o.baseUrl, o.apiKey]); return { content: plan, usage: null, ms: 1 } }
+  llm.call = async (s, u, o) => { seen.push(o.model); return { content: plan, usage: null, ms: 1 } }
   const p = load({ PLANNER_MODEL: 'x@https://opencode.ai/zen/v1' })
-  await p.plan({}, 'recolte', 'harvest')
-  assert.deepEqual(seen.at(-1), ['x', 'https://opencode.ai/zen/v1', ''])
+  await assert.rejects(p.plan({}, 'recolte', 'harvest'))
+  assert.deepEqual(seen, [])
 })
 
 test('refus du champ thinking compte par modele', async () => {
@@ -101,36 +103,31 @@ test('muse (/responses) : effort envoye en reasoning.effort', async () => {
   assert.deepEqual(seen[0], ['muse-spark-1.3-contributor', 'responses', { effort: 'high' }, null])
 })
 
-test('cle par fournisseur : liste fermee d hotes, jamais ailleurs', async () => {
-  const env = { GROQ_API_KEY: 'gk', GEMINI_API_KEY: 'gm' }
-  assert.equal(chain.keyFor('https://api.groq.com/openai/v1', env), 'gk')
-  assert.equal(chain.keyFor('https://generativelanguage.googleapis.com/v1beta/openai', env), 'gm')
-  assert.equal(chain.keyFor('https://api.groq.com.evil.example/v1', env), '')
-  assert.equal(chain.keyFor('https://opencode.ai/zen/v1', env), '')
-  assert.equal(chain.keyFor('https://openrouter.ai/api/v1', { OPENROUTER_API_KEY: 'or' }), 'or')
-  assert.equal(chain.keyFor('pas une url', env), '')
-  assert.equal(chain.modelFor('plan', { PLANNER_MODEL: 'g@https://api.groq.com/openai/v1' }), null, 'sans cle : aucun modele')
+test('repli de CLE : meme modele, autre cle sur quota ; ordre par PLANNER_KEY_FIRST', async () => {
+  assert.deepEqual(chain.keyOrder({ PLANNER_API_KEY: 'p', OPENCODE_SECONDARY_API_KEY: 's' }).map(k => k.name), ['primary', 'secondary'])
+  assert.deepEqual(chain.keyOrder({ PLANNER_API_KEY: 'p', OPENCODE_SECONDARY_API_KEY: 's', PLANNER_KEY_FIRST: 'secondary' }).map(k => k.name), ['secondary', 'primary'])
+  assert.deepEqual(chain.keyOrder({ OPENCODE_SECONDARY_API_KEY: 's' }).map(k => k.name), ['secondary'])
   const seen = []
-  llm.call = async (s, u, o) => { seen.push([o.baseUrl, o.apiKey]); return { content: plan, usage: null, ms: 1 } }
-  const p = load({ PLANNER_MODEL: 'm@https://api.groq.com/openai/v1', GROQ_API_KEY: 'gk' })
+  llm.call = async (s, u, o) => {
+    seen.push([o.model, o.apiKey])
+    if (o.apiKey === 'k-test') throw httpErr(429, 'GoUsageLimitError')
+    return { content: plan, usage: null, ms: 1 }
+  }
+  const p = load({ PLANNER_MODEL: 'd', OPENCODE_SECONDARY_API_KEY: 'k2' })
   await p.plan({}, 'recolte', 'harvest')
-  assert.deepEqual(seen, [['https://api.groq.com/openai/v1', 'gk']])
+  assert.deepEqual(seen, [['d', 'k-test'], ['d', 'k2']])
+  assert.equal(p.stats.cle_servie, 'secondary')
+  seen.length = 0
+  await p.plan({}, 'recolte', 'harvest')
+  assert.deepEqual(seen, [['d', 'k2']], 'cle refusee mise de cote')
 })
 
-test('alias go2 : gateway Go avec la cle secondaire, jamais la principale', async () => {
+test('repli de cle : jamais sur 5xx ni delai, et jamais un autre modele', async () => {
   const seen = []
-  llm.call = async (s, u, o) => { seen.push([o.model, o.baseUrl, o.apiKey]); return { content: plan, usage: null, ms: 1 } }
-  const p = load({ PLANNER_MODEL: 'd@go2', OPENCODE_SECONDARY_API_KEY: 'k2' })
-  await p.plan({}, 'recolte', 'harvest')
-  assert.deepEqual(seen, [['d', 'https://opencode.ai/zen/go/v1', 'k2']])
-})
-
-test('cle absente : erreur claire, jamais la liste brute envoyee comme nom de modele', async () => {
-  const seen = []
-  llm.call = async (s, u, o) => { seen.push(o.model); return { content: plan, usage: null, ms: 1 } }
-  const p = load({ PLANNER_MODEL: 'd@go2' })
+  llm.call = async (s, u, o) => { seen.push([o.model, o.apiKey]); throw httpErr(503, 'down') }
+  const p = load({ PLANNER_MODEL: 'd,e', OPENCODE_SECONDARY_API_KEY: 'k2' })
   await assert.rejects(p.plan({}, 'recolte', 'harvest'))
-  assert.deepEqual(seen, [])
+  assert.deepEqual([...new Set(seen.map(x => x.join('/')))], ['d/k-test'])
 })
 
 test('delai par usage : PLANNER_TIMEOUT_MS_<USAGE>, jamais plus court que le delai commun', async () => {

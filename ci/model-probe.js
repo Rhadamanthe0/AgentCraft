@@ -11,17 +11,10 @@
 const { spawn } = require('node:child_process')
 const path = require('node:path')
 
-const G = '@https://api.groq.com/openai/v1'
-const M = '@https://generativelanguage.googleapis.com/v1beta/openai'
-const Z = '@https://opencode.ai/zen/v1'
-const O = '@https://openrouter.ai/api/v1'
-const DEFAULT = [
-  'deepseek-v4.1-flash@go2', 'muse-spark-1.3-contributor@go2', 'deepseek-v4-flash@go2', 'mimo-v2.6-flash@go2', 'mimo-v2.6-pro@go2',
-  'glm-5.3-flash@go2', 'qwen3.8-flash@go2', 'longcat-2.0@go2',
-  `gemini-3.5-flash-lite${M}`, `gemini-flash-latest${M}`,
-  `openai/gpt-oss-120b${G}`, `openai/gpt-oss-20b${G}`, `qwen/qwen3.8-27b${G}`,
-  `space-bunny-free${Z}`, `qwen/qwen3.8-27b:free${O}`
-]
+// Face-a-face actions/chat (2026-09-26) : meme effort (PLANNER_REASONING_EFFORT_*
+// du banc), jetons de raisonnement et acceptation du champ effort mesures.
+const DEFAULT = ['deepseek-v4.1-flash', 'glm-5.3-flash']
+const RUNS = Number(process.env.CI_PROBE_RUNS || 8)
 
 const STATE = {
   consigne: { objectif: 'coupe moi un arbre', type: 'recolte', matiere: 'bois', arbre_entier: true },
@@ -46,23 +39,39 @@ async function one (entry) {
   console.log = (...a) => console.error(...a)
   Object.assign(process.env, {
     PLANNER_MODEL: entry, PLANNER_MODEL_PLAN: '', PLANNER_MODEL_BRIEF: '', PLANNER_MODEL_CHAT: '', PLANNER_MODEL_COMPACT: '',
-    PLANNER_TIMEOUT_MS: '30000', PLANNER_WARMUP_TIMEOUT_MS: '30000', BOT_USERNAME: 'ProbeModel'
+    PLANNER_TIMEOUT_MS: '30000', PLANNER_WARMUP_TIMEOUT_MS: '30000', BOT_USERNAME: 'ProbeModel',
+    // Mesure du modele, pas du repli de cle : la cle secondaire d abord.
+    PLANNER_KEY_FIRST: process.env.OPENCODE_SECONDARY_API_KEY ? 'secondary' : 'primary'
   })
+  // Espion du transport : effort envoye, refus 400, jetons de raisonnement.
+  const llm = require(path.join(__dirname, '..', 'bot', 'llm'))
+  const real = llm.call
+  let wire = []
+  llm.call = async (system, user, o = {}) => {
+    const effort = o.reasoningEffort ?? o.reasoning?.effort ?? null
+    try {
+      const r = await real(system, user, o)
+      const u = r.usage ?? {}
+      wire.push({ effort, ok: true, reasoning: u.completion_tokens_details?.reasoning_tokens ?? u.output_tokens_details?.reasoning_tokens ?? null, output: u.completion_tokens ?? u.output_tokens ?? null })
+      return r
+    } catch (err) { wire.push({ effort, ok: false, status: err?.status ?? null }); throw err }
+  }
   const planner = require(path.join(__dirname, '..', 'bot', 'planner'))
   const out = { model: entry, plan: [], chat: [], brief: null }
   const timed = async (fn) => {
     const t = Date.now()
-    try { const v = await fn(); return { ok: true, ms: Date.now() - t, ...v } } catch (err) {
-      return { ok: false, ms: Date.now() - t, error: String(err?.message ?? err).slice(0, 200) }
+    wire = []
+    try { const v = await fn(); return { ok: true, ms: Date.now() - t, wire, ...v } } catch (err) {
+      return { ok: false, ms: Date.now() - t, wire, error: String(err?.message ?? err).slice(0, 200) }
     }
   }
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < RUNS; i++) {
     out.plan.push(await timed(async () => {
       const r = await planner.plan(STATE, 'recolte', 'harvest')
       return { steps: (r?.steps ?? []).map(s => s.action) }
     }))
   }
-  for (const [message, context] of CHAT) {
+  for (const [message, context] of [...CHAT, ...CHAT, ...CHAT].slice(0, Math.max(3, RUNS))) {
     out.chat.push(await timed(async () => {
       const r = await planner.interpretMessage(message, context)
       return { message, relation: r?.relation ?? null }
@@ -80,7 +89,18 @@ function summarize (r) {
   const agg = (rows) => {
     const ok = rows.filter(x => x.ok)
     const ms = ok.map(x => x.ms).sort((a, b) => a - b)
-    return { ok: ok.length, of: rows.length, medianMs: ms.length ? ms[Math.floor(ms.length / 2)] : null, error: rows.find(x => !x.ok)?.error ?? null }
+    const calls = rows.flatMap(x => x.wire ?? [])
+    const served = calls.filter(c => c.ok)
+    const med = (v) => { const a = v.filter(n => Number.isFinite(n)).sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : null }
+    return {
+      ok: ok.length, of: rows.length, medianMs: ms.length ? ms[Math.floor(ms.length / 2)] : null,
+      error: rows.find(x => !x.ok)?.error ?? null,
+      // Effort reellement porte par les appels servis, et refus 400 du champ.
+      effortServed: [...new Set(served.map(c => c.effort))],
+      refused400: calls.filter(c => !c.ok && c.status === 400).length,
+      medianReasoningTokens: med(served.map(c => c.reasoning)),
+      medianOutputTokens: med(served.map(c => c.output))
+    }
   }
   return { model: r.model, plan: agg(r.plan), chat: agg(r.chat), brief: agg([r.brief]), detail: r }
 }

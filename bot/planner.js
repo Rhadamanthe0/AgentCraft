@@ -138,6 +138,7 @@ function isUpstreamRefusal (err) {
   return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(text) && !/model is unavailable/i.test(text)
 }
 const USER_AGENT = process.env.PLANNER_USER_AGENT || 'minecraft-bot/1.0'
+const keyState = modelChain.createKeyState(Number(process.env.PLANNER_KEY_COOLDOWN_MS || 600000))
 const DEBUG = process.env.PLANNER_DEBUG === '1'
 
 // Memes seuils que ceux qu utilisait Jev : ils ont ete regles en jeu, ils ne
@@ -319,20 +320,32 @@ async function callWithProfile (system, user, opts = {}) {
   // raisonne plus (muse pour la reflexion) a besoin de plus.
   const taskTimeout = modelChain.timeoutFor(task)
   if (taskTimeout) opts = { ...opts, timeoutMs: Math.max(taskTimeout, opts.timeoutMs ?? 0) }
-  const res = await callSingle(system, user, { ...opts, model: entry.model, baseUrl: entry.baseUrl, keyVar: entry.keyVar })
-  stats.modele_servi = entry.label
-  return res
+  // Repli de CLE seulement (PLANNER_KEY_FIRST) : meme modele, autre cle.
+  // Sans aucune cle (base locale type Ollama) : un appel sans cle, comme avant.
+  const configured = modelChain.keyOrder(process.env)
+  const keys = configured.length ? keyState.order(configured) : [{ name: 'aucune', key: '' }]
+  for (const [i, k] of keys.entries()) {
+    try {
+      const res = await callSingle(system, user, { ...opts, model: entry.model, apiKey: k.key })
+      keyState.clear(k)
+      stats.modele_servi = entry.label
+      stats.cle_servie = k.name
+      return res
+    } catch (err) {
+      if (signal?.aborted || !modelChain.isKeySwitchError(err) || i === keys.length - 1) throw err
+      keyState.bench(k)
+      stats.bascules_cle = (stats.bascules_cle ?? 0) + 1
+      stats.cles_de_cote = keyState.status()
+      console.log(`[planner] cle ${k.name} refusee (${String(err.message).slice(0, 160)}) : cle ${keys[i + 1].name} pour ${task}`)
+    }
+  }
 }
 
-async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, baseUrl: otherBase = null, keyVar = null, task = 'plan' } = {}) {
+async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, apiKey = null, task = 'plan' } = {}) {
   const EFFORT = modelChain.effortFor(task)
-  // Base propre a l entree (`modele@url`) : jamais la cle du gateway principal.
-  const base = otherBase || BASE_URL
-  // Autre base : seulement la cle propre a son hote (liste fermee), jamais
-  // celle du gateway principal.
-  // Alias a cle propre (`modele@go2`, liste fermee KEY_ALIASES) : sa variable.
-  const key = keyVar ? String(process.env[keyVar] ?? '').trim()
-    : otherBase && otherBase !== BASE_URL ? modelChain.keyFor(otherBase) : API_KEY
+  // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
+  const base = BASE_URL
+  const key = apiKey ?? API_KEY
   const zen = /opencode\.ai\/zen/i.test(base)
   const target0 = forced ?? effectiveModel()
   const proto0 = target0 === PILOT_MODEL ? 'responses' : 'chat'
@@ -1343,6 +1356,8 @@ avec la consigne COMPLETE de la maison et ses autres exigences conservees.
 Une phrase a l imperatif qui demande d agir (va, viens, coupe, construis, ramasse,
 suis, fabrique, rapporte...) est un ordre : new (ou amend), jamais question, meme
 courte et sans politesse. question exige une interrogation ou une simple remarque.
+Un ordre a cible vague (« va sous l arbre », « coupe un arbre », « va a la maison »)
+reste new : le bot prendra la cible la plus proche, ne demande pas laquelle.
 question = question sur l etat ou conversation : response breve et factuelle a
 partir de etat et mission, sans interrompre la mission. Si aucun objectif n est
 actif, reponds aussi aux salutations. Ne pretends jamais avoir accompli une action.
@@ -1352,9 +1367,10 @@ reconstruire un nouvel objectif ; si impossible, pose une question via question.
 "plutot en bouleau" pendant recolte bois = amend ; "fais plus petit" pendant
 construction = amend si dimensions claires, sinon question de clarification.
 Chaque phrase est traitee. Jamais aucune, jamais une commande de touche directe.
-Fournis TOUJOURS response : une reponse directe pour question, un accuse de
-reception bref pour new/amend/context. Pour new/amend, confirme ce qui est
-demande et que tu verifies les etapes, sans promettre une reussite non verifiee.
+Fournis TOUJOURS response, en style chat court (le chat Minecraft est petit et
+charge) : quelques mots, pas de phrase complete si elle n ajoute rien. Question :
+la reponse seule (« 3 buches, j en coupe encore »). new/amend : « OK, je coupe
+l arbre. » ; context : « Noté. ». Jamais de promesse de reussite non verifiee.
 Capacites reelles : jeu Minecraft, navigation, recolte, craft, construction,
 conversation et remise mesuree d objets au joueur (action donner : depot aux
 pieds + annonce, jamais de ramassage suppose). Pas d outil de recherche

@@ -1,5 +1,37 @@
 # Claude distant, tests sur le PC Windows
 
+## Banc complet sur MINIPC-CLEM (depuis le 2026-09-27)
+
+Le banc complet (65 niveaux, 32 bots) tourne sur le runner d organisation
+MINIPC-CLEM (`runs-on: [self-hosted, linux, x64, minipc, podman]`) : Linux, le
+runner est lui-meme un conteneur et parle a un Podman rootless par socket
+(clients `docker` et `docker compose`). Le poste Windows + Docker Desktop reste
+utilisable en local avec les memes scripts.
+
+- `CI_ENDPOINT_MODE=exec` : `localhost` est le conteneur du runner, les ports
+  publies sur l hote y sont injoignables ; RCON et HTTP passent par
+  `docker compose exec`. En local, `direct` (defaut) garde l acces TCP rapide,
+  et un echec du RCON direct bascule une fois pour toutes sur `exec`.
+- Aucun montage de fichier du depot : le moteur resout les chemins sur l hote,
+  ou la copie de travail n existe pas. `ci/paper/bukkit.yml` est copie dans
+  l image Paper (son hash entre dans le tag `minebot-ci-paper:<hash>`).
+- API du moteur < 1.44 (Podman) : `ci/compose.old-api.yaml` retire
+  `healthcheck.start_interval` (refuse par Compose) et sonde toutes les 2 s.
+- Projet `mc-ci-<GITHUB_RUN_ID>-<hex8>` ; `ci/cleanup.py` (`if: always()`) ne
+  retire que les projets enregistres par ce checkout et les anciens tags de
+  l image Paper. Le balayage de tous les `mc-ci-*` (`--sweep-stale`) est
+  reserve a un poste local : le runner est mutualise.
+- Cle : seul le secret `OPENCODE_SECONDARY_API_KEY` est transmis ;
+  `CI_EXPECT_KEY=secondary` fait verifier (`report.keyCheck`) que seule la cle
+  secondaire a servi, sans bascule, et rend le banc non conforme sinon.
+- Chaque echec porte `failureKind` (`infrastructure`, `api`, `garde-fou`,
+  `bot`) ; `report.benchInvalid` est pose si des services sont arretes en fin
+  de banc ou si 3 niveaux ou plus echouent sur l infrastructure : un tel banc
+  ne dit rien du code.
+
+Les sections suivantes decrivent l ancien runner Windows (poste local).
+
+
 Depot prive : https://github.com/Rhadamanthe0/minebot-lab.
 Runner enregistre sur ce PC : `minebot-lab-windows`, label `minecraft`.
 Il est installe dans `%LOCALAPPDATA%\MinebotLab\actions-runner`, hors du depot.

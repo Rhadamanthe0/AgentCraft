@@ -1,15 +1,21 @@
 'use strict'
 
 // Compte rendu d execution : phases observees, jamais un monologue invente.
-// Le heartbeat couvre aussi les await longs (modele, trajet, fabrication).
+// Le heartbeat couvre aussi les await longs (modele, trajet, fabrication) ;
+// un meme message repete attend deux fois plus a chaque fois (15, 30, 60 s...) :
+// le chat Minecraft est petit, « Je réfléchis… » x12 en 3 min le noyait.
 function createActivityReporter ({ say, isActive = () => true, intervalMs = 15000, minNoticeMs = 5000, now = Date.now }) {
   let current = null
   let closed = false
   let lastSpoken = -Infinity
+  let lastText = null
+  let repeats = 0
   let deliveryError = null
   const startedAt = now()
   const speak = text => {
     if (!text) return
+    repeats = text === lastText ? repeats + 1 : 0
+    lastText = text
     try {
       say(String(text).replace(/[\r\n]+/g, ' ').slice(0, 230))
       deliveryError = null
@@ -18,7 +24,8 @@ function createActivityReporter ({ say, isActive = () => true, intervalMs = 1500
   }
   const tick = () => {
     const since = Number.isFinite(lastSpoken) ? lastSpoken : startedAt
-    if (!closed && isActive() && current && now() - since >= intervalMs) speak(current.message)
+    const wait = current?.message === lastText ? intervalMs * 2 ** (repeats + 1) : intervalMs
+    if (!closed && isActive() && current && now() - since >= wait) speak(current.message)
   }
   const timer = setInterval(tick, intervalMs)
   timer.unref?.()
@@ -39,26 +46,26 @@ function createActivityReporter ({ say, isActive = () => true, intervalMs = 1500
 }
 
 const SUBGOALS = {
-  rejoindre: 'Je cherche un chemin pour te rejoindre.',
-  retour: 'Je reviens a mon point de depart.',
+  rejoindre: 'Je te rejoins…',
+  retour: 'Retour au départ…',
   regarder: 'Je me tourne vers toi.',
-  suivre: 'Je continue a te suivre.',
-  attendre: 'J attends comme demande.',
-  sous_arbre: 'Je cherche une place accessible sous la couronne d un arbre.'
+  suivre: 'Je te suis…',
+  attendre: 'J attends.',
+  sous_arbre: 'Je cherche une place sous l arbre…'
 }
 const ACTIONS = {
-  regarder_autour: 'Je regarde autour de moi pour reperer ma cible.',
-  avancer: 'Je cherche a avancer vers ma cible.',
-  casser: 'Je casse les blocs demandes.',
-  ramasser: 'Je cherche a recuperer les objets tombes.',
-  fabriquer: 'Je prepare la fabrication avec mon inventaire.',
-  construire: 'Je travaille sur les blocs du chantier.',
-  choisir_terrain: 'Je cherche un emplacement pour le chantier.',
-  piler: 'Je prepare une montee avec les blocs de mon inventaire.',
-  sortir: 'Je tente de me degager.',
-  attendre: 'J attends comme demande.',
-  demander_aide: 'Je suis bloque. Je demande une autre approche avec mes actions disponibles.',
-  reviser_actions: 'Je revois la documentation de mes actions pour trouver une autre approche.'
+  regarder_autour: 'Je cherche…',
+  avancer: 'J avance…',
+  casser: 'Je casse…',
+  ramasser: 'Je ramasse…',
+  fabriquer: 'Je fabrique…',
+  construire: 'Je construis…',
+  choisir_terrain: 'Je cherche un terrain…',
+  piler: 'Je monte…',
+  sortir: 'Je me dégage…',
+  attendre: 'J attends.',
+  demander_aide: 'Bloqué, je cherche autrement…',
+  reviser_actions: 'Je revois mes méthodes…'
 }
 
 module.exports = { createActivityReporter, SUBGOALS, ACTIONS }

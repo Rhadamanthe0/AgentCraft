@@ -121,12 +121,11 @@ services:
       PLANNER_TIMEOUT_MS_BRIEF: "${PLANNER_TIMEOUT_MS_BRIEF:-}"
       PLANNER_TIMEOUT_MS_COMPACT: "${PLANNER_TIMEOUT_MS_COMPACT:-}"
       PLANNER_TIMEOUT_MS_REPAIR: "${PLANNER_TIMEOUT_MS_REPAIR:-}"
-      # Cles propres a un modele (bot/model-chain.js) : `modele@go2`
-      # et les fournisseurs tiers ; une cle ne part que vers son hote.
+      # Deux cles pour le gateway : primary (PLANNER_API_KEY) et secondary ;
+      # PLANNER_KEY_FIRST dit laquelle essayer d abord (repli de cle seulement).
+      PLANNER_KEY_FIRST: "${PLANNER_KEY_FIRST:-primary}"
+      PLANNER_KEY_COOLDOWN_MS: "${PLANNER_KEY_COOLDOWN_MS:-600000}"
       OPENCODE_SECONDARY_API_KEY: "${OPENCODE_SECONDARY_API_KEY:-}"
-      GROQ_API_KEY: "${GROQ_API_KEY:-}"
-      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
-      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       PLANNER_ROUTING_MODE: "${PLANNER_ROUTING_MODE:-legacy}"
       PLANNER_FAST_MODEL: "${PLANNER_FAST_MODEL:-mimo-v2.6-flash}"
       PLANNER_FAST_TIMEOUT_MS: "${PLANNER_FAST_TIMEOUT_MS:-45000}"
