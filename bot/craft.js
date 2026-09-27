@@ -426,12 +426,28 @@ function freeSpotNear (bot) {
   return null
 }
 
-// Un etabli a portee : celui qui traine, celui qu on pose, ou celui qu on
-// fabrique d abord. Le bot est ensuite amene a cote, faute de quoi le serveur
-// refuse d ouvrir la fenetre de craft.
+// Un etabli deja pose a moins de TABLE_REUSE_RADIUS blocs sert encore : le bot
+// y retourne. Borne a 4-6 blocs, le solveur de prerequis le perdait de vue des
+// que le bot partait miner (craft/furnace : pierre a ~25 blocs, plan qui
+// reclamait un nouvel etabli donc du bois, allers-retours bouleau/pierre).
+const TABLE_REUSE_RADIUS = Number(process.env.CRAFT_TABLE_REUSE_RADIUS || 24)
+
+function placedTable (bot, radius = TABLE_REUSE_RADIUS) {
+  const blockId = bot.registry?.blocksByName?.crafting_table?.id
+  if (!blockId || typeof bot.findBlock !== 'function') return null
+  try {
+    return bot.findBlock({ matching: blockId, maxDistance: radius })
+  } catch (_) {
+    return null
+  }
+}
+
+// Un etabli a portee : celui qui traine (a TABLE_REUSE_RADIUS blocs au plus),
+// celui qu on pose, ou celui qu on fabrique d abord. Le bot est ensuite amene
+// a cote, faute de quoi le serveur refuse d ouvrir la fenetre de craft.
 async function ensureTable (bot) {
   const blockId = bot.registry.blocksByName.crafting_table?.id
-  let table = blockId ? bot.findBlock({ matching: blockId, maxDistance: 4 }) : null
+  let table = placedTable(bot)
 
   if (!table) {
     if (!findItem(bot, 'crafting_table')) {
@@ -455,6 +471,9 @@ async function ensureTable (bot) {
   if (bot.entity.position.distanceTo(table.position) > 3.5) {
     const vantage = build.findVantage(bot, table.position)
     if (vantage) await build.moveTo(bot, vantage.stand)
+    if (bot.entity.position.distanceTo(table.position) > 4.5) {
+      throw new Error(`etabli pose a ${bot.entity.position.distanceTo(table.position).toFixed(1)} blocs, pas rejoint`)
+    }
   }
 
   await bot.lookAt(table.position.offset(0.5, 0.5, 0.5), true)
@@ -615,9 +634,7 @@ async function make (bot, targetName, wanted = 1) {
   // complet, puis nouveau plan sur l inventaire reel.
   const needsTable = bestPlan.operations.some(op => op.requiresTable)
   if (needsTable && bestItem !== 'crafting_table' && !findItem(bot, 'crafting_table')) {
-    const tableId = bot.registry?.blocksByName?.crafting_table?.id
-    const placed = tableId && typeof bot.findBlock === 'function' ? bot.findBlock({ matching: tableId, maxDistance: 4 }) : null
-    if (!placed) {
+    if (!placedTable(bot)) {
       await make(bot, 'crafting_table', 1)
       return make(bot, targetName, wanted)
     }
@@ -798,6 +815,8 @@ async function make (bot, targetName, wanted = 1) {
 }
 
 module.exports = {
+  TABLE_REUSE_RADIUS,
+  placedTable,
   snapshot,
   options,
   targetCriteria,

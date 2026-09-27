@@ -418,6 +418,13 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   joueur » (intermittent depuis le 2026-09-26) ; `donner` sans quantite
   bouclait ensuite jusqu au plafond (craft/door ffda434). Seul un message du
   joueur avec un verbe de don (donne, rapporte, ramene, livre, file...) le garde.
+- Etabli pose reutilise dans un rayon de 24 blocs (`craft.TABLE_REUSE_RADIUS`,
+  `placedTable`) pour le solveur, `ensureTable` (le bot y retourne) et le refus
+  d un second etabli : a 4-6 blocs, craft/furnace (28d5096) oscillait entre le
+  bouleau (plan : nouvel etabli donc bois) et la pierre a ~25 blocs.
+  Cible de fabrication reduite a une famille (« pioche ») alors que l objectif
+  dit « pioche en pierre » : l objet precis (outil + « en » + matiere) est
+  repris du texte (craft/stone-pickaxe : pioche en bois puis errance).
 - Chat du bot en style court (demande du proprietaire : chat Minecraft petit et
   charge) : messages systeme raccourcis (« Reçu, je regarde… », « Compris. »,
   « Fini : raison. »), prompt du chat et doc de `dire` en quelques mots.

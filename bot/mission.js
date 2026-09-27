@@ -804,7 +804,8 @@ function createMissionRunner (host, injected = {}) {
     let tableNearby = cache?.tableNearby ?? false
     if (!cache || now - cache.tableAt > 2000) {
       const tableId = bot.registry?.blocksByName?.crafting_table?.id
-      try { tableNearby = Boolean(tableId && bot.findBlock({ matching: tableId, maxDistance: 6 })) } catch (_) {}
+      // Meme rayon que craft.ensureTable : un etabli pose plus loin reste utilisable.
+      tableNearby = Boolean(tableId && craft.placedTable(bot))
     }
     const key = JSON.stringify([mission.fabricationCible, mission.fabricationQuantite, inv, tableNearby])
     if (cache?.key === key) return cache.plan
@@ -3084,8 +3085,7 @@ function createMissionRunner (host, injected = {}) {
       // cible gaspille 4 planches (vu sur craft/axe : deux etablis, plus de
       // planches pour la hache). Sauf si l etabli est lui-meme demande.
       if (target === 'etabli' && mission.fabricationCible && mission.fabricationCible !== 'etabli') {
-        const tableId = bot.registry?.blocksByName?.crafting_table?.id
-        const posee = tableId ? bot.findBlock({ matching: tableId, maxDistance: 6 }) : null
+        const posee = craft.placedTable(bot)
         if (posee) {
           return {
             resultat: `un etabli est deja pose a ${bot.entity.position.distanceTo(posee.position).toFixed(1)} bloc(s) : ` +
@@ -5394,6 +5394,19 @@ function createMissionRunner (host, injected = {}) {
       fabricationCible = resolveFabricationCible(host.getBot(), briefFabRaw)
     } catch (_) {
       fabricationCible = null
+    }
+    // Famille seule (« pioche ») alors que l objectif nomme la matiere (« une
+    // pioche en pierre ») : l objet precis du texte (vu sur craft/stone-pickaxe :
+    // cible « pioche », pioche en bois fabriquee, puis errance 4 min).
+    if (fabricationCible && FAMILLES_FAB[fabricationCible] && !/^(planches|batons|etabli)$/.test(fabricationCible)) {
+      // La matiere qui suit l outil, pas le premier mot de matiere de la
+      // phrase (« coupe du bois pour une pioche en pierre » : pierre).
+      const tool = /\b(haches?|pioches?|pelles?)\s+en\s+([a-zé]+)\b/i.exec(sansCoordonnees(text))
+      const precise = tool ? fabTargetName(tool[0]) : null
+      if (precise && precise !== fabricationCible && FAMILLES_FAB[fabricationCible].test(precise)) {
+        console.log(`[mission] cible de fabrication precisee par l objectif : ${fabricationCible} -> ${precise}`)
+        fabricationCible = precise
+      }
     }
     let fabricationQuantite = fabricationCible
       ? fabricationWanted(text, briefFabQty)
