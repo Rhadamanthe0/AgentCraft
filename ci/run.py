@@ -17,7 +17,9 @@ import urllib.request
 import uuid
 
 from cleanup import compose_files, paper_image
-from trees import BOTS_SERVICE, PROBES_SERVICE, arena_origins, bot_services, levels, probe_names, run_levels
+import capacity
+from pool import LauncherControl, Pool
+from trees import API_BASE_PORT, BOTS_SERVICE, POOL_MAX, POOL_SIZE, PROBES_SERVICE, arena_origins, levels, run_levels
 
 ROOT = Path(__file__).resolve().parents[1]
 # Acces aux ports publies : `direct` (TCP/HTTP sur 127.0.0.1, poste Windows +
@@ -139,6 +141,16 @@ def main():
               'sha': None, 'dirty': None, 'success': False, 'tests': [], 'errors': [],
               'phases': {}}
     run_started = time.monotonic()
+    # CI envelope and host metrics, 10 Hz, from files only (ci/capacity.py):
+    # measured in every mode, they gate the pool only in adaptive mode.
+    pool_mode = os.environ.get('CI_POOL_MODE', 'fixed')
+    if pool_mode not in ('fixed', 'adaptive'):
+        raise SystemExit('CI_POOL_MODE doit valoir fixed ou adaptive')
+    capacity_config = capacity.Config.from_env(POOL_MAX)
+    envelope, host, sources = capacity.open_sources(capacity_config)
+    collector = capacity.Collector(envelope, host, capacity_config)
+    collector.start()
+    report['capacity'] = {'sources': sources}
 
     def phase(name, started):
         # Wall time of one bench phase, in seconds (report.json and summary).
@@ -347,6 +359,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                              'cpuPercent': float((row.get('CPUPerc') or '0').rstrip('%') or 0),
                              'memUsage': row.get('MemUsage'),
                              'memMB': size_mb((row.get('MemUsage') or '').split('/')[0]),
+                             'memLimitMB': size_mb(((row.get('MemUsage') or '').split('/') + [''])[1]),
                              'pids': row.get('PIDs')})
         return {'takenAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'containers': rows,
                 'totalCpuPercent': round(sum(r['cpuPercent'] for r in rows), 1),
@@ -522,23 +535,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             nav_thread.start()
         if args.suite in ('trees', 'all'):
             if planner_key_present():
-                # The probes healthcheck only proves the process: wait until each one is in the world.
-                started = time.monotonic()
-                until = time.monotonic() + 60
-                while not all(re.search(r':\s*0\s*$', rcon(f'data get entity {name} playerGameType')) for name in probe_names()):
-                    if time.monotonic() > until:
-                        raise RuntimeError('Probe players did not join')
-                    time.sleep(1)
                 ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
-                modes = {name: rcon(f'data get entity {name} playerGameType')
-                         for name in [name for _, name in bot_services()] + probe_names()}
-                if ops or not all(re.search(r':\s*0\s*$', mode) for mode in modes.values()):
-                    raise RuntimeError('Expected tree bots in survival without ops: ' + json.dumps(modes))
-                report['botSurvivalProof'] = {'ops': ops, 'playerGameType': modes}
-                phase('probesJoined', started)
-                arena_thread.join()
-                if arena_errors:
-                    raise arena_errors[0]
+                if ops:
+                    raise RuntimeError('Expected empty ops.json: ' + json.dumps(ops))
                 # Footprint all through the levels: one `docker stats` sample
                 # every ~5 s (peaks, means), and the first sample taken >= 60 s
                 # in as `resourceSnapshot` (the single sample of older reports).
@@ -552,6 +551,17 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                             snap = resource_snapshot()
                             snap['atS'] = round(time.monotonic() - levels_started, 1)
                             samples.append(snap)
+                            # Container caps for admission (bots 12g, probes 1536m).
+                            collector.set_containers({
+                                (r['container'] or '').replace(project + '-', '').rsplit('-', 1)[0]:
+                                    ((r['memMB'] or 0) * 2**20, (r['memLimitMB'] or 0) * 2**20 or None)
+                                for r in snap['containers'] if r['container'] and 'minecraft' not in r['container']})
+                            try:
+                                ticks = {'atS': snap['atS'], 'tps': rcon('tps'), 'mspt': rcon('mspt')}
+                                report.setdefault('serverTicks', []).append(
+                                    {k: re.sub(r'\u00a7.', '', v) if isinstance(v, str) else v for k, v in ticks.items()})
+                            except Exception as error:
+                                report['serverTicksError'] = str(error)[:200]
                             if 'resourceSnapshot' not in report and snap['atS'] >= 60:
                                 report['resourceSnapshot'] = snap
                         except Exception as error:
@@ -559,26 +569,54 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                         levels_done.wait(5)
                 sampler = threading.Thread(target=sample, daemon=True)
                 sampler.start()
-                level_results = run_levels(output, rcon, bot_api)
+                # Pool: fixed size (CI_POOL_SIZE, benchmark between commits) or
+                # adaptive (ci/capacity.py). Adaptive without trustworthy metrics
+                # falls back to the fixed size, said in the report and the log.
+                validation = []
+                if pool_mode == 'adaptive':
+                    snap = resource_snapshot()
+                    validation = capacity.validate(collector, sources, container_mem_total=sum(
+                        (r['memMB'] or 0) for r in snap['containers']) * 2**20)
+                    report['capacity']['validation'] = validation or 'ok'
+                    if validation:
+                        print('Pool adaptatif impossible, repli fixe a %d : %s' % (POOL_SIZE, ' ; '.join(validation)), flush=True)
+                controller = capacity.Controller(capacity_config, mode='fixe-repli' if validation else pool_mode,
+                                                 fixed_size=POOL_SIZE)
+                stats = {}
+
+                def planner_stats(worker):
+                    # Read before a bot is retired: its counters die with its process.
+                    try:
+                        p = bot_api(worker.bot, '/api/status').get('planner') or {}
+                    except Exception:
+                        return
+                    stats[worker.username] = {k: p.get(k) for k in (
+                        'appels', 'etapes_servies', 'echecs', 'moyenne_ms', 'jetons_total', 'jetons_en_cache_total',
+                        'jetons_sortie_total', 'jetons_raisonnement_total', 'modele_servi', 'cle_servie', 'bascules_cle')}
+
+                def pool_factory(queue, run_one):
+                    return Pool(queue, run_one, LauncherControl(http), controller, collector, rcon, capacity_config,
+                                api_base_port=API_BASE_PORT, pool_max=POOL_MAX, before_retire=planner_stats,
+                                log=lambda line: print(line, flush=True))
+                def arenas_ready():
+                    # Workers start while the arenas load; a level waits for them.
+                    arena_thread.join()
+                    if arena_errors:
+                        raise arena_errors[0]
+                level_results, report['pool'] = run_levels(output, rcon, bot_api, pool_factory, before_level=arenas_ready)
                 phase('levels', levels_started)
                 levels_done.set()
                 sampler.join(90)
+                ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
+                report['botSurvivalProof'] = {'ops': ops, 'playerGameType': report['pool'].pop('survival', {})}
+                if ops:
+                    report['errors'].append('ops.json non vide en fin de banc : ' + json.dumps(ops))
                 report['resourcePeaks'] = resource_peaks(samples)
                 report['resourceSamples'] = [{'atS': s['atS'], 'totalMemMB': s['totalMemMB'],
                                               'totalCpuPercent': s['totalCpuPercent'],
                                               'containers': {(r['container'] or '').replace(project + '-', ''): [round(r['memMB'] or 0), r['cpuPercent']]
                                                              for r in s['containers']}} for s in samples]
                 # Planner cost per bot: latency, prompt cache hit rate, reasoning tokens.
-                stats = {}
-                for service, username in bot_services():
-                    try:
-                        p = bot_api(service, '/api/status').get('planner') or {}
-                    except Exception:
-                        continue
-                    stats[username] = {k: p.get(k) for k in ('appels', 'etapes_servies', 'echecs', 'moyenne_ms',
-                                                              'jetons_total', 'jetons_en_cache_total',
-                                                              'jetons_sortie_total', 'jetons_raisonnement_total',
-                                                              'modele_servi', 'cle_servie', 'bascules_cle')}
                 report['plannerStats'] = stats
                 calls = sum(v.get('appels') or 0 for v in stats.values())
                 prompt = sum(v.get('jetons_total') or 0 for v in stats.values())
@@ -625,6 +663,11 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
     except (Exception, KeyboardInterrupt) as error:
         report['errors'].append(str(error) or 'Interrupted')
     finally:
+        collector.stop()
+        try:
+            report['capacity'].update(collector.report(run_started))
+        except Exception as error:
+            report['capacity']['error'] = str(error)[:300]
         # Only the generated project and the explicit ci/compose.yaml are addressed.
         # Anonymous test volumes are removed with their containers; no global prune.
         started = time.monotonic()
@@ -669,6 +712,16 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                                + (f" <{t['failureKind']}>" if t.get('failureKind') else '') + detail(t)
                                for t in report['tests']],
                              *([f"Planificateur : {report['plannerSummary']}"] if report.get('plannerSummary') else []),
+                             *([f"Pool : mode {report['pool']['mode']}, {report['pool']['maxActive']} workers au plus, "
+                                f"{report['pool']['workersStarted']} lances, morts {report['pool']['dead'] or 'aucun'}, "
+                                f"budget memoire {report['pool']['workerMemBudgetGiB']} Gio/worker"]
+                               if report.get('pool') else []),
+                             *([f"Capacite (enveloppe CI {report['capacity'].get('sources', {}).get('envelope') or 'introuvable'}) : "
+                                + ', '.join(f'{k} {report["capacity"].get(k)}' for k in (
+                                    'cpuSeconds', 'cpuMeanPct', 'cpu1sP95Pct', 'cpu1sMaxPct', 'throttledPeriodsShareMax10s',
+                                    'cpuPressureMax10s', 'memPeakGiB', 'minMemMarginGiB', 'minHostAvailableGiB', 'memEventsDelta'))
+                                + (f" ; validation : {report['capacity']['validation']}" if report['capacity'].get('validation') else '')]
+                               if report.get('capacity') else []),
                              f"Phases (s) : {report['phases']}",
                              *([f"Pics (docker stats toutes les ~5 s pendant les niveaux, {report['resourcePeaks']['samples']} mesures) : "
                                 f"memoire totale {report['resourcePeaks']['totalMemPeakMB']} MB, CPU total max {report['resourcePeaks']['totalCpuPeakPercent']} % "

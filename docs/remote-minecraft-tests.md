@@ -2,16 +2,17 @@
 
 ## Banc complet sur MINIPC-CLEM (depuis le 2026-09-27)
 
-Le banc complet (65 niveaux, 32 bots) tourne sur le runner d organisation
+Le banc complet (65 niveaux) tourne sur le runner d organisation
 MINIPC-CLEM (`runs-on: [self-hosted, linux, x64, minipc, podman]`) : Linux, le
 runner est lui-meme un conteneur et parle a un Podman rootless par socket
 (clients `docker` et `docker compose`). Le poste Windows + Docker Desktop reste
 utilisable en local avec les memes scripts.
 
-- `CI_ENDPOINT_MODE=exec` : `localhost` est le conteneur du runner, les ports
-  publies sur l hote y sont injoignables ; RCON et HTTP passent par
-  `docker compose exec`. En local, `direct` (defaut) garde l acces TCP rapide,
-  et un echec du RCON direct bascule une fois pour toutes sur `exec`.
+- `CI_ENDPOINT_MODE=ip` : `localhost` est le conteneur du runner, les ports
+  publies sur l hote y sont injoignables ; RCON et HTTP visent l IP de chaque
+  conteneur (`docker inspect`) et son port interne. `exec` (`docker compose
+  exec`, niveaux 3x plus lents) reste disponible. En local, `direct` (defaut)
+  garde l acces TCP rapide, et un echec du RCON direct bascule sur `exec`.
 - Aucun montage de fichier du depot : le moteur resout les chemins sur l hote,
   ou la copie de travail n existe pas. `ci/paper/bukkit.yml` est copie dans
   l image Paper (son hash entre dans le tag `minebot-ci-paper:<hash>`).
@@ -28,6 +29,79 @@ utilisable en local avec les memes scripts.
   `bot`) ; `report.benchInvalid` est pose si des services sont arretes en fin
   de banc ou si 3 niveaux ou plus echouent sur l infrastructure : un tel banc
   ne dit rien du code.
+
+### Pool de workers a la demande et admission adaptative (2026-09-27)
+
+Un worker = un vrai bot `TreeBotN` (processus de `ci/multi-bot.js`, API
+`3000+N`, `/data/botN/`) + sa sonde muette `TestProbe<N+1>` (`ci/probes.js`) ;
+`TestProbe1` reste au harness. Les conteneurs `bots` et `probes` demarrent
+VIDES ; `ci/pool.py` lance chaque couple par l API de controle de son lanceur
+(`2999` : `/workers/N/start|stop`, `2998` : `/probes/<nom>/start|stop`) et le
+retire quand il n a plus rien a faire. Etats : `starting`, `ready`,
+`retiring`, `retired` (retrait voulu, index reutilisable), `dead` (sorti de
+lui-meme : jamais relance, healthcheck en echec, le niveau en cours echoue).
+Un worker n est pret qu en jeu, en survie sans op (RCON), et prend alors le
+niveau le plus long de la file ; les delais d un niveau partent de son
+installation, jamais de l attente en file. Jamais plus de workers que de
+niveaux en attente.
+
+`CI_POOL_MODE` :
+- `fixed` : `CI_POOL_SIZE` workers (16), aucune mesure ne les freine. Sert a
+  comparer les performances entre commits (memes conditions).
+- `adaptive` (defaut du workflow) : `ci/capacity.py` lit 10 fois par seconde
+  des FICHIERS (aucun `docker exec`/`podman stats`) : `cpu.stat`,
+  `cpu.pressure`, `memory.current`, `memory.high/max` (et ceux des ancetres
+  lisibles), `memory.events` de l enveloppe CI (cgroup plafonne a 400 %), plus
+  `MemAvailable` et `/proc/stat` de l hote. Admission d UN worker a la fois si :
+  CPU 1 s < 300 % sur 10 verifications consecutives (fenetres glissantes qui
+  se recouvrent : ~2 s de preuve, pas 10 mesures independantes) ; max des CPU
+  1 s sur 30 s + estimation d un worker <= 360 % ; base + (N+1) x pic observe
+  par worker <= 360 % (tous les bots reveilles a la fois par les reponses du
+  modele) ; historique de 30 s complet ; bridage < 10 % des periodes et
+  pression CPU < 25 % sur 10 s ; hote < 90 % CPU ; marge CI et MemAvailable
+  hote, moins le budget du worker et la part non encore observee des workers
+  en demarrage, >= 4 Gio chacune ; plafonds des conteneurs `bots` (12g) et
+  `probes` (1536m) respectes. Puis `CI_SETTLE_S` (15 s) d observation apres
+  que le worker est en jeu. Budget memoire : 700 Mio au depart (bot + sonde +
+  croissance de Paper, pic de demarrage compris), puis 1,25 x le plus grand pic
+  mesure de l admission a la fin de l observation (plancher 300 Mio). Pic CPU
+  par worker : mesure seulement hors demarrage, fenetre de 120 s.
+  Surcharge soutenue 10 s (bridage, pression, reserve memoire, OOM) : cible
+  abaissee d un worker (puis 30 s de pause) ; les niveaux en cours finissent,
+  les workers libres au-dela de la cible se retirent, la file attend. La cible
+  remonte d un cran par 30 s de calme. Garde-fous d admission, pas garantie :
+  les processus deja lances et les autres services peuvent encore grossir.
+  Mesures absentes, perimees (> 1 s) ou incoherentes : aucune admission ; si
+  elles le sont des le depart (`capacity.validate`), repli FIXE a
+  `CI_POOL_SIZE`, ecrit dans le journal et `report.capacity.validation`.
+  Tous les seuils : variables `CI_ADMIT_*`, `CI_WORKER_*`, `CI_SHRINK_*`,
+  `CI_MEM_RESERVE_GIB`, `CI_SETTLE_S` (docstring de `ci/capacity.py`).
+
+Enveloppe CI : `CI_METRICS_CGROUP` (chemin vu du runner), sinon le cgroup
+unique sous `/sys/fs/cgroup` dont `cpu.max` vaut 400 %. Le cgroup propre du
+runner n est PAS l enveloppe (Paper, bots et sondes sont des conteneurs
+freres) : il n est que rapporte (`report.capacity.sources.runnerCgroup`).
+`validate` refuse une enveloppe plus petite que la memoire des conteneurs du
+banc, un `/proc` dont `MemTotal` est sous la limite de l enveloppe, un
+`/proc/stat` fige. Dependance d infrastructure (non deployee depuis ce
+depot) : pour l adaptatif, le runner doit voir en lecture seule le cgroup de
+l enveloppe CI (et `/proc` de l hote) ; sans cela, repli fixe.
+
+Rapport : `report.pool` (mode, evenements admission/attente/reduction/
+retrait/mort avec leurs raisons et les mesures du moment, courbe par seconde
+des workers en demarrage/occupes/libres, cible, file ; budget memoire appris),
+`report.capacity` (sources, validation, CPU-secondes, CPU 1 s moyen/p95/max,
+bridage, pression, pic memoire, minima des deux reserves, evenements memoire,
+courbe par seconde), `report.serverTicks` (`tps`/`mspt` de Paper par RCON,
+toutes les 5 s). Comparer `fixed` et `adaptive` : workflow_dispatch avec
+`pool_mode` et la meme `variation_seed`, meme commit.
+
+Tests hors ligne : `python3 -m unittest ci/test_capacity.py ci/test_pool.py`
+(series simulees : charge stable et oscillante, creux pendant les appels au
+modele puis reveil simultane, demarrage lent, mesures perimees ou absentes,
+manque de memoire, reduction, fin de file ; pool avec lanceurs simules :
+bot mort jamais relance, demarrage trop long, cible abaissee sans niveau
+perdu). Le workflow les joue avant le banc.
 
 Les sections suivantes decrivent l ancien runner Windows (poste local).
 
