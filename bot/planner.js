@@ -615,8 +615,17 @@ function missionMemoryLayer () {
   return `\n\n--- Memoire de la mission ---\n${parts.join('\n\n')}`
 }
 
-function buildSystemPrompt (kind, supply) {
+// Prompt par type de mission (2026-09-27, A/B `prompt_type`) : `profil`
+// { bois, fabrication } ne garde que les regles utiles a la mission (pilier,
+// dirt secondaire et hache pour le bois ; prerequis pour une fabrication ;
+// besoins et chantier pour une construction). Sans profil : tout, comme avant.
+function buildSystemPrompt (kind, supply, profil = null) {
   if (kind === 'geste') return buildGestePrompt()
+  const tout = !profil
+  const bois = tout || profil.bois
+  const fabrication = tout || profil.fabrication
+  const chantier = tout || kind === 'construction'
+  const si = (cond, texte) => cond ? texte : ''
 
   return `Tu pilotes un bot Minecraft. Tu recois l etat reel du jeu en JSON et tu rends un plan JSON.
 
@@ -677,10 +686,10 @@ NAVIGATION — le code calcule le chemin vers un bloc cible :
   augmenter temporairement cette distance. Ne pilote pas ce detour toi-meme.
 - bloc_cible_a_portee ou navigation.a_portee vrai => casse directement.
   Si bloc_cible_a_portee est faux, ne demande pas casser le bois hors portee.
-  Exception : dirt_secondaire_admise vrai ET dirt_secondaire_cible non null
+${si(bois, `  Exception : dirt_secondaire_admise vrai ET dirt_secondaire_cible non null
   indiquent une terre selectionnable a portee : casser utilise ce repli pour
   obtenir la dirt du pilier, meme quand le bois est hors portee.
-- Un echec no_path ou stuck, ou avancer_bloque vrai, exige de signaler le
+`)}- Un echec no_path ou stuck, ou avancer_bloque vrai, exige de signaler le
   blocage ou de changer d objectif selon ce qui est autorise par la consigne.
   Ne relance pas aveuglement le meme trajet et ne remplace pas le navigateur
   par une boucle pivoter/appuyer/sauter. Un resultat partiel avec progression
@@ -719,10 +728,10 @@ exemples de composition deja valides. Jamais d action inventee.
 ${IMAGE_SECTION}
 
 Planifie vers le BUT, pas seulement le geste suivant : ton plan fait avancer
-l etape en cours et prepare la suivante. besoins (construction) donne les
+l etape en cours et prepare la suivante.${si(chantier, ` besoins (construction) donne les
 totaux calcules par le code : recolte en une fois tout le bois annonce
 (buches_a_recolter), fabrique tout ce qui est annonce, puis pose ; ne fais pas
-d allers-retours pour 1 ou 2 blocs.
+d allers-retours pour 1 ou 2 blocs.`)}
 
 Lis l etat avant de repondre : consigne dit ce qui est demande, progression et
 chantier disent ce qui est fait, environnement dit ce qui est atteignable et ou
@@ -752,13 +761,13 @@ Ce que l etat impose, et qui n est pas negociable :
   vrai = a portee de ramassage, donc ramasse). navigation designe un BLOC a
   casser, navigation_objet un OBJET a marcher dessus : ne casse jamais sur un
   objet.
-- etat.arbre_demande non null => le joueur veut UN arbre entier, pas un
+${si(bois, `- etat.arbre_demande non null => le joueur veut UN arbre entier, pas un
   quota : coupe toutes ses buches (buches_restantes, branches comprises) et
   ramasse celles tombees (buches_au_sol). Quand termine est vrai, mets "fini"
   a 1 : ne cherche pas d autre arbre.
-- etat.arret_refuse present => tu viens de declarer l objectif fini a tort, et
+`)}- etat.arret_refuse present => tu viens de declarer l objectif fini a tort, et
   le code te dit ce qui manque. Mets "fini" a 0 et planifie ce qui manque.
-- environnement.acces_par_montee non null => la cible retenue devient
+${si(bois, `- environnement.acces_par_montee non null => la cible retenue devient
   reellement visible et a portee depuis un pilier de hauteur_min, avec appui
   et colonne verifies. Cet indice est distinct de cible_haute : une branche
   masquee peut devenir accessible en montant meme si son denivele est faible.
@@ -804,7 +813,7 @@ Ce que l etat impose, et qui n est pas negociable :
   Si environnement.outil_necessaire indique un outil obligatoire (par exemple
   une pioche pour obtenir de la pierre), obtiens cet outil avant de casser :
   couper le bois a main nue n autorise pas une recolte improductive de pierre.
-- consigne.fabrication_cible non null => objectif de FABRICATION generique
+`)}${si(fabrication, `- consigne.fabrication_cible non null => objectif de FABRICATION generique
   (pas une recolte de quota) : l objet vise est nomme (alias FR ou item), la
   quantite visee est consigne.fabrication_quantite (comptee par le code).
   Compose des plans COURTS (2-3 actions) qui remontent la chaine des prerequis
@@ -820,17 +829,17 @@ Ce que l etat impose, et qui n est pas negociable :
   casser vise matiere_a_recolter (le bois d abord, la pierre ensuite pour
   une pioche en pierre). bloque non vide => dis-le au joueur au lieu de
   tourner en rond.
-- etat.plan_ajuste present => une etape de ton plan precedent a ete rejetee par
+`)}- etat.plan_ajuste present => une etape de ton plan precedent a ete rejetee par
   le code (nom d action inconnu, valeur hors bornes, plan trop long). Tiens-en
   compte au lieu de redemander la meme chose telle quelle.
 - dernieres_etapes montre deux fois le meme plan => il ne marche pas. Change
   d action, n insiste pas. Attendre ou parler en boucle ne fait rien avancer,
   et le bot ne dira pas deux fois la meme phrase de toute facon.
 - bot.dans_liquide vrai => sortir en premier, le reste echouerait.
-- chantier.emplacement_choisi faux => choisir_terrain avant toute pose.
+${si(chantier, `- chantier.emplacement_choisi faux => choisir_terrain avant toute pose.
 - chantier.materiau_en_inventaire a 0 alors qu il reste des blocs a poser =>
   il manque de la matiere : casser, ou fabriquer si la matiere brute est la.
-- etat.blocage.detecte vrai => tu es dans une impasse (le code l annonce au
+`)}- etat.blocage.detecte vrai => tu es dans une impasse (le code l annonce au
   joueur) : ne replanifie pas l action qui vient d echouer, change de moyen
   (autre cible, autre chemin, autre ordre).
 - Tu ne sais pas quoi faire, ou tu viens de te faire refuser un arret =>
@@ -875,7 +884,7 @@ let memoryGeneration = -1
 // des actions : un commit long terme, un effacement, ou un exemple d action
 // ajoute par l aide distante reconstruit la couche concernee, les autres appels
 // relisent la base octet pour octet.
-function basePrompt (kind, supply) {
+function basePrompt (kind, supply, profil = null) {
   // La documentation d une action a change (exemple ajoute/modifie/retire par
   // l aide) : tous les prompts systeme doivent etre reconstruits, et les anciens
   // jetes, sinon le modele relirait les exemples perimes.
@@ -885,9 +894,10 @@ function basePrompt (kind, supply) {
     memoryGeneration = memory.generation
   }
 
-  const key = `${kind}|${supply}|${skills.docGeneration}|${memory.generation}`
+  const cle = profil ? `${profil.bois ? 'b' : ''}${profil.fabrication ? 'f' : ''}` : 'tout'
+  const key = `${kind}|${supply}|${cle}|${skills.docGeneration}|${memory.generation}`
   if (!prompts.has(key)) {
-    prompts.set(key, buildSystemPrompt(kind, supply))
+    prompts.set(key, buildSystemPrompt(kind, supply, profil))
     if (DEBUG) {
       console.log(
         `[planner] prompt systeme reconstruit (${key}, ${prompts.get(key).length} caracteres)`
@@ -900,8 +910,8 @@ function basePrompt (kind, supply) {
 // Le prompt systeme complet = base cachee (couches 1-3) + memoire de mission
 // fraiche (couche 4). Seule la fin du prompt bouge entre deux appels d une
 // meme mission : le prefixe reste servi du cache cote gateway.
-function systemPrompt (kind, supply) {
-  return basePrompt(kind, supply) + missionMemoryLayer()
+function systemPrompt (kind, supply, profil = null) {
+  return basePrompt(kind, supply, profil) + missionMemoryLayer()
 }
 
 // ---------------------------------------------------------------------------
@@ -1097,7 +1107,7 @@ function validate (raw, kind, supply) {
 async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   if (!isEnabled()) throw new Error('planificateur JSON non configure (PLANNER_BASE_URL)')
 
-  const system = systemPrompt(kind, supply)
+  const system = systemPrompt(kind, supply, opts.profil ?? null)
   const user = JSON.stringify({ ...state, ...extra })
 
   let response

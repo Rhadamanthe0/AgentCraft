@@ -124,6 +124,15 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   A* partage. Interrupteur `explorer` ; niveau `terrain/far-tree` (arbre a
   ~43 blocs, hors du rayon 32 ; informatif) et sa variante `~sans-explorer`.
 
+- Prompt d actions par type de mission (2026-09-27, A/B `prompt_type`) :
+  `planner.systemPrompt(kind, supply, profil)`, profil `{ bois, fabrication }`
+  donne par `mission.profilPrompt()`. Regles bois (arbre entier, pilier,
+  dirt secondaire, hache) seulement en mission bois ; prerequis et
+  fabrication_cible seulement en fabrication ; besoins et chantier seulement
+  en construction. Recolte hors bois 31 -> 25,5 k caracteres, deplacement
+  18,5 k. Le profil entre dans la cle du cache de prompt. Coupe : prompt
+  complet. A/B `gather/flowers` et `build/planks ~sans-prompt_type`.
+
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
 - Banc CI `trees` (`ci/trees.py`, docs/remote-minecraft-tests.md) : quatre
