@@ -451,6 +451,11 @@ function buildMovements () {
   safeDigMovements.allow1by1towers = true
   safeDigMovements.allowParkour = false
   safeDigMovements.maxDropDown = 3
+  // Sans course : le pathfinder creuse sous les pieds des que le bot touche
+  // le sol, elan compris. En courant, le bot glissait au-dela du rebord
+  // pendant qu il creusait la marche et tombait de 5 blocs (join/cliff-down,
+  // 89fa489 : noeud a z=21,5, bot a 21,94 en l air puis au pied).
+  safeDigMovements.allowSprinting = false
   safeDigMovements.liquidCost = LIQUID_COST
 
   joinDigMovements = new Movements(bot)
@@ -458,6 +463,7 @@ function buildMovements () {
   joinDigMovements.allow1by1towers = true
   joinDigMovements.allowParkour = false
   joinDigMovements.maxDropDown = 3
+  joinDigMovements.allowSprinting = false
   // Le bot ne ressort pas de l eau en 26.1 : un pont de terre vaut mieux.
   joinDigMovements.liquidCost = 200
   for (const block of Object.values(bot.registry.blocksByName)) {

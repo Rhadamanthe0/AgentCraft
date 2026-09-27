@@ -430,6 +430,13 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   Cible de fabrication reduite a une famille (« pioche ») alors que l objectif
   dit « pioche en pierre » : l objet precis (outil + « en » + matiere) est
   repris du texte (craft/stone-pickaxe : pioche en bois puis errance).
+- `digToward` sans course (`allowSprinting = false` pour safe/joinDig) : le
+  pathfinder creuse la marche sous les pieds des que le bot touche le sol,
+  elan compris ; en courant, le bot glissait au-dela du rebord et tombait de
+  5 blocs (join/cliff-down 89fa489, premiere chute en ~30 bancs). Le solveur
+  journalise son plan a chaque changement (`[mission] solveur (etabli proche
+  : ...)`) : craft/furnace 89fa489 (« il manque bois et etabli », etabli pose)
+  n etait pas lisible dans les journaux.
 - Chat sans reponse du modele dans le delai (`interpretMessage`) : UN rejeu du
   meme modele ; sinon « Modèle trop lent, répète ? » (et non « Pas compris »).
   Vu sur c499481 (PR #22) : chat p95 19 s, deux ordres perdus (terrain/plateau,

@@ -822,6 +822,10 @@ function createMissionRunner (host, injected = {}) {
       if (!best || (plan.ok && !best.ok) || (plan.ok === best.ok && plan.etapes.length < best.etapes.length)) best = plan
     }
     mission.acquisition = { key, plan: best, tableNearby, tableAt: cache && now - cache.tableAt <= 2000 ? cache.tableAt : now }
+    // Trace a chaque changement : sans elle, un echec de fabrication ne dit
+    // pas ce que le solveur a montre au modele (craft/furnace 89fa489 :
+    // « il manque bois et etabli » avec etabli pose, cause illisible).
+    if (best) console.log(`[mission] solveur (etabli proche : ${tableNearby ? 'oui' : 'non'}) : ${acquirePlan.describe(best, 4).join(' ; ') || 'rien a faire'}${best.bloque.length ? ` ; bloque : ${best.bloque.map(b => b.objet).join(', ')}` : ''}`)
     return best
   }
 
