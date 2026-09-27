@@ -124,7 +124,12 @@ HTTP_TIMEOUT_S = 150
 UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
         'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js',
         'blueprint.test.js', 'model-chain.test.js', 'fabrication-utile.test.js', 'conversation.test.js', 'acquire-plan.test.js',
-        'place-direct.test.js', 'craft-table-reuse.test.js']
+        'place-direct.test.js', 'craft-table-reuse.test.js',
+        # Ajoutes le 2026-09-27 (revue : 1 a 11 s chacun, regressions a bas cout).
+        'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
+        'mission-delivery.test.js', 'piler-materials.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
+        'delivery.test.js', 'planner-profile.test.js', 'llm.test.js', 'executor.test.js', 'objective-controller.test.js',
+        'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js']
 
 
 
