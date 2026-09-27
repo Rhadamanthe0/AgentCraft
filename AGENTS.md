@@ -89,6 +89,13 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   `compileBlueprint` refuse les blocs qu aucun poste debout, rejoint a pied
   depuis l exterieur par pas d un bloc, n atteint (`unreachableCells`) ; le
   modele redessine. KPI 17 % (10 % au banc precedent) : a suivre.
+  PR #38 fusionnee (d7123c7 : 75/84, tous les niveaux bloquants passent,
+  build/tower 49/49 du premier coup). KPI 11 % (36/328), 2 blocages bloquants.
+  Cabane : 354 s avec reflexion, 704 s sans (2 blocages no_path sur sapin).
+  Serie A/B cabane (avec / sans) : 560/289, 310/344, 490/330, 354/704 s :
+  aucun gagnant net, A/B garde. Blocages recurrents des variantes sans
+  solveur/sans plans : `appuyer` immobile (encastre), `avancer` obstacle trop
+  haut, `pivoter` sans cible en vue.
 
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
