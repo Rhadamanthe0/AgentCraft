@@ -1828,6 +1828,18 @@ function createMissionRunner (host, injected = {}) {
         a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))
   }
 
+  // Hauteurs des objets proches stables sur deux releves (150 ms), 2 s max.
+  async function waitItemsSettled (maxMs = 2000) {
+    const fin = Date.now() + maxMs
+    let avant = null
+    while (Date.now() < fin) {
+      const releve = new Map(nearbyItems().map(e => [e.id, e.position.y]))
+      if (avant && [...releve].every(([id, y]) => avant.has(id) && Math.abs(avant.get(id) - y) < 0.05)) return
+      avant = releve
+      await sleep(150)
+    }
+  }
+
   // L inventaire est la verite terrain : on compte ce qui y est entre depuis le
   // debut de la mission plutot que de faire confiance aux evenements de ramassage.
   function countResourceItems () {
@@ -3119,6 +3131,11 @@ function createMissionRunner (host, injected = {}) {
       const budget = Number.isFinite(Number(params.quantite))
         ? Math.max(PICKUP_MIN, Math.min(PICKUP_MAX, Math.round(Number(params.quantite))))
         : scaled(scale, PICKUP_MIN, PICKUP_MAX)
+      // Objets encore en chute (buche coupee depuis un pilier) : attendre
+      // qu ils se posent, sinon leur hauteur trompe la descente d echafaudage
+      // (trees/tall 5f0545a : buches tombees de +5, ramasser 0/1 deux fois,
+      // bot reste perche).
+      await waitItemsSettled()
       const items = nearbyItems()
       if (items.length === 0) return { resultat: 'aucun objet au sol a proximite', echec: true }
 
@@ -3805,6 +3822,10 @@ function createMissionRunner (host, injected = {}) {
           failure = 'plus de blocs d echafaudage en inventaire'
           break
         }
+        // Terre posee pres de l herbe : grass_block des le tick suivant (vu sur
+        // join/shaft 5f0545a, « bloc non pose au niveau 1 (case : grass_block) »).
+        const poseConforme = nom => nom === stock.nom ||
+          (/dirt$/.test(stock.nom) && (nom === 'grass_block' || nom === 'dirt'))
 
         const ancre = live.entity.position.floored()
         const appui = live.blockAt(ancre.offset(0, -1, 0))
@@ -3895,7 +3916,7 @@ function createMissionRunner (host, injected = {}) {
             await sleep(300)
             // La case a pu se remplir entre-temps : verifier avant de resauter.
             const recheck = live.blockAt(ancre)
-            if (recheck?.name === stock.nom) {
+            if (poseConforme(recheck?.name)) {
               poseOk = true
               failure = null
             }
@@ -3918,7 +3939,7 @@ function createMissionRunner (host, injected = {}) {
         // Le serveur a le dernier mot : si la case est toujours vide, compter
         // une reussite masquerait le refus (meme regle que `casser`).
         const pose = live.blockAt(ancre)
-        if (pose?.name !== stock.nom) {
+        if (!poseConforme(pose?.name)) {
           failure = `bloc non pose au niveau ${poses + 1} (case : ${pose?.name ?? 'inconnue'})`
           break
         }

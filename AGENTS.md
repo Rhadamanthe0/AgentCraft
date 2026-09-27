@@ -592,6 +592,14 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   bot, « moi » = le joueur) et nomme les deux s il reformule (route/wait-and-
   back bb2a9f8 : « retourne a ta place » reecrit « revenir a ma position
   actuelle », bot revenu pres du joueur).
+- Premier composite `composite/cabin-from-scratch` (5f0545a) : cabane 4x4x4
+  avec porte depuis un inventaire vide, reussie en 703 s (54/54, porte).
+  Deux correctifs du meme banc : `piler` accepte la terre posee devenue
+  `grass_block` (join/shaft : « bloc non pose au niveau 1 (case :
+  grass_block) », sortie du puits abandonnee a 3/6) ; `ramasser` attend que
+  les objets proches cessent de tomber (2 s max) avant de juger leur hauteur
+  (trees/tall : buches coupees depuis le pilier encore en chute, descente
+  d echafaudage jamais declenchee, 0/1 deux fois).
 - 4 tests unitaires echouent deja sur main (runtime-objectives S5,
   tree-pillar-support, tree-height-access, tree-target-visibility).
 
