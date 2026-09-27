@@ -29,7 +29,6 @@
 
 const skills = require('./skills')
 const llm = require('./llm')
-const routing = require('./model-routing')
 
 const BASE_URL = (process.env.REPAIR_BASE_URL || 'https://opencode.ai/zen/go/v1').replace(/\/+$/, '')
 const API_KEY = process.env.REPAIR_API_KEY || ''
@@ -58,14 +57,13 @@ const stats = {
   derniere_action: null,
   derniere_erreur: null
 }
-Object.defineProperty(stats, 'routing', { enumerable: true, get: () => routing.status() })
 
 // Chaine de modeles du planificateur (PLANNER_MODEL_REPAIR, effort et delai
 // par usage, cles par entree) : prioritaire sur REPAIR_MODEL/REPAIR_API_KEY.
 const CHAIN = String(process.env.PLANNER_MODEL_REPAIR || '').trim()
 
 function isEnabled () {
-  return routing.isDual() || Boolean(CHAIN) || Boolean(API_KEY && BASE_URL)
+  return Boolean(CHAIN) || Boolean(API_KEY && BASE_URL)
 }
 
 function why () {
@@ -153,8 +151,7 @@ ${documentation(kind, supply)}`
 // de sortie plus large. Passer par ce helper (et non par llm.call directement)
 // est ce qui garantit que les en-tetes Zen sont toujours envoyes : c est leur
 // oubli sur le chemin `reflect` qui a fait echouer `reviser_actions` en jeu.
-function call (system, user, { temperature = 0.2, maxTokens = MAX_TOKENS, signal = null, task = 'repair.askForAction', state = {} } = {}) {
-  if (routing.isDual()) return routing.call(task, state, system, user, { temperature, signal })
+function call (system, user, { temperature = 0.2, maxTokens = MAX_TOKENS, signal = null } = {}) {
   // require tardif : planner ne depend pas de repair, mais on garde ce module
   // chargeable seul (tests) sans tirer le planificateur.
   if (CHAIN) return require('./planner')._callWithProfile(system, user, { temperature, maxTokens, timeoutMs: TIMEOUT_MS, signal, task: 'repair' })
@@ -197,7 +194,7 @@ async function askForAction ({ probleme, kind, supply, etat, historique, signal 
   const system = systemPrompt(kind, supply)
   let response
   try {
-    response = await call(system, user, { signal, state: etat })
+    response = await call(system, user, { signal })
   } catch (err) {
     stats.echecs += 1
     stats.derniere_erreur = err.message
@@ -213,7 +210,7 @@ async function askForAction ({ probleme, kind, supply, etat, historique, signal 
   } catch (err1) {
     if (DEBUG) console.log(`[repair] reponse brute rejetee (essai 1/2) : ${response.content.slice(0, 300)}`)
     try {
-      response = await call(system, user, { signal, state: etat })
+      response = await call(system, user, { signal })
       spec = parseJson(response.content)
     } catch (err2) {
       stats.echecs += 1
@@ -304,7 +301,7 @@ async function reflect ({ kind, supply, historique, etat, probleme, signal = nul
   stats.appels += 1
 
   const system = reflectPrompt(kind, supply)
-  const callOptions = { temperature: 0.3, maxTokens: REFLECT_TOKENS, task: 'repair.reflect', state: etat, signal }
+  const callOptions = { temperature: 0.3, maxTokens: REFLECT_TOKENS, signal }
   let response
   try {
     response = await call(system, user, callOptions)
@@ -403,7 +400,7 @@ module.exports = {
   askForAction,
   reflect,
   stats,
-  get MODEL () { return routing.isDual() ? routing.STRATEGY : MODEL },
+  MODEL,
   BASE_URL,
   MAX_PER_MISSION: Number(process.env.REPAIR_MAX_PER_MISSION || 2),
   MAX_REVISIONS: Number(process.env.REPAIR_MAX_REVISIONS || 2)

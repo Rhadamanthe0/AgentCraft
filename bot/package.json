@@ -8,7 +8,6 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@typesafe-ai/sdk": "0.6.0",
     "express": "5.2.1",
     "mineflayer": "4.39.0",
     "mineflayer-pathfinder": "2.4.5"

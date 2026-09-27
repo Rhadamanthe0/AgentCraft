@@ -18,8 +18,7 @@ Environnement local, minimal et jetable composé de **deux** services :
 Le cerveau du bot n'est plus un service local : c'est un **planificateur JSON
 distant**, servi par le gateway **OpenCode Go**
 (`https://opencode.ai/zen/go/v1`, transports `/chat/completions` et `/responses`).
-Le mode `dual` associe MiMo aux decisions frequentes et Muse a la strategie ;
-le mode `legacy` conserve la configuration historique. Aucun GPU n'est requis ; en contrepartie le chat et
+Un modèle par usage (actions, chat, lecture d'objectif, aide, mémoire). Aucun GPU n'est requis ; en contrepartie le chat et
 l'état de jeu sont envoyés à `opencode.ai` (voir « Confidentialité »).
 
 **Le bot joue sans tricher.** Il n'est pas opérateur : pas de `/tp`, pas de
@@ -212,8 +211,7 @@ plus bas.
 ## Le cerveau : un planificateur distant qui rend un plan d'actions
 
 Les messages du chat et les missions sont pilotés par un **modèle distant servi
-par le gateway OpenCode Go** (`https://opencode.ai/zen/go/v1`). Le mode explicite
-`dual` choisit MiMo ou Muse selon la tache et l'etat frais. Il répond en JSON :
+par le gateway OpenCode Go** (`https://opencode.ai/zen/go/v1`). Il répond en JSON :
 
 ```json
 {"fini": 0.0, "pourquoi": "bois en vue", "plan": [
@@ -302,38 +300,16 @@ Mesure live : `planner.appels` / `planner.etapes_servies` dans `/api/status`
 (`lances`, `consommes`, `annules`, `en_vol`) dit si l'overlap est consomme ou
 jete.
 
-### Routage MiMo / Muse
+### Un modèle par usage
 
-Activer explicitement `PLANNER_ROUTING_MODE=dual` dans `.env`. Le compose garde
-`legacy` par defaut pour ne pas modifier silencieusement une installation.
+Chaque usage a son modèle, sans aucun repli vers un autre modèle (décision du
+propriétaire, 2026-09-26) : `PLANNER_MODEL_PLAN` (actions), `_CHAT`,
+`_BRIEF` (lecture d'objectif), `_REPAIR` (aide), `_COMPACT` (mémoire), avec
+`PLANNER_REASONING_EFFORT_<USAGE>` et `PLANNER_TIMEOUT_MS_<USAGE>`. Seules
+les clés se relaient (principale puis secondaire, `PLANNER_KEY_FIRST`) sur un
+refus de quota. Le banc fixe ces valeurs dans `ci/models.env`.
 
-| Usage | Modele | Reglage | Delai / jetons |
-| --- | --- | --- | --- |
-| Conversation nominale, classification, compaction, prechauffage, plans nominaux | `mimo-v2.6-flash` | `thinking.type=disabled`, chat completions | 45 s / 4096 |
-| Brief, aide, plans en difficulte, diagnostic de chat avec echec mesure | `muse-spark-1.3-contributor` | `reasoning.effort=xhigh`, responses | 120 s / 16384 |
-
-Les variables `PLANNER_FAST_MODEL`, `PLANNER_FAST_TIMEOUT_MS`,
-`PLANNER_FAST_MAX_TOKENS` et leurs equivalents `PLANNER_STRATEGY_*` portent ces
-valeurs. Les deux roles partagent `PLANNER_BASE_URL`, `PLANNER_API_KEY` et la
-session OpenCode. Les noms des deux modeles sont verifies ; aucun repli vers
-DeepSeek, Astra ou Jev n'intervient en `dual`, meme en cas d'erreur.
-
-Un blocage detecte, une avance bloquee, un arret refuse ou la derniere etape
-echouee fait passer le prochain plan a Muse. Sans ces signaux frais, MiMo
-reprend immediatement. Pour le chat, la derniere etape echouee du contexte
-courant/precedent ou la navigation `no_path`/`stuck` suffit. Les plans complexes
-ne sont pas anticipes ; un ancien prefetch MiMo est jete si l'etat exige Muse.
-Muse peut proposer directement un moyen faisable sans nouvel appel d'aide impose.
-
-Le statut `planner.routing` separe `active`, `lastCompleted` et `byModel` :
-modele demande, role, tache, motif, budgets, resultat, latence et usage. Le
-modele effectivement annonce par le fournisseur est `responseModel`, ou `null`
-si absent. `result:response` ne prouve ni JSON valide ni reussite de mission.
-La derniere observation de chaque appel de plan est bornee et copiee, sans
-texte de chat, memoire ni prompt complet. Les appels distants restent a la
-charge du compte OpenCode configure.
-
-### Changer de modèle dans le profil historique
+### Changer de modèle
 
 Dans `.env` :
 
@@ -345,7 +321,7 @@ PLANNER_MODEL=deepseek-v4.1-flash  # par défaut (~1,6-2 s), planificateur ET r�
 raisonnement comptent dans `PLANNER_MAX_TOKENS`. Trop bas, il raisonne jusqu'au
 bout et rend un **contenu vide** (`finish=length`) — c'est ce qui se passait à
 700. Le budget temporaire du profil historique a ete porte a **4096** et son
-delai a **45 s** ; les budgets dual sont distincts.
+delai a **45 s**.
 
 ### Changer de gateway
 
@@ -673,8 +649,7 @@ NODE_PATH=$PWD/bot/node_modules node --test tmp/navigation.test.js
 
 Sans `NODE_PATH`, les tests échouent sur « Cannot find module 'vec3' » :
 `tmp/` n'a pas de `node_modules`. La CI le pose dans `ci/Dockerfile` et lance
-la liste `UNIT` de `ci/run.py`. Ne pas lancer `kernel-docker-backend.test.js`
-(il attend un Docker et bloque).
+la liste `UNIT` de `ci/run.py`.
 
 ## Arrêt sans supprimer le monde
 

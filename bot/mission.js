@@ -24,21 +24,16 @@ const craft = require('./craft')
 const acquirePlan = require('./acquire-plan')
 const delivery = require('./delivery')
 const Vec3 = require('vec3').Vec3
-const jev = require('./jev')
 const planner = require('./planner')
 const memory = require('./memory')
 const repair = require('./repair')
 const screenshot = require('./screenshot')
 const { blockInReach, clearSegment, itemInPickupRange } = require('./navigation')
 
-// Qui decide. Deux planificateurs, la meme boucle :
-//   - planner : un modele local (Qwen via Ollama) ou distant qui rend un plan
-//     JSON de plusieurs etapes par appel. C est le defaut des qu il est
-//     configure, et c est ce qui fait chuter la latence par action.
-//   - jev     : une question typee par action, le chemin d origine, garde comme
-//     repli quand aucun planificateur JSON n est configure.
+// Qui decide : le planificateur JSON distant (plan de plusieurs etapes par
+// appel). Le repli Jev/TypeSafe a ete retire le 2026-09-27.
 function brain () {
-  return planner.isEnabled() ? planner : jev
+  return planner
 }
 
 // Pause entre deux etapes **deja planifiees** : il n y a pas d appel reseau a
@@ -4880,7 +4875,6 @@ function createMissionRunner (host, injected = {}) {
       console.error(`[mission] appel anticipe impossible (etat) : ${err.message}`)
       return
     }
-    if (planner.selectPlanRoute?.(snap)?.role === 'strategy') return
     const capture = capturePourPlan()
     if (SCREENSHOT_ON && snap.environnement) {
       snap.environnement.capture_presente = Boolean(capture)
@@ -4912,9 +4906,6 @@ function createMissionRunner (host, injected = {}) {
   // fermee d origine, a ceci pres qu on ne repaie l appel que quand ca derape.
   async function decideFromPlan (state) {
     if (mission.queue.length === 0) {
-      if (mission.prefetch && planner.selectPlanRoute?.(state)?.role === 'strategy') {
-        abortPrefetch('etat frais exige la strategie, ancien plan nominal jete')
-      }
       // La file est vraiment vide : on consomme le plan anticipe s il y en a
       // un (c est la SEULE attente du chemin nominal), sinon appel bloquant
       // comme avant. Jamais deux appels en vol : consommer ne lance rien.
@@ -4927,13 +4918,6 @@ function createMissionRunner (host, injected = {}) {
           mission.prefetch = null
           mission.prefetchAbort = null
           throw err
-        }
-        if (planner.selectPlanRoute?.(state)) {
-          const fresh = snapshotForPrefetch()
-          if (planner.selectPlanRoute(fresh)?.role === 'strategy') {
-            abortPrefetch('etat modifie pendant attente, strategie requise')
-            return decideFromPlan(fresh)
-          }
         }
         mission.prefetch = null
         mission.prefetchAbort = null
@@ -4990,39 +4974,8 @@ function createMissionRunner (host, injected = {}) {
     }
   }
 
-  // Le chemin d origine : deux appels au plus, une action a la fois.
-  async function decideFromJev (state) {
-    const plan = await jev.planMission(state, mission.kind, mission.supply)
-    if (!plan) return null
-
-    if (plan.finished) return { finished: true, done: plan.done, why: null }
-
-    let params = { scale: 0.5, scaleLevel: null, choices: {}, asked: false }
-    try {
-      params = await jev.planParams(state, plan.step, {
-        fabrications: craft.targetCriteria(host.getBot())
-      }) ?? params
-    } catch (err) {
-      // Un second etage rate ne doit pas couter la mission : on execute
-      // l action avec une ampleur moyenne, ce qui vaut mieux que rien.
-      console.error(`[mission] parametres indisponibles pour ${plan.step} : ${err.message}`)
-    }
-
-    return {
-      finished: false,
-      done: plan.done,
-      step: plan.step,
-      scale: params.scale,
-      scaleLevel: params.scaleLevel,
-      choices: params.asked ? params.choices : {},
-      confidence: plan.confidence,
-      queued: 0,
-      why: null
-    }
-  }
-
   async function decide (state) {
-    return planner.isEnabled() ? decideFromPlan(state) : decideFromJev(state)
+    return planner.isEnabled() ? decideFromPlan(state) : null
   }
 
   // Le garde-fou du « le modele classe, il ne compte pas », applique a la seule

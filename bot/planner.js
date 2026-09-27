@@ -38,7 +38,6 @@
 const skills = require('./skills')
 const memory = require('./memory')
 const llm = require('./llm')
-const routing = require('./model-routing')
 const modelChain = require('./model-chain')
 
 const BASE_URL = (process.env.PLANNER_BASE_URL || '').replace(/\/+$/, '')
@@ -185,7 +184,6 @@ function isProfileEnabled () {
 }
 
 function effectiveModel (now = Date.now()) {
-  if (routing.isDual()) return 'dual'
   if (!isProfileEnabled()) return MODEL
   return PILOT_MODEL
 }
@@ -206,7 +204,7 @@ function isTruncationError (err, signal) {
 }
 
 function syncProfileStats () {
-  stats.modele_configure = routing.isDual() ? 'dual' : MODEL
+  stats.modele_configure = MODEL
   stats.modele_effectif = effectiveModel()
 }
 
@@ -226,11 +224,6 @@ function onProfileEvent (cb) {
 
 // Statut public SANS secret (jamais la cle) : configure/effectif.
 function profileStatus (now = Date.now()) {
-  if (routing.isDual()) return {
-    enabled: true, configured: 'dual', effective: effectiveModel(), pilot: routing.STRATEGY,
-    baseConfigured: Boolean(BASE_URL), sessionStable: Boolean(SESSION_ID), session: currentSession(),
-    routing: routing.status()
-  }
   return {
     enabled: isProfileEnabled(),
     configured: MODEL,
@@ -298,7 +291,6 @@ const stats = {
 }
 
 syncProfileStats()
-Object.defineProperty(stats, 'routing', { enumerable: true, get: () => routing.status() })
 
 // Duree reelle de chaque appel par usage (rejeux compris), issue comprise :
 // ok, delai (pas de reponse), erreur, annule. /api/status.planner.latences
@@ -335,16 +327,7 @@ async function callWithProfile (system, user, opts = {}) {
 // budget elargi, meme delai et meme signal. Mauvais JSON (apres un call
 // reussi) : ni reessai ni repli ici (voir plan/readBrief : parse hors transport).
 async function callWithProfileOnce (system, user, opts = {}) {
-  const { image = null, signal = null, temperature = TEMPERATURE, task = 'plan', state = {}, route = null } = opts
-  if (routing.isDual()) {
-    stats.tentatives += 1
-    try {
-      const result = await routing.call(task, state, system, user, { image, signal, temperature, route: route ?? routing.selectRoute(task, state) })
-      warm = true
-      if (image) stats.captures += 1
-      return result
-    } finally { syncProfileStats() }
-  }
+  const { image = null, signal = null, temperature = TEMPERATURE, task = 'plan' } = opts
   // UN seul modele par usage (bot/model-chain.js : PLANNER_MODEL_<USAGE>,
   // sinon PLANNER_MODEL) et AUCUN repli vers un autre modele (demande du
   // proprietaire, 2026-09-26) : une panne du fournisseur remonte telle quelle.
@@ -487,7 +470,7 @@ async function compact (texte) {
 memory.setCompactor(compact)
 
 function isEnabled () {
-  return routing.isDual() || Boolean(BASE_URL)
+  return Boolean(BASE_URL)
 }
 
 // ---------------------------------------------------------------------------
@@ -916,13 +899,8 @@ function basePrompt (kind, supply) {
 // Le prompt systeme complet = base cachee (couches 1-3) + memoire de mission
 // fraiche (couche 4). Seule la fin du prompt bouge entre deux appels d une
 // meme mission : le prefixe reste servi du cache cote gateway.
-function systemPrompt (kind, supply, route = null) {
-  let prompt = basePrompt(kind, supply)
-  if (route?.role === 'strategy') {
-    prompt = prompt.replace(/- etat\.blocage\.detecte vrai =>[\s\S]*?perdre le tour\./,
-      '- Tu assures maintenant le diagnostic et la strategie : propose directement un plan borne avec les actions disponibles, fonde sur les mesures fraiches. Un blocage ne t oblige pas a demander_aide. Reserve cette aide a un manque precis de documentation que tu ne peux pas resoudre avec les informations presentes ; pas de second appel pour repeter ton propre diagnostic.')
-  }
-  return prompt + missionMemoryLayer()
+function systemPrompt (kind, supply) {
+  return basePrompt(kind, supply) + missionMemoryLayer()
 }
 
 // ---------------------------------------------------------------------------
@@ -946,7 +924,7 @@ async function call (system, user, image = null, opts = {}) {
     maxTokens: EFFECTIVE_MAX_TOKENS,
     temperature: TEMPERATURE,
     timeoutMs: budget,
-    task: opts.task ?? 'plan', state: opts.state ?? {}, route: opts.route ?? null
+    task: opts.task ?? 'plan'
   })
 }
 
@@ -1118,13 +1096,12 @@ function validate (raw, kind, supply) {
 async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   if (!isEnabled()) throw new Error('planificateur JSON non configure (PLANNER_BASE_URL)')
 
-  const route = routing.selectRoute('plan', state)
-  const system = systemPrompt(kind, supply, route)
+  const system = systemPrompt(kind, supply)
   const user = JSON.stringify({ ...state, ...extra })
 
   let response
   try {
-    response = await call(system, user, image, { signal: opts.signal ?? null, task: 'plan', state, route })
+    response = await call(system, user, image, { signal: opts.signal ?? null, task: 'plan' })
     lastError = null
   } catch (err) {
     // Un plan speculatif jete (stop, echec, fin) n est pas une panne du
@@ -1149,7 +1126,6 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   const result = validate(parsed, kind, supply)
   result.ms = response.ms
   result.usage = response.usage
-  if (response.routing) result.routing = response.routing
 
   stats.appels += 1
   stats.etapes_servies += result.steps.length
@@ -1495,7 +1471,7 @@ function parseInterpretMode (raw) {
 }
 
 async function interpretMessage (message, context, opts = {}) {
-  const ask = () => call(CONVERSATION_PROMPT, JSON.stringify({ message, ...context }), null, { ...opts, task: 'interpretMessage', state: context })
+  const ask = () => call(CONVERSATION_PROMPT, JSON.stringify({ message, ...context }), null, { ...opts, task: 'interpretMessage' })
   let response
   try {
     response = await ask()
@@ -1542,7 +1518,7 @@ async function warmup () {
   try {
     await call('Tu reponds uniquement en JSON.', '{"ping":true}', null, { task: 'warmup' })
     const ms = Date.now() - started
-    console.log(`[planner] ${routing.isDual() ? routing.FAST : MODEL} charge et pret en ${(ms / 1000).toFixed(1)} s`)
+    console.log(`[planner] ${MODEL} charge et pret en ${(ms / 1000).toFixed(1)} s`)
     return { ok: true, ms }
   } catch (err) {
     lastError = err.message
@@ -1563,7 +1539,7 @@ module.exports = {
   systemPrompt,
   validate,
   stats,
-  get MODEL () { return routing.isDual() ? 'dual' : MODEL },
+  MODEL,
   BASE_URL,
   SESSION_ID,
   PLAN_MAX,
@@ -1578,7 +1554,6 @@ module.exports = {
   DONE_THRESHOLD,
   DOOR_THRESHOLD,
   profileStatus,
-  selectPlanRoute: state => routing.selectRoute('plan', state),
   onProfileEvent,
   _profile,
   _resetProfile,

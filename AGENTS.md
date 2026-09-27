@@ -631,7 +631,15 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   vec3/minecraft-data », faux echecs ; la CI le pose dans ci/Dockerfile).
   Echecs reels restants : tree-height-access et tree-target-visibility lisent
   une fixture json non versionnee ; runtime-objectives S5 est saute en root
-  (chmod ignore). `kernel-docker-backend` bloque : ne pas le lancer.
+  (chmod ignore). Sous-systemes jamais branches au bot supprimes le
+  2026-09-27 (decision du proprietaire, historique git) : unlock-service,
+  opencode-client, supervisor/, kernel/, bridge/.
+  Meme jour : repli Jev/TypeSafe retire (`jev.js`, `@typesafe-ai/sdk`,
+  `decideFromJev` ; le planificateur JSON est le seul cerveau, `JEV_*` restent
+  des seuils lus par lui), routage double MiMo/Muse retire (`model-routing.js`,
+  `PLANNER_ROUTING_MODE`, `PLANNER_FAST_*`/`_STRATEGY_*`), scripts Windows
+  de tmp/ que plus rien ne cite. Les sections plus bas qui les decrivent sont
+  historiques.
 
 ## Outil facultatif et stock de montee du 2026-09-24 (prioritaire)
 

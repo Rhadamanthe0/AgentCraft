@@ -68,11 +68,7 @@ services:
       MC_VERSION: "26.1"
       BOT_USERNAME: "TestBot"
       API_PORT: "3000"
-      # Jev (TypeSafe System One) n est plus le pilote : le planificateur JSON
-      # distant (PLANNER_BASE_URL ci-dessous) prend la main. Ces variables ne
-      # servent que si PLANNER_BASE_URL est vide.
-      TYPESAFE_API_KEY: "${TYPESAFE_API_KEY:-}"
-      JEV_MODEL: "${JEV_MODEL:-jev-latest}"
+      # Seuils lus par le planificateur (noms historiques JEV_*).
       JEV_MIN_CONFIDENCE: "${JEV_MIN_CONFIDENCE:-0.6}"
       # Au-dessus de ce seuil, Jev declare la mission accomplie.
       JEV_DONE_THRESHOLD: "${JEV_DONE_THRESHOLD:-0.75}"
@@ -126,13 +122,6 @@ services:
       PLANNER_KEY_FIRST: "${PLANNER_KEY_FIRST:-primary}"
       PLANNER_KEY_COOLDOWN_MS: "${PLANNER_KEY_COOLDOWN_MS:-600000}"
       OPENCODE_SECONDARY_API_KEY: "${OPENCODE_SECONDARY_API_KEY:-}"
-      PLANNER_ROUTING_MODE: "${PLANNER_ROUTING_MODE:-legacy}"
-      PLANNER_FAST_MODEL: "${PLANNER_FAST_MODEL:-mimo-v2.6-flash}"
-      PLANNER_FAST_TIMEOUT_MS: "${PLANNER_FAST_TIMEOUT_MS:-45000}"
-      PLANNER_FAST_MAX_TOKENS: "${PLANNER_FAST_MAX_TOKENS:-4096}"
-      PLANNER_STRATEGY_MODEL: "${PLANNER_STRATEGY_MODEL:-muse-spark-1.3-contributor}"
-      PLANNER_STRATEGY_TIMEOUT_MS: "${PLANNER_STRATEGY_TIMEOUT_MS:-120000}"
-      PLANNER_STRATEGY_MAX_TOKENS: "${PLANNER_STRATEGY_MAX_TOKENS:-16384}"
       PLANNER_API_KEY: "${PLANNER_API_KEY:-}"
       PLANNER_SESSION_ID: "${PLANNER_SESSION_ID:-minecraft-bot-TestBot}"
       PLANNER_USER_AGENT: "${PLANNER_USER_AGENT:-minecraft-bot/1.0}"
