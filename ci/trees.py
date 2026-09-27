@@ -836,6 +836,8 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         'blocksPlaced': built, 'target': level['target'], 'doorBlocks': doors,
         'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
         'botFinalPosition': final.get('position'), 'probe': probe_name,
+        # Ordre sans reponse du modele => echec classe api, pas bot (build/windows ab48615).
+        'answerError': answer.get('error') if isinstance(answer, dict) else None,
     }
 
 
