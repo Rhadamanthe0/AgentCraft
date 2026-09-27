@@ -811,6 +811,14 @@ function createMissionRunner (host, injected = {}) {
   // fabrication, le code calcule la chaine complete depuis l inventaire reel
   // (recolter, fabriquer, outil exige par un bloc, etabli) ; le modele decide
   // quoi en faire. Recalcule quand l inventaire ou l etabli proche changent.
+  // Regles du prompt d actions utiles a CETTE mission (A/B `prompt_type`) :
+  // bois (pilier, dirt secondaire, hache), fabrication (prerequis). Coupe :
+  // null, prompt complet comme avant.
+  function profilPrompt () {
+    if (!mission || !featureOn('prompt_type')) return null
+    return { bois: harvestResource() === 'bois', fabrication: Boolean(mission.fabricationCible) }
+  }
+
   function acquisition () {
     // Interrupteur A/B `solveur` : coupe, la mission retombe sur la seule
     // matiere du brief et le modele remonte seul la chaine.
@@ -5089,7 +5097,7 @@ function createMissionRunner (host, injected = {}) {
     const controller = new AbortController()
     const promise = planner.plan(
       snap, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
-      { signal: controller.signal }
+      { signal: controller.signal, profil: profilPrompt() }
     )
     // Rejet attendu si abort avant consommation (voir abortPrefetch).
     promise.catch(() => {})
@@ -5146,7 +5154,7 @@ function createMissionRunner (host, injected = {}) {
         const revision = mission.planRevision
         const result = await planner.plan(
           state, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
-          { signal: mission.navigationAbort.signal }
+          { signal: mission.navigationAbort.signal, profil: profilPrompt() }
         )
 
         if (mission.planRevision !== revision) throw new Error('plan annule apres precision')

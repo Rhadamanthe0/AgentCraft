@@ -315,3 +315,18 @@ describe('reaiguillage de session sur refus du fournisseur', () => {
     assert.equal(planner.profileStatus().session, 'minecraft-bot-TestBot')
   })
 })
+
+it('prompt par type de mission : regles bois et fabrication seulement si utiles', () => {
+  process.env.PLANNER_BASE_URL = process.env.PLANNER_BASE_URL || 'http://x/v1'
+  const p = require('../bot/planner')
+  const tout = p.systemPrompt('recolte', 'harvest')
+  const fleurs = p.systemPrompt('recolte', 'harvest', { bois: false, fabrication: false })
+  const bois = p.systemPrompt('recolte', 'harvest', { bois: true, fabrication: false })
+  const fab = p.systemPrompt('recolte', 'harvest', { bois: false, fabrication: true })
+  const route = p.systemPrompt('deplacement', 'harvest', { bois: false, fabrication: false })
+  assert.ok(fleurs.length < tout.length)
+  assert.ok(!/arbre_demande/.test(fleurs) && /arbre_demande/.test(bois) && /arbre_demande/.test(tout))
+  assert.ok(!/fabrication_cible non null/.test(bois) && /fabrication_cible non null/.test(fab))
+  assert.ok(!/choisir_terrain avant toute pose/.test(route))
+  assert.ok(!/\$\{/.test(tout + fleurs + bois + fab + route), 'gabarit non interprete')
+})
