@@ -120,7 +120,10 @@ async function briefOnly (spec) {
 // Intelligence (demande du proprietaire, 2026-09-27) : reflexion (lecture
 // d objectif) et deblocage (demander_aide) notes sur des cas a reponse connue,
 // modele:effort par modele:effort (CI_PROBE_SMART). Un point par critere tenu.
-const SMART_DEFAULT = ['muse-spark-1.3-contributor:high', 'deepseek-v4.1-flash:high']
+// Tranche le 2026-09-27 (d1983b2) : deepseek-v4.1-flash high 25/27 et 4/4,
+// muse high 23/27 et 4/4, 4-5x plus lent. Vide par defaut (la sonde muse
+// allonge le banc de plusieurs minutes) ; CI_PROBE_SMART pour la refaire.
+const SMART_DEFAULT = []
 const has = (route, type) => Array.isArray(route) && route.some(s => s.type === type)
 const BRIEF_CASES = [
   ['Va sous l arbre', b => [has(b.route, 'sous_arbre')]],
