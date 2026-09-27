@@ -122,6 +122,16 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   solveur). Le solveur ne marque plus la cuisson « non geree ».
   craft/iron-pickaxe attend maintenant la pioche (cible 1, plafond 480 s :
   chaine bois -> pierre -> fer -> four -> cuisson), toujours informatif.
+- Action `explorer` (PR #40, fusionnee : far-tree 38 s avec, 61 s sans) : la
+  matiere visee hors de vue est cherchee par le code, en spirale autour du
+  point de depart : huit caps, point debout rejoignable le plus lointain du
+  cap (`pointDansLeCap`), arrivee neuve (>= 3/4 de trajet de tout lieu deja
+  visite dans la mission) la plus proche du depart ; navigateur partage,
+  4 trajets et 45 s au plus (`MISSION_EXPLORE_LEGS`, `_MAX_MS`), arret des
+  que la matiere ou le repere est en vue. L ancien `explorer` (GoalNearXZ,
+  pathfinder 26.1 casse) avait ete retire ; celui-ci passe par le navigateur
+  A* partage. Interrupteur `explorer` ; niveau `terrain/far-tree` (arbre a
+  ~43 blocs, hors du rayon 32 ; informatif) et sa variante `~sans-explorer`.
 
 ## Arbre entier, feuilles et banc d'arbres du 2026-09-24 (prioritaire)
 
@@ -2402,6 +2412,7 @@ n'ait pas a relire les sources pour les decouvrir. Toutes se definissent dans
 | `FEATURE_<MODE>` | selon le mode | Interrupteurs A/B (`featureOn`, `/api/features`). |
 | `MISSION_BRIEF_NOTICE_MS` | `3000` | « Je réfléchis… » si la lecture d objectif depasse ce delai (0 = jamais). |
 | `MISSION_RECOLTER_MAX_MS` | `60000` | Duree max d une action `recolter`. |
+| `MISSION_EXPLORE_LEGS` / `MISSION_EXPLORE_MAX_MS` | `4` / `45000` | Trajets et duree max d une action `explorer`. |
 | `MISSION_CLIMB_MAX` | `12` | Niveaux max de `climbOutToward`. |
 | `MISSION_GESTE_MAX_PLANS` | `3` | Plans max d une mission `geste`. |
 | `MISSION_JUMP_FIRST_MS` / `_RETRY_MS` / `_MAX_ATTEMPTS` | `600` / `700` / `3` | Sauts de franchissement de la marche a pied. |

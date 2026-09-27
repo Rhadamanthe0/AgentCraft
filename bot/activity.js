@@ -59,6 +59,7 @@ const ACTIONS = {
   casser: 'Je casse…',
   recolter: 'Je récolte…',
   cuire: 'Je cuis…',
+  explorer: 'J explore…',
   ramasser: 'Je ramasse…',
   fabriquer: 'Je fabrique…',
   construire: 'Je construis…',

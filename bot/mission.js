@@ -309,6 +309,9 @@ const HARVEST_MIN = 2
 const HARVEST_MAX = Number(process.env.MISSION_HARVEST_BURST_MAX || 16)
 // Duree max d une action `recolter` (chaine avancer/casser/ramasser).
 const RECOLTER_MAX_MS = Number(process.env.MISSION_RECOLTER_MAX_MS || 60000)
+// Action `explorer` : trajets de recherche au plus, et duree max.
+const EXPLORE_LEGS = Number(process.env.MISSION_EXPLORE_LEGS || 4)
+const EXPLORE_MAX_MS = Number(process.env.MISSION_EXPLORE_MAX_MS || 45000)
 const HARVEST_BURST_MS = Number(process.env.MISSION_HARVEST_BURST_MS || 15000)
 const PICKUP_MIN = 1
 const PICKUP_MAX = 6
@@ -3257,7 +3260,7 @@ function createMissionRunner (host, injected = {}) {
         } else {
           // Jamais de marche a l aveugle : `avancer` sans cible irait droit
           // devant. Explorer reste une decision du modele.
-          r = { resultat: 'aucun bloc de la matiere visee en vue : explorer (regarder_autour, avancer) puis recolter', echec: true, code: 'aucune_cible' }
+          r = { resultat: 'aucun bloc de la matiere visee en vue : explorer, puis recolter', echec: true, code: 'aucune_cible' }
         }
         if (r.echec) { arret = r; break }
         rienARamasser = 0
@@ -4601,6 +4604,75 @@ function createMissionRunner (host, injected = {}) {
     // points cardinaux et rendre compte de ce qui est visible. Contrairement a
     // `attendre`, il rend de l information, donc le tour suivant n est pas
     // identique au precedent.
+    // Chercher la matiere hors de vue sans marcher a l aveugle : le code
+    // choisit, parmi huit caps, le point debout le plus lointain et le moins
+    // deja visite, y va par le navigateur partage, puis regarde. S arrete des
+    // que la matiere visee (ou le repere) est en vue. Remplace les suites
+    // pivoter/regarder_autour/avancer sans cible qui tournaient sur place
+    // (variantes du banc de la PR #38 : « rien de cible en vue » en boucle).
+    async explorer (scale, params = {}) {
+      const distance = Number.isFinite(Number(params.distance))
+        ? Math.max(8, Math.min(32, Math.round(Number(params.distance))))
+        : scaled(scale, 8, 32)
+      const enVue = () => findTargetBlock(undefined, { anyHeight: true }) ??
+        (mission.landmarkResource ? findTargetBlock(mission.landmarkResource, { anyHeight: true }) : null)
+      const deja = enVue()
+      if (deja) {
+        const p = host.getBot()?.entity?.position
+        return { resultat: `${deja.name} deja en vue a ${p ? p.distanceTo(deja.position).toFixed(1) : '?'} bloc(s) : recolter ou avancer vers lui` }
+      }
+      if (typeof host.navigateToPosition !== 'function') return { resultat: 'exploration impossible : navigateur absent', echec: true }
+      const visites = mission.explorations = mission.explorations ?? []
+      const debut = Date.now()
+      let trajets = 0
+      let parcouru = 0
+      while (!mission.cancelled && trajets < EXPLORE_LEGS && Date.now() - debut < EXPLORE_MAX_MS) {
+        const bot = host.getBot()
+        if (!bot?.entity) break
+        const ici = bot.entity.position
+        visites.push(ici.clone())
+        // Spirale autour du point de depart : parmi les caps dont l arrivee est
+        // neuve (a 3/4 de trajet au moins de tout ce qui a ete visite), le plus
+        // proche du depart ; la matiere est le plus souvent pres du joueur.
+        // Sinon, le cap le plus neuf. On n explore jamais deux fois.
+        const origine = visites[0]
+        let meilleur = null
+        for (let i = 0; i < 8; i += 1) {
+          const point = pointDansLeCap(i * Math.PI / 4, distance)
+          if (!point) continue
+          const nouveaute = Math.min(...visites.map(v => Math.hypot(v.x - point.x, v.z - point.z)))
+          const neuf = nouveaute >= distance * 0.75
+          const eloignement = Math.hypot(point.x - origine.x, point.z - origine.z)
+          const mieux = !meilleur ||
+            (neuf && !meilleur.neuf) ||
+            (neuf && meilleur.neuf && eloignement < meilleur.eloignement - 0.5) ||
+            (!neuf && !meilleur.neuf && nouveaute > meilleur.nouveaute)
+          if (mieux) meilleur = { point, nouveaute, neuf, eloignement }
+        }
+        if (!meilleur || meilleur.nouveaute < 4) break
+        const r = await host.navigateToPosition(meilleur.point, {
+          signal: mission.navigationAbort.signal, __owner: stepToken,
+          radius: 2, timeoutMs: 15000, distanceBudget: Math.min(64, distance * 2)
+        })
+        const apres = host.getBot()?.entity?.position
+        const gagne = apres ? Math.hypot(apres.x - ici.x, apres.z - ici.z) : 0
+        parcouru += gagne
+        trajets += 1
+        console.log(`[mission] explorer : trajet ${trajets} vers ${meilleur.point.x.toFixed(1)} ${meilleur.point.y} ${meilleur.point.z.toFixed(1)} -> ${r.code}, ${gagne.toFixed(1)} bloc(s)`)
+        const trouve = enVue()
+        if (trouve) {
+          const d = apres ? apres.distanceTo(trouve.position).toFixed(1) : '?'
+          return { resultat: `${trouve.name} en vue a ${d} bloc(s) apres ${trajets} trajet(s) (${parcouru.toFixed(0)} blocs parcourus) : recolter ou avancer vers lui` }
+        }
+        if (gagne < 1) visites.push(meilleur.point)
+      }
+      return {
+        resultat: `rien de la matiere visee en vue apres ${trajets} trajet(s) (${parcouru.toFixed(0)} blocs parcourus)` +
+          (trajets === 0 ? ' : aucun point debout rejoignable autour' : ' : explorer encore (autres caps) ou changer de plan'),
+        echec: true
+      }
+    },
+
     async regarder_autour () {
       const bot = host.getBot()
       // Meme convention que skills.regarder : 0 rad = nord, +PI/2 = ouest,

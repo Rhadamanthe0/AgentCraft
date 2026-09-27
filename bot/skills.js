@@ -484,6 +484,36 @@ const ACTIONS = {
     }
   },
 
+  // Recherche de la matiere hors de vue, pilotee par le code (huit caps,
+  // points debout rejoignables, jamais deux fois la meme zone). Interrupteur
+  // A/B `explorer`.
+  explorer: {
+    kinds: ['recolte', 'deplacement', 'construction'],
+    feature: 'explorer',
+    summary: 'chercher la matiere visee hors de vue, par trajets calcules',
+    scale: 'longueur d un trajet de recherche, de 8 a 32 blocs',
+    secondes: 0.4,
+    parBloc: true,
+    intent: "Rien de la matiere visee n est en vue (regarder_autour ou recolter disent « rien ») : le code choisit le cap le moins explore, y va par un chemin calcule, regarde, et recommence (4 trajets, 45 s au plus) jusqu a voir la matiere ou le repere. Remplace pivoter + avancer sans cible pour chercher",
+    params: {
+      distance: {
+        json: { kind: 'number', min: 8, max: 32 },
+        question: 'Longueur de chaque trajet de recherche, en blocs ?'
+      },
+      ampleur: {
+        type: 'score',
+        question: 'Jusqu ou chercher a chaque trajet ?',
+        rubric: amountRubric([
+          'huit blocs, tout pres',
+          'douze blocs',
+          'seize blocs',
+          'vingt-quatre blocs',
+          'trente-deux blocs'
+        ])
+      }
+    }
+  },
+
   choisir_terrain: {
     kinds: ['construction'],
     summary: 'reperer un emplacement plat pour le chantier',
@@ -1157,6 +1187,7 @@ const UNITES_PAR_AMPLEUR = {
   casser: [2, 5, 9, 13, 16],
   recolter: [1, 2, 4, 8, 16],
   cuire: [1, 2, 3, 8, 16],
+  explorer: [8, 12, 16, 24, 32],
   ramasser: [1, 2, 3, 5, 6],
   construire: [4, 13, 22, 31, 40],
   attendre: [1, 2, 3, 4, 5],
@@ -1232,6 +1263,10 @@ const ACTION_EXEMPLES = {
   cuire: [
     'prerequis : « cuire 3 iron_ingot depuis raw_iron », 3 raw_iron et un four -> {"action":"cuire","objet":"iron_ingot","quantite":3}',
     'pas de four -> fabriquer furnace (8 cobblestone, etabli) avant cuire'
+  ],
+  explorer: [
+    'regarder_autour -> « rien » dans les quatre directions -> {"action":"explorer","distance":16}',
+    'recolter -> « aucun bloc de la matiere visee en vue » -> {"action":"explorer","distance":16} puis recolter'
   ],
   recolter: [
     'mission bois, 0 buche en poche, arbre en vue -> {"action":"recolter","quantite":4}',
