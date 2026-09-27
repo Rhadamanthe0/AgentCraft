@@ -41,7 +41,9 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   missions ouvertes. Les plus simples BLOQUENT la fusion, la difficulte
   bloquante monte ensuite peu a peu ; les plus durs restent informatifs.
 - Composites lances EN PREMIER (chemin critique du banc). Plafond : 45 min
-  par scenario. Quota du modele : pas une contrainte (DeepSeek peu cher).
+  par scenario, garde meme si l agent MINIPC-CLEM proposait 30 min de job
+  (choix du proprietaire) ; la duree de realisation (`elapsedS`) est un
+  critere suivi d un banc a l autre : la faire baisser, sans relacher le cap. Quota du modele : pas une contrainte (DeepSeek peu cher).
 - Minage : monde NATUREL (terrain genere, graine fixe, zone variee par banc).
   Le bot cherche d abord une grotte ; s il galere, il creuse en ESCALIER
   (jamais un puits vertical). Difficulte paisible pour l instant.
