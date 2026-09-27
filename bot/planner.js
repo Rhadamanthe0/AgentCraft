@@ -842,6 +842,10 @@ ${si(chantier, `- chantier.emplacement_choisi faux => choisir_terrain avant tout
 `)}- etat.blocage.detecte vrai => tu es dans une impasse (le code l annonce au
   joueur) : ne replanifie pas l action qui vient d echouer, change de moyen
   (autre cible, autre chemin, autre ordre).
+- environnement.reflexes_recents = gestes faits sans toi entre deux etapes
+  (ramassage d objets tout pres, mise a l abri, pas de cote, fuite). Ta
+  position ou ton inventaire ont pu changer : repars de l etat, ne refais
+  pas ce geste.
 - Tu ne sais pas quoi faire, ou tu viens de te faire refuser un arret =>
   regarder_autour, jamais attendre : attendre ne t apprend rien, regarder_autour
   te dit ce qui est visible et dans quelle direction.
