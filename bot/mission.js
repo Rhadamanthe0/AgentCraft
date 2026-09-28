@@ -3448,6 +3448,8 @@ function createMissionRunner (host, injected = {}) {
       if (items.length === 0) return { resultat: 'aucun objet au sol a proximite : rien a ramasser' }
 
       const before = countResourceItems()
+      const totalPoche = () => (host.getBot()?.inventory?.items() ?? []).reduce((n, i) => n + i.count, 0)
+      const beforeTotal = totalPoche()
       // Dirt secondaire (mission bois) : le carburant du pilier. `ramasser`
       // ne creditait que la matiere visee : une dirt cassee pour un pilier
       // puis ramasee rendait un faux echec (« rien de la matiere visee ») qui
@@ -3573,6 +3575,13 @@ function createMissionRunner (host, injected = {}) {
       const gained = countResourceItems() - before
       const total = Math.min(budget, distant.length)
       const dirt = dirtGagnee()
+      // Objets ramasses, mais pas de la matiere visee (terre cassee pour le
+      // pilier, pousse) : le geste a reussi, le quota ne bouge pas (trees/tall
+      // 93a6f04 : « +0 », echec qui jetait la suite du plan).
+      const autres = totalPoche() - beforeTotal
+      if (gained <= 0 && dirt <= 0 && autres > 0) {
+        return { resultat: `${atteints}/${total} objet(s) atteint(s), +${autres} hors matiere visee (quota inchange)` }
+      }
       if (gained <= 0 && dirt <= 0) {
         return {
           resultat: `${atteints}/${total} objet(s) atteint(s), +0 dans l inventaire : rien de la matiere visee collectee`,
@@ -4107,7 +4116,17 @@ function createMissionRunner (host, injected = {}) {
               const closer = await host.digToward(centre, { signal: mission.navigationAbort.signal, range: 1, protectBuilt: mission.kind === 'construction' })
               if (closer.travelled) travelled += closer.travelled
             }
-            result = inReach()
+            // Le trajet creuse a pu mettre a portee un autre bloc de la meme
+            // matiere : c est lui la cible (gather/sand-walled 93a6f04 : echec
+            // « dug_out_of_reach », puis sable a 0.5 bloc a l etape suivante).
+            if (!inReach() && !mission.cancelled) {
+              const autre = findTargetBlock()
+              const live = host.getBot()
+              if (autre && live?.entity && blockInReach(live, live.entity.position, autre.position.offset(0.5, 0.5, 0.5), REACH)) cible = autre
+            }
+            const aPortee = inReach() || Boolean(cible && host.getBot()?.entity &&
+              blockInReach(host.getBot(), host.getBot().entity.position, cible.position.offset(0.5, 0.5, 0.5), REACH))
+            result = aPortee
               ? { reached: true, travelled, code: 'dug' }
               : { reached: false, travelled, code: 'dug_out_of_reach' }
           }
