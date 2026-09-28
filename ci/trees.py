@@ -48,6 +48,8 @@ LEVEL_CAP_S = 300
 COMPOSITE_CAP_S = 2700
 # Cinq arbres (tronc de 5) loin du depart (10.5, 18.5) et de la sonde (4.5, 32.5).
 COMPOSITE_TREES = [(4, 6), (30, 6), (30, 18), (30, 30), (18, 32)]
+# Cinq arbres au-dela du fosse (x 16-17) de composite/cabin-across-water.
+ACROSS_TREES = [(24, 6), (30, 12), (26, 20), (31, 27), (23, 31)]
 
 
 def _logs(*positions, axis=None):
@@ -558,16 +560,16 @@ def base_levels():
             'leaves': [(2, 204, 4, 6, 205, 8)], 'logs': [((4, 200 + i, 6), 'birch_log') for i in range(4)], 'rules': {},
         },
         {
-            # Chaine la plus longue (cuisson comprise), informative tant
-            # qu elle n a pas passe 3 bancs d affilee.
+            # Chaine la plus longue (cuisson comprise).
             'name': 'craft/iron-pickaxe',
             'about': 'Inventaire vide, arbre, pierre, minerai de fer : « Fabrique une pioche en fer » '
                      '(bois, pioche en bois, pierre, pioche en pierre, fer, four, cuisson, batons, pioche).',
             # Chaine la plus longue du banc depuis la cuisson (2026-09-27) : la
             # pioche en pierre seule prend 100-170 s ; four, 3 minerais et 30 s
-            # de cuisson en plus. Informatif tant qu il n a pas passe 3 bancs.
+            # de cuisson en plus. Bloquant (4 bancs reussis d affilee au
+            # 2026-09-28, 230-326 s).
             'kind': 'gather', 'instruction': 'Fabrique une pioche en fer', 'items': ['iron_pickaxe'],
-            'target': 1, 'cap': 480, 'informative': True, 'variants': [sans('solveur')],
+            'target': 1, 'cap': 480, 'variants': [sans('solveur')],
             'terrain': [(20, 200, 26, 24, 201, 30, 'stone'), (22, 201, 26, 22, 201, 26, 'iron_ore'),
                         (23, 201, 26, 23, 201, 26, 'iron_ore'), (24, 201, 27, 24, 201, 27, 'iron_ore')],
             'leaves': [(6, 204, 6, 10, 205, 10)], 'logs': _logs(*[(8, 200 + i, 8) for i in range(4)]), 'rules': {},
@@ -617,6 +619,47 @@ def base_levels():
             'leaves': [box for (x, z) in COMPOSITE_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
+            'rules': {},
+        },
+        # Palier 2 (2026-09-28) : chaine plus longue, imprevu, terrain hostile.
+        # Informatifs jusqu a trois bancs reussis d affilee.
+        {
+            'name': 'composite/stone-hut-from-scratch',
+            'about': 'Inventaire vide, deux arbres et un rocher, « Construis-moi une maison en pierre de 3 par 3 par 3 » : '
+                     'bois, etabli, pioche en bois, pierre extraite puis posee, sans etape donnee.',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Construis-moi une maison en pierre de 3 par 3 par 3',
+            'blocks': ['minecraft:cobblestone'], 'target': 20, 'minTop': 3,
+            'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
+            'leaves': [box for (x, z) in ((4, 6), (30, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
+            'rules': {},
+        },
+        {
+            'name': 'composite/cabin-change-of-mind',
+            'about': 'Inventaire vide, cinq chenes, « Construis-moi une cabane en bois de 3 par 3 par 3 », puis a 45 s '
+                     '« Finalement fais-la de 4 par 4 par 4 avec une porte » : la cabane finale a 4 couches et une porte.',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Construis-moi une cabane en bois de 3 par 3 par 3',
+            'events': [(45, 'Finalement fais-la de 4 par 4 par 4 avec une porte')],
+            'blocks': ['#minecraft:planks'], 'target': 40, 'door': True, 'minTop': 4,
+            'leaves': [box for (x, z) in COMPOSITE_TREES
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
+            'rules': {},
+        },
+        {
+            'name': 'composite/cabin-across-water',
+            'about': 'Inventaire vide, un fosse d eau de 2 de large coupe l arene, tous les arbres de l autre cote : '
+                     '« Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte ».',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte',
+            'blocks': ['#minecraft:planks'], 'target': 40, 'door': True,
+            'terrain': [(16, 199, 0, 17, 199, SIZE, 'water')],
+            'leaves': [box for (x, z) in ACROSS_TREES
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ACROSS_TREES for i in range(5)]),
             'rules': {},
         },
     ]
@@ -859,6 +902,11 @@ def run_route_script(level, x0, bot, username, output, rcon, bot_api, probe_name
 
 
 BUILD_CAP_S = 300
+# Construction (composites surtout) : fin anticipee apres ce delai sans aucun
+# changement (blocs poses, position, inventaire, etat de mission). Vu sur
+# composite/stone-hut-from-scratch 9b05563 : bot immobile 44 min, 0 bloc, puis
+# plafond de 45 min ; l echec reste un echec, il arrive plus tot.
+BUILD_IDLE_S = 600
 
 
 def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count):
@@ -877,11 +925,30 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     timeline = []
     answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
     cap = level.get('cap', BUILD_CAP_S)
+    # Imprevus du joueur (changement d avis...) : (secondes, phrase), envoyes
+    # une fois chacun, mission en cours, par la meme voie que l ordre initial.
+    events = sorted(level.get('events', []))
+    event_answers = []
     seen, end_reason, last_count_at, now_placed = False, f'plafond de {cap} s', 0, before
+    signature, changed_at = None, time.monotonic()
     while time.monotonic() - started < cap:
         s = bot_api(bot, '/api/status')
         running = bool(s.get('missionRunning'))
         seen = seen or running
+        p = s.get('position') or {}
+        current = (now_placed, tuple(round(p.get(k) or 0) for k in 'xyz'),
+                   json.dumps(s.get('inventory'), sort_keys=True), (s.get('mission') or {}).get('etapes'))
+        if current != signature:
+            signature, changed_at = current, time.monotonic()
+        if seen and time.monotonic() - changed_at > BUILD_IDLE_S:
+            end_reason = f'aucun changement en {BUILD_IDLE_S} s (blocs, position, inventaire, etapes)'
+            break
+        if events and seen and time.monotonic() - started >= events[0][0]:
+            at, message = events.pop(0)
+            reply = bot_api(bot, '/api/instruction', {'message': message, 'requester': probe_name})
+            event_answers.append({'t': round(time.monotonic() - started, 1), 'message': message,
+                                  'relation': reply.get('relation') if isinstance(reply, dict) else None})
+            continue
         if time.monotonic() - last_count_at >= 5:
             now_placed, last_count_at = placed(), time.monotonic()
         timeline.append({'t': round(time.monotonic() - started, 1), 'pos': s.get('position'), 'running': running,
@@ -918,12 +985,15 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         layer = 200 + level['minTop'] - 1
         checks['hauteur_atteinte'] = sum(count(f'{x0} {layer} 0 {x0 + SIZE} {layer} {SIZE}', b) for b in level['blocks']) > 0
     (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
-        json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
+        json.dumps({'bot': username, 'answer': answer, 'events': event_answers, 'timeline': timeline}, indent=1), encoding='utf-8')
+    if level.get('events'):
+        # Un imprevu jamais dit (mission finie avant) ne teste rien.
+        checks['imprevus_envoyes'] = len(event_answers) == len(level['events'])
     failed = [k for k, v in checks.items() if not v]
     return {
         'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
         'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
-        'blocksPlaced': built, 'target': level['target'], 'doorBlocks': doors,
+        'events': event_answers, 'blocksPlaced': built, 'target': level['target'], 'doorBlocks': doors,
         'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
         'botFinalPosition': final.get('position'), 'probe': probe_name,
         # Ordre sans reponse du modele => echec classe api, pas bot (build/windows ab48615).
@@ -1528,7 +1598,8 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # 36105107224), used only to order the queue. A level missing here counts as
 # NEW_LEVEL_S (started early: unknown levels are often the long ones).
 EXPECTED_S = {
-    'composite/cabin-from-scratch': 900, 'craft/iron-pickaxe': 400, 'craft/iron-pickaxe~sans-solveur': 480,
+    'composite/cabin-from-scratch': 900, 'composite/stone-hut-from-scratch': 1200,
+    'composite/cabin-change-of-mind': 1000, 'composite/cabin-across-water': 1000, 'craft/iron-pickaxe': 400, 'craft/iron-pickaxe~sans-solveur': 480,
     'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
     'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,

@@ -197,6 +197,16 @@ class Pool:
             return reason
 
     def worker_main(self, w):
+        # Aucune exception ne tue le thread en silence : run() attendait ce
+        # worker jusqu au delai du job (9b05563 : conteneur des sondes arrete
+        # pendant un composite, `probe_state` injoignable apres le niveau).
+        try:
+            self._worker_main(w)
+        except Exception as error:
+            w.state = 'dead'
+            self.event('mort', f'thread du worker interrompu : {str(error)[:120]}', w)
+
+    def _worker_main(self, w):
         problem = self.wait_ready(w)
         if problem:
             with self.lock:

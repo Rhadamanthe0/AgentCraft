@@ -142,9 +142,9 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(sim.active_max, 5, '60 % + 5 x 60 % = 360 %, the ceiling')
 
     def test_thresholds_follow_the_envelope(self):
-        # MINIPC-CLEM : 800 % (cpu-arbiter reserve 8 threads pendant un job).
+        # MINIPC-CLEM : 600 % (choix du proprietaire, 2026-09-28).
         c = Config()
-        self.assertEqual((c.envelope_cpu_pct, c.admit_cpu_pct, c.ceiling_pct), (800.0, 600.0, 720.0))
+        self.assertEqual((c.envelope_cpu_pct, c.admit_cpu_pct, c.ceiling_pct), (600.0, 450.0, 540.0))
         c = Config(envelope_cpu_pct=400.0)
         self.assertEqual((c.admit_cpu_pct, c.ceiling_pct), (300.0, 360.0))
         self.assertEqual(Config(admit_cpu_pct=500.0).admit_cpu_pct, 500.0, 'an explicit value wins')
@@ -153,7 +153,7 @@ class ControllerTest(unittest.TestCase):
         # Same wake-up pattern as test_llm_dip_then_simultaneous_wake, 800 % quota.
         busy = lambda t: (t // 20) % 2 == 0
         sim = Sim(base=lambda t: 60.0, worker_cpu=lambda t, i: 60.0 if busy(t) else 5.0, start_s=1.0,
-                  config=Config(settle_s=5.0, batch_max=1)).run(WARM + 400)
+                  config=Config(envelope_cpu_pct=800.0, settle_s=5.0, batch_max=1)).run(WARM + 400)
         peak = 60 + 60 * sim.active_max
         self.assertLessEqual(peak, 800, f'{sim.active_max} workers, peak {peak} %')
         self.assertEqual(sim.active_max, 11, '60 % + 11 x 60 % = 720 %, the ceiling')
@@ -161,7 +161,7 @@ class ControllerTest(unittest.TestCase):
     def test_batches_reach_the_same_ceiling_much_sooner(self):
         busy = lambda t: (t // 20) % 2 == 0
         make = lambda n: Sim(base=lambda t: 60.0, worker_cpu=lambda t, i: 60.0 if busy(t) else 5.0, start_s=1.0,
-                             config=Config(settle_s=5.0, batch_max=n))
+                             config=Config(envelope_cpu_pct=800.0, settle_s=5.0, batch_max=n))
         one, batch = make(1).run(WARM + 400), make(8).run(WARM + 400)
         self.assertEqual(batch.active_max, one.active_max, 'same all-awake ceiling (11 workers)')
         reach = lambda sim: next(t for t, d in sim.decisions if len(sim.workers[:]) and d.kind == 'admit'

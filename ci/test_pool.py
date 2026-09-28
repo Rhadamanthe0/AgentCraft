@@ -112,6 +112,26 @@ class PoolTest(unittest.TestCase):
         self.assertEqual(control.started.count(2), 1, 'index 2 is never started again')
         self.assertTrue(any(e['event'] == 'mort' for e in summary['events']))
 
+    def test_unreachable_control_after_a_level_ends_the_worker_not_the_run(self):
+        # 9b05563 : le conteneur des sondes s est arrete pendant un composite ;
+        # probe_state levait, le thread du worker mourait et run() attendait
+        # jusqu au delai du job.
+        class Gone(FakeControl):
+            def probe_state(self, name):
+                if name == 'TestProbe3':
+                    raise OSError('No route to host')
+                return super().probe_state(name)
+
+        control = Gone()
+        pool, ran, _ = make_pool(range(6), control)
+        done = []
+        thread = threading.Thread(target=lambda: done.append(pool.run()), daemon=True)
+        thread.start()
+        thread.join(10)
+        self.assertTrue(done, 'run() must return')
+        self.assertEqual(sorted(i for i, _ in ran), list(range(6)), 'the others play the remaining levels')
+        self.assertEqual(done[0]['dead'], ['TreeBot2'])
+
     def test_start_timeout_retires_and_others_continue(self):
         control = FakeControl(never_ready={1})
         pool, ran, _ = make_pool(range(4), control, start_timeout=0.3)

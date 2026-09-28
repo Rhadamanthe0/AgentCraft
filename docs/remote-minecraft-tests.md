@@ -52,9 +52,9 @@ niveaux en attente.
   rapide sur MINIPC-CLEM : 219 s contre 292 a 347 s, meme graine) : `ci/capacity.py` lit 10 fois par seconde
   des FICHIERS (aucun `docker exec`/`podman stats`) : `cpu.stat`,
   `cpu.pressure`, `memory.current`, `memory.high/max` (et ceux des ancetres
-  lisibles), `memory.events` de l enveloppe CI (cgroup plafonne a 800 %), plus
+  lisibles), `memory.events` de l enveloppe CI (cgroup plafonne a 600 %), plus
   `MemAvailable` et `/proc/stat` de l hote. Seuils CPU en part de l enveloppe
-  (`CI_ENVELOPE_CPU_PCT`, 800 %) : admission 75 % (600 %), plafond 90 % (720 %).
+  (`CI_ENVELOPE_CPU_PCT`, 600 %) : admission 75 % (450 %), plafond 90 % (540 %).
   Admission par lots (`CI_ADMIT_BATCH_MAX`, 8) : autant de workers que toutes
   les limites ci-dessous en laissent, calculees pendant les 30 premieres
   secondes avec un pic de 60 % par worker au moins (`worker_cpu_prior_pct` :
@@ -87,15 +87,16 @@ niveaux en attente.
   `CI_MEM_RESERVE_GIB`, `CI_SETTLE_S` (docstring de `ci/capacity.py`).
 
 Enveloppe CI : `CI_METRICS_CGROUP` (chemin vu du runner), sinon le cgroup
-unique sous `/sys/fs/cgroup` dont `cpu.max` vaut 800 %. Le cgroup propre du
+unique sous `/sys/fs/cgroup` dont `cpu.max` vaut 600 %. Le cgroup propre du
 runner n est PAS l enveloppe (Paper, bots et sondes sont des conteneurs
 freres) : il n est que rapporte (`report.capacity.sources.runnerCgroup`).
-Sur MINIPC-CLEM (verifie par l agent de la machine, 2026-09-27) : enveloppe
-= `/sys/fs/cgroup/user.slice/user-1008.slice` (compte `podman-ci`, `cpu.max`
-800000/100000 depuis le 2026-09-27, `memory.high` 14G, `MemoryMax` 16G) ;
-pendant un job, `cpu-arbiter` (systemd-maintainer, infra-deploy) cantonne la
-slice aux 4 coeurs physiques 4-7 (CPU 4-7,12-15, 3,4 GHz) et les interdit au
-reste de la machine : le quota n est plus qu un garde-fou hors job ; le runner a un cgroupns
+Sur MINIPC-CLEM : enveloppe = `/sys/fs/cgroup/user.slice/user-1008.slice`
+(compte `podman-ci`, `cpu.max` 600000/100000, `memory.high` 14G, `MemoryMax`
+16G) ; pendant un job, `cpu-arbiter` (systemd-maintainer, infra-deploy)
+cantonne la slice a 3 coeurs physiques (6 threads) et les interdit au reste de
+la machine, qui garde les 5 autres (choix du proprietaire, 2026-09-28 : marge
+pour les autres services, dont Project Zomboid) ; hors job, le quota reste un
+garde-fou. Le runner a un cgroupns
 prive (son `/sys/fs/cgroup` est sa feuille : `cpu.max` = `max`, trompeur), donc
 la slice est montee en lecture seule sur `/host/ci-cgroup` par le quadlet du
 runner (`Volume=...:/host/ci-cgroup:ro`, infra-deploy) et le workflow pose
@@ -540,9 +541,27 @@ code auquel on ne fait pas confiance.
 Le joueur donne un BUT, jamais les etapes : le bot enchaine lui-meme recolte,
 fabrication et construction. Plafond 45 min par scenario (`COMPOSITE_CAP_S`),
 lances en premier (`EXPECTED_S`, file LPT) ; `MISSION_MAX_STEPS` 1500 et
-`MISSION_MAX_DURATION_MS` 45 min cote bot ; job a 75 min.
+`MISSION_MAX_DURATION_MS` 45 min cote bot ; job a 75 min. Harness et sondes
+vivent 4200 s (`--idle-secs`), au-dela du plafond d un composite. Un niveau de
+construction s arrete apres `BUILD_IDLE_S` (600 s) sans aucun changement
+(blocs poses, position, inventaire, etapes) : l echec arrive plus tot et le
+banc garde les journaux.
 
 - `composite/cabin-from-scratch` (palier 1, bloquant) : inventaire vide, cinq
   arbres, « Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte ».
   Exige 40 planches posees, la porte, 0 degat et une mission close par le bot.
 
+
+Palier 2, informatifs jusqu a trois bancs reussis d affilee :
+
+- `composite/stone-hut-from-scratch` (chaine longue) : inventaire vide, deux
+  arbres et un rocher, « Construis-moi une maison en pierre de 3 par 3 par 3 ».
+  Bois, etabli, pioche en bois, pierre extraite puis posee : 20 pierres, 3e
+  couche atteinte.
+- `composite/cabin-change-of-mind` (imprevu) : « cabane en bois de 3 par 3 par
+  3 », puis a 45 s « Finalement fais-la de 4 par 4 par 4 avec une porte »
+  (`events` du niveau, envoyes par la meme voie que l ordre initial). Exige 40
+  planches, la 4e couche, la porte et l imprevu effectivement envoye.
+- `composite/cabin-across-water` (terrain hostile) : un fosse d eau de 2 de
+  large coupe l arene, les cinq arbres sont de l autre cote ; cabane 4x4x4
+  avec porte.
