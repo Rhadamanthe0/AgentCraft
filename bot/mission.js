@@ -5686,14 +5686,16 @@ function createMissionRunner (host, injected = {}) {
       }
 
       // C est le modele qui decide quand la mission est finie : `terminer` la
-      // clos directement. Le garde-fou numerique (`finishAllowed`) reste sur le
-      // signal `fini`, ou l erreur de classification coute la mission entiere
+      // clot, sauf quand un critere chiffre (quantite explicite, arbre
+      // demande) la contredit : refus reinjecte, 3 au plus, comme pour `fini`
       // (docs/journal.md, piege 17).
       if (outcome.fin) {
         const allowed = finishAllowed(buildState())
-        // Quantite explicite pas encore en inventaire : meme refus reinjecte
-        // que pour `fini` (3 au plus), au lieu de clore la mission en echec.
-        if (!allowed.ok && mission.quotaExplicite && mission.finishRefused < REFUSALS_BEFORE_YIELD) {
+        // Quantite explicite pas encore en inventaire, ou arbre demande pas
+        // fini : meme refus reinjecte que pour `fini` (3 au plus), au lieu de
+        // clore la mission en echec (chat/replace-and-join 73b4876 : plan
+        // « ramasser -> terminer » avec 2 buches encore sur l arbre).
+        if (!allowed.ok && (mission.quotaExplicite || mission.wholeTree) && mission.finishRefused < REFUSALS_BEFORE_YIELD) {
           mission.finishRefused += 1
           mission.refusalNote = allowed.why
           mission.queue = []
