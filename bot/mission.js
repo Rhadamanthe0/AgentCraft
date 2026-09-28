@@ -833,10 +833,14 @@ function createMissionRunner (host, injected = {}) {
     const now = Date.now()
     const cache = mission.acquisition
     let tableNearby = cache?.tableNearby ?? false
+    let furnaceNearby = cache?.furnaceNearby ?? false
     if (!cache || now - cache.tableAt > 2000) {
       const tableId = bot.registry?.blocksByName?.crafting_table?.id
       // Meme rayon que craft.ensureTable : un etabli pose plus loin reste utilisable.
       tableNearby = Boolean(tableId && craft.placedTable(bot))
+      // Four pose (meme rayon que craft.ensureFurnace) : sans lui, le plan
+      // redemandait 8 pierres et un four neuf (iron-pickaxe 453d7f4).
+      furnaceNearby = Boolean(craft.furnaceBlock(bot))
     }
     // Essences a preferer (acquire-plan `prefer`) : celles deja en poche, puis
     // le bois visible. Sans elles, le plan hesitait entre chene et bouleau
@@ -857,7 +861,7 @@ function createMissionRunner (host, injected = {}) {
       } catch (_) { /* chunk absent */ }
     }
     if (mission.essenceVue) prefer.push(mission.essenceVue, mission.essenceVue.replace(/_log$/, '_planks'))
-    const key = JSON.stringify([mission.fabricationCible, mission.fabricationQuantite, inv, tableNearby, prefer])
+    const key = JSON.stringify([mission.fabricationCible, mission.fabricationQuantite, inv, tableNearby, furnaceNearby, prefer])
     if (cache?.key === key) return cache.plan
     // Alias FR (pioche, hache...) : le candidat au plan le plus court.
     const alias = craft.TARGETS[mission.fabricationCible]
@@ -867,15 +871,15 @@ function createMissionRunner (host, injected = {}) {
     for (const target of candidates) {
       let plan
       try {
-        plan = acquirePlan.planAcquire({ registry, target, count: wanted, inventory: inv, resources: skills.RESOURCES, tableNearby, prefer })
+        plan = acquirePlan.planAcquire({ registry, target, count: wanted, inventory: inv, resources: skills.RESOURCES, tableNearby, furnaceNearby, prefer })
       } catch (_) { continue }
       if (!best || (plan.ok && !best.ok) || (plan.ok === best.ok && plan.etapes.length < best.etapes.length)) best = plan
     }
-    mission.acquisition = { key, plan: best, tableNearby, tableAt: cache && now - cache.tableAt <= 2000 ? cache.tableAt : now }
+    mission.acquisition = { key, plan: best, tableNearby, furnaceNearby, tableAt: cache && now - cache.tableAt <= 2000 ? cache.tableAt : now }
     // Trace a chaque changement : sans elle, un echec de fabrication ne dit
     // pas ce que le solveur a montre au modele (craft/furnace 89fa489 :
     // « il manque bois et etabli » avec etabli pose, cause illisible).
-    if (best) console.log(`[mission] solveur (etabli proche : ${tableNearby ? 'oui' : 'non'}) : ${acquirePlan.describe(best, 4).join(' ; ') || 'rien a faire'}${best.bloque.length ? ` ; bloque : ${best.bloque.map(b => b.objet).join(', ')}` : ''}`)
+    if (best) console.log(`[mission] solveur (etabli proche : ${tableNearby ? 'oui' : 'non'}, four : ${furnaceNearby ? 'oui' : 'non'}) : ${acquirePlan.describe(best, 4).join(' ; ') || 'rien a faire'}${best.bloque.length ? ` ; bloque : ${best.bloque.map(b => b.objet).join(', ')}` : ''}`)
     return best
   }
 
@@ -3361,7 +3365,11 @@ function createMissionRunner (host, injected = {}) {
       // bot reste perche).
       await waitItemsSettled()
       const items = nearbyItems()
-      if (items.length === 0) return { resultat: 'aucun objet au sol a proximite', echec: true }
+      // Rien au sol : rien a faire, pas un echec. Le modele planifie souvent
+      // « ramasser -> recolter » avant la coupe (19 fois au banc 453d7f4) ;
+      // en echec, ce ramasser vide jetait la recolte qui suivait. Une boucle
+      // de ramasser vides reste vue par detectStuck (meme resultat 3 fois).
+      if (items.length === 0) return { resultat: 'aucun objet au sol a proximite : rien a ramasser' }
 
       const before = countResourceItems()
       // Dirt secondaire (mission bois) : le carburant du pilier. `ramasser`
@@ -3421,17 +3429,23 @@ function createMissionRunner (host, injected = {}) {
             await host.digToward(item.position, { signal: mission.navigationAbort.signal, range: 1.5, timeoutMs: 20000 })
           }
         }
-        // Objet tombe sur un rebord de deux blocs ou plus (minerai casse au
-        // sommet d une paroi) : le navigateur ne monte qu une marche ; le
-        // pathfinder qui creuse et pose (escalier, tour 1x1) le rejoint.
-        if (item.position.y > live.entity.position.y + 1.5 && typeof host.digToward === 'function') {
-          const r = await host.digToward(item.position, { signal: mission.navigationAbort.signal, range: 1, timeoutMs: 20000 })
-          console.log(`[mission] objet en hauteur (+${(item.position.y - live.entity.position.y).toFixed(1)}) : trajet qui creuse -> ${r?.code ?? (r?.reached ? 'arrive' : 'echec')}`)
-        }
         // Bois tombe sur des feuilles (bout de branche) : hors d atteinte au
         // sol. On casse la feuille qui le porte, s il est a portee, pour qu il
         // tombe ; seule cette feuille est touchee.
         await dropFromLeaves(item)
+        // Objet sur un rebord de deux blocs ou plus (minerai casse au sommet
+        // d une paroi) et pas sur des feuilles (dropFromLeaves ci-dessus) : le
+        // navigateur ne monte qu une marche ; le pathfinder qui creuse et pose
+        // (escalier, tour 1x1) le rejoint.
+        const encore = host.getBot()?.entities?.[item.id]
+        const support = encore && host.getBot().blockAt(encore.position.offset(0, -0.5, 0))
+        // Hors bois : les buches perchees (branche, echafaudage) ont leurs
+        // propres gestes (dropFromLeaves, descente de pilier).
+        if (encore && harvestResource() !== 'bois' && !/leaves/.test(support?.name ?? '') && typeof host.digToward === 'function' &&
+            encore.position.y > (host.getBot().entity?.position.y ?? Infinity) + 1.5) {
+          const r = await host.digToward(encore.position, { signal: mission.navigationAbort.signal, range: 1, timeoutMs: 20000 })
+          console.log(`[mission] objet en hauteur : trajet qui creuse -> ${r?.reached ? 'arrive' : (r?.code ?? 'echec')}`)
+        }
         // Objet deja « proche » mais pas ramasse : un pas droit dessus, sur sol
         // plat seulement (meme niveau, appui solide), jamais vers un vide.
         if (pasCourt) await stepOnto(item)

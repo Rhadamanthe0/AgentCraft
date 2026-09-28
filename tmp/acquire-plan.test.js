@@ -96,3 +96,12 @@ test('cibles de fabrication en francais : outil a matiere, objets courants, plur
   assert.equal(resolveFabricationCible({ registry: md }, 'torches'), 'torch')
   assert.equal(resolveFabricationCible({ registry: md }, 'furnaces'), 'furnace')
 })
+
+test('four deja pose : pas de nouveau four ni de pierre pour lui', () => {
+  const sans = plan('iron_ingot', { raw_iron: 3, oak_planks: 4 })
+  assert.ok(sans.etapes.some(e => e.op === 'fabriquer' && e.objet === 'furnace'))
+  const avec = plan('iron_ingot', { raw_iron: 3, oak_planks: 4 }, { furnaceNearby: true })
+  assert.equal(avec.etapes.some(e => e.objet === 'furnace'), false)
+  assert.equal(avec.etapes.some(e => e.op === 'recolter'), false)
+  assert.ok(avec.etapes.some(e => e.op === 'cuire'))
+})

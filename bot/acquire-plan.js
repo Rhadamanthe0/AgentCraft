@@ -245,7 +245,7 @@ function planAcquire (args) {
         const saved = { stock: new Map(stock), steps: steps.length, blocked: blocked.length }
         let good = true
         for (const [ing, n] of recipe.ingredients) {
-          if (!ensure(ing, have(ing) + n * repeats, depth + 1, next)) { good = false; break }
+          if (!ensure(ing, n * repeats, depth + 1, next)) { good = false; break }
         }
         if (good) { plan = replan(); if (plan.ok) break }
         stock.clear()
@@ -272,10 +272,13 @@ function planAcquire (args) {
     // buche), jamais un autre objet de la matiere (minerai : fer != charbon).
     const suffix = n => n.slice(n.lastIndexOf('_'))
     if (have(raw) === 0) raw = variantsFor(raw).find(v => have(v) > 0 && suffix(v) === suffix(raw)) ?? raw
-    if (!ensure(raw, have(raw) + need, depth + 1, next)) return false
+    // `ensure(x, n)` vise un STOCK de n : le cru deja en poche compte (avant :
+    // have + need, le plan redemandait toujours autant de minerai qu il en
+    // tenait deja, iron-pickaxe 45ee8cf et 453d7f4).
+    if (!ensure(raw, need, depth + 1, next)) return false
     if (have('furnace') === 0 && !ensure('furnace', 1, depth + 1, next)) return false
     const fuel = Math.ceil(need / 1.5)
-    if (!ensure('oak_planks', have('oak_planks') + fuel, depth + 1, next)) return false
+    if (!ensure('oak_planks', fuel, depth + 1, next)) return false
     take(raw, need)
     take('oak_planks', fuel)
     add(name, need)
