@@ -3173,7 +3173,21 @@ function createMissionRunner (host, injected = {}) {
       // hors de portee — l echec informe le planificateur qu il faut avancer.
       // Repli dirt : un bois trop loin avec de la dirt a portee et un pilier
       // utile ne repart pas bredouille, il ramene du carburant de pilier.
-      const reach = bot.entity.position.distanceTo(first.position.offset(0.5, 0.5, 0.5))
+      let reach = bot.entity.position.distanceTo(first.position.offset(0.5, 0.5, 0.5))
+      // Cible en vue mais hors de portee (plan anticipe perime, bloc casse
+      // entre-temps) : le trajet d `avancer` d abord, puis la casse, au lieu
+      // d un echec qui jetait le plan (« bloc trop loin », 5 bancs).
+      if (reach > REACH && !secondaire) {
+        const approche = await ACTIONS.avancer(null, { distance: 24 })
+        const suivant = findTargetBlock()
+        const live = host.getBot()
+        if (!approche.echec && suivant && live?.entity) {
+          first = suivant
+          reach = live.entity.position.distanceTo(first.position.offset(0.5, 0.5, 0.5))
+        } else if (approche.echec) {
+          return { resultat: `bloc trop loin, approche impossible : ${approche.resultat}`, echec: true, code: approche.code }
+        }
+      }
       if (reach > REACH) {
         return { resultat: `bloc trop loin (${reach.toFixed(1)} blocs), il faut d abord avancer`, echec: true }
       }
@@ -4596,12 +4610,15 @@ function createMissionRunner (host, injected = {}) {
       // moque et boucle sur « dire -> attendre », une fois toutes les deux
       // secondes. Le code compte donc a sa place : jamais deux fois la meme
       // phrase dans une mission, et pas plus d une phrase par DIRE_COOLDOWN_MS.
+      // Phrase tue : pas un echec (rien n a rate dans le monde) ; en echec,
+      // elle jetait la suite du plan (16 fois sur 5 bancs). Une boucle de
+      // `dire` reste vue par detectStuck (meme resultat 3 fois).
       if (mission.saidTexts.includes(texte)) {
-        return { resultat: 'deja dit, le bot ne se repete pas', echec: true }
+        return { resultat: 'deja dit, non repete : continuer le travail' }
       }
       if (Date.now() - mission.lastSaidAt < DIRE_COOLDOWN_MS) {
         const reste = Math.ceil((DIRE_COOLDOWN_MS - (Date.now() - mission.lastSaidAt)) / 1000)
-        return { resultat: `trop tot pour reparler (encore ${reste} s)`, echec: true }
+        return { resultat: `non dit : trop tot pour reparler (encore ${reste} s), continuer le travail` }
       }
 
       host.chat(texte)
