@@ -153,10 +153,16 @@ function harvestCheck (bot, block) {
 
   const kind = toolKindFor(block.name) ?? 'pickaxe'
   const french = { axe: 'hache', pickaxe: 'pioche', shovel: 'pelle' }[kind]
+  // Outil le plus modeste qui convient : « une pioche » trompait le modele
+  // quand il en tenait deja une trop faible (bois sur du fer).
+  const TIERS = ['wooden', 'stone', 'golden', 'iron', 'diamond', 'netherite']
+  const noms = needed.map(id => bot.registry?.items?.[id]?.name).filter(Boolean)
+  const minimal = noms.sort((a, b) => TIERS.indexOf(a.split('_')[0]) - TIERS.indexOf(b.split('_')[0]))[0]
+  const need = minimal && minimal !== `wooden_${kind}` ? `${french} (${minimal} ou mieux)` : french
   return {
     ok: false,
-    need: french,
-    reason: `${block.name} ne lache rien sans ${french}`
+    need,
+    reason: `${block.name} ne lache rien sans ${need}`
   }
 }
 

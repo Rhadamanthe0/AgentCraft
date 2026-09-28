@@ -178,6 +178,29 @@ function parseDimensions (text) {
     }
   }
 
+  // Dimensions nommees (« 5 blocs de large et 4 de haut », « tour de 6 de
+  // haut ») : chaque nombre sur son axe, les autres par defaut. Sans cela,
+  // « 5 blocs de large » passait pour un cube 5x5x5 (build/arch).
+  const axe = mots => {
+    const m = clean.match(new RegExp(`(\\d+)\\s*(?:blocs?\\s*)?de\\s*(?:${mots})\\b`))
+    return m ? clamp(Number(m[1])) : null
+  }
+  const nommees = {
+    width: axe('large|largeur'),
+    depth: axe('long|longueur|profondeur|profond'),
+    height: axe('haut|hauteur')
+  }
+  if (Object.values(nommees).some(v => v !== null)) {
+    const width = nommees.width ?? nommees.depth ?? DEFAULT_SIZE
+    return {
+      width,
+      depth: nommees.depth ?? width,
+      height: nommees.height ?? DEFAULT_SIZE,
+      source: 'dimensions nommees',
+      nommees: Object.fromEntries(Object.entries(nommees).filter(([, v]) => v !== null))
+    }
+  }
+
   const one = clean.match(/(\d+)\s*blocs?/)
   if (one) {
     const size = clamp(Number(one[1]))

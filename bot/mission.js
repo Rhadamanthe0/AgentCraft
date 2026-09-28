@@ -23,7 +23,7 @@ const build = require('./build')
 const craft = require('./craft')
 const acquirePlan = require('./acquire-plan')
 const delivery = require('./delivery')
-const { DELIVERY } = require('./conversation')
+const { DELIVERY, DOOR } = require('./conversation')
 const reflexes = require('./reflexes')
 const Vec3 = require('vec3').Vec3
 const planner = require('./planner')
@@ -697,10 +697,13 @@ function createMissionRunner (host, injected = {}) {
   }
   // Le joueur a-t-il demande qu on lui remette quelque chose ? Objectif et
   // precisions DU DEMANDEUR seulement (jamais le plan du modele).
-  function livraisonDemandee (m) {
+  function demandeDuJoueur (m, motif) {
     const textes = [m?.objective ?? '', ...(m?.instructions ?? [])
       .filter(entry => entry?.de === m?.requester).map(entry => entry.message ?? '')]
-    return textes.some(texte => DELIVERY.test(texte))
+    return textes.some(texte => motif.test(texte))
+  }
+  function livraisonDemandee (m) {
+    return demandeDuJoueur(m, DELIVERY)
   }
   function deliveryProvenFor (m) {
     let n = 0
@@ -887,6 +890,10 @@ function createMissionRunner (host, injected = {}) {
   let harvestMemo = null
   function harvestResource () {
     if (!mission) return null
+    // `recolter` fige sa matiere le temps de l action : le choix « premiere
+    // recolte en vue » pouvait basculer en cours de route (fer puis pierre),
+    // et le compte « 5/3 » melangeait deux matieres (iron-pickaxe 45ee8cf).
+    if (mission.matiereFigee) return mission.matiereFigee
     const etapes = acquisition()?.etapes?.filter(s => s.op === 'recolter' && s.matiere) ?? []
     if (etapes.length === 0) return mission.resource
     if (etapes.length === 1) return etapes[0].matiere
@@ -1253,7 +1260,9 @@ function createMissionRunner (host, injected = {}) {
           // Une seule dimension (« tour de 6 blocs de haut ») n est pas un
           // cube : parseDimensions la recopie sur les trois axes (vu : tour
           // 6x6x6 de 152 blocs pour 64 de terre). Le modele lit la phrase.
-          dimensions_lues: /trois|deux/.test(dims.source) ? { largeur: dims.width, profondeur: dims.depth, hauteur: dims.height } : null,
+          dimensions_lues: /trois|deux/.test(dims.source) ? { largeur: dims.width, profondeur: dims.depth, hauteur: dims.height }
+            : dims.nommees ? Object.fromEntries(Object.entries(dims.nommees).map(([k, v]) => [{ width: 'largeur', depth: 'profondeur', height: 'hauteur' }[k], v]))
+              : null,
           blocs_en_stock: stock,
           matiere: mission.resource,
           porte_demandee: Boolean(mission.wantsDoor),
@@ -1880,6 +1889,21 @@ function createMissionRunner (host, injected = {}) {
       .filter(e => e.position.distanceTo(bot.entity.position) <= ITEM_PICKUP_RADIUS)
       .sort((a, b) =>
         a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))
+  }
+
+  function objetsAuSol (max = 4) {
+    const bot = host.getBot()
+    if (!bot?.entity) return []
+    return nearbyItems().slice(0, max).map(e => {
+      let item = null
+      try { item = e.getDroppedItem?.() } catch (_) {}
+      return {
+        objet: item?.name ?? 'inconnu',
+        nombre: item?.count ?? 1,
+        distance: Number(e.position.distanceTo(bot.entity.position).toFixed(1)),
+        dy: Math.round(e.position.y - bot.entity.position.y)
+      }
+    })
   }
 
   // Hauteurs des objets proches stables sur deux releves (150 ms), 2 s max.
@@ -2613,6 +2637,9 @@ function createMissionRunner (host, injected = {}) {
         // `approcher`/`explorer`, delegues au pathfinder et retires.
         navigation: nav,
         objets_au_sol_a_proximite: nearbyItems().length,
+        // Nom, nombre et hauteur relative (dy) des objets tombes : un minerai
+        // tombe sur un rebord (dy >= 2) ne se ramasse pas en marchant.
+        objets_au_sol: objetsAuSol(),
         // Fix 2 : direction du plus proche objet tombe (pivoter angle puis
         // avancer distance, ou `ramasser` qui s en charge seul). Separe de
         // `navigation` (bloc a casser) pour ne pas faire casser sur un objet.
@@ -3174,6 +3201,7 @@ function createMissionRunner (host, injected = {}) {
       const started = Date.now()
       let broken = 0
       let refusal = null
+      const nomsCasses = new Map()
 
       // On enchaine sans relacher : relacher entre chaque bloc pour redemander
       // son avis a Jev fait perdre du temps et donne en jeu l impression d un
@@ -3225,6 +3253,7 @@ function createMissionRunner (host, injected = {}) {
         }
 
         broken += 1
+        nomsCasses.set(block.name, (nomsCasses.get(block.name) ?? 0) + 1)
         // Dirt secondaire : carburant de pilier, hors quota bois. Le bois seul
         // fait avancer `blocs_casses`/`unites_recoltees` (voir `finishAllowed`).
         if (secondaire) mission.dirtSecondaire = (mission.dirtSecondaire ?? 0) + 1
@@ -3257,7 +3286,7 @@ function createMissionRunner (host, injected = {}) {
           ? `${broken} bloc(s) de dirt secondaire casse(s) en ${ecoule} s (total dirt ${mission.dirtSecondaire})` +
             (dureeSec === null ? '' : ` sur ${dureeSec} s demandee`) +
             (refusal ? `, arret : ${refusal}` : '') + ' — quota bois inchange'
-          : `${broken} bloc(s) casse(s) en ${ecoule} s (total ${mission.broken})` +
+          : `${broken} bloc(s) casse(s) (${[...nomsCasses].map(([nom, n]) => `${nom} x${n}`).join(', ')}) en ${ecoule} s (total ${mission.broken})` +
             (dureeSec === null ? '' : ` sur ${dureeSec} s demandee`) +
             (refusal ? `, arret : ${refusal}` : '') +
             (ramasses ? `, ${ramasses} objet(s) ramasse(s) aussitot` : '')
@@ -3274,70 +3303,80 @@ function createMissionRunner (host, injected = {}) {
       const visee = Number.isFinite(Number(params.quantite))
         ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
         : scaled(scale, 1, 16)
-      if (!skills.RESOURCES[harvestResource()]?.items) {
+      const matiere = harvestResource()
+      if (!skills.RESOURCES[matiere]?.items) {
         return { resultat: 'aucune matiere a recolter pour cette mission', echec: true }
       }
-      const debut = Date.now()
-      const avant = countResourceItems()
-      const gagne = () => Math.max(0, countResourceItems() - avant)
-      const etapes = []
-      let arret = null
-      let rienARamasser = 0
-      while (!mission.cancelled && gagne() < visee && Date.now() - debut < RECOLTER_MAX_MS) {
-        const bot = host.getBot()
-        if (!bot?.entity) break
-        const cible = findTargetBlock()
-        const aPortee = cible &&
-          bot.entity.position.distanceTo(cible.position.offset(0.5, 0.5, 0.5)) <= REACH
-        let r
-        if (aPortee) {
-          r = await ACTIONS.casser(null, { duree: 8 })
-          etapes.push('casser')
-        } else if (nearbyItems().length > 0 && rienARamasser < 2) {
-          // Rien a portee mais des objets au sol (buches tombees d un arbre
-          // fini) : les prendre avant de chercher un autre bloc.
-          r = await ACTIONS.ramasser(null, { quantite: 6 })
-          etapes.push('ramasser')
-          if (r.echec) { rienARamasser += 1; continue }
-        } else if (cible || findTargetBlock(undefined, { anyHeight: true }) || highTargetHint()) {
-          r = await ACTIONS.avancer(null, { distance: 24 })
-          etapes.push('avancer')
-        } else {
-          // Jamais de marche a l aveugle : `avancer` sans cible irait droit
-          // devant. Explorer reste une decision du modele.
-          r = { resultat: 'aucun bloc de la matiere visee en vue : explorer, puis recolter', echec: true, code: 'aucune_cible' }
-        }
-        if (r.echec) { arret = r; break }
-        rienARamasser = 0
-        if (etapes[etapes.length - 1] === 'casser' && gagne() < visee) {
-          await waitItemsSettled()
-          if (nearbyItems().length > 0) {
-            const pris = await ACTIONS.ramasser(null, { quantite: 6 })
+      mission.matiereFigee = matiere
+      try {
+        return await boucle()
+      } finally {
+        if (mission) mission.matiereFigee = null
+      }
+
+      async function boucle () {
+        const debut = Date.now()
+        const avant = countResourceItems()
+        const gagne = () => Math.max(0, countResourceItems() - avant)
+        const etapes = []
+        let arret = null
+        let rienARamasser = 0
+        while (!mission.cancelled && gagne() < visee && Date.now() - debut < RECOLTER_MAX_MS) {
+          const bot = host.getBot()
+          if (!bot?.entity) break
+          const cible = findTargetBlock()
+          const aPortee = cible &&
+            bot.entity.position.distanceTo(cible.position.offset(0.5, 0.5, 0.5)) <= REACH
+          let r
+          if (aPortee) {
+            r = await ACTIONS.casser(null, { duree: 8 })
+            etapes.push('casser')
+          } else if (nearbyItems().length > 0 && rienARamasser < 2) {
+            // Rien a portee mais des objets au sol (buches tombees d un arbre
+            // fini) : les prendre avant de chercher un autre bloc.
+            r = await ACTIONS.ramasser(null, { quantite: 6 })
             etapes.push('ramasser')
-            if (pris.echec) rienARamasser += 1
+            if (r.echec) { rienARamasser += 1; continue }
+          } else if (cible || findTargetBlock(undefined, { anyHeight: true }) || highTargetHint()) {
+            r = await ACTIONS.avancer(null, { distance: 24 })
+            etapes.push('avancer')
+          } else {
+            // Jamais de marche a l aveugle : `avancer` sans cible irait droit
+            // devant. Explorer reste une decision du modele.
+            r = { resultat: 'aucun bloc de la matiere visee en vue : explorer, puis recolter', echec: true, code: 'aucune_cible' }
+          }
+          if (r.echec) { arret = r; break }
+          rienARamasser = 0
+          if (etapes[etapes.length - 1] === 'casser' && gagne() < visee) {
+            await waitItemsSettled()
+            if (nearbyItems().length > 0) {
+              const pris = await ACTIONS.ramasser(null, { quantite: 6 })
+              etapes.push('ramasser')
+              if (pris.echec) rienARamasser += 1
+            }
           }
         }
-      }
-      // Ce qui reste au sol a la fin (quantite atteinte en cours de casse).
-      if (!mission.cancelled && !arret && nearbyItems().length > 0 && harvestResource() === 'bois') {
-        await waitItemsSettled()
-        await ACTIONS.ramasser(null, { quantite: 6 })
-        etapes.push('ramasser')
-      }
-      const n = gagne()
-      const ecoule = Math.round((Date.now() - debut) / 100) / 10
-      const bilan = `${n}/${visee} objet(s) de la matiere en ${ecoule} s (${etapes.length} geste(s) : ${etapes.slice(-6).join(', ')})`
-      if (arret) {
-        return {
-          resultat: `${bilan} ; arret : ${arret.resultat}`,
-          echec: n === 0,
-          code: arret.code
+        // Ce qui reste au sol a la fin (quantite atteinte en cours de casse).
+        if (!mission.cancelled && !arret && nearbyItems().length > 0 && harvestResource() === 'bois') {
+          await waitItemsSettled()
+          await ACTIONS.ramasser(null, { quantite: 6 })
+          etapes.push('ramasser')
         }
+        const n = gagne()
+        const ecoule = Math.round((Date.now() - debut) / 100) / 10
+        const bilan = `${n}/${visee} objet(s) de ${matiere} en ${ecoule} s (${etapes.length} geste(s) : ${etapes.slice(-6).join(', ')})`
+        if (arret) {
+          return {
+            resultat: `${bilan} ; arret : ${arret.resultat}`,
+            echec: n === 0,
+            code: arret.code
+          }
+        }
+        if (n === 0) {
+          return { resultat: `${bilan} ; rien obtenu`, echec: true }
+        }
+        return { resultat: n >= visee ? bilan : `${bilan} ; delai de ${RECOLTER_MAX_MS / 1000} s atteint` }
       }
-      if (n === 0) {
-        return { resultat: `${bilan} ; rien obtenu`, echec: true }
-      }
-      return { resultat: n >= visee ? bilan : `${bilan} ; delai de ${RECOLTER_MAX_MS / 1000} s atteint` }
     },
 
     // Fix 2 : `ramasser` marche VRAIMENT sur les objets, en gestes unitaires,
@@ -3417,6 +3456,13 @@ function createMissionRunner (host, injected = {}) {
           if (still && item.position.y < still.y - 1.5 && typeof host.digToward === 'function') {
             await host.digToward(item.position, { signal: mission.navigationAbort.signal, range: 1.5, timeoutMs: 20000 })
           }
+        }
+        // Objet tombe sur un rebord de deux blocs ou plus (minerai casse au
+        // sommet d une paroi) : le navigateur ne monte qu une marche ; le
+        // pathfinder qui creuse et pose (escalier, tour 1x1) le rejoint.
+        if (item.position.y > live.entity.position.y + 1.5 && typeof host.digToward === 'function') {
+          const r = await host.digToward(item.position, { signal: mission.navigationAbort.signal, range: 1, timeoutMs: 20000 })
+          console.log(`[mission] objet en hauteur (+${(item.position.y - live.entity.position.y).toFixed(1)}) : trajet qui creuse -> ${r?.code ?? (r?.reached ? 'arrive' : 'echec')}`)
         }
         // Bois tombe sur des feuilles (bout de branche) : hors d atteinte au
         // sol. On casse la feuille qui le porte, s il est a portee, pour qu il
@@ -5582,9 +5628,7 @@ function createMissionRunner (host, injected = {}) {
         // La demande vient de l objectif (revision) ou d une precision
         // ajoutee en cours de route (vu : « et rapporte moi le bois » classe
         // en precision, objectif inchange, bois jamais rapporte).
-        const textes = [mission.objective ?? '', ...(mission.instructions ?? [])
-          .filter(entry => entry?.de === mission.requester).map(entry => entry.message ?? '')]
-        const livrer = textes.some(texte => /rapport|ram[eè]n|apport|livr/i.test(texte)) &&
+        const livrer = demandeDuJoueur(mission, /rapport|ram[eè]n|apport|livr/i) &&
           Boolean(host.getBot()?.players?.[mission.requester]?.entity)
         if (livrer && !mission.livraison) {
           mission.livraison = true
@@ -5954,7 +5998,12 @@ function createMissionRunner (host, injected = {}) {
       resourceConfidence: Number(brief.resourceConfidence.toFixed(3)),
       landmark,
       landmarkResource: skills.LANDMARKS[landmark]?.resource ?? null,
-      wantsDoor: brief.door,
+      // Porte : lue par le modele (negation comprise : « sans porte »), mais
+      // gardee seulement si le texte du joueur parle de porte (build/arch
+      // 295e295 : « arche en pierre » lue « porte oui »).
+      wantsDoor: Boolean(brief.door) && demandeDuJoueur({
+        objective: text, requester, instructions: opts.revisionOf?.instructions ?? []
+      }, DOOR),
       doorProbability: Number(brief.doorProbability.toFixed(3)),
       dimensions,
       // Quantite visee : lue dans la phrase (« mine dix charbons ») par le code,
@@ -6112,7 +6161,7 @@ function createMissionRunner (host, injected = {}) {
     console.log(
       `[mission] "${text}" (${requester}) -> type ${kind} (${mission.kindConfidence}), ` +
       `matiere ${resource} (${mission.resourceConfidence}), repere ${landmark}, ` +
-      `porte ${brief.door ? 'oui' : 'non'}, ${dimensions.width}x${dimensions.depth}x${dimensions.height} ` +
+      `porte ${mission.wantsDoor ? 'oui' : (brief.door ? 'non (non demandee)' : 'non')}, ${dimensions.width}x${dimensions.depth}x${dimensions.height} ` +
       `(${dimensions.source}), ${known} bloc(s) connu(s), approvisionnement ${SUPPLY}` +
       (mission.fabricationCible ? `, fabrication ${mission.fabricationCible} x${mission.fabricationQuantite} (stock initial ${mission.fabricationInitial})` : '')
     )

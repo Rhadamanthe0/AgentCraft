@@ -288,4 +288,4 @@ function createConversation (host) {
   return { receive, cancel }
 }
 
-module.exports = { createConversation, isSoftStop, isHardStop, isResume, parseArbitrationChoice, DELIVERY }
+module.exports = { createConversation, isSoftStop, isHardStop, isResume, parseArbitrationChoice, DELIVERY, DOOR }
