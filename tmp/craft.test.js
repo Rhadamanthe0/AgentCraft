@@ -283,3 +283,15 @@ test('dataset 26.1 : torch générique valide (hors 7 FR)', { skip: !hasData }, 
   assert.equal(plan.ok, true)
   assert.equal(plan.operations[0].outputTotal, 4)
 })
+
+test('harvestCheck : nomme l outil minimal (pierre pour le fer, jamais le cuivre)', () => {
+  const md = require('minecraft-data')('26.1')
+  const block = { name: 'iron_ore', harvestTools: md.blocksByName.iron_ore.harvestTools }
+  const bot = { registry: md, inventory: { items: () => [{ name: 'wooden_pickaxe', type: md.itemsByName.wooden_pickaxe.id, count: 1 }] } }
+  const r = craft.harvestCheck(bot, block)
+  assert.equal(r.ok, false)
+  assert.match(r.need, /stone_pickaxe ou mieux/)
+  const pierre = { name: 'stone', harvestTools: md.blocksByName.stone.harvestTools }
+  const vide = { registry: md, inventory: { items: () => [] } }
+  assert.equal(craft.harvestCheck(vide, pierre).need, 'pioche')
+})
