@@ -5618,6 +5618,11 @@ function createMissionRunner (host, injected = {}) {
         mission.echecs = (mission.echecs ?? 0) + 1
         mission.echecsParAction = mission.echecsParAction ?? {}
         mission.echecsParAction[decision.step] = (mission.echecsParAction[decision.step] ?? 0) + 1
+        // Detail des echecs pour le banc (objectif : 0 % d actions en echec).
+        mission.echecsDetail = mission.echecsDetail ?? []
+        if (mission.echecsDetail.length < 20) {
+          mission.echecsDetail.push({ t: Math.round((Date.now() - mission.startedAt) / 1000), action: decision.step, resultat: String(outcome.resultat ?? '').slice(0, 160) })
+        }
       }
       mission.history.push({ action: decision.step, resultat: outcome.resultat, code: outcome.code ?? null, echec: Boolean(outcome.echec) })
       if (mission.history.length > 8) mission.history.shift()
@@ -6605,6 +6610,7 @@ function createMissionRunner (host, injected = {}) {
       // Indicateurs suivis d un banc a l autre (demande du proprietaire) : part
       // d actions en echec et blocages annonces (cause, derniers resultats).
       etapes_en_echec: mission.echecs ?? 0,
+      echecs_detail: mission.echecsDetail ?? [],
       blocages: mission.blocages ?? []
     }
 
