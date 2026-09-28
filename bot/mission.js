@@ -21,6 +21,7 @@ const skills = require('./skills')
 const build = require('./build')
 const craft = require('./craft')
 const acquirePlan = require('./acquire-plan')
+const { planCraft } = require('./recipe-plan')
 const delivery = require('./delivery')
 const { DELIVERY, DOOR } = require('./conversation')
 const reflexes = require('./reflexes')
@@ -818,8 +819,10 @@ function createMissionRunner (host, injected = {}) {
   // bois (pilier, dirt secondaire, hache), fabrication (prerequis). Coupe :
   // null, prompt complet comme avant.
   function profilPrompt () {
-    if (!mission || !featureOn('prompt_type')) return null
-    return { bois: harvestResource() === 'bois', fabrication: Boolean(mission.fabricationCible) }
+    if (!mission) return null
+    const sansDonner = !livraisonDemandee(mission)
+    if (!featureOn('prompt_type')) return { tout: true, sansDonner }
+    return { bois: harvestResource() === 'bois', fabrication: Boolean(mission.fabricationCible), sansDonner }
   }
 
   function acquisition () {
@@ -3328,7 +3331,8 @@ function createMissionRunner (host, injected = {}) {
         ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
         : scaled(scale, 1, 16)
       const suite = rienARecolter()
-      if (suite) return { resultat: `rien a recolter : tout est en poche, etape suivante du plan : ${suite}`, echec: true, code: 'plan' }
+      // Pas un echec : rien n a rate, la file continue (plan anticipe perime).
+      if (suite) return { resultat: `rien a recolter : tout est en poche, etape suivante du plan : ${suite}`, code: 'plan' }
       const assez = materiauSuffisant()
       if (assez) return { resultat: `rien a recolter : ${assez}` }
       const matiere = harvestResource()
@@ -3652,6 +3656,14 @@ function createMissionRunner (host, injected = {}) {
           reorientation = `assez de ${target}, etape suivante du plan faite a la place : `
           target = suivante.objet
           wanted = Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Number(suivante.quantite) || CRAFT_MIN))
+        } else if (suivante?.op === 'recolter' || suivante?.op === 'cuire') {
+          // Etape suivante = une recolte ou une cuisson : la faire (craft/furnace
+          // 8779070 : planches redemandees, « suite du plan : recolter 6
+          // cobblestone », plan jete trois fois).
+          const r = suivante.op === 'recolter'
+            ? await ACTIONS.recolter(null, { quantite: suivante.quantite })
+            : await ACTIONS.cuire(null, { objet: suivante.objet, quantite: suivante.quantite })
+          return { ...r, resultat: `assez de ${target}, etape suivante du plan faite a la place : ${r.resultat}` }
         } else {
           return {
             resultat: `assez de ${target} pour ${mission.fabricationCible} : suite du plan : ` +
@@ -3712,6 +3724,33 @@ function createMissionRunner (host, injected = {}) {
             (made.usedTable ? ' (a l etabli)' : '')
         }
       } catch (err) {
+        // Pas de quoi faire les `wanted` demandes, mais de quoi en faire moins
+        // (composite 8779070 : 16 planches demandees, 2 buches en poche, echec) :
+        // fabriquer ce que l inventaire permet, en le disant.
+        if (err?.code === 'missing' && wanted > 1 && err.item) {
+          const registre = craft.getDataset(bot)
+          const inv = craft.inventoryMap(bot)
+          delete inv[err.item]
+          let possible = 0
+          for (let n = wanted - 1; n >= 1 && registre; n--) {
+            try {
+              if (planCraft({ registry: registre, target: err.item, count: n, inventory: inv }).ok) { possible = n; break }
+            } catch (_) { break }
+          }
+          if (possible > 0) {
+            try {
+              const made = await craft.make(bot, err.item, possible, {
+                move: async stand => (await host.navigateToPosition(stand, {
+                  signal: mission.navigationAbort.signal, __owner: stepToken, radius: 1, timeoutMs: 20000, distanceBudget: 48
+                }))?.reached === true
+              })
+              return {
+                resultat: reorientation + `${made.produced} ${made.item} fabrique(s) sur ${wanted} demande(s) : ` +
+                  `ingredients pour ${possible} seulement (${String(err.message).slice(0, 100)})`
+              }
+            } catch (_) { /* echec franc ci-dessous */ }
+          }
+        }
         // Manque de ressource : message generique du make (missing structuré),
         // sans recette hardcodee par phrase ; le pilote y lit quoi recolter.
         // Persiste pour finishAllowed (pourquoi du refus), borne 200 car.
@@ -4572,9 +4611,17 @@ function createMissionRunner (host, injected = {}) {
       if (!mission.plan.door) return { resultat: 'ce plan n a pas de porte', echec: true }
       if (doorPlaced()) return { resultat: 'la porte est deja posee' }
 
-      const progress = buildProgress()
+      let progress = buildProgress()
+      // Murs pas finis : les poser d abord si le materiau est en poche
+      // (composite 8779070 : porte demandee avec 16 blocs restants, refus).
+      let prealable = ''
+      if (progress.left > 0 && buildItem()) {
+        const r = await ACTIONS.construire(null, { quantite: Math.min(40, progress.left) })
+        prealable = `${r.resultat} ; `
+        progress = buildProgress()
+      }
       if (progress.left > 0) {
-        return { resultat: `il reste ${progress.left} bloc(s) a poser avant la porte`, echec: true }
+        return { resultat: `${prealable}il reste ${progress.left} bloc(s) a poser avant la porte`, echec: true }
       }
 
       // La porte doit avoir ete fabriquee : l essence est celle des planches
@@ -4802,7 +4849,7 @@ function createMissionRunner (host, injected = {}) {
         ? Math.max(8, Math.min(32, Math.round(Number(params.distance))))
         : scaled(scale, 8, 32)
       const suite = rienARecolter()
-      if (suite) return { resultat: `rien a chercher : tout est en poche, etape suivante du plan : ${suite}`, echec: true, code: 'plan' }
+      if (suite) return { resultat: `rien a chercher : tout est en poche, etape suivante du plan : ${suite}`, code: 'plan' }
       const assez = materiauSuffisant()
       if (assez) return { resultat: `rien a chercher : ${assez}` }
       const enVue = () => findTargetBlock(undefined, { anyHeight: true }) ??
