@@ -410,6 +410,11 @@ const BUILT_BLOCK = /(_planks|_door|_trapdoor|glass|glass_pane|chest|_bed|furnac
 // seche bornee a deux blocs pour ne jamais se blesser (degats au-dela de
 // trois), pas de parkour, liquides evites comme ailleurs.
 const DIG_NAV_TIMEOUT_MS = Number(process.env.DIG_NAV_TIMEOUT_MS || 45000)
+// Portee du but « bloc en vue » de digToward, sous celle des actions (4, depuis
+// les yeux) : GoalLookAtBlock mesure depuis le coin du noeud, pas les yeux.
+const DIG_LOOK_REACH = 3.5
+// `stuck` successifs au meme endroit avant d abandonner un trajet qui creuse.
+const DIG_STUCK_MAX = 3
 
 function buildMovements () {
   if (!bot) return
@@ -464,17 +469,27 @@ function buildMovements () {
 // chemin (terre, feuilles...), en escalier pour descendre ou remonter, sans
 // chute de plus de deux blocs. Toujours borne (delai + signal) et toujours
 // nettoye : objectif du pathfinder annule, regles strictes remises.
-async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_NAV_TIMEOUT_MS, protectBuilt = false } = {}) {
+//
+// `block` (position entiere d un bloc a casser) : le but devient « bloc en vue
+// et a portee » (GoalLookAtBlock) au lieu d un rayon autour de `position`.
+// GoalNear arrondit le centre du bloc : pour un bloc du sol (y 199), un poste
+// debout a cote (pieds a 200) comptait un bloc d ecart de trop, et le trajet
+// creusait un trou au pied du mur (gather/sand-walled cabbdfcd).
+async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_NAV_TIMEOUT_MS, protectBuilt = false, block = null } = {}) {
   const movements = protectBuilt ? joinDigMovements : safeDigMovements
   if (!bot?.pathfinder || !movements || !bot.entity) return { reached: false, code: 'unavailable' }
   const start = bot.entity.position.clone()
   let timer = null
   let onAbort = null
+  let onReset = null
   stopPathfinding()
   bot.pathfinder.setMovements(movements)
+  const goal = block
+    ? new goals.GoalLookAtBlock(block, bot.world, { reach: DIG_LOOK_REACH })
+    : new goals.GoalNear(position.x, position.y, position.z, range)
   try {
     await Promise.race([
-      bot.pathfinder.goto(new goals.GoalNear(position.x, position.y, position.z, range)),
+      bot.pathfinder.goto(goal),
       new Promise((resolve, reject) => {
         timer = setTimeout(() => reject(new Error('timeout')), timeoutMs)
       }),
@@ -483,16 +498,36 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
         onAbort = () => reject(new Error('annule'))
         if (signal.aborted) onAbort()
         else signal.addEventListener('abort', onAbort, { once: true })
+      }),
+      // Le pathfinder replanifie sans fin le meme pas impossible (montee d un
+      // bloc dans une ouverture de deux de haut : la tete touche) et le bot
+      // restait sur place jusqu au delai, 45 s (gather/sand-walled cabbdfcd).
+      // Plusieurs `stuck` sans bouger : echec franc tout de suite.
+      new Promise((resolve, reject) => {
+        let stuck = 0
+        let from = null
+        onReset = reason => {
+          if (reason !== 'stuck' || !bot.entity) return
+          if (!from || bot.entity.position.distanceTo(from) > 0.5) {
+            from = bot.entity.position.clone()
+            stuck = 0
+          }
+          stuck += 1
+          if (stuck >= DIG_STUCK_MAX) reject(new Error('stuck'))
+        }
+        bot.on('path_reset', onReset)
       })
     ])
     const distance = bot.entity.position.distanceTo(position)
-    return { reached: distance <= range + 1, code: 'dug', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), distance }
+    return { reached: block ? true : distance <= range + 1, code: 'dug', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), distance }
   } catch (err) {
     const message = String(err?.message ?? err)
-    return { reached: false, code: /timeout/.test(message) ? 'timeout' : /annule/.test(message) ? 'cancelled' : 'no_path', detail: message.slice(0, 120) }
+    const code = /timeout/.test(message) ? 'timeout' : /annule/.test(message) ? 'cancelled' : /^stuck$/.test(message) ? 'stuck' : 'no_path'
+    return { reached: false, code, travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: message.slice(0, 120) }
   } finally {
     clearTimeout(timer)
     if (onAbort) signal?.removeEventListener?.('abort', onAbort)
+    if (onReset) bot.removeListener('path_reset', onReset)
     stopPathfinding()
     setNavigation('strict')
     try { bot.clearControlStates() } catch (_) {}
@@ -1389,6 +1424,7 @@ function connectBot () {
     })
 
     bot.loadPlugin(pathfinder)
+    craft.trackWindowStateIds(bot)
     // Le logger publie dans le chat des qu une instance est joignable.
     logger.attach(bot)
 

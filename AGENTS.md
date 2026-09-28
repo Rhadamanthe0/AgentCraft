@@ -184,7 +184,12 @@ dans `docs/journal.md` (section « Les pieges »).
    deplacement de mission passe par le **navigateur partage**
    (`navigation.js` : A* pour le calcul, execution physique locale mesuree) ;
    le pathfinder ne sert plus qu a `digToward` (trajet qui creuse), aux
-   commandes `!va`/`!viens` et au sauvetage.
+   commandes `!va`/`!viens` et au sauvetage. Pour un bloc a casser,
+   `digToward` vise « bloc en vue et a portee » (`GoalLookAtBlock`) : `GoalNear`
+   arrondit le centre du bloc et creusait un trou au pied du mur. Le pathfinder
+   planifie parfois une montee d un bloc sous un plafond de deux (impossible,
+   la tete touche) et replanifie sans fin : trois `stuck` sur place arretent
+   le trajet (code `stuck`).
 7. **Chien de garde et pathfinder s entretuent** sans `RESCUE_COOLDOWN_MS`.
    Avant toute hypothese « il ne bouge plus » : `forward` maintenu via
    `/api/control` (le bot bouge-t-il ?) puis `/api/goto` (le pathfinder
@@ -192,7 +197,11 @@ dans `docs/journal.md` (section « Les pieges »).
 8. **Craft en 26.1** : `bot.craft(recette, N>1)` desynchronise la fenetre ;
    fabrication unite par unite, fenetre 0 fermee et inventaire resynchronise
    (`_syncWindow`) avant et apres ; un ingredient reste dans la grille 2x2 est
-   invisible pour `items()`.
+   invisible pour `items()`. mineflayer ne garde qu un numero d etat (`stateId`)
+   pour toutes les fenetres : `craft.trackWindowStateIds` (branche a la
+   creation du bot) remet dans chaque clic celui de SA fenetre, sans quoi les
+   `set_slot` de l inventaire pendant un craft sur etabli faisaient renvoyer
+   au serveur une fenetre perimee (hache jamais fabriquee, sans consommation).
 9. **Un bloc casse sans le bon outil ne lache rien** : `harvestCheck` avant
    CHAQUE bloc d une rafale (la matiere visee peut changer en cours de route).
 10. **`findTargetBlock` ne vise que des blocs VISIBLES** et jamais le bloc qui

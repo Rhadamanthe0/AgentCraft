@@ -295,3 +295,25 @@ test('harvestCheck : nomme l outil minimal (pierre pour le fer, jamais le cuivre
   const vide = { registry: md, inventory: { items: () => [] } }
   assert.equal(craft.harvestCheck(vide, pierre).need, 'pioche')
 })
+
+// --- Numero d etat par fenetre (craft/axe cabbdfcd) ------------------------
+
+test('trackWindowStateIds : chaque clic porte l etat de SA fenetre, -1 reste -1', () => {
+  const { EventEmitter } = require('node:events')
+  const client = new EventEmitter()
+  const sent = []
+  client.write = (name, params) => sent.push([name, params])
+  const bot = { _client: client }
+  craft.trackWindowStateIds(bot)
+  craft.trackWindowStateIds(bot) // idempotent : un seul enrobage
+  client.emit('window_items', { windowId: 3, stateId: 5 })
+  client.emit('set_slot', { windowId: 0, stateId: 97 }) // inventaire, pendant l etabli
+  client.write('window_click', { windowId: 3, stateId: 97, slot: 1 })
+  client.write('window_click', { windowId: 0, stateId: 12, slot: 36 })
+  client.write('window_click', { windowId: 3, stateId: -1, slot: -999 })
+  client.write('window_click', { windowId: 7, stateId: 40, slot: 2 }) // fenetre inconnue : tel quel
+  client.write('chat', { message: 'x' })
+  assert.deepEqual(sent.map(([n, p]) => [n, p.stateId]), [
+    ['window_click', 5], ['window_click', 97], ['window_click', -1], ['window_click', 40], ['chat', undefined]
+  ])
+})

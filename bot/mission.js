@@ -4094,7 +4094,7 @@ function createMissionRunner (host, injected = {}) {
       if ((result.code === 'no_path' || farAbove) && !noye && recours && !mission.cancelled &&
         typeof host.digToward === 'function') {
         const dug = await host.digToward(cible.position.offset(0.5, 0.5, 0.5), {
-          signal: mission.navigationAbort.signal, protectBuilt: mission.kind === 'construction'
+          signal: mission.navigationAbort.signal, protectBuilt: mission.kind === 'construction', block: cible.position
         })
         if (dug.reached) {
           mission.digPaths = (mission.digPaths ?? 0) + 1
@@ -5813,6 +5813,15 @@ function createMissionRunner (host, injected = {}) {
       if (mission.kind === 'recolte' && mission.quotaExplicite && !mission.wholeTree &&
         !mission.fabricationCible && collected() >= mission.quota) {
         finish('done', `quantite demandee en inventaire (${collected()}/${mission.quota})`)
+        return
+      }
+      // Fabrication : les objets cibles mesures en inventaire closent aussi.
+      // Sinon le plan anticipe, calcule avant le craft, passait encore
+      // (craft/door cabbdfcd : 3 portes faites, puis « planches » sans buche,
+      // echec et 10 s de plus). Avec un don demande, le modele livre d abord.
+      if (mission.kind === 'recolte' && mission.fabricationCible && !livraisonDemandee(mission) &&
+        fabricationProduced() >= (mission.fabricationQuantite ?? 1)) {
+        finish('done', `${mission.fabricationCible} fabrique(s) en inventaire (${fabricationProduced()}/${mission.fabricationQuantite ?? 1})`)
         return
       }
 

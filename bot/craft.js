@@ -563,6 +563,34 @@ async function recoverStranded (bot) {
   return true
 }
 
+// Numero d etat PAR FENETRE dans chaque clic. mineflayer n en garde qu un,
+// ecrase par tout paquet de fenetre : pendant un craft sur etabli, les
+// `set_slot` de l inventaire (fenetre 0, main secondaire) le remplacent, le
+// clic suivant sur l etabli part avec l etat de la fenetre 0, le serveur
+// renvoie alors la fenetre entiere telle qu AVANT les derniers clics, et le
+// modele local, ecrase en pleine sequence, ne correspond plus au serveur :
+// hache jamais fabriquee, sans consommation (craft/axe cabbdfcd ; mesure
+// locale sur Paper 26.1.2 : 3 essais sur 3 rates, clics a st97 sur une
+// fenetre a st5). Un clic a -1 (resynchronisation voulue) reste tel quel.
+function trackWindowStateIds (bot) {
+  const client = bot?._client
+  if (!client || typeof client.write !== 'function' || client.stateIdPerWindow) return
+  const states = new Map()
+  const remember = packet => {
+    if (Number.isInteger(packet?.windowId) && Number.isInteger(packet?.stateId)) states.set(packet.windowId, packet.stateId)
+  }
+  client.on('window_items', remember)
+  client.on('set_slot', remember)
+  const write = client.write
+  client.write = function (name, params, ...rest) {
+    if (name === 'window_click' && params && params.stateId !== -1 && states.has(params.windowId)) {
+      params = { ...params, stateId: states.get(params.windowId) }
+    }
+    return write.call(this, name, params, ...rest)
+  }
+  client.stateIdPerWindow = true
+}
+
 // Resynchronisation complete de l inventaire (clic a numero d etat perime,
 // `_syncWindow` du mineflayer patche) : 1,5 s au plus, sans effet sinon.
 async function resyncInventory (bot) {
@@ -1098,6 +1126,7 @@ async function smelt (bot, output, wanted = 1, { move = null, input = null, time
 
 module.exports = {
   smelt,
+  trackWindowStateIds,
   ensureFurnace,
   furnaceBlock,
   TABLE_REUSE_RADIUS,
