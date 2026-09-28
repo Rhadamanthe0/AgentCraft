@@ -71,8 +71,9 @@ Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
 - Runner MINIPC-CLEM : pas de Docker Engine, pas de DinD, pas de privilege en
   plus ; ne supprimer que les ressources du job (`mc-ci-*`, `minebot-ci:*`) ;
   ne jamais toucher `/root/infra-deploy` ni les images
-  `minecraft-bot-test-bot:before-*`. Enveloppe CI 800 % CPU (`cpu-arbiter`),
-  ne pas revenir a 400 %.
+  `minecraft-bot-test-bot:before-*`. Enveloppe CI 600 % CPU (choix du
+  proprietaire, 2026-09-28 : laisser de la marge aux autres services de la
+  machine) ; ne pas la relever sans son accord.
 - Ne pas allonger un delai ni relacher une assertion du banc sans preuve.
 - Fusion seulement si tous les niveaux non informatifs passent et
   `keyCheck` est ok.
