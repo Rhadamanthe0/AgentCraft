@@ -546,3 +546,17 @@ lances en premier (`EXPECTED_S`, file LPT) ; `MISSION_MAX_STEPS` 1500 et
   arbres, « Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte ».
   Exige 40 planches posees, la porte, 0 degat et une mission close par le bot.
 
+
+Palier 2, informatifs jusqu a trois bancs reussis d affilee :
+
+- `composite/stone-hut-from-scratch` (chaine longue) : inventaire vide, deux
+  arbres et un rocher, « Construis-moi une maison en pierre de 3 par 3 par 3 ».
+  Bois, etabli, pioche en bois, pierre extraite puis posee : 20 pierres, 3e
+  couche atteinte.
+- `composite/cabin-change-of-mind` (imprevu) : « cabane en bois de 3 par 3 par
+  3 », puis a 45 s « Finalement fais-la de 4 par 4 par 4 avec une porte »
+  (`events` du niveau, envoyes par la meme voie que l ordre initial). Exige 40
+  planches, la 4e couche, la porte et l imprevu effectivement envoye.
+- `composite/cabin-across-water` (terrain hostile) : un fosse d eau de 2 de
+  large coupe l arene, les cinq arbres sont de l autre cote ; cabane 4x4x4
+  avec porte.
