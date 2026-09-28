@@ -1400,14 +1400,26 @@ function createMissionRunner (host, injected = {}) {
     const bot = host.getBot()
     if (!bot?.entity || !cible) return null
     const feetY = Math.floor(bot.entity.position.y + 0.01)
-    const pied = standingLevel(cible)
-    const hauteur = pied - feetY
-    if (hauteur < 2 || hauteur > PILER_MAX) return null
+    const vraiSol = b => b && b.boundingBox === 'block' && !/_leaves$|_log$|_wood$/.test(b.name)
+    let pied = standingLevel(cible)
     // Seulement pour un arbre pose sur un relief : sous son pied, un vrai sol.
     // Une buche restee en l air (tronc coupe par le bas) n est pas une falaise
-    // (vu sur trees/pillar : pilier de 5 construit sous elle, chute, degats).
-    const sol = bot.blockAt(new Vec3(cible.position.x, pied - 1, cible.position.z))
-    if (!sol || sol.boundingBox !== 'block' || /_leaves$|_log$|_wood$/.test(sol.name)) return null
+    // (vu sur trees/pillar : pilier de 5 construit sous elle, chute, degats) ;
+    // mais si la colonne sous elle descend sur un relief plus haut que le bot
+    // (haut de falaise), on monte sur ce relief, piler fera le reste
+    // (terrain/plateau bdc903d : tronc coupe par le bas depuis un pilier, bot
+    // redescendu ramasser, derniere buche jamais rejointe).
+    if (!vraiSol(bot.blockAt(new Vec3(cible.position.x, pied - 1, cible.position.z)))) {
+      let relief = null
+      for (let y = pied - 2; y > feetY; y--) {
+        const b = bot.blockAt(new Vec3(cible.position.x, y, cible.position.z))
+        if (b && b.boundingBox === 'block') { relief = vraiSol(b) ? y + 1 : null; break }
+      }
+      if (relief === null) return null
+      pied = relief
+    }
+    const hauteur = pied - feetY
+    if (hauteur < 2 || hauteur > PILER_MAX) return null
     const creuses = await gatherDirt(hauteur)
     if (scaffoldingStock(bot).total < hauteur) return null
     const pile = await ACTIONS.piler(null, { hauteur, interne: true })
