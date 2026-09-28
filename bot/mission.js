@@ -5815,6 +5815,15 @@ function createMissionRunner (host, injected = {}) {
         finish('done', `quantite demandee en inventaire (${collected()}/${mission.quota})`)
         return
       }
+      // Fabrication : les objets cibles mesures en inventaire closent aussi.
+      // Sinon le plan anticipe, calcule avant le craft, passait encore
+      // (craft/door cabbdfcd : 3 portes faites, puis « planches » sans buche,
+      // echec et 10 s de plus). Avec un don demande, le modele livre d abord.
+      if (mission.kind === 'recolte' && mission.fabricationCible && !livraisonDemandee(mission) &&
+        fabricationProduced() >= (mission.fabricationQuantite ?? 1)) {
+        finish('done', `${mission.fabricationCible} fabrique(s) en inventaire (${fabricationProduced()}/${mission.fabricationQuantite ?? 1})`)
+        return
+      }
 
       // « ... et rapporte moi le bois » : l arbre fini, rejoindre d abord le
       // demandeur (s il est en jeu), puis clore ; un echec de trajet laisse la
