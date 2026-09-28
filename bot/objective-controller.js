@@ -1,6 +1,7 @@
 'use strict'
 
-// Gestionnaire d objectifs + inbox arbitre (cible D01/D18/D22-D23/D29/D36/D38/D42/D44-D47/D50).
+// Gestionnaire d objectifs + inbox arbitre (cable par index.js ; les codes
+// Dxx renvoient au cadrage archive, docs/archive/architecture-2026-09-24.md).
 //
 // Durabilite (revue) : le snapshot canonique contient `outbox` (evenements
 // durables pas encore copies dans le journal). Le `store.save(snapshot)`

@@ -243,8 +243,6 @@ test('skills : fabriquer.objet accepte un texte libre (item, pas liste en dur)',
   const desc = skills.jsonParamsFor('fabriquer')
   assert.ok(desc?.objet, 'objet json attendu')
   assert.equal(desc.objet.json.kind, 'text')
-  // Le 2e étage Jev (choice dynamique) est conservé pour le repli.
-  assert.equal(skills.paramsFor('fabriquer')?.objet?.type, 'choice')
 })
 
 test('planner : objet libre conservé (torch, minecraft:torch, alias)', () => {

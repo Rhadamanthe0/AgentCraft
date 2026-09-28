@@ -1,6 +1,7 @@
 'use strict'
 
-// Persistance cible D29/C6-C7 : module autonome, sans cablage.
+// Persistance des objectifs durables (cablee par index.js : OBJECTIVES_FILE,
+// OBJECTIVES_EVENTS_FILE). Module autonome.
 //
 // Ce que le module fait : stocker un snapshot JSON generique (objectifs,
 // inbox, lieux/provenance, preferences, ...) et un journal d evenements

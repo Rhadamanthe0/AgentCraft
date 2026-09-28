@@ -2,7 +2,7 @@
 
 ## Banc complet sur MINIPC-CLEM (depuis le 2026-09-27)
 
-Le banc complet (65 niveaux) tourne sur le runner d organisation
+Le banc complet (~85 niveaux, variantes A/B comprises) tourne sur le runner d organisation
 MINIPC-CLEM (`runs-on: [self-hosted, linux, x64, minipc, podman]`) : Linux, le
 runner est lui-meme un conteneur et parle a un Podman rootless par socket
 (clients `docker` et `docker compose`). Le poste Windows + Docker Desktop reste

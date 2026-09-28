@@ -1553,10 +1553,7 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
 
     def reset(bot):
         # Previous level's mission and working notes must not leak into the next one.
-        # Nor the action docs rewritten by demander_aide / reviser_actions: they
-        # carried one level's lessons into the bot's next levels.
         for route, body, method in (('/api/stop', {}, 'POST'), ('/api/memory', None, 'DELETE'),
-                                    ('/api/actions', None, 'DELETE'),
                                     ('/api/features', {'reset': True}, 'POST')):
             try:
                 bot_api(bot, route, body, method=method)

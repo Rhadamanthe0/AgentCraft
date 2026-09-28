@@ -714,7 +714,6 @@ test('REPRO AUDITEUR : baseline id 7 + entityUpdate + itemDrop + fusion meme id 
 test('skills : declaration donner inchangee et coherente, comptes derives', async () => {
   const { ACTIONS, KINDS } = skills
   assert.ok(ACTIONS.donner, 'ACTIONS.donner declaree')
-  assert.equal(ACTIONS.donner.plannerOnly, true)
   for (const kind of ACTIONS.donner.kinds) assert.ok(KINDS[kind], `kind connu : ${kind}`)
   const params = ACTIONS.donner.params
   for (const key of ['objet', 'quantite', 'destinataire']) {

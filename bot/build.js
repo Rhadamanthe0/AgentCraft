@@ -2,7 +2,7 @@
 
 // Construction : geometrie et pose de blocs.
 //
-// Ce module ne parle jamais a Jev. Le modele classe (« c est une construction,
+// Ce module ne parle jamais au modele. Le modele classe (« c est une construction,
 // en terre, a cote d un arbre, avec une porte ») ; tout ce qui est chiffre —
 // dimensions, emplacement, ordre de pose — est calcule ici.
 //
@@ -148,9 +148,9 @@ function clamp (value) {
   return Math.max(MIN_SIZE, Math.min(MAX_SIZE, Math.round(value)))
 }
 
-// « 5 par 5 par 5 », « 5x5x5 », « 6 sur 4 », « de 5 blocs ». Jev ne sait pas
-// extraire de nombres, et ce n est pas son role : une expression reguliere est
-// exacte et gratuite.
+// « 5 par 5 par 5 », « 5x5x5 », « 6 sur 4 », « 5 de large et 4 de haut », « de
+// 5 blocs ». Extraire des nombres n est pas le role du modele : une expression
+// reguliere est exacte et gratuite.
 function parseDimensions (text) {
   const clean = String(text || '').toLowerCase().replace(/,/g, ' ')
   // « × » : le modele de chat reecrit volontiers « 3 par 3 par 3 » en

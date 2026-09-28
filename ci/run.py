@@ -723,7 +723,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     # Repli de cle (PLANNER_KEY_FIRST) : cle du dernier appel servi, bascules.
                     'cles_servies': sorted({v['cle_servie'] for v in stats.values() if v.get('cle_servie')}),
                     'bascules_cle': sum(v.get('bascules_cle') or 0 for v in stats.values()),
-                    # Duree reelle par usage (plan, chat, brief, compact, repair), tous bots.
+                    # Duree reelle par usage (plan, chat, brief, compact...), tous bots.
                     'latences': latency_summary(stats),
                 }
                 for v in stats.values():

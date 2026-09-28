@@ -51,7 +51,6 @@ function botSpec (i) {
       API_PORT: String(API_BASE_PORT + i),
       PLANNER_SESSION_ID: `minecraft-bot-ci-${name}`,
       MEMORY_FILE: `${dir}/memory.json`,
-      ACTIONS_DOC_FILE: `${dir}/actions-doc.json`,
       OBJECTIVES_FILE: `${dir}/objectives.json`,
       OBJECTIVES_EVENTS_FILE: `${dir}/objectives-events.jsonl`,
       LOG_FILE: `${dir}/bot.log`,

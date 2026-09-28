@@ -15,8 +15,7 @@
 //
 // Le planificateur choisit entre des actions, il ne calcule pas : tout ce qui
 // est numerique (ou est le bloc, a quelle distance, quelles dimensions) est
-// mesure ou lu ici. Jev reste un repli quand aucun planificateur JSON n est
-// configure.
+// mesure ou lu ici.
 
 const skills = require('./skills')
 const build = require('./build')
@@ -32,7 +31,7 @@ const screenshot = require('./screenshot')
 const { blockInReach, clearSegment, itemInPickupRange } = require('./navigation')
 
 // Qui decide : le planificateur JSON distant (plan de plusieurs etapes par
-// appel). Le repli Jev/TypeSafe a ete retire le 2026-09-27.
+// appel).
 function brain () {
   return planner
 }
@@ -147,7 +146,7 @@ const MAX_DIG_DEPTH = Number(process.env.MISSION_MAX_DIG_DEPTH || 1)
 // borne, la navigation pointerait sans fin vers une buche a 5 blocs de haut
 // au lieu de passer a l arbre suivant.
 const MAX_REACH_UP = Number(process.env.MISSION_MAX_REACH_UP || 3)
-const MAX_JEV_ERRORS = 3
+const MAX_PLANNER_ERRORS = 3
 const MAX_REPEATED_FAILURES = 5
 // Pilier : bornes de la montee en blocs. Un pilier coute sa dirt (inventaire
 // reel, jamais de creatif) et expose a la chute a la descente : 6 blocs
@@ -304,8 +303,8 @@ function resolveFabricationCible (bot, raw) {
 // blocs poses d un chantier.
 const NO_PROGRESS_STEPS = Number(process.env.MISSION_NO_PROGRESS_STEPS || 8)
 
-// Bornes des actions parametrees. L ampleur renvoyee par Jev (0 a 1) est
-// interpolee entre ces valeurs.
+// Bornes des actions parametrees : une valeur omise par le modele est
+// interpolee entre ces bornes (milieu de plage).
 const HARVEST_MIN = 2
 const HARVEST_MAX = Number(process.env.MISSION_HARVEST_BURST_MAX || 16)
 // Duree max d une action `recolter` (chaine avancer/casser/ramasser).
@@ -597,7 +596,7 @@ function withTimeout (promise, ms, label) {
   ])
 }
 
-// Traduit l ampleur 0..1 de Jev dans l unite de l action.
+// Traduit l ampleur 0..1 (defaut 0,5 : milieu de plage) dans l unite de l action.
 function scaled (scale, min, max) {
   const value = min + (max - min) * (Number.isFinite(scale) ? scale : 0.5)
   return Math.max(min, Math.min(max, Math.round(value)))
@@ -791,7 +790,7 @@ function createMissionRunner (host, injected = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Mesures : tout ce que Jev recoit comme etat est calcule ici
+  // Mesures : tout ce que le modele recoit comme etat est calcule ici
   // -------------------------------------------------------------------------
 
   function blockIdsFor (resource) {
@@ -2100,7 +2099,7 @@ function createMissionRunner (host, injected = {}) {
     return best ? best.name : null
   }
 
-  // Ce que Jev voit de l inventaire. Sans ces champs il ne pourrait pas choisir
+  // Ce que le modele voit de l inventaire. Sans ces champs il ne pourrait pas choisir
   // « fabriquer » au bon moment : rien dans l etat ne dirait qu il y a des
   // buches mais pas encore de planches.
   function stocks () {
@@ -2798,7 +2797,7 @@ function createMissionRunner (host, injected = {}) {
     }
 
     // Le progres est reevalue a chaque tour : c est lui qui dit si le bot
-    // avance, et donc si `demander_aide` a un sens.
+    // avance, et donc s il est bloque (detectStuck).
     const fingerprint = progressFingerprint()
     if (fingerprint > mission.lastProgress) {
       mission.lastProgress = fingerprint
@@ -3038,41 +3037,6 @@ function createMissionRunner (host, injected = {}) {
   // pouvoir d administration. La pose depuis un poste de tir au sol n a de
   // toute facon jamais demande le creative (voir build.findVantage).
 
-  // Applique une operation rendue par l aide distante sur la DOCUMENTATION des
-  // actions (voir skills.documentAction). Le code reste seul juge : une action
-  // inconnue, un texte hors bornes ou une operation mal formee est refusee ici,
-  // apres l avoir deja ete dans repair.js. Rien de ce qui vient du reseau ne
-  // peut ajouter une action executable — seule la documentation change.
-  function applyDocOperation (operation) {
-    const op = String(operation?.op ?? '').toLowerCase()
-
-    if (op === 'documenter') {
-      const result = skills.documentAction(operation.action, {
-        quand: operation.quand ?? null,
-        exemples: operation.exemples ?? []
-      })
-      return result.ok
-        ? { ok: true, texte: `documentation de "${result.doc.action}" mise a jour` }
-        : { ok: false, texte: `documentation refusee (${result.error})` }
-    }
-
-    if (op === 'oublier' || op === 'supprimer') {
-      const result = skills.forgetActionDoc(operation.action)
-      return result.ok
-        ? { ok: true, texte: `documentation ajoutee de "${operation.action}" retiree` }
-        : { ok: false, texte: `suppression refusee (${result.error})` }
-    }
-
-    if (op === 'fusionner') {
-      const result = skills.mergeActionDocs(operation.source, operation.cible)
-      return result.ok
-        ? { ok: true, texte: `documentation de "${operation.source}" fusionnee dans "${operation.cible}"` }
-        : { ok: false, texte: `fusion refusee (${result.error})` }
-    }
-
-    return { ok: false, texte: `operation inconnue : ${op || '?'}` }
-  }
-
   // `avancer` sans cible bloque (mur, marche de 2, arbre) : au lieu de
   // renvoyer le modele a `appuyer` (souvent immobile, encastre : banc de la
   // PR #38), le navigateur partage cherche un detour vers le point debout le
@@ -3151,8 +3115,8 @@ function createMissionRunner (host, injected = {}) {
 
     async casser (scale, params = {}) {
       const bot = host.getBot()
-      // Le planificateur dit COMBIEN DE TEMPS casser. Le repli Jev ne sait
-      // repondre qu en blocs (echelle 0-4) : on garde ce chemin pour lui.
+      // Le planificateur dit COMBIEN DE TEMPS casser ; sans duree, le budget
+      // de blocs par defaut s applique (milieu de plage).
       const dureeSec = Number.isFinite(Number(params.duree))
         ? Math.max(0.5, Math.min(HARVEST_BURST_MS / 1000, Number(params.duree)))
         : null
@@ -3204,8 +3168,8 @@ function createMissionRunner (host, injected = {}) {
       const nomsCasses = new Map()
 
       // On enchaine sans relacher : relacher entre chaque bloc pour redemander
-      // son avis a Jev fait perdre du temps et donne en jeu l impression d un
-      // bot qui tapote.
+      // son avis au modele fait perdre du temps et donne en jeu l impression
+      // d un bot qui tapote.
       while (!mission.cancelled && broken < budget && Date.now() - started < deadline) {
         const block = findBloc(secondaire)
         if (!block) break
@@ -3542,7 +3506,7 @@ function createMissionRunner (host, injected = {}) {
             signal: mission.navigationAbort.signal, __owner: stepToken, radius: 1, timeoutMs: 20000, distanceBudget: 48
           }))?.reached === true
         })
-        const res = `${r.produced}/${r.wanted} ${objet} cuit(s) depuis ${r.input} (combustible : ${r.fuelCount} ${r.fuel})`
+        const res = `${r.produced}/${r.wanted} ${objet} cuit(s) depuis ${r.input} (combustible : ${r.fuelCount} ${r.fuel})${r.arret ? `, arret : ${r.arret}` : ''}`
         return r.produced > 0 ? { resultat: res } : { resultat: `${res} : rien sorti du four`, echec: true }
       } catch (err) {
         const manque = (err.missing ?? []).map(m => `${m.count} ${m.name}`).join(', ')
@@ -4383,7 +4347,7 @@ function createMissionRunner (host, injected = {}) {
       // mission contredirait le 100 % gestes.
 
       // En survie, on ne pose que ce qu on a. Echouer ici en le disant est le
-      // ressort de toute la boucle : Jev enchaine alors « casser » puis
+      // ressort de toute la boucle : le modele enchaine alors « casser » puis
       // « fabriquer » de lui-meme, sans qu aucune sequence soit ecrite.
       let material = hasWanted() ? wanted : buildItem()
       if (!material) {
@@ -4853,8 +4817,8 @@ function createMissionRunner (host, injected = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Blocages annonces (2026-09-27, demande du proprietaire : plus de
-  // demander_aide ; le bot dit son probleme, analyse a chaque banc)
+  // Blocages annonces (2026-09-27, demande du proprietaire) : le bot dit son
+  // probleme dans le chat et le journalise ; le banc les analyse
   // -------------------------------------------------------------------------
 
   // Le blocage se dit au joueur (chat court) et se journalise en une ligne
@@ -5407,7 +5371,7 @@ function createMissionRunner (host, injected = {}) {
       try {
         decision = await decide(state)
         if (mission !== myMission || myMission.navigationAbort !== controller) return
-        mission.jevErrors = 0
+        mission.plannerErrors = 0
       } catch (err) {
         // Un stop (ou une fin) pendant l attente annule le fetch en vol : le
         // rejet « appel annule » n est pas une panne, et surtout il ne doit
@@ -5420,15 +5384,15 @@ function createMissionRunner (host, injected = {}) {
           await sleep(TICK_MS)
           continue
         }
-        mission.jevErrors += 1
-        console.error(`[mission] planificateur indisponible (${mission.jevErrors}/${MAX_JEV_ERRORS}) : ${err.message}`)
+        mission.plannerErrors += 1
+        console.error(`[mission] planificateur indisponible (${mission.plannerErrors}/${MAX_PLANNER_ERRORS}) : ${err.message}`)
 
         // Une file heritee d un plan devenu douteux ne doit pas survivre a la
         // panne qui l a interrompue.
         mission.queue = []
         abortPrefetch('panne planificateur')
 
-        if (mission.jevErrors >= MAX_JEV_ERRORS) {
+        if (mission.plannerErrors >= MAX_PLANNER_ERRORS) {
           finish('failed', 'planificateur indisponible')
           return
         }
@@ -5644,7 +5608,7 @@ function createMissionRunner (host, injected = {}) {
       // C est le modele qui decide quand la mission est finie : `terminer` la
       // clos directement. Le garde-fou numerique (`finishAllowed`) reste sur le
       // signal `fini`, ou l erreur de classification coute la mission entiere
-      // (voir CLAUDE.md, piege 17).
+      // (docs/journal.md, piege 17).
       if (outcome.fin) {
         const allowed = finishAllowed(buildState())
         // Quantite explicite pas encore en inventaire : meme refus reinjecte
@@ -6052,10 +6016,9 @@ function createMissionRunner (host, injected = {}) {
       // progres anti-blocage (voir progressFingerprint) et preuve chiffree.
       dirtSecondaire: 0,
       failures: 0,
-      jevErrors: 0,
+      plannerErrors: 0,
 
-      // File d etapes servies par un seul appel au planificateur JSON. Vide
-      // avec Jev, qui rend une action a la fois.
+      // File d etapes servies par un seul appel au planificateur JSON.
       queue: [],
       queueDone: 0,
       plans: 0,
@@ -6093,13 +6056,11 @@ function createMissionRunner (host, injected = {}) {
       finishRefused: 0,
       refusalNote: null,
       planAdjustNote: null,
-      // Blocage et auto-reparation : un compteur de progres pour mesurer l
-      // avancement, et un budget d appels au reparateur distant.
+      // Blocage : un compteur de progres pour mesurer l avancement.
       lastProgress: 0,
       lastProgressStep: 0,
       stuck: false,
       stuckWhy: null,
-      repairs: 0,
       revisions: 0,
       restartAfterAction: false,
       lastSaidAt: 0,
@@ -6242,7 +6203,7 @@ function createMissionRunner (host, injected = {}) {
     m.cancelled = false
     m.navigationAbort = new AbortController()
     m.failures = 0
-    m.jevErrors = 0
+    m.plannerErrors = 0
     loopPromise = (m.movementTask ? runMovementMission(m) : loop()).catch(err => {
       console.error('[mission] boucle interrompue :', err.message)
       finish('failed', `erreur interne : ${err.message}`)
@@ -6400,7 +6361,7 @@ function createMissionRunner (host, injected = {}) {
       broken: 0,
       dirtSecondaire: 0,
       failures: 0,
-      jevErrors: 0,
+      plannerErrors: 0,
       queue: [],
       queueDone: 0,
       plans: 0,
@@ -6427,7 +6388,6 @@ function createMissionRunner (host, injected = {}) {
       lastProgressStep: 0,
       stuck: false,
       stuckWhy: null,
-      repairs: 0,
       revisions: 0,
       restartAfterAction: false,
       lastSaidAt: 0,

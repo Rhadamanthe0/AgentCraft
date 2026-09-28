@@ -18,7 +18,7 @@ Environnement local, minimal et jetable composé de **deux** services :
 Le cerveau du bot n'est plus un service local : c'est un **planificateur JSON
 distant**, servi par le gateway **OpenCode Go**
 (`https://opencode.ai/zen/go/v1`, transports `/chat/completions` et `/responses`).
-Un modèle par usage (actions, chat, lecture d'objectif, aide, mémoire). Aucun GPU n'est requis ; en contrepartie le chat et
+Un modèle par usage (actions, chat, lecture d'objectif, mémoire). Aucun GPU n'est requis ; en contrepartie le chat et
 l'état de jeu sont envoyés à `opencode.ai` (voir « Confidentialité »).
 
 **Le bot joue sans tricher.** Il n'est pas opérateur : pas de `/tp`, pas de
@@ -54,8 +54,8 @@ Ne remplace pas `VERSION` par `LATEST` tant que Mineflayer n'annonce pas officie
 Aucune installation locale de Java, de Node.js ni de GPU n'est nécessaire : le
 modèle n'est plus exécuté sur la machine.
 
-Sans clé ou sans accès au gateway, vider `PLANNER_BASE_URL` : le bot repasse
-alors sur Jev (TypeSafe), qui demande une clé API et envoie le chat sur Internet.
+Sans clé ou sans accès au gateway, le bot se connecte et obéit aux commandes
+`!` mais ne peut lancer aucune mission (il le dit).
 
 ## Démarrage
 
@@ -184,8 +184,8 @@ sans demander au modele de tourner, sauter ou contourner avec des touches.
 `ramasser` utilise aussi ce navigateur pour rejoindre les objets tombes.
 `!va` et `/api/goto` mesurent l'arrivee ; la reponse HTTP `admitted: true`
 confirme seulement l'admission, le resultat est dans `/api/status.navigation`.
-La construction (`build.moveTo`) et les gestes sans cible gardent leurs moteurs
-existants. Le calcul A* vient toujours de `mineflayer-pathfinder` ; l'execution
+La construction rejoint ses postes de tir par le meme navigateur (`build.moveTo`
+en repli). Le calcul A* vient toujours de `mineflayer-pathfinder` ; l'execution
 physique du trajet est assuree par le controleur local du projet.
 
 « Mets-toi sous un arbre » utilise aussi ce parcours : le bot cherche un appui
@@ -227,32 +227,32 @@ exactement cette valeur. Les actions unitaires (`choisir_terrain`, `poser_porte`
 `sortir`, `terminer`, `regarder_autour`) n'en prennent pas.
 
 Un appel rend donc **plusieurs actions**, exécutées dans l'ordre sans redemander
-quoi que ce soit — c'est ce qui tient la latence basse. Chaque plan couvre
-**1 à 2 secondes de jeu**, et le **premier échec jette le reste du plan** : le
-bot ne suit jamais un plan devenu faux.
+quoi que ce soit — c'est ce qui tient la latence basse. Chaque plan vise
+**6 à 10 secondes de jeu** (`PLANNER_BUDGET_MIN_S`/`MAX_S`, une consigne du
+prompt), et le **premier échec jette le reste du plan** : le bot ne suit jamais
+un plan devenu faux.
 
-Mesuré en jeu : environ 1,6 à 2 s par appel avec `deepseek-v4.1-flash`, 2 actions
-par appel en moyenne.
+Mesuré au banc (2026-09-28, `deepseek-v4.1-flash` effort `low`) : un plan en
+4,3 s (médiane), 10,6 s au 95e centile, 89 % du prompt servi depuis le cache.
 
 Le chat et l'état de jeu sont envoyés à `opencode.ai` à chaque appel : la
 promesse « rien ne sort de la machine » du temps du planificateur local n'est
 plus vraie.
 
-### Le bot compose ses actions, et l'aide enrichit leur documentation
+### Le bot compose ses actions
 
-Il n'y a **plus d'actions apprises** : le bot compose lui-même ses enchaînements
-à partir des actions natives, guidé par leur documentation et leurs exemples.
-Une **aide distante** (`demander_aide`, `reviser_actions`) peut corriger ou
-enrichir cette documentation — `quand` employer une action, exemples de
-composition, fusion, retrait — mais elle ne peut **jamais** créer d'action
-exécutable : le code seul en définit.
-
-À voir et à remettre à la documentation native sans entrer dans le conteneur :
+Il n'y a **pas d'actions apprises** : le bot compose lui-même ses enchaînements
+à partir des 25 actions natives, guidé par leur documentation et des exemples
+écrits dans le code (`skills.ACTION_EXEMPLES`). Le catalogue tel que le modèle le
+lit :
 
 ```powershell
 curl.exe -s http://127.0.0.1:3000/api/actions
-curl.exe -s -X DELETE http://127.0.0.1:3000/api/actions/casser
 ```
+
+Des connaissances du jeu sont calculées par le code et servies au modèle à
+chaque tour : chaîne de prérequis d'une fabrication (outils, établi, four),
+besoins d'un chantier, outil minimal pour casser un bloc, objets au sol.
 
 ### Ce que le bot retient (memoire)
 
@@ -279,12 +279,11 @@ appel, et pourquoi — est detaillee dans `docs/context-management.md`.
 
 ### Appel anticipe : le buffer reste plein pendant l'execution
 
-La boucle etait strictement sequentielle : planifier (0,6 a 1,4 s), **puis**
-executer (1 a 2 s), puis replanifier — le bot restait immobile un tiers du temps
-environ. Des que la file descend a **une** etape, l'appel suivant part
+Sans anticipation, le bot resterait immobile pendant chaque appel (plusieurs
+secondes). Des que la file descend a **une** etape, l'appel suivant part
 **pendant** que cette etape s'execute, et son resultat n'est attendu que si la
-file se vide vraiment : le budget de 1 a 2 secondes par plan couvre justement la
-duree d'un appel.
+file se vide vraiment : le budget de 6 a 10 secondes de jeu par plan couvre
+justement la duree d'un appel.
 
 L'etat envoye a l'appel anticipe est perime d'une a deux actions : c'est accepte,
 le premier echec vide la file **et** annule le plan speculatif en vol, comme
@@ -304,7 +303,7 @@ jete.
 
 Chaque usage a son modèle, sans aucun repli vers un autre modèle (décision du
 propriétaire, 2026-09-26) : `PLANNER_MODEL_PLAN` (actions), `_CHAT`,
-`_BRIEF` (lecture d'objectif), `_REPAIR` (aide), `_COMPACT` (mémoire), avec
+`_BRIEF` (lecture d'objectif), `_COMPACT` (mémoire), avec
 `PLANNER_REASONING_EFFORT_<USAGE>` et `PLANNER_TIMEOUT_MS_<USAGE>`. Seules
 les clés se relaient (principale puis secondaire, `PLANNER_KEY_FIRST`) sur un
 refus de quota. Le banc fixe ces valeurs dans `ci/models.env`.
@@ -314,14 +313,16 @@ refus de quota. Le banc fixe ces valeurs dans `ci/models.env`.
 Dans `.env` :
 
 ```
-PLANNER_MODEL=deepseek-v4.1-flash  # par défaut (~1,6-2 s), planificateur ET réparateur
+PLANNER_MODEL=deepseek-v4.1-flash  # modele par defaut de tous les usages
+PLANNER_MODEL_BRIEF=deepseek-v4.1-flash
+PLANNER_REASONING_EFFORT_PLAN=low
 ```
 
 `deepseek-v4.1-flash` est un modèle à **raisonnement** : ses jetons de
 raisonnement comptent dans `PLANNER_MAX_TOKENS`. Trop bas, il raisonne jusqu'au
 bout et rend un **contenu vide** (`finish=length`) — c'est ce qui se passait à
-700. Le budget temporaire du profil historique a ete porte a **4096** et son
-delai a **45 s**.
+700. Un modèle servi sur `/responses` (Muse) a son propre budget
+(`PLANNER_PILOT_MAX_TOKENS`).
 
 ### Changer de gateway
 
@@ -341,15 +342,11 @@ côté serveur. Le chat et l'état de jeu quittent la machine dans tous les cas.
 
 ### Au démarrage
 
-```
-[commandes] 13 commandes (2 routables par le routeur, 11 sur prefixe seul), 24 actions dont 7 a deux etages, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
-[planner] deepseek-v4.1-flash sur https://opencode.ai/zen/go/v1 : plans de 5 etapes, 0 action(s)
-documentee(s) par l aide, seuil de fin 0.75
-[planner] deepseek-v4.1-flash charge et pret en 3.6 s
-```
-
-La dernière ligne compte : la session distante est préchauffée au démarrage, ce
-qui évite que le premier ordre du joueur paie l'ouverture de la session.
+Le journal du bot donne l'audit des commandes et des actions
+(`[commandes] ... : coherent`, sinon la liste des incohérences), puis le modèle
+et la base du planificateur. La session distante est préchauffée au démarrage
+(`planner.warmup`), ce qui évite que le premier ordre du joueur paie
+l'ouverture de la session.
 
 ## Missions continues
 
@@ -357,8 +354,7 @@ Une **mission** est un objectif que le bot poursuit tout seul jusqu'a ce qu'il
 soit atteint, au lieu d'une action unique. C'est ce que declenche le choix
 `mission` ci-dessus, ou `!mission <objectif>`, ou `POST /api/mission`.
 
-A chaque tour de boucle, un appel au planificateur (le modele JSON distant, ou
-Jev en repli) lit l'etat reel du jeu et rend soit un plan de plusieurs actions,
+A chaque tour de boucle, un appel au planificateur (le modele JSON distant) lit l'etat reel du jeu et rend soit un plan de plusieurs actions,
 soit l'objectif declare accompli. Chaque action du plan est executee, puis son
 resultat est reinjecte dans l'etat du tour suivant ; **le premier echec jette le
 reste du plan** et fait replanifier.
@@ -412,7 +408,11 @@ modele choisit lui-meme, dans l'unite de l'action :
 | Action | Parametre numerique |
 | --- | --- |
 | `casser` | `duree` (1 a 15 secondes) |
+| `recolter` | `quantite` (1 a 16 objets : avancer, casser, ramasser enchaines par le code) |
+| `explorer` | `distance` (spirale de caps autour du depart, arret des que la matiere est en vue) |
 | `ramasser` | `quantite` (1 a 6 objets) |
+| `cuire` | `objet` et `quantite` (four rejoint ou pose, combustible choisi par le code) |
+| `donner` | `objet`, `quantite`, `destinataire` (seulement si le joueur a demande un don) |
 | `avancer` | `distance` (budget de trajet de 1 a 40 blocs ; cap actuel sans cible) |
 | `construire` | `quantite` (1 a 40 blocs) et `objet` (materiau, optionnel) |
 | `fabriquer` | `quantite` (1 a 16 exemplaires) et `objet` (recette possible) |
@@ -426,11 +426,11 @@ parametres propres (texte, angle, touches, duree). Les actions unitaires
 parametre. Seules les actions du type de mission en cours sont
 proposees : un chantier ne voit jamais `ramasser`.
 
-Peu d'actions et non pas beaucoup, c'est delibere : la classification se degrade
-avec leur nombre, et chaque option coute des jetons a chaque tour. Les gestes de
-bas niveau (`dire`, `regarder`, `sauter`, `appuyer`, `pivoter`,
-`regarder_autour`, `memoriser`, `oublier`...) ne sont montres qu'au planificateur
-JSON, jamais a Jev.
+Peu d'actions et non pas beaucoup, c'est delibere : le choix se degrade avec
+leur nombre, et chaque action coute des jetons dans le prompt. Les gestes de bas
+niveau (`dire`, `regarder`, `sauter`, `appuyer`, `pivoter`, `regarder_autour`,
+`memoriser`, `oublier`...) donnent au modele de quoi composer ce que le
+catalogue n a pas prevu.
 
 ### Monter en pilier (`piler`), sans tricher
 
@@ -457,10 +457,11 @@ fausse ni le quota bois ni l'arret (`finishAllowed()` l'ignore).
 ### Hache opportuniste, craft unitaire et alias
 
 Couper du bois a la main est lent : en mission bois sans hache, quand une
-fabrication utile existe (`environnement.hache_recommandee` — la hache elle-meme
-ou la chaine `planches`/`batons`/`etabli` vers elle), la hache passe avant tout.
-Le planificateur la fabrique (`quantite` 1) ou, a defaut, la chaine qui y mene
-(`quantite` 4), au lieu de couper a la main indefiniment.
+fabrication utile existe, l etat le signale (`environnement.hache_recommandee`).
+C est une optimisation **facultative** : apres un echec de la fabrication, le
+bot reprend la coupe a la main au lieu de chercher un contournement. Un outil
+reellement exige (`environnement.outil_necessaire`, ex. pioche en pierre pour le
+fer) et une fabrication demandee par le joueur restent obligatoires.
 
 Deux garde-fous cote craft, mesures en jeu sur 26.1 : `bot.craft(recette, N)`
 avec N > 1 desynchronise la fenetre d'inventaire (resultat partiel **sans**
@@ -475,7 +476,9 @@ une erreur qui liste les possibles, jamais un succes fictif.
 
 ## Construction
 
-Le bot sait batir une boite creuse avec une porte :
+Le bot sait batir une boite creuse avec une porte, ou une forme libre (tour,
+mur, arche, fenetres) dessinee par le modele puis verifiee par le code (bornes,
+blocs flottants, cases injoignables, pieges a bot) :
 
 ```
 !mission fais une maison en terre a cote d un arbre de 5 par 5 par 5 avec une porte
@@ -492,8 +495,8 @@ type construction, matiere terre, repere arbre, porte oui, 5x5x5
 Objectif atteint (objectif estime accompli (95%))
 ```
 
-Les dimensions se lisent sous les formes « 5 par 5 par 5 », « 5x5x5 », « 6 sur 4 »
-ou « de 5 blocs », et sont bornees a 3-9.
+Les dimensions se lisent sous les formes « 5 par 5 par 5 », « 5x5x5 », « 6 sur 4 »,
+« 5 de large et 4 de haut » ou « de 5 blocs », et sont bornees a 3-9.
 
 Le chantier se fait **en survie** : le bot casse, ramasse et fabrique lui-meme
 les blocs qu'il pose. Un chantier a court de materiau echoue en le disant, ce qui
@@ -545,8 +548,8 @@ jeu, chat récent, mémoire) et le texte des objectifs sont envoyés à
 `opencode.ai` pour chaque appel. C'est la contrepartie du passage au distant :
 plus de GPU à porter, mais les données sortent.
 
-Repasser sur Jev ne change rien à ce point (il envoie aussi le chat sur
-Internet) ; seul un planificateur exécuté localement le supprimerait.
+Seul un planificateur exécuté localement (`PLANNER_BASE_URL` vers un serveur
+compatible OpenAI sur la machine) le supprimerait.
 
 ## Audit des commandes
 
@@ -557,11 +560,13 @@ declarees aux handlers reellement branches, ainsi que les actions de mission aux
 actions branchees :
 
 ```
-[commandes] 13 commandes (2 routables par le routeur, 11 sur prefixe seul), 24 actions dont 7 a deux etages, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
+[commandes] 13 commandes (2 routables par le chat, 11 sur prefixe seul), 25 actions dont 18 parametrees, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
 ```
 
 Une commande ajoutee d'un cote mais pas de l'autre apparait ici, et dans
-`GET /api/commands`, au lieu de se decouvrir en jeu.
+`GET /api/commands`, au lieu de se decouvrir en jeu. L'audit verifie aussi que
+les exemples des actions ne citent que des champs d'etat existants et des
+valeurs dans les bornes.
 
 ## Limite connue : le bot ne sait pas nager
 
@@ -637,7 +642,7 @@ process, un username, un fichier `/tmp/hN.js` par harness —
 `ProbeBot`/`WalkerBot`. Harness **silencieux** (aucun `bot.chat()`, sinon
 `recentChat` est pollue), jamais ops, survie (`playerGameType = 0`), `TP` rcon
 reserve au placement du harness, arret propre par `pkill -f /tmp/hN.js`. Voir
-`CLAUDE.md` (« Harness multi-bots ») pour le cycle de vie complet.
+`docs/journal.md` (« Harness multi-bots ») pour le cycle de vie complet.
 
 ## Tests unitaires
 
@@ -721,4 +726,3 @@ La commande échoue si l'API locale ne répond pas ou si le bot n'est pas réell
 - Mineflayer : `4.39.0`
 - mineflayer-pathfinder : `2.4.5`
 - Express : `5.2.1`
-- @typesafe-ai/sdk : `0.6.0` (optionnel, pour Jev)

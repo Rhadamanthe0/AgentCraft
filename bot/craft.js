@@ -2,7 +2,7 @@
 
 // Fabrication, outillage et lecture d inventaire.
 //
-// Ce module ne parle jamais a Jev, exactement comme build.js : le modele choisit
+// Ce module ne parle jamais au modele, exactement comme build.js : le modele choisit
 // « fabriquer » puis « une porte », tout le reste (quelles recettes existent, ce
 // qu il faut comme ingredients, combien d exemplaires on peut faire) est mesure
 // ici a partir de l inventaire reel et du registre du serveur.
@@ -83,7 +83,7 @@ function woodPrefix (plankName) {
 }
 
 // Etat des stocks, tel qu il part dans l etat de mission a chaque tour. C est
-// ce qui permet a Jev de choisir « fabriquer » plutot que « construire » quand
+// ce qui permet au modele de choisir « fabriquer » plutot que « construire » quand
 // il n y a plus rien a poser, sans qu aucun enchainement soit code en dur.
 function snapshot (bot) {
   const tools = {}
@@ -155,7 +155,7 @@ function harvestCheck (bot, block) {
   const french = { axe: 'hache', pickaxe: 'pioche', shovel: 'pelle' }[kind]
   // Outil le plus modeste qui convient : « une pioche » trompait le modele
   // quand il en tenait deja une trop faible (bois sur du fer).
-  const TIERS = ['wooden', 'stone', 'golden', 'iron', 'diamond', 'netherite']
+  const TIERS = ['wooden', 'golden', 'stone', 'copper', 'iron', 'diamond', 'netherite']
   const noms = needed.map(id => bot.registry?.items?.[id]?.name).filter(Boolean)
   const minimal = noms.sort((a, b) => TIERS.indexOf(a.split('_')[0]) - TIERS.indexOf(b.split('_')[0]))[0]
   const need = minimal && minimal !== `wooden_${kind}` ? `${french} (${minimal} ou mieux)` : french
@@ -187,10 +187,10 @@ async function equipForBlock (bot, block) {
 // ---------------------------------------------------------------------------
 // Recettes
 //
-// Les cibles sont volontairement peu nombreuses et nommees dans les mots du
-// joueur : ce sont les options de la question posee a Jev **une fois qu il a
-// choisi `fabriquer`**. Chacune resout son nom d objet reel a partir de
-// l inventaire, puis demande au jeu si la recette est faisable.
+// Les cibles courtes, nommees dans les mots du joueur : servies au modele comme
+// suggestions (`fabrications_possibles`) ; `fabriquer` accepte aussi tout objet
+// du registre. Chacune resout son nom d objet reel a partir de l inventaire,
+// puis demande au jeu si la recette est faisable.
 // ---------------------------------------------------------------------------
 
 const TARGETS = {
@@ -363,8 +363,7 @@ function recipeFor (bot, itemName, table) {
 }
 
 // Ce que le bot peut fabriquer maintenant, et pourquoi il ne peut pas le reste.
-// Les options impossibles ne sont pas proposees a Jev : il classe parmi ce qui
-// existe, il n a pas a deviner un enchainement.
+// Les options impossibles ne sont pas suggerees au modele.
 function options (bot) {
   const list = []
   if (!bot?.registry) return list
@@ -399,7 +398,7 @@ function options (bot) {
   return list
 }
 
-// Les criteres de la question posee a Jev : uniquement les cibles faisables.
+// Les cibles faisables maintenant (suggestions servies au modele).
 function targetCriteria (bot) {
   const criteria = {}
   for (const option of options(bot)) {
@@ -996,26 +995,46 @@ async function smelt (bot, output, wanted = 1, { move = null, input = null, time
     throw Object.assign(new Error(`rien a cuire : il faut ${n} ${raw}`), { code: 'missing', missing: [{ name: raw, count: n }] })
   }
   const aCuire = Math.min(n, countOf(bot, new RegExp(`^${escapeRegExp(entree.name)}$`)))
-  const combustible = (() => {
+  // Combustibles en poche (jamais l objet a cuire), du meilleur au moins bon.
+  // Un seul type tient dans la case du four : on recharge avec le suivant
+  // quand il s epuise (craft/iron-pickaxe 453d7f4 : 1 buche pour 3 fers,
+  // 1 lingot cuit, 2 minerais restes dans le four, invisibles du solveur).
+  const combustibles = () => {
+    const liste = []
     for (const [pattern, par] of FUELS) {
-      const it = items(bot).filter(i => pattern.test(i.name) && i.name !== entree.name)
-        .sort((a, b) => b.count - a.count)[0]
-      if (it) return { item: it, parUnite: par }
+      for (const it of items(bot).filter(i => pattern.test(i.name) && i.name !== entree.name)) {
+        liste.push({ item: it, parUnite: par })
+      }
     }
-    return null
-  })()
-  if (!combustible) {
+    return liste
+  }
+  const capacite = combustibles().reduce((sum, c) => sum + c.item.count * c.parUnite, 0)
+  if (capacite <= 0) {
     throw Object.assign(new Error('pas de combustible (charbon, buches ou planches)'), { code: 'missing', missing: [{ name: 'coal', count: 1 }] })
   }
-  const fuelCount = Math.min(combustible.item.count, Math.ceil(aCuire / combustible.parUnite))
+  if (capacite < aCuire) {
+    throw Object.assign(new Error(`combustible pour ${Math.floor(capacite)} cuisson(s) seulement sur ${aCuire}`),
+      { code: 'missing', missing: [{ name: 'oak_planks', count: Math.ceil((aCuire - capacite) / 1.5) }] })
+  }
   const avant = countOf(bot, new RegExp(`^${escapeRegExp(output)}$`))
   const four = await ensureFurnace(bot, { move })
   const fenetre = await bot.openFurnace(four)
   let pris = 0
+  const brules = new Map()
+  const recharger = async () => {
+    if (fenetre.fuelItem()) return false
+    const c = combustibles()[0]
+    if (!c) return false
+    const nombre = Math.min(c.item.count, Math.max(1, Math.ceil((aCuire - pris) / c.parUnite)))
+    await fenetre.putFuel(c.item.type, null, nombre)
+    brules.set(c.item.name, (brules.get(c.item.name) ?? 0) + nombre)
+    return true
+  }
+  let arret = null
   try {
     const cuitDeja = fenetre.outputItem()
     if (cuitDeja) { await fenetre.takeOutput(); pris += cuitDeja.count }
-    await fenetre.putFuel(combustible.item.type, null, fuelCount)
+    await recharger()
     await fenetre.putInput(entree.type, null, aCuire)
     const fin = Date.now() + (timeoutMs ?? aCuire * SMELT_TICK_MS + 8000)
     while (Date.now() < fin && pris < aCuire) {
@@ -1025,14 +1044,31 @@ async function smelt (bot, output, wanted = 1, { move = null, input = null, time
         await fenetre.takeOutput()
         pris += out.count
       }
+      // Case vide et feu eteint alors qu il reste a cuire : recharger.
+      if (pris < aCuire && fenetre.inputItem() && !fenetre.fuelItem() && !(fenetre.fuel > 0)) {
+        if (!(await recharger())) { arret = 'combustible epuise'; break }
+      }
     }
+    if (pris < aCuire && !arret) arret = 'delai de cuisson depasse'
   } finally {
+    // Ce qui n est pas cuit revient en poche : le solveur et le modele
+    // comptent l inventaire, pas le contenu du four.
+    try { if (fenetre.inputItem()) await fenetre.takeInput() } catch (_) {}
+    try { if (fenetre.outputItem()) { const o = fenetre.outputItem(); await fenetre.takeOutput(); pris += o.count } } catch (_) {}
     try { fenetre.close() } catch (_) {}
   }
   await sleep(300)
   await resyncInventory(bot)
   const produit = Math.max(0, countOf(bot, new RegExp(`^${escapeRegExp(output)}$`)) - avant)
-  return { item: output, produced: produit, wanted: n, input: entree.name, fuel: combustible.item.name, fuelCount }
+  return {
+    item: output,
+    produced: produit,
+    wanted: n,
+    input: entree.name,
+    fuel: [...brules.keys()].join('+') || 'aucun',
+    fuelCount: [...brules.values()].reduce((a, b) => a + b, 0),
+    arret
+  }
 }
 
 module.exports = {
