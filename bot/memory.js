@@ -10,7 +10,7 @@
 // seul fil que le modele tisse lui-meme.
 //
 // TROIS ESPACES, des plafonds separes (architecture « cache en couches », voir
-// ARCHITECTURE.md §9 et docs/context-management.md) :
+// docs/context-management.md) :
 //   - `travail`    : le fil de la mission en cours, en AJOUT SEUL — chaque note
 //                    s ajoute a la fin, donc le prefixe deja en cache chez le
 //                    gateway reste valide. Au-dela de WORK_COMPACT_AT jetons,

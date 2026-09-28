@@ -295,7 +295,7 @@ pas sur l'objet disparu.
 A ce jalon historique, trois buches Y=71..73 restaient en place. La mission
 avait ete pausee apres les echecs repetes d'une hache facultative et de sa
 pose d'etabli. Le correctif de consignes et ses sondes sont decrits dans
-[la progression actuelle](implementation-progress.md).
+[la progression archivee](archive/implementation-progress.md).
 
 Apres le deploiement suivant (12/12 controles), la reprise du meme `obj-91`
 a vide la colonne initiale Y=69..73, verifiee par RCON. Le stock final est

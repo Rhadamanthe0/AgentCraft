@@ -78,7 +78,7 @@ test('explorer : rien trouve apres 4 trajets => echec franc', async () => {
 
 test('interrupteur explorer', () => {
   skills.setFeatureEnabled('explorer', false)
-  assert.equal(skills.actionsFor('recolte', 'harvest', true).includes('explorer'), false)
+  assert.equal(skills.actionsFor('recolte', 'harvest').includes('explorer'), false)
   skills.setFeatureEnabled('explorer', true)
-  assert.equal(skills.actionsFor('recolte', 'harvest', true).includes('explorer'), true)
+  assert.equal(skills.actionsFor('recolte', 'harvest').includes('explorer'), true)
 })

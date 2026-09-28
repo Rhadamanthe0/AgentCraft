@@ -18,9 +18,8 @@ const { createExecutor } = require('./executor')
 const { createStateStore } = require('./state-store')
 const { createObjectiveController } = require('./objective-controller')
 
-// Le chat est interprete par le planificateur JSON distant, seul cerveau (le
-// repli Jev/TypeSafe a ete retire le 2026-09-27). Pas de repli sur des
-// mots-cles : un bot muet vaut mieux qu un bot qui devine.
+// Le chat est interprete par le planificateur JSON distant, seul cerveau. Pas
+// de repli sur des mots-cles : un bot muet vaut mieux qu un bot qui devine.
 
 const MC_HOST = process.env.MC_HOST || 'minecraft'
 const MC_PORT = Number(process.env.MC_PORT || 25565)
@@ -143,7 +142,7 @@ function hasActiveControl () {
 
 // Point d annulation unique : tout ce qui abandonne un objectif passe par ici,
 // sinon followMode reste vrai et desactive silencieusement le detecteur
-// d immobilite (voir CLAUDE.md, piege 4).
+// d immobilite (docs/journal.md, piege 4).
 const navigator = createNavigator(() => bot)
 
 function stopPathfinding () {
@@ -390,7 +389,7 @@ function resetWatchdog () {
 // demande :
 //   - `strict` : pour recolter. Interdiction de creuser (`canDig`) et de se
 //     construire une tour (`allow1by1towers`), sinon le pathfinder s acharne a
-//     grimper vers une buche en hauteur au lieu du pied de l arbre (CLAUDE.md,
+//     grimper vers une buche en hauteur au lieu du pied de l arbre (docs/journal.md,
 //     piege 7). L eau coute cher : le bot ne sait pas nager (piege 3).
 //   - `climb`  : pour venir vers un joueur ou suivre. Le bot a le
 //     droit de grimper un denivele et de poser un bloc pour monter. Sans cela il
@@ -709,7 +708,7 @@ function watchdogTick () {
   // player is exempt, since standing next to them is the goal being satisfied.
   //
   // Une mission est exempte elle aussi : elle a son propre detecteur de blocage
-  // (`mission.detectStuck` + `demander_aide`), et le chien de garde qui annulait
+  // (`mission.detectStuck`), et le chien de garde qui annulait
   // les deplacements en plein vol ne faisait que casser les trajets des qu un
   // calcul de chemin depassait 7 s (piege 15). Le sauvetage aquatique, lui,
   // reste actif : il est teste avant cette branche.
@@ -1554,10 +1553,6 @@ app.get('/api/status', (req, res) => {
     planner: planner.isEnabled()
       ? { base: planner.BASE_URL, model: planner.MODEL, planMax: planner.PLAN_MAX, ...planner.stats }
       : null,
-    // Nombre d actions dont la documentation/exemples a ete enrichie par l aide
-    // distante (voir /api/actions). Zero au demarrage : la documentation native
-    // suffit, l aide ne fait que la corriger.
-    documentedActions: skills.documentedActions().filter(d => d.source === 'aide').length,
     // Memoire du modele : lisible sans entrer dans le conteneur, comme la
     // documentation des actions. C est le garde-fou humain de « le modele se souvient ».
     // Cache en couches : `travail` (memoire de mission) et `long_terme`
@@ -1595,7 +1590,7 @@ app.get('/api/status', (req, res) => {
 })
 
 // La table des commandes et le resultat de l audit, pour verifier sans lire le
-// code que chat, Jev et handlers parlent bien de la meme chose.
+// code que chat, catalogue et handlers parlent bien de la meme chose.
 app.get('/api/commands', (req, res) => {
   res.json({
     ok: true,
@@ -1606,21 +1601,18 @@ app.get('/api/commands', (req, res) => {
       aliases: spec.aliases,
       usage: spec.usage.replace(/^!/, CMD_PREFIX),
       summary: spec.summary,
-      routableParJev: Boolean(spec.chat)
+      routableParLeChat: Boolean(spec.chat)
     })),
     supply: missionRunner.SUPPLY,
     actions: Object.entries(skills.ACTIONS).map(([name, spec]) => ({
       name,
       summary: spec.summary,
-      // Ce que l ampleur renvoyee par Jev change pour cette action.
       parametre: spec.scale,
-      // Le second etage de classification : les questions posees a Jev une fois
-      // cette action choisie, et elles seules. Vide = un seul appel suffit.
-      questions: Object.entries(spec.params ?? {}).map(([param, descriptor]) => ({
+      // Parametres du plan JSON et leurs bornes.
+      parametres: Object.entries(skills.jsonParamsFor(name) ?? {}).map(([param, descriptor]) => ({
         nom: param,
-        type: descriptor.type,
         question: descriptor.question,
-        options: descriptor.dynamic ? `calculees a l execution (${descriptor.dynamic})` : undefined
+        bornes: descriptor.json
       })),
       types: spec.kinds
     })),
@@ -1629,44 +1621,20 @@ app.get('/api/commands', (req, res) => {
       summary: spec.summary
     })),
     missionKinds: Object.keys(skills.KINDS),
-    scaleRubric: skills.SCALE_RUBRIC,
     landmarks: Object.keys(skills.LANDMARKS),
     resources: Object.keys(skills.RESOURCES).filter(name => name !== 'aucune'),
-    // La documentation et les exemples des actions natives. L aide distante peut
-    // les enrichir (source "aide") ; elle ne peut pas creer d action.
+    // La documentation et les exemples des actions natives.
     documentation: skills.documentedActions()
   })
 })
 
-// La documentation et les exemples des actions natives, lisibles et remis a la
-// valeur native sans entrer dans le conteneur. C est le garde-fou humain du
-// « l aide distante a change ce que le modele lit » : on voit ce qui a ete
-// ajoute, et on le retire si ca l egare.
+// La documentation et les exemples des actions natives, tels que le modele les lit.
 app.get('/api/actions', (req, res) => {
-  res.json({
-    ok: true,
-    fichier: skills.DOC_FILE,
-    erreurEcriture: skills.docPersistError,
-    maxExemples: skills.DOC_EXEMPLES_MAX,
-    actions: skills.documentedActions()
-  })
-})
-
-app.delete('/api/actions/:name', (req, res) => {
-  const result = skills.forgetActionDoc(req.params.name)
-  if (!result.ok) return res.status(404).json({ ok: false, error: result.error })
-  console.log(`[skills] documentation ajoutee de "${req.params.name}" retiree par l API`)
-  res.json({ ok: true, doc: result.doc })
-})
-
-app.delete('/api/actions', (req, res) => {
-  const result = skills.clearActionDocs()
-  console.log(`[skills] documentation d action remise a la native par l API (${result.supprimees})`)
-  res.json({ ok: true, supprimees: result.supprimees })
+  res.json({ ok: true, actions: skills.documentedActions() })
 })
 
 // La memoire du modele, lisible et effacable sans entrer dans le conteneur.
-// Meme garde-fou humain que pour les actions apprises : on voit ce qu il retient,
+// Garde-fou humain : on voit ce qu il retient,
 // et on efface si ca l egare. `portee` vaut travail, long_terme ou tout.
 // Le snapshot expose les champs par couche (jetons, plafonds, restants,
 // a_retenir, generation) ; effacer la memoire long terme increment
@@ -1972,8 +1940,8 @@ const commandAudit = skills.audit(Object.keys(HANDLERS), missionRunner.ACTION_NA
 if (commandAudit.ok) {
   console.log(
     `[commandes] ${commandAudit.counts.commandes} commandes ` +
-    `(${commandAudit.counts.routables_par_jev} routables par le chat, ${commandAudit.counts.prefixe_uniquement} sur prefixe seul), ` +
-    `${commandAudit.counts.actions} actions dont ${commandAudit.counts.actions_parametrees} a deux etages, ` +
+    `(${commandAudit.counts.routables_par_le_chat} routables par le chat, ${commandAudit.counts.prefixe_uniquement} sur prefixe seul), ` +
+    `${commandAudit.counts.actions} actions dont ${commandAudit.counts.actions_parametrees} parametrees, ` +
     `sur ${commandAudit.counts.types_de_mission} types de mission, ` +
     `${commandAudit.counts.ressources} matieres, ${commandAudit.counts.reperes} reperes, ` +
     `${Object.keys(craft.TARGETS).length} fabrications, approvisionnement ${missionRunner.SUPPLY} : coherent`
@@ -1983,13 +1951,11 @@ if (commandAudit.ok) {
   for (const problem of commandAudit.problems) console.error(`  - ${problem}`)
 }
 
-skills.loadDocs()
 memory.load()
 
 if (planner.isEnabled()) {
   console.log(
     `[planner] ${planner.MODEL} sur ${planner.BASE_URL} : plans de ${planner.PLAN_MAX} etapes, ` +
-    `${skills.documentedActions().filter(d => d.source === 'aide').length} action(s) documentee(s) par l aide, ` +
     `seuil de fin ${planner.DONE_THRESHOLD}`
   )
   // En arriere-plan : le bot peut se connecter et obeir aux commandes prefixees

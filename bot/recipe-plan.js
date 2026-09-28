@@ -524,7 +524,7 @@ function planCraft (args) {
     stats.depthMax = Math.max(stats.depthMax, depth)
     if (depth > maxDepth) return { taken: 0, crafted: 0, ops: [], missing: [], requiresTable: false, error: 'max-depth' }
     const selfKey = exactKey(id, metadata)
-    if (ancestry.has(selfKey)) return { taken: 0, crafted: 0, ops: [], missing: [], requiresTable: false, error: 'cycle' }
+    if (ancestry.has(selfKey)) return { taken: 0, crafted: 0, ops: [], missing: [], requiresTable: false, error: 'cycle', cycleKey: selfKey }
 
     const taken = consumeStock(stock, id, metadata, qty)
     const remaining = qty - taken
@@ -577,6 +577,7 @@ function planCraft (args) {
         const subMissing = []
         let subRequiresTable = false
         let branchError = null
+        let branchCycleKey = null
         // Ordre deterministe des ingredients (stock partage coherent).
         const needs = [...recipe.ingredients].sort((a, b) => String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0)
         for (const ing of needs) {
@@ -589,6 +590,7 @@ function planCraft (args) {
           if (r.error) {
             // cycle/profondeur/limite : la branche est invalide, on arrete ses ingredients.
             branchError = r.error
+            branchCycleKey = r.cycleKey ?? null
             break
           }
           if (subOps.length > maxOperations) {
@@ -597,7 +599,7 @@ function planCraft (args) {
           }
         }
         if (branchError) {
-          branchResult = { recipe, repeats, outputTotal, ops: subOps, missing: subMissing, requiresTable: subRequiresTable, error: branchError }
+          branchResult = { recipe, repeats, outputTotal, ops: subOps, missing: subMissing, requiresTable: subRequiresTable, error: branchError, cycleKey: branchCycleKey }
         } else {
           const surplus = outputTotal - remaining
           if (surplus > 0) {
@@ -677,8 +679,15 @@ function planCraft (args) {
     if (!best) {
       return { taken, crafted: 0, ops: [], missing: [{ id, metadata, name, count: remaining, reason: 'no-recipe' }], requiresTable: false, error: null }
     }
+    // Toutes les recettes ramenent a l objet lui-meme (lingot <-> pepites,
+    // lingot <-> bloc) : il ne se fabrique pas, il s obtient ailleurs (cuisson,
+    // recolte). Manquant, pas une erreur : sinon « ingredients manquants » sans
+    // rien nommer (craft/iron-pickaxe 453d7f4).
+    if (best.error === 'cycle' && best.cycleKey === selfKey) {
+      return { taken, crafted: 0, ops: [], missing: [{ id, metadata, name, count: remaining, reason: 'no-recipe' }], requiresTable: false, error: null }
+    }
     if (best.error) {
-      return { taken: 0, crafted: 0, ops: best.ops || [], missing: best.missing || [], requiresTable: false, error: best.error }
+      return { taken: 0, crafted: 0, ops: best.ops || [], missing: best.missing || [], requiresTable: false, error: best.error, cycleKey: best.cycleKey }
     }
     // Applique l'etat de stock de la branche choisie.
     stock.clear()

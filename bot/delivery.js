@@ -1,8 +1,8 @@
 'use strict'
 
-// Capacite de don mesuree, reutilisable, SANS cablage mission (etape suivante).
+// Capacite de don mesuree, utilisee par l action `donner` (mission.js).
 //
-// Cible ARCHITECTURE.md C0/D20 : « Donner » = deposer la quantite aux pieds du
+// « Donner » = deposer la quantite aux pieds du
 // BON joueur et l'en avertir, sans exiger son ramassage. Un retour sans
 // exception ne suffit pas : ce module rend des faits mesures
 // (reussi/partiel/echoue/interrompu/inconnu), jamais un succes suppose.

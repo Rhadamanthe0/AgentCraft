@@ -4,7 +4,7 @@
 //
 //   PLANNER_MODEL=...           defaut (prechauffage, usage sans variable)
 //   PLANNER_MODEL_PLAN=...      actions (plans de mission)
-//   PLANNER_MODEL_CHAT=...      chat du joueur          (interpretMessage, classify)
+//   PLANNER_MODEL_CHAT=...      chat du joueur          (interpretMessage)
 //   PLANNER_MODEL_BRIEF=...     reflexion : lecture de l objectif (readBrief)
 //   PLANNER_MODEL_COMPACT=...   generation de la memoire (compact)
 //
@@ -20,7 +20,6 @@ const TASK_VARS = {
   plan: 'PLANNER_MODEL_PLAN',
   readBrief: 'PLANNER_MODEL_BRIEF',
   interpretMessage: 'PLANNER_MODEL_CHAT',
-  classify: 'PLANNER_MODEL_CHAT',
   compact: 'PLANNER_MODEL_COMPACT'
 }
 

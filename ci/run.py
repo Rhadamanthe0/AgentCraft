@@ -129,7 +129,7 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
         'mission-delivery.test.js', 'piler-materials.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
         'delivery.test.js', 'planner-profile.test.js', 'llm.test.js', 'executor.test.js', 'objective-controller.test.js',
-        'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js']
+        'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js']
 
 
 
@@ -723,7 +723,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     # Repli de cle (PLANNER_KEY_FIRST) : cle du dernier appel servi, bascules.
                     'cles_servies': sorted({v['cle_servie'] for v in stats.values() if v.get('cle_servie')}),
                     'bascules_cle': sum(v.get('bascules_cle') or 0 for v in stats.values()),
-                    # Duree reelle par usage (plan, chat, brief, compact, repair), tous bots.
+                    # Duree reelle par usage (plan, chat, brief, compact...), tous bots.
                     'latences': latency_summary(stats),
                 }
                 for v in stats.values():

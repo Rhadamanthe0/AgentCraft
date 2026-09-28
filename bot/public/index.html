@@ -157,7 +157,7 @@
         const audit = document.createElement('li')
         audit.innerHTML = data.audit.ok
           ? `<strong>Audit: cohérent</strong> — ${data.audit.counts.commandes} commandes, ` +
-            `${data.audit.counts.routables_par_jev} routables par Jev, ` +
+            `${data.audit.counts.routables_par_le_chat} routables par le chat, ` +
             `${data.audit.counts.actions} actions, ` +
             `${data.audit.counts.ressources} ressources.`
           : `<strong>Audit: ${data.audit.problems.length} incohérence(s)</strong> — ` +
@@ -167,7 +167,7 @@
         for (const c of data.commands) {
           const li = document.createElement('li')
           li.innerHTML = `<code>${c.usage}</code> — ${c.summary}` +
-            (c.routableParJev ? '' : ' <em>(préfixe uniquement)</em>')
+            (c.routableParLeChat ? '' : ' <em>(préfixe uniquement)</em>')
           list.appendChild(li)
         }
 

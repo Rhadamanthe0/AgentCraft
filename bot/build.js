@@ -2,7 +2,7 @@
 
 // Construction : geometrie et pose de blocs.
 //
-// Ce module ne parle jamais a Jev. Le modele classe (« c est une construction,
+// Ce module ne parle jamais au modele. Le modele classe (« c est une construction,
 // en terre, a cote d un arbre, avec une porte ») ; tout ce qui est chiffre —
 // dimensions, emplacement, ordre de pose — est calcule ici.
 //
@@ -148,9 +148,9 @@ function clamp (value) {
   return Math.max(MIN_SIZE, Math.min(MAX_SIZE, Math.round(value)))
 }
 
-// « 5 par 5 par 5 », « 5x5x5 », « 6 sur 4 », « de 5 blocs ». Jev ne sait pas
-// extraire de nombres, et ce n est pas son role : une expression reguliere est
-// exacte et gratuite.
+// « 5 par 5 par 5 », « 5x5x5 », « 6 sur 4 », « 5 de large et 4 de haut », « de
+// 5 blocs ». Extraire des nombres n est pas le role du modele : une expression
+// reguliere est exacte et gratuite.
 function parseDimensions (text) {
   const clean = String(text || '').toLowerCase().replace(/,/g, ' ')
   // « × » : le modele de chat reecrit volontiers « 3 par 3 par 3 » en
@@ -175,6 +175,29 @@ function parseDimensions (text) {
       depth: clamp(Number(two[2])),
       height: DEFAULT_SIZE,
       source: 'deux dimensions lues, hauteur par defaut'
+    }
+  }
+
+  // Dimensions nommees (« 5 blocs de large et 4 de haut », « tour de 6 de
+  // haut ») : chaque nombre sur son axe, les autres par defaut. Sans cela,
+  // « 5 blocs de large » passait pour un cube 5x5x5 (build/arch).
+  const axe = mots => {
+    const m = clean.match(new RegExp(`(\\d+)\\s*(?:blocs?\\s*)?de\\s*(?:${mots})\\b`))
+    return m ? clamp(Number(m[1])) : null
+  }
+  const nommees = {
+    width: axe('large|largeur'),
+    depth: axe('long|longueur|profondeur|profond'),
+    height: axe('haut|hauteur')
+  }
+  if (Object.values(nommees).some(v => v !== null)) {
+    const width = nommees.width ?? nommees.depth ?? DEFAULT_SIZE
+    return {
+      width,
+      depth: nommees.depth ?? width,
+      height: nommees.height ?? DEFAULT_SIZE,
+      source: 'dimensions nommees',
+      nommees: Object.fromEntries(Object.entries(nommees).filter(([, v]) => v !== null))
     }
   }
 

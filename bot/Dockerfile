@@ -7,7 +7,7 @@ RUN npm install --omit=dev --no-audit --no-fund \
     && npm cache clean --force
 
 # Glob volontaire : la liste explicite oubliait un fichier a chaque nouveau
-# module (index.js, jev.js, skills.js, mission.js).
+# module.
 COPY *.js ./
 COPY public ./public
 # Normalisation des droits de /data au demarrage (voir entrypoint.sh) : le

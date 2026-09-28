@@ -4,11 +4,8 @@
 // `/chat/completions` (DeepSeek, defaut inchange) et `/responses` (Muse Go),
 // et un seul endroit sait lire un JSON de modele.
 //
-// Pourquoi ce module existe : planner.js (le cerveau local, appele cent fois par
-// mission) et repair.js (le reparateur distant, appele sur blocage) parlaient au
-// meme protocol avec chacun sa copie de `call` et de `parseJson`. Une divergence
-// entre les deux copies ne se serait vue qu en jeu, et seulement sur le chemin
-// rare. Le protocole vit donc ici.
+// Pourquoi ce module existe : un seul endroit parle le protocole (et la sonde
+// des modeles du banc, ci/model-probe.js, le reutilise).
 //
 // Ce module ne connait ni modele, ni URL, ni cle : tout est passe par l appelant.
 // Il reste volontairement sans etat, hors du fetch. Il ne reessaie jamais et ne

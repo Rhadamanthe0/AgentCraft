@@ -70,7 +70,8 @@ services:
       API_PORT: "3000"
       # Seuils lus par le planificateur (noms historiques JEV_*).
       JEV_MIN_CONFIDENCE: "${JEV_MIN_CONFIDENCE:-0.6}"
-      # Au-dessus de ce seuil, Jev declare la mission accomplie.
+      # Au-dessus de ce seuil, le modele peut declarer la mission accomplie
+      # (encore faut-il que les chiffres le confirment : finishAllowed).
       JEV_DONE_THRESHOLD: "${JEV_DONE_THRESHOLD:-0.75}"
       # Garde-fous de la boucle de mission : elle s arrete au premier atteint.
       # Plus larges qu avant : une maison 5x5x5 en survie demande 96 blocs, donc
@@ -95,7 +96,7 @@ services:
       #
       # `x-opencode-session` doit rester STABLE par conversation : c est lui qui
       # optimise le routage et le cache de prompt cote OpenCode Zen. On le
-      # derive du pseudo du bot. Vider PLANNER_BASE_URL pour revenir a Jev.
+      # derive du pseudo du bot. Sans PLANNER_BASE_URL, aucune mission possible.
       PLANNER_BASE_URL: "${PLANNER_BASE_URL:-https://opencode.ai/zen/go/v1}"
       # deepseek-v4.1-flash est un modele a raisonnement : il lui faut de la
       # marge de sortie (PLANNER_MAX_TOKENS), sinon il raisonne jusqu'au bout et
@@ -132,10 +133,7 @@ services:
       # haute ne cree pas d action inutile, elle allonge seulement chaque plan.
       PLANNER_BUDGET_MIN_S: "${PLANNER_BUDGET_MIN_S:-6}"
       PLANNER_BUDGET_MAX_S: "${PLANNER_BUDGET_MAX_S:-10}"
-      # Documentation/exemples ajoutes aux actions natives par l'aide distante
-      # (`documenter`), conservee entre deux demarrages dans ACTIONS_DOC_FILE
-      # (defaut /data/actions-doc.json).
-      # La memoire du planificateur vit a cote, avec un plafond PAR PORTEE
+      # La memoire du planificateur, avec un plafond PAR PORTEE
       # (cache en couches, ARCHITECTURE.md §9) : la memoire long terme est la
       # couche 3 du prompt, ecrite une seule fois par mission (au finish) ;
       # la memoire de travail est la couche 4, fil de la mission en ajout

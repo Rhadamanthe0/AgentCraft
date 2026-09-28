@@ -9,15 +9,18 @@ en cache** et **ce qui change a chaque appel**.
 ### 1. Prompt systeme — mis en cache
 
 Construit une fois par cle
-`"<type>|<approvisionnement>|<docs.generation>|<memory.generation>"`
-(`planner.systemPrompt()`), puis renvoye **octet pour octet** a chaque appel. Il
-contient :
+`"<type>|<approvisionnement>|<profil>|<docs.generation>|<memory.generation>"`
+(`planner.basePrompt()`), puis renvoye **octet pour octet** a chaque appel. Le
+profil (`bois`, `fabrication`, donne par `mission.profilPrompt()`, A/B
+`prompt_type`) retire les regles qui ne servent pas a la mission. Il contient :
 
 - les consignes generales et les regles d'etat (ce que le modele doit faire
   selon `environnement.bloc_cible_a_portee`, `chantier.materiau_en_inventaire`,
   `blocage.detecte`, etc.) ;
-- le catalogue des actions **natives** (`skills.actionsFor(kind, supply, true)`)
-  avec leur **documentation et leurs exemples** (`skills.actionDoc()`) ;
+- le catalogue des actions **natives** du type de mission
+  (`skills.actionsFor(kind, supply)`, moins les actions coupees par un
+  interrupteur A/B) avec leur **documentation et leurs exemples**
+  (`skills.actionDoc()`) ;
 - les deux prompts voisins, `intent` (routage du chat) et `brief` (lecture de
   l'objectif), construits une seule fois ;
 - la **memoire long terme** (couche 3, voir la section finale).
@@ -25,9 +28,8 @@ contient :
 Il n'y a plus d'actions apprises ni de meta-actions : le modele compose ses
 enchainements a partir des seules actions natives, guide par leurs exemples. Il
 n'est reconstruit que si `docs.generation` ou `memory.generation` change,
-c'est-a-dire quand la documentation d'une action est enrichie par l'aide
-distante, ou quand la memoire long terme est commitee (fin de mission) ou
-effacee. Aucun horodatage, aucune position, aucune valeur de jeu n'y est
+c'est-a-dire quand un interrupteur A/B change le catalogue, ou quand la memoire
+long terme est commitee (fin de mission) ou effacee. Aucun horodatage, aucune position, aucune valeur de jeu n'y est
 injectee.
 
 ### 2. Message utilisateur — volatil
@@ -40,12 +42,15 @@ injectee.
   jetons, plafonds, restants, generation) — le texte des memoires, lui, vit dans
   les couches 3 et 4 du prompt systeme (voir la section finale) ;
 - `progression`, `bot` (`position`, `orientation`, `dans_liquide`),
-  `environnement` (`bloc_cible_*`, `bloc_regarde`), `inventaire`, `chantier`,
-  `blocage`, `demandeur`, `dernieres_etapes`, `chat_recent` ;
+  `environnement` (cible, navigation, `objets_au_sol`, `outil_necessaire`,
+  indices de montee), `inventaire`, `chantier` et `besoins`, `prerequis`
+  (solveur), `blocage`, `demandeur`, `dernieres_etapes`, `etapes_en_cours`,
+  `chat_recent` ;
 - `fabrications_possibles` (ajoute par `mission.extraState()`).
 
-Ce message fait quelques centaines de jetons, contre environ 4111 pour le
-systeme (14388 caracteres, a 3,5 caracteres par jeton).
+Ce message fait de l'ordre d'un a deux milliers de jetons, contre 24 a 30 k
+caracteres (~7 a 9 k jetons) pour le systeme selon le type de mission ; au
+banc, environ 89 % du prompt est servi depuis le cache.
 
 ### 3. Etat de mission — RAM
 
@@ -64,8 +69,8 @@ cache a chaque appel et on repaierait chaque fois le prompt entier.
 Regle : **tout ce qui bouge va dans le message utilisateur, ou dans la couche 4
 du prompt** (memoire de mission, reconstruite a chaque appel mais en ajout seul,
 donc son prefixe reste servi du cache). Le prompt systeme mis en cache ne depend
-que du type de mission, de l'approvisionnement, de la generation de la
-documentation des actions et de la generation de la memoire long terme.
+que du type de mission, de l'approvisionnement, du profil, de la generation du
+catalogue (interrupteurs) et de la generation de la memoire long terme.
 
 ## Memoire du planificateur (`bot/memory.js`)
 
@@ -151,8 +156,8 @@ refusee), `resetWork()`. Seule la portee `long_terme` est ecrite sur disque.
 - `DELETE /api/memory?portee=travail|long_terme|tout` l'efface.
 - `mission.status()` expose aussi `memoire`.
 
-Ce sont les memes garde-fous humains que pour la documentation des actions : on
-voit ce que le modele retient, et on l'efface s'il s'egare.
+C'est le garde-fou humain : on voit ce que le modele retient, et on l'efface
+s'il s'egare.
 
 ## Cache en couches du prompt
 
@@ -168,11 +173,11 @@ donnee qui bouge descend vers la couche la plus volatile**.
 | 2 | Actions possibles | catalogue natif (type, appro) + documentation/exemples | `docs.generation` |
 | 3 | Memoire long terme | 10000 jetons ; **editee uniquement en fin de mission** | fin de mission (generation memoire) |
 | 4 | Memoire de la mission | portee `travail`, 10000 max, **en ajout seul** | ajout d'une note ; compaction |
-| 5 | Reflexion de la tache | raisonnement + plan, regenere a chaque action | chaque appel |
+| 5 | Raisonnement du modele | raisonnement + plan, regenere a chaque appel | chaque appel |
 
 Les couches 1 et 2 forment le prompt systeme historique. La couche 3 y est
 ajoutee : la cle de cache complete est
-`<type>|<approvisionnement>|<docs.generation>|<memory.generation>`
+`<type>|<approvisionnement>|<profil>|<docs.generation>|<memory.generation>`
 (`planner.basePrompt()`). La couche 4 est recoltee a chaque appel par
 `planner.systemPrompt()` = `basePrompt()` + `missionMemoryLayer()`.
 
@@ -191,7 +196,7 @@ elles restent visibles dans la couche 4 (« a retenir ») — puis fusionnees da
 la couche 3 au `finish()` de la mission : une seule invalidation de la couche 3
 par mission.
 
-**Reflexion = `PLANNER_MAX_TOKENS` (2000).** Le raisonnement (compte dans
+**Raisonnement = `PLANNER_MAX_TOKENS` (2000).** Le raisonnement (compte dans
 `max_tokens` chez deepseek) est regenere a chaque appel ; il n'est ni stocke ni
 reinjecte. La couche 5 est par construction la plus volatile.
 
@@ -199,7 +204,7 @@ reinjecte. La couche 5 est par construction la plus volatile.
 
 | Element | Budget |
 | --- | --- |
-| Reflexion | `PLANNER_MAX_TOKENS` (2000) |
+| Raisonnement | `PLANNER_MAX_TOKENS` (2000) |
 | Memoire long terme | `MEMORY_LONG_TERM_TOKENS` (10000 jetons) |
 | Memoire de la mission | `MEMORY_WORK_TOKENS` (10000 max) ; compaction au-dela de `MEMORY_WORK_COMPACT_AT` (8000) vers moins de `MEMORY_WORK_COMPACT_TO` (4000) |
 | Note isolee | `MEMORY_NOTE_MAX` (4000 caracteres) |

@@ -1,8 +1,8 @@
 'use strict'
 
-// Fondation executeur a proprietaire unique (C4/C5/D18, pas encore cable).
-// Volontairement sans dependance : aucun watchdog / mission / nav ici.
-// Le cablage viendra plus tard ; ce module ne fait qu une chose :
+// Executeur a proprietaire unique, cable par index.js (slot physique des
+// missions, du suivi et des commandes directes). Volontairement sans
+// dependance : aucun watchdog / mission / nav ici. Il ne fait qu une chose :
 // garantir qu un seul callback physique tourne a la fois, avec annulation
 // par AbortController et arret synchrone des controles.
 //

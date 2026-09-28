@@ -35,7 +35,7 @@ test('modele de l usage : PLANNER_MODEL_<USAGE> sinon PLANNER_MODEL ; une liste 
   const env = { PLANNER_MODEL: 'a,b', PLANNER_MODEL_CHAT: 'c' }
   assert.equal(chain.modelFor('plan', env).model, 'a')
   assert.equal(chain.modelFor('interpretMessage', env).model, 'c')
-  assert.equal(chain.modelFor('classify', env).model, 'c')
+  assert.equal(chain.modelFor('interpretMessage', env).model, 'c')
 })
 
 test('refus du fournisseur : l erreur remonte, AUCUN autre modele n est essaye', async () => {

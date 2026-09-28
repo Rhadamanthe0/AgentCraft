@@ -90,15 +90,17 @@ test('surplus reutilise : excedent d une branche couvre l autre', () => {
   assert.equal(pop.outputTotal, 8)
 })
 
-test('cycle A<->B : echec explicite, jamais un succes', () => {
+// Un objet dont toutes les recettes ramenent a lui-meme (lingot <-> pepites)
+// ne se fabrique pas : echec explicite qui NOMME l objet manquant.
+test('cycle A<->B : echec explicite, A nomme manquant, jamais un succes', () => {
   const registry = regList([
     { result: { id: 'A', count: 1 }, ingredients: [{ id: 'B', count: 1 }] },
     { result: { id: 'B', count: 1 }, ingredients: [{ id: 'A', count: 1 }] }
   ])
   const plan = planCraft({ registry, target: 'A', count: 1, inventory: {} })
   assert.equal(plan.ok, false)
-  assert.equal(plan.reason, 'cycle')
   assert.equal(plan.operations.length, 0)
+  assert.deepEqual(plan.missing.map(m => m.name), ['A'])
 })
 
 test('auto-cycle : echec explicite', () => {
@@ -107,7 +109,7 @@ test('auto-cycle : echec explicite', () => {
   ])
   const plan = planCraft({ registry, target: 'A', count: 1, inventory: {} })
   assert.equal(plan.ok, false)
-  assert.equal(plan.reason, 'cycle')
+  assert.deepEqual(plan.missing.map(m => m.name), ['A'])
 })
 
 test('limite profondeur : chaine trop longue -> max-depth', () => {

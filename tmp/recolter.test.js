@@ -77,7 +77,7 @@ test('recolter sans matiere en vue echoue franchement', async () => {
 
 test('interrupteur recolter : action retiree du catalogue puis rendue', () => {
   skills.setFeatureEnabled('recolter', false)
-  assert.equal(skills.actionsFor('recolte', 'harvest', true).includes('recolter'), false)
+  assert.equal(skills.actionsFor('recolte', 'harvest').includes('recolter'), false)
   skills.setFeatureEnabled('recolter', true)
-  assert.equal(skills.actionsFor('recolte', 'harvest', true).includes('recolter'), true)
+  assert.equal(skills.actionsFor('recolte', 'harvest').includes('recolter'), true)
 })

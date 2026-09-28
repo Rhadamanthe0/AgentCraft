@@ -1,24 +1,20 @@
 'use strict'
 
-// Planificateur JSON : un appel rend **plusieurs** actions d affilee, la ou Jev
-// en rend une (voire deux appels : l action, puis ses parametres).
+// Planificateur JSON : le cerveau du bot. Un appel rend **plusieurs** actions
+// d affilee (1 a PLANNER_PLAN_MAX), executees sans rien redemander tant
+// qu elles reussissent : la latence d une mission est celle d un appel PAR
+// PLAN, pas par action. La boucle reste fermee : **le premier echec vide la
+// file** et fait replanifier sur l etat reel (voir mission.js).
 //
-// Pourquoi ce module existe alors que Jev marche : la latence d une mission
-// n est pas celle d un appel, c est celle d un appel *par action*. Une maison
-// 5x5x5 en survie demande 60 a 90 etapes, donc 90 a 180 allers-retours reseau.
-// Ici un seul appel rend une rafale de 1 a PLANNER_PLAN_MAX etapes, executees
-// sans rien redemander tant qu elles reussissent. Le cout par action s effondre,
-// et la boucle fermee est preservee : **le premier echec vide la file** et fait
-// replanifier sur l etat reel (voir mission.js).
+// Autres roles : lire un objectif (readBrief), interpreter un message de chat
+// (interpretMessage), concevoir un plan libre de construction
+// (designBlueprint), resumer la memoire (compaction).
 //
-// Deux transports, un seul protocole (OpenAI /chat/completions) :
-//   - Ollama local  : PLANNER_BASE_URL=http://host.docker.internal:11434/v1
-//                     PLANNER_MODEL=qwen2.5:3b-instruct  (pas de cle)
-//   - DeepSeek      : PLANNER_BASE_URL=https://api.deepseek.com
-//                     PLANNER_MODEL=deepseek-chat + PLANNER_API_KEY
+// Transport : llm.js (OpenAI /chat/completions ou /responses selon le modele) ;
+// modele, effort et cle par usage : model-chain.js.
 //
 // Le prompt systeme est construit en COUCHES, du plus profond au plus volatil
-// (ARCHITECTURE.md §9, docs/context-management.md) :
+// (docs/context-management.md) :
 //   1-3. consignes generales + catalogue d actions (avec leurs exemples) +
 //        memoire long terme — construits une fois par cle (type,
 //        approvisionnement, generation de la documentation des actions,
@@ -31,9 +27,10 @@
 // couches 1-3 : tout ce qui bouge va dans le message utilisateur, ou dans la
 // couche 4 (en ajout seul, donc son prefixe reste servi du cache lui aussi).
 //
-// Regle heritee de Jev et tenue ici : **le modele classe, il ne compte pas**.
-// Il ne rend jamais de coordonnees ni de quantite absolue, seulement un nom
-// d action et une ampleur de 0 a 4, traduite en unites par mission.scaled().
+// Regle : **le modele decide, le code mesure**. Le modele rend des actions et
+// leurs valeurs (duree, distance, quantite) ; les coordonnees, quotas et
+// besoins sont mesures par le code. Une valeur omise prend le milieu de sa
+// plage (mission.scaled).
 
 const skills = require('./skills')
 const memory = require('./memory')
@@ -42,15 +39,9 @@ const modelChain = require('./model-chain')
 
 const BASE_URL = (process.env.PLANNER_BASE_URL || '').replace(/\/+$/, '')
 const API_KEY = process.env.PLANNER_API_KEY || ''
-// Profil pilote D37/D49 : `muse-spark-1.3-contributor` par defaut, sans repli.
-// Le gateway Go sert Muse sur `/responses` (503 « Endpoint is unavailable » sur
-// `/chat/completions`) : llm.js parle desormais les deux protocoles avec
-// autodetection sur le nom, donc ce fichier choisit le MODELE et laisse llm.js
-// choisir l endpoint (protocole explicite quand meme, pour figer l intention).
-// Un `PLANNER_MODEL` explicitement configure (ex : deepseek existant) est
-// respecte tel quel jusqu a activation voulue : le profil reste inactif et rien
-// ne pretend Muse en jeu. `deepseek-v4.1-flash` percoit lui-meme les images
-// (appel reel verifie), donc la mini-carte reste lue sur les deux modeles.
+// Modele par defaut quand PLANNER_MODEL est vide : Muse, servi sur `/responses`
+// (llm.js choisit l endpoint d apres le nom). Le compose et le banc posent
+// PLANNER_MODEL (deepseek-v4.1-flash) et un modele par usage (model-chain.js).
 const PILOT_MODEL = 'muse-spark-1.3-contributor'
 const MODEL = (process.env.PLANNER_MODEL || '').trim() || PILOT_MODEL
 const TIMEOUT_MS = Number(process.env.PLANNER_TIMEOUT_MS || 12000)
@@ -147,8 +138,8 @@ const USER_AGENT = process.env.PLANNER_USER_AGENT || 'minecraft-bot/1.0'
 const keyState = modelChain.createKeyState(Number(process.env.PLANNER_KEY_COOLDOWN_MS || 600000))
 const DEBUG = process.env.PLANNER_DEBUG === '1'
 
-// Memes seuils que ceux qu utilisait Jev : ils ont ete regles en jeu, ils ne
-// dependent pas du modele qui repond.
+// Seuils regles en jeu (noms JEV_* historiques, gardes pour les .env
+// existants) ; ils ne dependent pas du modele qui repond.
 const DONE_THRESHOLD = Number(process.env.JEV_DONE_THRESHOLD || 0.75)
 const MIN_CONFIDENCE = Number(process.env.JEV_MIN_CONFIDENCE || 0.6)
 const DOOR_THRESHOLD = Number(process.env.JEV_DOOR_THRESHOLD || 0.6)
@@ -483,12 +474,9 @@ function isEnabled () {
 function actionCatalogue (kind, supply) {
   const lines = []
 
-  // `true` : le planificateur voit aussi les gestes de bas niveau (dire,
-  // regarder, sauter, appuyer), que Jev ne sait pas parametrer.
-  for (const name of skills.actionsFor(kind, supply, true)) {
+  for (const name of skills.actionsFor(kind, supply)) {
     const spec = skills.ACTIONS[name]
     const intent = typeof spec.intent === 'string' ? spec.intent : spec.intent.what
-    const typed = skills.paramsFor(name)
     const jsonish = skills.jsonParamsFor(name)
     const bits = []
 
@@ -521,7 +509,7 @@ function actionCatalogue (kind, supply) {
     )
 
     // Documentation et exemples de l action : c est ce qui guide la composition
-    // des enchainements. Ils peuvent avoir ete enrichis par l aide distante.
+    // des enchainements (documentation native, skills.ACTION_EXEMPLES).
     // Gabarit (voir skills.describeAction) : role = l intent ci-dessus,
     // params = les bornes annoncees, preconditions = `quand`, exemples et
     // contre-exemples (`ne pas`) cites sur des champs de mission.buildState().
@@ -669,8 +657,8 @@ sinon l etape est jetee. Pour aller vers le joueur qui a parle : rejoindre_deman
 pour te tourner vers lui : tourner_vers_demandeur.
 
 NAVIGATION — le code calcule le chemin vers un bloc cible :
-- Ces regles priment sur toute documentation ajoutee ou tout exemple ancien
-  proposant appuyer ou sauter pour rejoindre un bloc cible.
+- Ces regles priment sur tout exemple proposant appuyer ou sauter pour
+  rejoindre un bloc cible.
 - environnement.navigation present indique un bloc utile repere. Si
   bloc_cible_a_portee est faux, appelle avancer directement : le navigateur
   calcule un trajet autour des obstacles vers une position ou le bloc est
@@ -709,8 +697,10 @@ ${si(bois, `  Exception : dirt_secondaire_admise vrai ET dirt_secondaire_cible n
   obtiens et ramasse les blocs manquants avant de planifier cette
   montee, si la consigne l autorise.
 - Pour ramasser, navigation_objet decrit un OBJET tombe, pas un bloc cible.
-  Appelle ramasser directement : cette action marche vers les objets.
-  +0 inventaire est un echec. Ne dirige pas avancer avec navigation_objet.
+  Appelle ramasser directement : cette action marche vers les objets (et
+  grimpe ou creuse vers un objet tombe sur un rebord, environnement.objets_au_sol
+  dy >= 2). +0 inventaire est un echec. Ne dirige pas avancer avec
+  navigation_objet.
 - pivoter, sauter et appuyer restent des gestes disponibles pour une demande
   explicite du joueur, pas une methode de secours pour atteindre une ressource.
 
@@ -722,8 +712,8 @@ peux pas inventer d action ni en apprendre. Tu composes tes enchainements a
 partir de ces actions natives, en les enchainant dans "plan". Chaque action de
 ton plan est UNE de cette liste, avec ses valeurs au meme niveau que "action"
 (duree, distance, quantite, angle, touches, texte...), prises dans les bornes
-annoncees ; une etape sans valeur est refusee quand l action en exige une
-(ampleur manquante). Sers-toi des lignes "ex :" de chaque action : ce sont des
+annoncees ; donne toujours la valeur (omise, elle vaut le milieu de sa
+plage). Sers-toi des lignes "ex :" de chaque action : ce sont des
 exemples de composition deja valides. Jamais d action inventee.
 ${IMAGE_SECTION}
 
@@ -752,8 +742,8 @@ Ce que l etat impose, et qui n est pas negociable :
   priment aussi sur ces exemples historiques. Garde l arbre commence demande
   par le joueur ; un ancien conseil de chercher un autre arbre ne remplace pas
   cet objectif quand les mesures actuelles permettent de poursuivre le travail.
-- environnement.objets_au_sol_a_proximite a 0 => ramasser ne ramassera rien
-  (+0 inventaire = echec, pas un succes). Attention au mot : « ramasse de
+- environnement.objets_au_sol_a_proximite a 0 => ramasser ne sert a rien (rien
+  au sol) ; environnement.objets_au_sol nomme ce qui est tombe. Attention au mot : « ramasse de
   l herbe » ou « ramasse des graines » veut dire en OBTENIR, donc CASSER de
   l herbe (les graines tombent de l herbe cassee). L action ramasser ne sert
   qu a marcher sur des objets deja tombes, guides par
@@ -820,7 +810,8 @@ ${si(bois, `- environnement.acces_par_montee non null => la cible retenue devien
   via etat.fabrications_possibles et les recettes du jeu : planches avant
   batons avant etabli avant outil, sans inventer de recette. Si
   fabrications_possibles est vide ou ne contient pas la cible, recolte d abord
-  la matiere brute (casser/ramasser) puis fabrique. Ne conclus jamais sur un
+  la matiere brute (recolter) puis fabrique ; ce qui ne se fabrique pas se
+  cuit (cuire). Ne conclus jamais sur un
   quota de recolte ni sur un seul plan : seul l objet cible compte.
 - environnement.prerequis (fabrication) = chaine calculee par le code depuis
   l inventaire reel et les donnees du jeu : prochaine_etape, a_recolter
@@ -885,12 +876,11 @@ let memoryGeneration = -1
 
 // La base mise en cache : couches 1-3 (consignes + catalogue + memoire long
 // terme). La cle porte la generation de la memoire et celle de la documentation
-// des actions : un commit long terme, un effacement, ou un exemple d action
-// ajoute par l aide distante reconstruit la couche concernee, les autres appels
-// relisent la base octet pour octet.
+// des actions : un commit long terme, un effacement, ou un interrupteur A/B
+// bascule reconstruit la couche concernee, les autres appels relisent la base
+// octet pour octet.
 function basePrompt (kind, supply, profil = null) {
-  // La documentation d une action a change (exemple ajoute/modifie/retire par
-  // l aide) : tous les prompts systeme doivent etre reconstruits, et les anciens
+  // Le catalogue a change (interrupteur A/B) : tous les prompts systeme doivent etre reconstruits, et les anciens
   // jetes, sinon le modele relirait les exemples perimes.
   if (skills.docGeneration !== promptGeneration || memory.generation !== memoryGeneration) {
     prompts.clear()
@@ -950,7 +940,7 @@ const parseJson = llm.parseJson
 // ---------------------------------------------------------------------------
 
 function clampScale (value) {
-  const levels = skills.SCALE_RUBRIC.length - 1
+  const levels = skills.SCALE_LEVELS
   if (value === undefined || value === null || !Number.isFinite(Number(value))) {
     return { level: null, scale: 0.5 }
   }
@@ -1000,7 +990,7 @@ function coerceParams (action, entry) {
 const ACTION_ALIASES = { pilier: 'piler' }
 
 function validate (raw, kind, supply) {
-  const allowed = new Set(skills.actionsFor(kind, supply, true))
+  const allowed = new Set(skills.actionsFor(kind, supply))
   const steps = []
   const rejected = []
   let seconds = 0
@@ -1021,10 +1011,10 @@ function validate (raw, kind, supply) {
     const folded = rawAction.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     const action = ACTION_ALIASES[folded] ?? folded
 
-    // Le planificateur JSON donne des valeurs NUMERIQUES — « casser pendant 5
-    // secondes », « avancer de 12 blocs » — et non plus une ampleur abstraite.
-    // On les garde telles quelles : le modele decide combien, le code execute.
-    // `ampleur` reste lu pour le repli Jev, qui ne sait repondre que sur 0-4.
+    // Le planificateur donne des valeurs NUMERIQUES — « casser pendant 5
+    // secondes », « avancer de 12 blocs ». On les garde telles quelles : le
+    // modele decide combien, le code execute. `ampleur` (0-4, optionnelle)
+    // sert de defaut quand une valeur manque.
     const { level, scale } = clampScale(entry?.ampleur)
 
     // Il n y a plus d action apprise ni de meta-action : seules les actions
@@ -1057,7 +1047,7 @@ function validate (raw, kind, supply) {
       continue
     }
 
-    const levels = skills.SCALE_RUBRIC.length - 1
+    const levels = skills.SCALE_LEVELS
     steps.push({
       action,
       scale: level === null || levels === 0 ? 0.5 : scale,
@@ -1170,7 +1160,7 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Les deux autres roles repris a Jev : router un message de chat, et lire un
+// Les deux autres roles : router un message de chat, et lire un
 // objectif. Memes regles qu au-dessus — JSON strict, prompt systeme stable donc
 // mis en cache, et le modele classe sans jamais compter.
 //
@@ -1183,32 +1173,6 @@ function optionList (criteria) {
   return Object.entries(criteria)
     .map(([name, intent]) => `- ${name} : ${typeof intent === 'string' ? intent : intent.what}`)
     .join('\n')
-}
-
-function intentPrompt () {
-  const key = 'intent'
-  if (!prompts.has(key)) {
-    prompts.set(key, `Tu routes le chat d un serveur Minecraft. Tu decides si un message s adresse au bot et ce que le bot doit en faire.
-
-Tu recois {"message": "<ce qu un joueur vient d ecrire>"} et tu rends du JSON, rien d autre :
-{"commande": "<un nom de la liste>", "confiance": 0.0}
-
-Choix possibles, et rien d autre :
-${optionList(skills.intentCriteria())}
-
-Regles :
-- "mission" des qu un joueur s adresse au bot, meme pour le saluer ou lui poser
-  une question : le bot en fera une mission et composera lui-meme les actions.
-  Cela couvre les ordres, les gestes, les deplacements et les questions.
-- "stop" seulement pour un ordre clair d arret.
-- "aucune" est reserve aux messages qui ne s adressent PAS au bot : deux autres
-  joueurs se parlent, remarque sur le paysage ou le clavier. Dans le doute sur une
-  phrase qui t est adressee, choisis "mission".
-- "confiance" de 0 a 1 : ta certitude. En dessous de ${MIN_CONFIDENCE} le bot ne fera rien.
-- Tu ne lis pas de coordonnees : la commande de deplacement chiffre s ecrit avec
-  un prefixe et ne passe jamais par toi.`)
-  }
-  return prompts.get(key)
 }
 
 function briefPrompt () {
@@ -1284,34 +1248,6 @@ Tu ne rends aucune dimension et aucun nombre de blocs : le code les lit
 lui-meme dans la phrase.`)
   }
   return prompts.get(key)
-}
-
-// Renvoie { command, confidence, actionable }, ou null si le planificateur est
-// eteint — index.js le traite alors comme une panne et le dit dans le chat,
-// exactement comme il le faisait pour Jev.
-async function classify (message, opts = {}) {
-  if (!isEnabled()) return null
-
-  const response = await call(intentPrompt(), JSON.stringify({ message }), null, { ...opts, task: 'classify' })
-  const parsed = parseJson(response.content)
-
-  const command = String(parsed?.commande ?? 'aucune').trim().toLowerCase()
-  const confidence = Number.isFinite(Number(parsed?.confiance))
-    ? Math.max(0, Math.min(1, Number(parsed.confiance)))
-    : 0
-
-  // Un nom hors catalogue est traite comme « aucune » : mieux vaut un bot muet
-  // qu un bot qui devine, c est la regle du projet.
-  const known = Object.prototype.hasOwnProperty.call(skills.intentCriteria(), command)
-
-  return {
-    command: known ? command : 'aucune',
-    confidence: known ? confidence : 0,
-    probabilities: null,
-    actionable: known && command !== 'aucune' && confidence >= MIN_CONFIDENCE,
-    usage: response.usage ?? null,
-    ms: response.ms
-  }
 }
 
 function pick (value, criteria, fallback) {
@@ -1546,7 +1482,6 @@ module.exports = {
   isEnabled,
   warmup,
   plan,
-  classify,
   readBrief,
   designBlueprint,
   interpretMessage,
@@ -1570,8 +1505,6 @@ module.exports = {
   DOOR_THRESHOLD,
   profileStatus,
   onProfileEvent,
-  _profile,
   _resetProfile,
-  _callWithProfile: callWithProfile,
   get lastError () { return lastError }
 }
