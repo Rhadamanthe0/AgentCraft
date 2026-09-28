@@ -914,6 +914,18 @@ function createMissionRunner (host, injected = {}) {
     return valeur
   }
 
+  // Fabrication dont le plan complet n a plus rien a recolter (tout est en
+  // poche) : recolter ou explorer la matiere du brief serait une errance
+  // (craft/iron-pickaxe 68ea147 : 3 minerais en poche, four fait, plan
+  // « cuire puis fabriquer », le modele cherchait encore du minerai 5 min).
+  // Rend l etape suivante a faire, ou null.
+  function rienARecolter () {
+    const plan = acquisition()
+    if (!plan?.ok || !plan.etapes?.length) return null
+    if (plan.etapes.some(e => e.op === 'recolter')) return null
+    return acquirePlan.describe(plan, 1)[0] ?? null
+  }
+
   // Le meilleur bloc de la matiere visee a travailler : ni le bloc qui porte le
   // bot, ni un bloc situe trop bas sous lui, ni un bloc trop haut pour etre
   // atteint. Parmi les candidats, on preferre TOUJOURS un bloc reellement
@@ -3283,6 +3295,8 @@ function createMissionRunner (host, injected = {}) {
       const visee = Number.isFinite(Number(params.quantite))
         ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
         : scaled(scale, 1, 16)
+      const suite = rienARecolter()
+      if (suite) return { resultat: `rien a recolter : tout est en poche, etape suivante du plan : ${suite}`, echec: true, code: 'plan' }
       const matiere = harvestResource()
       if (!skills.RESOURCES[matiere]?.items) {
         return { resultat: 'aucune matiere a recolter pour cette mission', echec: true }
@@ -3463,10 +3477,24 @@ function createMissionRunner (host, injected = {}) {
         if (pasCourt) await stepOnto(item)
         // Meme navigateur que l approche de ressource, mais jusqu au rayon
         // de collecte. Pas de succes sans gain d inventaire plus bas.
-        const walk = await host.navigateToPosition(item.position, {
+        let walk = await host.navigateToPosition(item.position, {
           signal: mission.navigationAbort.signal, __owner: stepToken,
           radius: ITEM_AUTO_PICKUP, pickup: true, timeoutMs: 10000
         })
+        // Trajet refuse depuis son propre pilier (objet un bloc plus bas, sous
+        // le seuil de descente) : pilier defait jusqu au sol, puis nouvel essai
+        // (trees/tall 68ea147 : buche a y=201, bot perche a y=202, 0/1 cinq fois).
+        if (!walk.reached && !mission.cancelled) {
+          const live = host.getBot()
+          const dessous = live?.entity && live.blockAt(live.entity.position.offset(0, -0.5, 0))
+          if (dessous && (PILER_DIRT.test(dessous.name) || /_planks$/.test(dessous.name)) && isPillarBlock(live, dessous) &&
+              (await descendScaffold(-Infinity, { pillarOnly: true })) > 0) {
+            walk = await host.navigateToPosition(item.position, {
+              signal: mission.navigationAbort.signal, __owner: stepToken,
+              radius: ITEM_AUTO_PICKUP, pickup: true, timeoutMs: 10000
+            })
+          }
+        }
         if (!walk.reached) {
           bloqueVu = true
           // Trajet refuse alors que l objet est tout pres et au meme niveau :
@@ -4721,6 +4749,8 @@ function createMissionRunner (host, injected = {}) {
       const distance = Number.isFinite(Number(params.distance))
         ? Math.max(8, Math.min(32, Math.round(Number(params.distance))))
         : scaled(scale, 8, 32)
+      const suite = rienARecolter()
+      if (suite) return { resultat: `rien a chercher : tout est en poche, etape suivante du plan : ${suite}`, echec: true, code: 'plan' }
       const enVue = () => findTargetBlock(undefined, { anyHeight: true }) ??
         (mission.landmarkResource ? findTargetBlock(mission.landmarkResource, { anyHeight: true }) : null)
       const deja = enVue()
