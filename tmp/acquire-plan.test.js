@@ -105,3 +105,9 @@ test('four deja pose : pas de nouveau four ni de pierre pour lui', () => {
   assert.equal(avec.etapes.some(e => e.op === 'recolter'), false)
   assert.ok(avec.etapes.some(e => e.op === 'cuire'))
 })
+
+test('combustible : planches de toute essence en poche, aucune recolte de bois', () => {
+  const p = plan('iron_pickaxe', { raw_iron: 3, birch_planks: 4, stick: 4 }, { furnaceNearby: true, tableNearby: true })
+  assert.equal(p.ok, true)
+  assert.equal(p.etapes.some(e => e.op === 'recolter'), false)
+})

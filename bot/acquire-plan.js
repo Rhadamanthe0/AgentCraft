@@ -277,10 +277,28 @@ function planAcquire (args) {
     // tenait deja, iron-pickaxe 45ee8cf et 453d7f4).
     if (!ensure(raw, need, depth + 1, next)) return false
     if (have('furnace') === 0 && !ensure('furnace', 1, depth + 1, next)) return false
-    const fuel = Math.ceil(need / 1.5)
-    if (!ensure('oak_planks', fuel, depth + 1, next)) return false
+    // Combustible deja en poche, toute essence (charbon, buches, planches ;
+    // jamais le cru) : avant, seules les oak_planks comptaient (iron-pickaxe
+    // b7421cc : 4 birch_planks en poche, « recolter 1 oak_log » sans arbre).
+    const FUEL = [[/^(coal|charcoal)$/, 8], [/_log$|_stem$/, 1.5], [/_planks$/, 1.5]]
+    let reste = need
+    const brule = []
+    for (const [motif, par] of FUEL) {
+      for (const [nom, n] of [...stock]) {
+        if (reste <= 0 || nom === raw || !motif.test(nom) || n <= 0) continue
+        const pris = Math.min(n, Math.ceil(reste / par))
+        brule.push([nom, pris])
+        reste -= pris * par
+      }
+    }
+    if (reste > 0) {
+      const planches = prefer.find(p => /_planks$/.test(p)) ?? 'oak_planks'
+      const manque = Math.ceil(reste / 1.5)
+      if (!ensure(planches, have(planches) + manque, depth + 1, next)) return false
+      brule.push([planches, manque])
+    }
     take(raw, need)
-    take('oak_planks', fuel)
+    for (const [nom, n] of brule) take(nom, n)
     add(name, need)
     steps.push({ op: 'cuire', objet: name, quantite: need, depuis: raw })
     return true
