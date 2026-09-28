@@ -81,3 +81,20 @@ test('interrupteur recolter : action retiree du catalogue puis rendue', () => {
   skills.setFeatureEnabled('recolter', true)
   assert.equal(skills.actionsFor('recolte', 'harvest').includes('recolter'), true)
 })
+
+// terminer contredit par l arbre demande (buches encore debout) : refuse et
+// reinjecte au lieu de clore en echec (chat/replace-and-join 73b4876).
+test('terminer refuse tant que l arbre demande n est pas fini', async () => {
+  const f = fixture({ logs: [new Vec3(2, 65, 0), new Vec3(2, 66, 0), new Vec3(2, 67, 0)], quantite: 3 })
+  const suite = ['terminer', 'casser', 'terminer']
+  let i = 0
+  planner.plan = async () => {
+    const action = suite[Math.min(i++, suite.length - 1)]
+    return { ms: 0, seconds: 1, rejected: [], done: 0, finished: false,
+      steps: [{ action, scale: 0, scaleLevel: null, choices: action === 'casser' ? { duree: 1 } : { quantite: 3 } }] }
+  }
+  await f.r.start('coupe moi un arbre', 'test')
+  const status = await finished(f.r)
+  assert.equal(f.held, 3)
+  assert.notEqual(status.etat, 'failed')
+})

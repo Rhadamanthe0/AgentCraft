@@ -221,7 +221,7 @@ async function main () {
     let stderr = ''
     child.stdout.on('data', d => { stdout += d })
     child.stderr.on('data', d => { stderr += d })
-    // La sonde d intelligence enchaine 12 lectures et 4 aides (muse : ~20-35 s chacune).
+    // La sonde d intelligence enchaine 12 lectures d objectif (muse : ~20-35 s chacune).
     const kill = setTimeout(() => child.kill('SIGKILL'), flag === '--smart' ? 840000 : 240000)
     child.on('close', () => {
       clearTimeout(kill)
