@@ -145,9 +145,8 @@ test('retry ne valide jamais un bloc different du materiau choisi', async t => {
   assert.match(f.step.resultat, /pilier impossible/)
 })
 
-test('hauteur trop courte pour la buche la plus basse : refus qui dit le minimum', async t => {
+test('hauteur trop courte pour la buche la plus basse : portee au minimum mesure', async t => {
   const f = await simulate(t, { inventory: [{ name: 'dirt', count: 6 }], height: 1 })
-  assert.equal(f.step.echec, true)
-  assert.match(f.step.resultat, /piler au moins 6/)
-  assert.deepEqual(f.placements, [])
+  assert.match(f.step.resultat, /hauteur 1 portee a 6/)
+  assert.ok(f.placements.length > 1)
 })

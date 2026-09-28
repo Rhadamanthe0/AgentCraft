@@ -914,6 +914,16 @@ function createMissionRunner (host, injected = {}) {
     return valeur
   }
 
+  // Construction dont le materiau en poche couvre deja les blocs restants :
+  // chercher ou recolter encore serait une errance. Rend un texte, ou null.
+  function materiauSuffisant () {
+    if (mission?.kind !== 'construction' || !mission.plan) return null
+    const reste = buildProgress().left
+    const bot = host.getBot()
+    const stock = (bot?.inventory?.items() ?? []).filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
+    return reste > 0 && stock >= reste ? `materiau en poche suffisant (${stock} pour ${reste} bloc(s) restants) : construire` : null
+  }
+
   // Fabrication dont le plan complet n a plus rien a recolter (tout est en
   // poche) : recolter ou explorer la matiere du brief serait une errance
   // (craft/iron-pickaxe 68ea147 : 3 minerais en poche, four fait, plan
@@ -1998,6 +2008,14 @@ function createMissionRunner (host, injected = {}) {
     const boite = w && dp && h ? w * dp * 2 + Math.max(0, 2 * (w + dp) - 4) * Math.max(0, h - 2) - (mission.wantsDoor ? 2 : 0) : null
     const restants = mission.plan ? progress.left : boite
     if (restants === null) return null
+    // Plan libre pas encore concu : la boite aux dimensions lues surestime
+    // (arche 5x1x4 = 11 blocs, boite 5x5x4 = 82 ; build/arch e58d6cd : 20 s
+    // d exploration pour une pierre deja en poche). Le besoin se chiffre une
+    // fois le terrain choisi.
+    if (!mission.plan && featureOn('plans')) {
+      return { blocs_restants: null, en_poche: stock, a_obtenir: null,
+        resume: 'choisir_terrain d abord : le besoin exact se calcule avec la forme du chantier' }
+    }
     const aPoser = Math.max(0, restants - stock)
     const porteManquante = Boolean(mission.wantsDoor) && !doorPlaced() && !doorItem()
     const items = bot.inventory.items()
@@ -3311,6 +3329,8 @@ function createMissionRunner (host, injected = {}) {
         : scaled(scale, 1, 16)
       const suite = rienARecolter()
       if (suite) return { resultat: `rien a recolter : tout est en poche, etape suivante du plan : ${suite}`, echec: true, code: 'plan' }
+      const assez = materiauSuffisant()
+      if (assez) return { resultat: `rien a recolter : ${assez}` }
       const matiere = harvestResource()
       if (!skills.RESOURCES[matiere]?.items) {
         return { resultat: 'aucune matiere a recolter pour cette mission', echec: true }
@@ -4032,6 +4052,21 @@ function createMissionRunner (host, injected = {}) {
           result = await approach()
         }
       }
+      // Poste atteint au sol, cible trop haute : la hauteur de pilier se
+      // mesure (ecart - portee), et avec l echafaudage en poche le code monte
+      // lui-meme au lieu d un echec « reobserve » qui jetait le plan
+      // (trees/bent e58d6cd). Sans stock : l echec dit le besoin.
+      if (result.code === 'needs_height' && mission.kind === 'recolte' && !mission.cancelled) {
+        const besoin = Math.ceil(Number(result.verticalGap) - MAX_REACH_UP)
+        if (besoin >= 1 && besoin <= PILER_MAX && scaffoldingStock(host.getBot()).total >= besoin) {
+          const pile = await ACTIONS.piler(null, { hauteur: besoin })
+          const live = host.getBot()
+          if (!pile.echec && live?.entity && blockInReach(live, live.entity.position, cible.position.offset(0.5, 0.5, 0.5), REACH)) {
+            return { resultat: `${cible.name} rejoint a portee par un pilier de ${besoin} : ${pile.resultat}`, code: 'pilier' }
+          }
+          degage += ` (pilier de ${besoin} : ${pile.resultat})`
+        }
+      }
       if (!result.reached && ['no_path', 'dug_out_of_reach'].includes(result.code) && cible?.position) {
         marquerInjoignable(cible.position)
         degage += ' ; ce bloc est mis de cote, le prochain avancer en visera un autre'
@@ -4061,9 +4096,10 @@ function createMissionRunner (host, injected = {}) {
     // dans le monde : un refus serveur n est jamais compte comme une reussite.
     async piler (scale, params = {}) {
       const bot = host.getBot()
-      const hauteur = Number.isFinite(Number(params.hauteur))
+      let hauteur = Number.isFinite(Number(params.hauteur))
         ? Math.max(PILER_MIN, Math.min(PILER_MAX, Math.round(Number(params.hauteur))))
         : scaled(scale, PILER_MIN, PILER_MAX)
+      let ajuste = ''
 
       if (host.inLiquid()) {
         return { resultat: 'dans un liquide : sortir d abord, un pilier ne tient pas dans l eau', echec: true }
@@ -4107,11 +4143,12 @@ function createMissionRunner (host, injected = {}) {
         }
         const ecartHaut = haute ? haute.position.y - Math.floor(bot.entity.position.y) : null
         const minimum = ecartHaut === null ? 0 : ecartHaut - MAX_REACH_UP
+        // Hauteur hors de l intervalle utile mesure : ramenee dedans (le code
+        // mesure la cible). Avant, un refus qui jetait le plan (« trop
+        // courte », 2 fois par banc) pour un simple ecart d un bloc.
         if (haute && mission?.kind !== 'construction' && minimum > hauteur && minimum <= PILER_MAX) {
-          return {
-            resultat: `hauteur ${hauteur} trop courte : ${haute.name} a +${ecartHaut}, piler au moins ${minimum} pour l atteindre`,
-            echec: true
-          }
+          ajuste = ` (hauteur ${hauteur} portee a ${minimum} : ${haute.name} a +${ecartHaut})`
+          hauteur = minimum
         }
         // Symetrique : plus haut que le sommet du tronc vise, le bot monte dans
         // la couronne (feuilles cassees au-dessus de la tete) sans rien gagner.
@@ -4123,10 +4160,8 @@ function createMissionRunner (host, injected = {}) {
           while (/_(log|stem)$/.test(bot.blockAt(sommet.offset(0, 1, 0))?.name ?? '')) sommet = sommet.offset(0, 1, 0)
           const maximum = sommet.y - Math.floor(bot.entity.position.y) - 1
           if (maximum >= Math.max(1, minimum) && hauteur > maximum) {
-            return {
-              resultat: `hauteur ${hauteur} trop haute : sommet du tronc a +${maximum + 1}, piler entre ${Math.max(1, minimum)} et ${maximum}`,
-              echec: true
-            }
+            ajuste = ` (hauteur ${hauteur} ramenee a ${maximum} : sommet du tronc a +${maximum + 1})`
+            hauteur = maximum
           }
         }
       }
@@ -4349,7 +4384,7 @@ function createMissionRunner (host, injected = {}) {
         return { resultat: `pilier impossible : ${failure ?? 'aucun bloc pose'}`, echec: true }
       }
       return {
-        resultat: `pilier de ${poses}/${hauteurVisee} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)${recupere}` +
+        resultat: `pilier de ${poses}/${hauteurVisee} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)${recupere}${ajuste}` +
           (failure ? `, arret : ${failure}` : ', reobserver depuis le haut'),
         echec: poses !== hauteurVisee || Boolean(failure),
         code: poses === hauteurVisee && !failure ? 'pilier_pose' : 'pilier_partiel',
@@ -4368,8 +4403,8 @@ function createMissionRunner (host, injected = {}) {
         const progres = buildProgress()
         if (progres.done > 0) {
           return {
-            resultat: `chantier deja commence (${progres.done}/${progres.total} poses) : construire la suite, pas de nouveau terrain`,
-            echec: true
+            // Rien n a rate : le chantier existe (plan anticipe perime).
+            resultat: `chantier deja choisi (${progres.done}/${progres.total} poses) : construire la suite`
           }
         }
       }
@@ -4768,6 +4803,8 @@ function createMissionRunner (host, injected = {}) {
         : scaled(scale, 8, 32)
       const suite = rienARecolter()
       if (suite) return { resultat: `rien a chercher : tout est en poche, etape suivante du plan : ${suite}`, echec: true, code: 'plan' }
+      const assez = materiauSuffisant()
+      if (assez) return { resultat: `rien a chercher : ${assez}` }
       const enVue = () => findTargetBlock(undefined, { anyHeight: true }) ??
         (mission.landmarkResource ? findTargetBlock(mission.landmarkResource, { anyHeight: true }) : null)
       const deja = enVue()

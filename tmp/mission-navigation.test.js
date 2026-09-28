@@ -142,7 +142,9 @@ test('cible basse prioritaire sur cible haute : approche normale preservee', asy
   assert.deepEqual(f.controls, [])
 })
 
-test('poste rapproche mais cible trop haute : besoin mesure remonte, jamais succes ni pilier automatique', async () => {
+// Avec de l echafaudage en poche, avancer tente le pilier mesure (ecart -
+// portee) ; s il echoue (ici : aucun appui simule), l echec dit le besoin.
+test('poste rapproche mais cible trop haute : pilier mesure tente, jamais un succes sans portee', async () => {
   const f = highTargetFixture({ low: true, navigationResult: {
     reached: false, code: 'needs_height', horizontalDistance: 1.8, verticalGap: 4.5,
     position: { x: 3.5, y: 60, z: 0.5 }, remaining: 4.85, travelled: 4
@@ -157,7 +159,7 @@ test('poste rapproche mais cible trop haute : besoin mesure remonte, jamais succ
   assert.match(step.resultat, /1.8.*\+4.5.*hors portee/)
   assert.equal(state.etat, 'failed')
   assert.equal(state.blocs_casses, 0)
-  assert.deepEqual(f.controls, [])
+  assert.match(step.resultat, /pilier de 2/)
 })
 
 test('geste explicite et exploration sans cible haute gardent leur deplacement libre', async () => {
