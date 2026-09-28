@@ -184,7 +184,12 @@ dans `docs/journal.md` (section « Les pieges »).
    deplacement de mission passe par le **navigateur partage**
    (`navigation.js` : A* pour le calcul, execution physique locale mesuree) ;
    le pathfinder ne sert plus qu a `digToward` (trajet qui creuse), aux
-   commandes `!va`/`!viens` et au sauvetage.
+   commandes `!va`/`!viens` et au sauvetage. Pour un bloc a casser,
+   `digToward` vise « bloc en vue et a portee » (`GoalLookAtBlock`) : `GoalNear`
+   arrondit le centre du bloc et creusait un trou au pied du mur. Le pathfinder
+   planifie parfois une montee d un bloc sous un plafond de deux (impossible,
+   la tete touche) et replanifie sans fin : trois `stuck` sur place arretent
+   le trajet (code `stuck`).
 7. **Chien de garde et pathfinder s entretuent** sans `RESCUE_COOLDOWN_MS`.
    Avant toute hypothese « il ne bouge plus » : `forward` maintenu via
    `/api/control` (le bot bouge-t-il ?) puis `/api/goto` (le pathfinder

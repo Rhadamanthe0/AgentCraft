@@ -4094,7 +4094,7 @@ function createMissionRunner (host, injected = {}) {
       if ((result.code === 'no_path' || farAbove) && !noye && recours && !mission.cancelled &&
         typeof host.digToward === 'function') {
         const dug = await host.digToward(cible.position.offset(0.5, 0.5, 0.5), {
-          signal: mission.navigationAbort.signal, protectBuilt: mission.kind === 'construction'
+          signal: mission.navigationAbort.signal, protectBuilt: mission.kind === 'construction', block: cible.position
         })
         if (dug.reached) {
           mission.digPaths = (mission.digPaths ?? 0) + 1
