@@ -70,7 +70,7 @@ services:
       NODE_PATH: /work/bot/node_modules
     # Meme borne que les sondes : a 600 s, un banc lent (MINIPC-CLEM, mode exec)
     # perdait le harness en plein banc (bc0cd22).
-    command: ["node", "/work/ci/harness.js", "TestProbe1", "--idle-secs", "1700"]
+    command: ["node", "/work/ci/harness.js", "TestProbe1", "--idle-secs", "4200"]
     ports:
       - "127.0.0.1::3101"
     depends_on:
@@ -213,7 +213,7 @@ services:
       # Aucune sonde au demarrage : une par worker, lancee avec son bot
       # (TestProbe<N+1> pour TreeBotN) par ci/pool.py ; TestProbe1 reste au harness.
       CONTROL_PORT: "2998"
-    command: ["node", "/work/ci/probes.js", "--idle-secs", "1700"]
+    command: ["node", "/work/ci/probes.js", "--idle-secs", "4200"]
     ports:
       - "127.0.0.1::2998"
     mem_limit: 1536m

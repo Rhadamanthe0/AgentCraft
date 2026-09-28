@@ -902,6 +902,11 @@ def run_route_script(level, x0, bot, username, output, rcon, bot_api, probe_name
 
 
 BUILD_CAP_S = 300
+# Construction (composites surtout) : fin anticipee apres ce delai sans aucun
+# changement (blocs poses, position, inventaire, etat de mission). Vu sur
+# composite/stone-hut-from-scratch 9b05563 : bot immobile 44 min, 0 bloc, puis
+# plafond de 45 min ; l echec reste un echec, il arrive plus tot.
+BUILD_IDLE_S = 600
 
 
 def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count):
@@ -925,10 +930,19 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     events = sorted(level.get('events', []))
     event_answers = []
     seen, end_reason, last_count_at, now_placed = False, f'plafond de {cap} s', 0, before
+    signature, changed_at = None, time.monotonic()
     while time.monotonic() - started < cap:
         s = bot_api(bot, '/api/status')
         running = bool(s.get('missionRunning'))
         seen = seen or running
+        p = s.get('position') or {}
+        current = (now_placed, tuple(round(p.get(k) or 0) for k in 'xyz'),
+                   json.dumps(s.get('inventory'), sort_keys=True), (s.get('mission') or {}).get('etapes'))
+        if current != signature:
+            signature, changed_at = current, time.monotonic()
+        if seen and time.monotonic() - changed_at > BUILD_IDLE_S:
+            end_reason = f'aucun changement en {BUILD_IDLE_S} s (blocs, position, inventaire, etapes)'
+            break
         if events and seen and time.monotonic() - started >= events[0][0]:
             at, message = events.pop(0)
             reply = bot_api(bot, '/api/instruction', {'message': message, 'requester': probe_name})

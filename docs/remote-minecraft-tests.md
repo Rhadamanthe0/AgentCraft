@@ -541,7 +541,11 @@ code auquel on ne fait pas confiance.
 Le joueur donne un BUT, jamais les etapes : le bot enchaine lui-meme recolte,
 fabrication et construction. Plafond 45 min par scenario (`COMPOSITE_CAP_S`),
 lances en premier (`EXPECTED_S`, file LPT) ; `MISSION_MAX_STEPS` 1500 et
-`MISSION_MAX_DURATION_MS` 45 min cote bot ; job a 75 min.
+`MISSION_MAX_DURATION_MS` 45 min cote bot ; job a 75 min. Harness et sondes
+vivent 4200 s (`--idle-secs`), au-dela du plafond d un composite. Un niveau de
+construction s arrete apres `BUILD_IDLE_S` (600 s) sans aucun changement
+(blocs poses, position, inventaire, etapes) : l echec arrive plus tot et le
+banc garde les journaux.
 
 - `composite/cabin-from-scratch` (palier 1, bloquant) : inventaire vide, cinq
   arbres, « Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte ».
