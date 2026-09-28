@@ -560,16 +560,16 @@ def base_levels():
             'leaves': [(2, 204, 4, 6, 205, 8)], 'logs': [((4, 200 + i, 6), 'birch_log') for i in range(4)], 'rules': {},
         },
         {
-            # Chaine la plus longue (cuisson comprise), informative tant
-            # qu elle n a pas passe 3 bancs d affilee.
+            # Chaine la plus longue (cuisson comprise).
             'name': 'craft/iron-pickaxe',
             'about': 'Inventaire vide, arbre, pierre, minerai de fer : « Fabrique une pioche en fer » '
                      '(bois, pioche en bois, pierre, pioche en pierre, fer, four, cuisson, batons, pioche).',
             # Chaine la plus longue du banc depuis la cuisson (2026-09-27) : la
             # pioche en pierre seule prend 100-170 s ; four, 3 minerais et 30 s
-            # de cuisson en plus. Informatif tant qu il n a pas passe 3 bancs.
+            # de cuisson en plus. Bloquant (4 bancs reussis d affilee au
+            # 2026-09-28, 230-326 s).
             'kind': 'gather', 'instruction': 'Fabrique une pioche en fer', 'items': ['iron_pickaxe'],
-            'target': 1, 'cap': 480, 'informative': True, 'variants': [sans('solveur')],
+            'target': 1, 'cap': 480, 'variants': [sans('solveur')],
             'terrain': [(20, 200, 26, 24, 201, 30, 'stone'), (22, 201, 26, 22, 201, 26, 'iron_ore'),
                         (23, 201, 26, 23, 201, 26, 'iron_ore'), (24, 201, 27, 24, 201, 27, 'iron_ore')],
             'leaves': [(6, 204, 6, 10, 205, 10)], 'logs': _logs(*[(8, 200 + i, 8) for i in range(4)]), 'rules': {},
