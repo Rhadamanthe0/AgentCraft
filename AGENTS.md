@@ -197,7 +197,11 @@ dans `docs/journal.md` (section « Les pieges »).
 8. **Craft en 26.1** : `bot.craft(recette, N>1)` desynchronise la fenetre ;
    fabrication unite par unite, fenetre 0 fermee et inventaire resynchronise
    (`_syncWindow`) avant et apres ; un ingredient reste dans la grille 2x2 est
-   invisible pour `items()`.
+   invisible pour `items()`. mineflayer ne garde qu un numero d etat (`stateId`)
+   pour toutes les fenetres : `craft.trackWindowStateIds` (branche a la
+   creation du bot) remet dans chaque clic celui de SA fenetre, sans quoi les
+   `set_slot` de l inventaire pendant un craft sur etabli faisaient renvoyer
+   au serveur une fenetre perimee (hache jamais fabriquee, sans consommation).
 9. **Un bloc casse sans le bon outil ne lache rien** : `harvestCheck` avant
    CHAQUE bloc d une rafale (la matiere visee peut changer en cours de route).
 10. **`findTargetBlock` ne vise que des blocs VISIBLES** et jamais le bloc qui

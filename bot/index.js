@@ -1424,6 +1424,7 @@ function connectBot () {
     })
 
     bot.loadPlugin(pathfinder)
+    craft.trackWindowStateIds(bot)
     // Le logger publie dans le chat des qu une instance est joignable.
     logger.attach(bot)
 
