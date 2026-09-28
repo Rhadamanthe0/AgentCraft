@@ -1494,6 +1494,18 @@ function createMissionRunner (host, injected = {}) {
     })
   }
 
+  // Perche sur sa propre colonne (pilier monte pour une buche haute) : rien a
+  // poser autour (etabli, four), chantier injoignable a pied. Descente jusqu au
+  // sol, colonne isolee seulement (composite 93a6f04 : 10 echecs d affilee).
+  async function quitterPilier (raison) {
+    const bot = host.getBot()
+    const dessous = bot?.entity ? bot.blockAt(bot.entity.position.offset(0, -0.5, 0)) : null
+    if (!dessous || !(PILER_DIRT.test(dessous.name) || /_planks$/.test(dessous.name)) || !isPillarBlock(bot, dessous)) return 0
+    const n = await descendScaffold(-Infinity, { pillarOnly: true })
+    if (n) console.log(`[mission] ${raison} : pilier defait avant (${n} bloc(s))`)
+    return n
+  }
+
   async function descendScaffold (targetY = -Infinity, { pillarOnly = false } = {}) {
     let removed = 0
     for (let i = 0; i < PILER_MAX + 2 && !mission.cancelled; i += 1) {
@@ -3602,6 +3614,7 @@ function createMissionRunner (host, injected = {}) {
         return r.produced > 0 ? { resultat: res } : { resultat: `${res} : rien sorti du four`, echec: true }
       } catch (err) {
         const manque = (err.missing ?? []).map(m => `${m.count} ${m.name}`).join(', ')
+        if (/aucune place libre/.test(err.message) && (await quitterPilier('cuire')) > 0) return ACTIONS.cuire(scale, params)
         return { resultat: `cuisson de ${objet} impossible : ${err.message}${manque ? ` (manque : ${manque})` : ''}`, echec: true, code: err.code }
       }
     },
@@ -3754,6 +3767,21 @@ function createMissionRunner (host, injected = {}) {
         // Manque de ressource : message generique du make (missing structuré),
         // sans recette hardcodee par phrase ; le pilote y lit quoi recolter.
         // Persiste pour finishAllowed (pourquoi du refus), borne 200 car.
+        if (/aucune place libre/.test(err?.message ?? '') && (await quitterPilier('fabriquer')) > 0) return ACTIONS.fabriquer(scale, params)
+        // Rien de fabricable faute de matiere premiere, et le plan du solveur
+        // commence par la recolter ou la cuire : la faire, puis refabriquer une
+        // fois (craft/door 93a6f04 : planches demandees sans buche, echec).
+        if (err?.code === 'missing' && !params._apresPrealable) {
+          const suivante = acquisition()?.etapes?.[0]
+          if (suivante?.op === 'recolter' || suivante?.op === 'cuire') {
+            const r = suivante.op === 'recolter'
+              ? await ACTIONS.recolter(null, { quantite: suivante.quantite })
+              : await ACTIONS.cuire(null, { objet: suivante.objet, quantite: suivante.quantite })
+            if (r.echec) return { ...r, resultat: `${target} : il manquait la matiere, ${suivante.op} d abord : ${r.resultat}` }
+            const f = await ACTIONS.fabriquer(scale, { ...params, _apresPrealable: true })
+            return { ...f, resultat: `${suivante.op} d abord (${r.resultat}) ; ${f.resultat}` }
+          }
+        }
         mission.fabricationLastError = String(err?.message ?? 'impossible').slice(0, 200)
         return { resultat: `fabrication de ${target} impossible : ${err.message}`, echec: true }
       }
@@ -3876,6 +3904,14 @@ function createMissionRunner (host, injected = {}) {
       const high = !cible && mission.kind !== 'geste' ? highTargetHint() : null
       if (high) {
         const stock = scaffoldingStock(host.getBot()).total
+        // Cible deja a portee horizontale, seule la hauteur manque : avec
+        // l echafaudage en poche, le code monte lui-meme (meme regle que
+        // needs_height plus bas ; trees/bent 93a6f04 : echec « piler peut aider »).
+        const besoin = high.denivele - MAX_REACH_UP
+        if (besoin >= 1 && besoin <= PILER_MAX && stock >= besoin && !mission.cancelled) {
+          const pile = await ACTIONS.piler(null, { hauteur: besoin })
+          if (!pile.echec) return { resultat: `cible haute ${high.cible} : ${pile.resultat}`, code: 'pilier' }
+        }
         const dirt = craft.countOf(host.getBot(), PILER_DIRT)
         const next = stock > 0
           ? 'piler peut aider si l appui et l espace au-dessus sont libres ; la pose reste a verifier'
@@ -4496,6 +4532,7 @@ function createMissionRunner (host, injected = {}) {
 
     async construire (scale, params = {}) {
       if (!mission.plan) return { resultat: 'aucun emplacement choisi', echec: true }
+      await quitterPilier('construire')
 
       const bot = host.getBot()
       const budget = Number.isFinite(Number(params.quantite))
@@ -4610,6 +4647,7 @@ function createMissionRunner (host, injected = {}) {
       if (!mission.plan) return { resultat: 'aucun emplacement choisi', echec: true }
       if (!mission.plan.door) return { resultat: 'ce plan n a pas de porte', echec: true }
       if (doorPlaced()) return { resultat: 'la porte est deja posee' }
+      await quitterPilier('poser_porte')
 
       let progress = buildProgress()
       // Murs pas finis : les poser d abord si le materiau est en poche

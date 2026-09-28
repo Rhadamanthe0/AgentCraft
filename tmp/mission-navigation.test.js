@@ -114,7 +114,9 @@ test('etat secondaire mesure la cible effective de casser, permission distincte 
   }
 })
 
-test('cible seulement en hauteur : avancer refuse sans controle ni navigation, stock mesure', async () => {
+// Stock en poche : le pilier mesure (denivele - portee) est tente d abord ; ici
+// sans appui simule il echoue, et l echec garde le constat chiffre.
+test('cible seulement en hauteur : pilier tente avec stock, sinon refus sans controle ni navigation', async () => {
   for (const stock of [2, 0]) {
     const f = highTargetFixture({ stock })
     await f.r.start('ramasse du bois', 'human')
@@ -125,9 +127,13 @@ test('cible seulement en hauteur : avancer refuse sans controle ni navigation, s
     assert.match(step.resultat, /\+5/)
     assert.match(step.resultat, new RegExp(`${stock} dirt`))
     assert.match(step.resultat, stock ? /piler.*si.*(?:appui|espace)/ : /stock court/)
-    assert.deepEqual(f.controls, [])
+    if (stock === 0) {
+      assert.deepEqual(f.controls, [])
+      assert.equal(f.looks, 0)
+    } else {
+      assert.ok(f.controls.every(c => c.control === 'jump'))
+    }
     assert.deepEqual(f.navigation, [])
-    assert.equal(f.looks, 0)
     assert.deepEqual(f.bot.entity.position, new Vec3(0.5, 65, 0.5))
   }
 })
