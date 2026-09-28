@@ -90,6 +90,12 @@ def kpi_lines(report):
     for name, f in sorted(k['familles'].items()):
         lines.append(f"- {name} : {round(100 * (f['tauxEchec'] or 0), 1)} % d echecs ({f['echecs']}/{f['etapes']}), "
                      f"{f['blocages']} blocage(s)")
+    echecs = [(t2['test'], e) for t2 in report['tests'] if not t2.get('informative')
+              for e in ((t2.get('kpi') or {}).get('detail') or [])]
+    if echecs:
+        lines += ['', 'Actions en echec (niveaux bloquants, objectif 0) :']
+        for name, e in echecs[:60]:
+            lines.append(f"- {name} a {e.get('t')} s : {e.get('action')} -> {e.get('resultat')}")
     blocs = [(t2['test'], b) for t2 in report['tests'] for b in (t2.get('blocages') or [])]
     if blocs:
         lines += ['', 'Blocages annonces (a analyser) :']

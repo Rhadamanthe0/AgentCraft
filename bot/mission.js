@@ -21,6 +21,7 @@ const skills = require('./skills')
 const build = require('./build')
 const craft = require('./craft')
 const acquirePlan = require('./acquire-plan')
+const { planCraft } = require('./recipe-plan')
 const delivery = require('./delivery')
 const { DELIVERY, DOOR } = require('./conversation')
 const reflexes = require('./reflexes')
@@ -818,8 +819,10 @@ function createMissionRunner (host, injected = {}) {
   // bois (pilier, dirt secondaire, hache), fabrication (prerequis). Coupe :
   // null, prompt complet comme avant.
   function profilPrompt () {
-    if (!mission || !featureOn('prompt_type')) return null
-    return { bois: harvestResource() === 'bois', fabrication: Boolean(mission.fabricationCible) }
+    if (!mission) return null
+    const sansDonner = !livraisonDemandee(mission)
+    if (!featureOn('prompt_type')) return { tout: true, sansDonner }
+    return { bois: harvestResource() === 'bois', fabrication: Boolean(mission.fabricationCible), sansDonner }
   }
 
   function acquisition () {
@@ -912,6 +915,16 @@ function createMissionRunner (host, injected = {}) {
     }
     harvestMemo = { mission, cle, valeur, at: Date.now() }
     return valeur
+  }
+
+  // Construction dont le materiau en poche couvre deja les blocs restants :
+  // chercher ou recolter encore serait une errance. Rend un texte, ou null.
+  function materiauSuffisant () {
+    if (mission?.kind !== 'construction' || !mission.plan) return null
+    const reste = buildProgress().left
+    const bot = host.getBot()
+    const stock = (bot?.inventory?.items() ?? []).filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
+    return reste > 0 && stock >= reste ? `materiau en poche suffisant (${stock} pour ${reste} bloc(s) restants) : construire` : null
   }
 
   // Fabrication dont le plan complet n a plus rien a recolter (tout est en
@@ -1481,6 +1494,18 @@ function createMissionRunner (host, injected = {}) {
     })
   }
 
+  // Perche sur sa propre colonne (pilier monte pour une buche haute) : rien a
+  // poser autour (etabli, four), chantier injoignable a pied. Descente jusqu au
+  // sol, colonne isolee seulement (composite 93a6f04 : 10 echecs d affilee).
+  async function quitterPilier (raison) {
+    const bot = host.getBot()
+    const dessous = bot?.entity ? bot.blockAt(bot.entity.position.offset(0, -0.5, 0)) : null
+    if (!dessous || !(PILER_DIRT.test(dessous.name) || /_planks$/.test(dessous.name)) || !isPillarBlock(bot, dessous)) return 0
+    const n = await descendScaffold(-Infinity, { pillarOnly: true })
+    if (n) console.log(`[mission] ${raison} : pilier defait avant (${n} bloc(s))`)
+    return n
+  }
+
   async function descendScaffold (targetY = -Infinity, { pillarOnly = false } = {}) {
     let removed = 0
     for (let i = 0; i < PILER_MAX + 2 && !mission.cancelled; i += 1) {
@@ -1998,6 +2023,14 @@ function createMissionRunner (host, injected = {}) {
     const boite = w && dp && h ? w * dp * 2 + Math.max(0, 2 * (w + dp) - 4) * Math.max(0, h - 2) - (mission.wantsDoor ? 2 : 0) : null
     const restants = mission.plan ? progress.left : boite
     if (restants === null) return null
+    // Plan libre pas encore concu : la boite aux dimensions lues surestime
+    // (arche 5x1x4 = 11 blocs, boite 5x5x4 = 82 ; build/arch e58d6cd : 20 s
+    // d exploration pour une pierre deja en poche). Le besoin se chiffre une
+    // fois le terrain choisi.
+    if (!mission.plan && featureOn('plans')) {
+      return { blocs_restants: null, en_poche: stock, a_obtenir: null,
+        resume: 'choisir_terrain d abord : le besoin exact se calcule avec la forme du chantier' }
+    }
     const aPoser = Math.max(0, restants - stock)
     const porteManquante = Boolean(mission.wantsDoor) && !doorPlaced() && !doorItem()
     const items = bot.inventory.items()
@@ -3173,7 +3206,21 @@ function createMissionRunner (host, injected = {}) {
       // hors de portee — l echec informe le planificateur qu il faut avancer.
       // Repli dirt : un bois trop loin avec de la dirt a portee et un pilier
       // utile ne repart pas bredouille, il ramene du carburant de pilier.
-      const reach = bot.entity.position.distanceTo(first.position.offset(0.5, 0.5, 0.5))
+      let reach = bot.entity.position.distanceTo(first.position.offset(0.5, 0.5, 0.5))
+      // Cible en vue mais hors de portee (plan anticipe perime, bloc casse
+      // entre-temps) : le trajet d `avancer` d abord, puis la casse, au lieu
+      // d un echec qui jetait le plan (« bloc trop loin », 5 bancs).
+      if (reach > REACH && !secondaire) {
+        const approche = await ACTIONS.avancer(null, { distance: 24 })
+        const suivant = findTargetBlock()
+        const live = host.getBot()
+        if (!approche.echec && suivant && live?.entity) {
+          first = suivant
+          reach = live.entity.position.distanceTo(first.position.offset(0.5, 0.5, 0.5))
+        } else if (approche.echec) {
+          return { resultat: `bloc trop loin, approche impossible : ${approche.resultat}`, echec: true, code: approche.code }
+        }
+      }
       if (reach > REACH) {
         return { resultat: `bloc trop loin (${reach.toFixed(1)} blocs), il faut d abord avancer`, echec: true }
       }
@@ -3296,7 +3343,10 @@ function createMissionRunner (host, injected = {}) {
         ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
         : scaled(scale, 1, 16)
       const suite = rienARecolter()
-      if (suite) return { resultat: `rien a recolter : tout est en poche, etape suivante du plan : ${suite}`, echec: true, code: 'plan' }
+      // Pas un echec : rien n a rate, la file continue (plan anticipe perime).
+      if (suite) return { resultat: `rien a recolter : tout est en poche, etape suivante du plan : ${suite}`, code: 'plan' }
+      const assez = materiauSuffisant()
+      if (assez) return { resultat: `rien a recolter : ${assez}` }
       const matiere = harvestResource()
       if (!skills.RESOURCES[matiere]?.items) {
         return { resultat: 'aucune matiere a recolter pour cette mission', echec: true }
@@ -3398,6 +3448,8 @@ function createMissionRunner (host, injected = {}) {
       if (items.length === 0) return { resultat: 'aucun objet au sol a proximite : rien a ramasser' }
 
       const before = countResourceItems()
+      const totalPoche = () => (host.getBot()?.inventory?.items() ?? []).reduce((n, i) => n + i.count, 0)
+      const beforeTotal = totalPoche()
       // Dirt secondaire (mission bois) : le carburant du pilier. `ramasser`
       // ne creditait que la matiere visee : une dirt cassee pour un pilier
       // puis ramasee rendait un faux echec (« rien de la matiere visee ») qui
@@ -3523,6 +3575,13 @@ function createMissionRunner (host, injected = {}) {
       const gained = countResourceItems() - before
       const total = Math.min(budget, distant.length)
       const dirt = dirtGagnee()
+      // Objets ramasses, mais pas de la matiere visee (terre cassee pour le
+      // pilier, pousse) : le geste a reussi, le quota ne bouge pas (trees/tall
+      // 93a6f04 : « +0 », echec qui jetait la suite du plan).
+      const autres = totalPoche() - beforeTotal
+      if (gained <= 0 && dirt <= 0 && autres > 0) {
+        return { resultat: `${atteints}/${total} objet(s) atteint(s), +${autres} hors matiere visee (quota inchange)` }
+      }
       if (gained <= 0 && dirt <= 0) {
         return {
           resultat: `${atteints}/${total} objet(s) atteint(s), +0 dans l inventaire : rien de la matiere visee collectee`,
@@ -3564,6 +3623,7 @@ function createMissionRunner (host, injected = {}) {
         return r.produced > 0 ? { resultat: res } : { resultat: `${res} : rien sorti du four`, echec: true }
       } catch (err) {
         const manque = (err.missing ?? []).map(m => `${m.count} ${m.name}`).join(', ')
+        if (/aucune place libre/.test(err.message) && (await quitterPilier('cuire')) > 0) return ACTIONS.cuire(scale, params)
         return { resultat: `cuisson de ${objet} impossible : ${err.message}${manque ? ` (manque : ${manque})` : ''}`, echec: true, code: err.code }
       }
     },
@@ -3618,6 +3678,14 @@ function createMissionRunner (host, injected = {}) {
           reorientation = `assez de ${target}, etape suivante du plan faite a la place : `
           target = suivante.objet
           wanted = Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Number(suivante.quantite) || CRAFT_MIN))
+        } else if (suivante?.op === 'recolter' || suivante?.op === 'cuire') {
+          // Etape suivante = une recolte ou une cuisson : la faire (craft/furnace
+          // 8779070 : planches redemandees, « suite du plan : recolter 6
+          // cobblestone », plan jete trois fois).
+          const r = suivante.op === 'recolter'
+            ? await ACTIONS.recolter(null, { quantite: suivante.quantite })
+            : await ACTIONS.cuire(null, { objet: suivante.objet, quantite: suivante.quantite })
+          return { ...r, resultat: `assez de ${target}, etape suivante du plan faite a la place : ${r.resultat}` }
         } else {
           return {
             resultat: `assez de ${target} pour ${mission.fabricationCible} : suite du plan : ` +
@@ -3678,9 +3746,51 @@ function createMissionRunner (host, injected = {}) {
             (made.usedTable ? ' (a l etabli)' : '')
         }
       } catch (err) {
+        // Pas de quoi faire les `wanted` demandes, mais de quoi en faire moins
+        // (composite 8779070 : 16 planches demandees, 2 buches en poche, echec) :
+        // fabriquer ce que l inventaire permet, en le disant.
+        if (err?.code === 'missing' && wanted > 1 && err.item) {
+          const registre = craft.getDataset(bot)
+          const inv = craft.inventoryMap(bot)
+          delete inv[err.item]
+          let possible = 0
+          for (let n = wanted - 1; n >= 1 && registre; n--) {
+            try {
+              if (planCraft({ registry: registre, target: err.item, count: n, inventory: inv }).ok) { possible = n; break }
+            } catch (_) { break }
+          }
+          if (possible > 0) {
+            try {
+              const made = await craft.make(bot, err.item, possible, {
+                move: async stand => (await host.navigateToPosition(stand, {
+                  signal: mission.navigationAbort.signal, __owner: stepToken, radius: 1, timeoutMs: 20000, distanceBudget: 48
+                }))?.reached === true
+              })
+              return {
+                resultat: reorientation + `${made.produced} ${made.item} fabrique(s) sur ${wanted} demande(s) : ` +
+                  `ingredients pour ${possible} seulement (${String(err.message).slice(0, 100)})`
+              }
+            } catch (_) { /* echec franc ci-dessous */ }
+          }
+        }
         // Manque de ressource : message generique du make (missing structuré),
         // sans recette hardcodee par phrase ; le pilote y lit quoi recolter.
         // Persiste pour finishAllowed (pourquoi du refus), borne 200 car.
+        if (/aucune place libre/.test(err?.message ?? '') && (await quitterPilier('fabriquer')) > 0) return ACTIONS.fabriquer(scale, params)
+        // Rien de fabricable faute de matiere premiere, et le plan du solveur
+        // commence par la recolter ou la cuire : la faire, puis refabriquer une
+        // fois (craft/door 93a6f04 : planches demandees sans buche, echec).
+        if (err?.code === 'missing' && !params._apresPrealable) {
+          const suivante = acquisition()?.etapes?.[0]
+          if (suivante?.op === 'recolter' || suivante?.op === 'cuire') {
+            const r = suivante.op === 'recolter'
+              ? await ACTIONS.recolter(null, { quantite: suivante.quantite })
+              : await ACTIONS.cuire(null, { objet: suivante.objet, quantite: suivante.quantite })
+            if (r.echec) return { ...r, resultat: `${target} : il manquait la matiere, ${suivante.op} d abord : ${r.resultat}` }
+            const f = await ACTIONS.fabriquer(scale, { ...params, _apresPrealable: true })
+            return { ...f, resultat: `${suivante.op} d abord (${r.resultat}) ; ${f.resultat}` }
+          }
+        }
         mission.fabricationLastError = String(err?.message ?? 'impossible').slice(0, 200)
         return { resultat: `fabrication de ${target} impossible : ${err.message}`, echec: true }
       }
@@ -3803,6 +3913,14 @@ function createMissionRunner (host, injected = {}) {
       const high = !cible && mission.kind !== 'geste' ? highTargetHint() : null
       if (high) {
         const stock = scaffoldingStock(host.getBot()).total
+        // Cible deja a portee horizontale, seule la hauteur manque : avec
+        // l echafaudage en poche, le code monte lui-meme (meme regle que
+        // needs_height plus bas ; trees/bent 93a6f04 : echec « piler peut aider »).
+        const besoin = high.denivele - MAX_REACH_UP
+        if (besoin >= 1 && besoin <= PILER_MAX && stock >= besoin && !mission.cancelled) {
+          const pile = await ACTIONS.piler(null, { hauteur: besoin })
+          if (!pile.echec) return { resultat: `cible haute ${high.cible} : ${pile.resultat}`, code: 'pilier' }
+        }
         const dirt = craft.countOf(host.getBot(), PILER_DIRT)
         const next = stock > 0
           ? 'piler peut aider si l appui et l espace au-dessus sont libres ; la pose reste a verifier'
@@ -3998,7 +4116,17 @@ function createMissionRunner (host, injected = {}) {
               const closer = await host.digToward(centre, { signal: mission.navigationAbort.signal, range: 1, protectBuilt: mission.kind === 'construction' })
               if (closer.travelled) travelled += closer.travelled
             }
-            result = inReach()
+            // Le trajet creuse a pu mettre a portee un autre bloc de la meme
+            // matiere : c est lui la cible (gather/sand-walled 93a6f04 : echec
+            // « dug_out_of_reach », puis sable a 0.5 bloc a l etape suivante).
+            if (!inReach() && !mission.cancelled) {
+              const autre = findTargetBlock()
+              const live = host.getBot()
+              if (autre && live?.entity && blockInReach(live, live.entity.position, autre.position.offset(0.5, 0.5, 0.5), REACH)) cible = autre
+            }
+            const aPortee = inReach() || Boolean(cible && host.getBot()?.entity &&
+              blockInReach(host.getBot(), host.getBot().entity.position, cible.position.offset(0.5, 0.5, 0.5), REACH))
+            result = aPortee
               ? { reached: true, travelled, code: 'dug' }
               : { reached: false, travelled, code: 'dug_out_of_reach' }
           }
@@ -4016,6 +4144,21 @@ function createMissionRunner (host, injected = {}) {
         if (climbed) {
           degage += ` (${climbed})`
           result = await approach()
+        }
+      }
+      // Poste atteint au sol, cible trop haute : la hauteur de pilier se
+      // mesure (ecart - portee), et avec l echafaudage en poche le code monte
+      // lui-meme au lieu d un echec « reobserve » qui jetait le plan
+      // (trees/bent e58d6cd). Sans stock : l echec dit le besoin.
+      if (result.code === 'needs_height' && mission.kind === 'recolte' && !mission.cancelled) {
+        const besoin = Math.ceil(Number(result.verticalGap) - MAX_REACH_UP)
+        if (besoin >= 1 && besoin <= PILER_MAX && scaffoldingStock(host.getBot()).total >= besoin) {
+          const pile = await ACTIONS.piler(null, { hauteur: besoin })
+          const live = host.getBot()
+          if (!pile.echec && live?.entity && blockInReach(live, live.entity.position, cible.position.offset(0.5, 0.5, 0.5), REACH)) {
+            return { resultat: `${cible.name} rejoint a portee par un pilier de ${besoin} : ${pile.resultat}`, code: 'pilier' }
+          }
+          degage += ` (pilier de ${besoin} : ${pile.resultat})`
         }
       }
       if (!result.reached && ['no_path', 'dug_out_of_reach'].includes(result.code) && cible?.position) {
@@ -4047,9 +4190,10 @@ function createMissionRunner (host, injected = {}) {
     // dans le monde : un refus serveur n est jamais compte comme une reussite.
     async piler (scale, params = {}) {
       const bot = host.getBot()
-      const hauteur = Number.isFinite(Number(params.hauteur))
+      let hauteur = Number.isFinite(Number(params.hauteur))
         ? Math.max(PILER_MIN, Math.min(PILER_MAX, Math.round(Number(params.hauteur))))
         : scaled(scale, PILER_MIN, PILER_MAX)
+      let ajuste = ''
 
       if (host.inLiquid()) {
         return { resultat: 'dans un liquide : sortir d abord, un pilier ne tient pas dans l eau', echec: true }
@@ -4093,11 +4237,12 @@ function createMissionRunner (host, injected = {}) {
         }
         const ecartHaut = haute ? haute.position.y - Math.floor(bot.entity.position.y) : null
         const minimum = ecartHaut === null ? 0 : ecartHaut - MAX_REACH_UP
+        // Hauteur hors de l intervalle utile mesure : ramenee dedans (le code
+        // mesure la cible). Avant, un refus qui jetait le plan (« trop
+        // courte », 2 fois par banc) pour un simple ecart d un bloc.
         if (haute && mission?.kind !== 'construction' && minimum > hauteur && minimum <= PILER_MAX) {
-          return {
-            resultat: `hauteur ${hauteur} trop courte : ${haute.name} a +${ecartHaut}, piler au moins ${minimum} pour l atteindre`,
-            echec: true
-          }
+          ajuste = ` (hauteur ${hauteur} portee a ${minimum} : ${haute.name} a +${ecartHaut})`
+          hauteur = minimum
         }
         // Symetrique : plus haut que le sommet du tronc vise, le bot monte dans
         // la couronne (feuilles cassees au-dessus de la tete) sans rien gagner.
@@ -4109,10 +4254,8 @@ function createMissionRunner (host, injected = {}) {
           while (/_(log|stem)$/.test(bot.blockAt(sommet.offset(0, 1, 0))?.name ?? '')) sommet = sommet.offset(0, 1, 0)
           const maximum = sommet.y - Math.floor(bot.entity.position.y) - 1
           if (maximum >= Math.max(1, minimum) && hauteur > maximum) {
-            return {
-              resultat: `hauteur ${hauteur} trop haute : sommet du tronc a +${maximum + 1}, piler entre ${Math.max(1, minimum)} et ${maximum}`,
-              echec: true
-            }
+            ajuste = ` (hauteur ${hauteur} ramenee a ${maximum} : sommet du tronc a +${maximum + 1})`
+            hauteur = maximum
           }
         }
       }
@@ -4335,7 +4478,7 @@ function createMissionRunner (host, injected = {}) {
         return { resultat: `pilier impossible : ${failure ?? 'aucun bloc pose'}`, echec: true }
       }
       return {
-        resultat: `pilier de ${poses}/${hauteurVisee} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)${recupere}` +
+        resultat: `pilier de ${poses}/${hauteurVisee} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)${recupere}${ajuste}` +
           (failure ? `, arret : ${failure}` : ', reobserver depuis le haut'),
         echec: poses !== hauteurVisee || Boolean(failure),
         code: poses === hauteurVisee && !failure ? 'pilier_pose' : 'pilier_partiel',
@@ -4354,8 +4497,8 @@ function createMissionRunner (host, injected = {}) {
         const progres = buildProgress()
         if (progres.done > 0) {
           return {
-            resultat: `chantier deja commence (${progres.done}/${progres.total} poses) : construire la suite, pas de nouveau terrain`,
-            echec: true
+            // Rien n a rate : le chantier existe (plan anticipe perime).
+            resultat: `chantier deja choisi (${progres.done}/${progres.total} poses) : construire la suite`
           }
         }
       }
@@ -4408,6 +4551,7 @@ function createMissionRunner (host, injected = {}) {
 
     async construire (scale, params = {}) {
       if (!mission.plan) return { resultat: 'aucun emplacement choisi', echec: true }
+      await quitterPilier('construire')
 
       const bot = host.getBot()
       const budget = Number.isFinite(Number(params.quantite))
@@ -4522,10 +4666,19 @@ function createMissionRunner (host, injected = {}) {
       if (!mission.plan) return { resultat: 'aucun emplacement choisi', echec: true }
       if (!mission.plan.door) return { resultat: 'ce plan n a pas de porte', echec: true }
       if (doorPlaced()) return { resultat: 'la porte est deja posee' }
+      await quitterPilier('poser_porte')
 
-      const progress = buildProgress()
+      let progress = buildProgress()
+      // Murs pas finis : les poser d abord si le materiau est en poche
+      // (composite 8779070 : porte demandee avec 16 blocs restants, refus).
+      let prealable = ''
+      if (progress.left > 0 && buildItem()) {
+        const r = await ACTIONS.construire(null, { quantite: Math.min(40, progress.left) })
+        prealable = `${r.resultat} ; `
+        progress = buildProgress()
+      }
       if (progress.left > 0) {
-        return { resultat: `il reste ${progress.left} bloc(s) a poser avant la porte`, echec: true }
+        return { resultat: `${prealable}il reste ${progress.left} bloc(s) a poser avant la porte`, echec: true }
       }
 
       // La porte doit avoir ete fabriquee : l essence est celle des planches
@@ -4596,12 +4749,15 @@ function createMissionRunner (host, injected = {}) {
       // moque et boucle sur « dire -> attendre », une fois toutes les deux
       // secondes. Le code compte donc a sa place : jamais deux fois la meme
       // phrase dans une mission, et pas plus d une phrase par DIRE_COOLDOWN_MS.
+      // Phrase tue : pas un echec (rien n a rate dans le monde) ; en echec,
+      // elle jetait la suite du plan (16 fois sur 5 bancs). Une boucle de
+      // `dire` reste vue par detectStuck (meme resultat 3 fois).
       if (mission.saidTexts.includes(texte)) {
-        return { resultat: 'deja dit, le bot ne se repete pas', echec: true }
+        return { resultat: 'deja dit, non repete : continuer le travail' }
       }
       if (Date.now() - mission.lastSaidAt < DIRE_COOLDOWN_MS) {
         const reste = Math.ceil((DIRE_COOLDOWN_MS - (Date.now() - mission.lastSaidAt)) / 1000)
-        return { resultat: `trop tot pour reparler (encore ${reste} s)`, echec: true }
+        return { resultat: `non dit : trop tot pour reparler (encore ${reste} s), continuer le travail` }
       }
 
       host.chat(texte)
@@ -4750,7 +4906,9 @@ function createMissionRunner (host, injected = {}) {
         ? Math.max(8, Math.min(32, Math.round(Number(params.distance))))
         : scaled(scale, 8, 32)
       const suite = rienARecolter()
-      if (suite) return { resultat: `rien a chercher : tout est en poche, etape suivante du plan : ${suite}`, echec: true, code: 'plan' }
+      if (suite) return { resultat: `rien a chercher : tout est en poche, etape suivante du plan : ${suite}`, code: 'plan' }
+      const assez = materiauSuffisant()
+      if (assez) return { resultat: `rien a chercher : ${assez}` }
       const enVue = () => findTargetBlock(undefined, { anyHeight: true }) ??
         (mission.landmarkResource ? findTargetBlock(mission.landmarkResource, { anyHeight: true }) : null)
       const deja = enVue()
@@ -5618,6 +5776,11 @@ function createMissionRunner (host, injected = {}) {
         mission.echecs = (mission.echecs ?? 0) + 1
         mission.echecsParAction = mission.echecsParAction ?? {}
         mission.echecsParAction[decision.step] = (mission.echecsParAction[decision.step] ?? 0) + 1
+        // Detail des echecs pour le banc (objectif : 0 % d actions en echec).
+        mission.echecsDetail = mission.echecsDetail ?? []
+        if (mission.echecsDetail.length < 20) {
+          mission.echecsDetail.push({ t: Math.round((Date.now() - mission.startedAt) / 1000), action: decision.step, resultat: String(outcome.resultat ?? '').slice(0, 160) })
+        }
       }
       mission.history.push({ action: decision.step, resultat: outcome.resultat, code: outcome.code ?? null, echec: Boolean(outcome.echec) })
       if (mission.history.length > 8) mission.history.shift()
@@ -6605,6 +6768,7 @@ function createMissionRunner (host, injected = {}) {
       // Indicateurs suivis d un banc a l autre (demande du proprietaire) : part
       // d actions en echec et blocages annonces (cause, derniers resultats).
       etapes_en_echec: mission.echecs ?? 0,
+      echecs_detail: mission.echecsDetail ?? [],
       blocages: mission.blocages ?? []
     }
 

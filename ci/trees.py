@@ -17,6 +17,7 @@ to announce it), nothing productive changed for NO_PROGRESS_S, no mission
 started, or the hard cap LEVEL_CAP_S is reached.
 """
 import json
+from pathlib import Path
 import math
 import os
 import random
@@ -634,7 +635,12 @@ SPECIES = ('oak', 'birch', 'spruce')
 
 
 def variation_seed():
-    seed = os.environ.get('CI_VARIATION_SEED') or os.environ.get('GITHUB_SHA') or ''
+    # Graine commitee (ci/variation-seed.txt) : meme disposition d un banc a
+    # l autre pour comparer vitesse et echecs (demande du proprietaire,
+    # 2026-09-28). A changer de temps en temps (anti-benchmaxing).
+    fichier = Path(__file__).with_name('variation-seed.txt')
+    fixe = fichier.read_text(encoding='utf-8').strip() if fichier.exists() else ''
+    seed = os.environ.get('CI_VARIATION_SEED') or fixe or os.environ.get('GITHUB_SHA') or ''
     return None if seed.lower() == 'off' else (seed or str(random.random()))
 
 
@@ -1598,6 +1604,8 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             result['kpi'] = {'etapes': steps, 'echecs': fails,
                              'tauxEchec': round(fails / steps, 3) if steps else None,
                              'blocages': len(blocages)}
+            if m.get('echecs_detail'):
+                result['kpi']['detail'] = m['echecs_detail'][:10]
             if blocages:
                 result['blocages'] = [{k: b.get(k) for k in ('secondes', 'raison', 'derniere_action')} for b in blocages[-5:]]
         except Exception:

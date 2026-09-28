@@ -1017,6 +1017,7 @@ async function placeDoor (bot, plan, itemName, { move = null, signal = null } = 
 
 module.exports = {
   standable,
+  bodyOverlaps,
   parseDimensions,
   parseQuota,
   planHouse,

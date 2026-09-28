@@ -411,10 +411,16 @@ function targetCriteria (bot) {
 // Etabli
 // ---------------------------------------------------------------------------
 
-function freeSpotNear (bot) {
+// Cases libres pour poser un bloc utilitaire (etabli, four), les plus proches
+// d abord ; jamais une case que recouvre le corps du bot ou d un autre joueur :
+// le serveur refuse la pose (« the block is still air », craft/stone-pickaxe).
+function freeSpotsNear (bot, max = 4) {
   const feet = bot.entity.position.floored()
+  const corps = Object.values(bot.entities ?? {}).filter(e => e?.type === 'player' && e.position).map(e => e.position)
+  if (!corps.some(p => p === bot.entity.position)) corps.push(bot.entity.position)
+  const spots = []
 
-  for (let radius = 1; radius <= 3; radius += 1) {
+  for (let radius = 1; radius <= 3 && spots.length < max; radius += 1) {
     for (let dx = -radius; dx <= radius; dx += 1) {
       for (let dz = -radius; dz <= radius; dz += 1) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== radius) continue
@@ -423,12 +429,30 @@ function freeSpotNear (bot) {
         if (!build.isFree(bot.blockAt(target))) continue
         if (!build.isSolid(bot.blockAt(target.offset(0, -1, 0)))) continue
         if (!build.isFree(bot.blockAt(target.offset(0, 1, 0)))) continue
-        return target
+        if (corps.some(p => build.bodyOverlaps(p, target))) continue
+        spots.push(target)
+        if (spots.length >= max) break
       }
     }
   }
 
-  return null
+  return spots
+}
+
+// Pose `item` sur la premiere case libre qui l accepte (trois essais).
+async function placeNear (bot, item) {
+  const spots = freeSpotsNear(bot, 3)
+  if (spots.length === 0) throw new Error(`aucune place libre pour poser ${item}`)
+  let derniere = null
+  for (const spot of spots) {
+    try {
+      await build.placeOne(bot, spot, item)
+      return spot
+    } catch (err) {
+      derniere = err
+    }
+  }
+  throw derniere
 }
 
 // Un etabli deja pose a moins de TABLE_REUSE_RADIUS blocs sert encore : le bot
@@ -480,10 +504,7 @@ async function ensureTable (bot, { move = null } = {}) {
       await sleep(250)
     }
 
-    const spot = freeSpotNear(bot)
-    if (!spot) throw new Error('aucune place libre pour poser l etabli')
-
-    await build.placeOne(bot, spot, 'crafting_table')
+    await placeNear(bot, 'crafting_table')
     await sleep(350)
 
     table = blockId ? bot.findBlock({ matching: blockId, maxDistance: 6 }) : null
@@ -958,9 +979,7 @@ async function ensureFurnace (bot, { move = null } = {}) {
     if (!findItem(bot, 'furnace')) {
       throw Object.assign(new Error('pas de four (8 cobblestone sur un etabli)'), { code: 'missing', missing: [{ name: 'furnace', count: 1 }] })
     }
-    const spot = freeSpotNear(bot)
-    if (!spot) throw new Error('aucune place libre pour poser le four')
-    await build.placeOne(bot, spot, 'furnace')
+    await placeNear(bot, 'furnace')
     await sleep(350)
     four = furnaceBlock(bot, 6)
     if (!four) throw new Error('four pose mais introuvable')
@@ -999,10 +1018,12 @@ async function smelt (bot, output, wanted = 1, { move = null, input = null, time
   // Un seul type tient dans la case du four : on recharge avec le suivant
   // quand il s epuise (craft/iron-pickaxe 453d7f4 : 1 buche pour 3 fers,
   // 1 lingot cuit, 2 minerais restes dans le four, invisibles du solveur).
-  const combustibles = () => {
+  // `source` : l inventaire du bot, ou celui de la fenetre du four une fois
+  // ouverte (sinon « Can't find birch_log in slots » : objet deja pose).
+  const combustibles = (source = items(bot)) => {
     const liste = []
     for (const [pattern, par] of FUELS) {
-      for (const it of items(bot).filter(i => pattern.test(i.name) && i.name !== entree.name)) {
+      for (const it of source.filter(i => pattern.test(i.name) && i.name !== entree.name)) {
         liste.push({ item: it, parUnite: par })
       }
     }
@@ -1023,10 +1044,14 @@ async function smelt (bot, output, wanted = 1, { move = null, input = null, time
   const brules = new Map()
   const recharger = async () => {
     if (fenetre.fuelItem()) return false
-    const c = combustibles()[0]
+    const c = combustibles(typeof fenetre.items === 'function' ? fenetre.items() : items(bot))[0]
     if (!c) return false
     const nombre = Math.min(c.item.count, Math.max(1, Math.ceil((aCuire - pris) / c.parUnite)))
-    await fenetre.putFuel(c.item.type, null, nombre)
+    try {
+      await fenetre.putFuel(c.item.type, null, nombre)
+    } catch (_) {
+      return false
+    }
     brules.set(c.item.name, (brules.get(c.item.name) ?? 0) + nombre)
     return true
   }

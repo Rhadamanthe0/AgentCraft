@@ -471,10 +471,14 @@ function isEnabled () {
 // Le prompt systeme : la partie stable, donc la partie mise en cache
 // ---------------------------------------------------------------------------
 
-function actionCatalogue (kind, supply) {
+function actionCatalogue (kind, supply, { sansDonner = false } = {}) {
   const lines = []
 
   for (const name of skills.actionsFor(kind, supply)) {
+    // `donner` n est montre que si le joueur a demande un don : sinon le
+    // modele deposait des objets fabriques aux pieds du joueur (refus du
+    // code, plan jete : craft/torches, craft/furnace 8779070).
+    if (sansDonner && name === 'donner') continue
     const spec = skills.ACTIONS[name]
     const intent = typeof spec.intent === 'string' ? spec.intent : spec.intent.what
     const jsonish = skills.jsonParamsFor(name)
@@ -609,7 +613,7 @@ function missionMemoryLayer () {
 // besoins et chantier pour une construction). Sans profil : tout, comme avant.
 function buildSystemPrompt (kind, supply, profil = null) {
   if (kind === 'geste') return buildGestePrompt()
-  const tout = !profil
+  const tout = !profil || profil.tout
   const bois = tout || profil.bois
   const fabrication = tout || profil.fabrication
   const chantier = tout || kind === 'construction'
@@ -705,7 +709,7 @@ ${si(bois, `  Exception : dirt_secondaire_admise vrai ET dirt_secondaire_cible n
   explicite du joueur, pas une methode de secours pour atteindre une ressource.
 
 Actions disponibles pour ce type de mission (${kind}, approvisionnement ${supply}) :
-${actionCatalogue(kind, supply)}${longTermMemoryLayer()}
+${actionCatalogue(kind, supply, { sansDonner: Boolean(profil?.sansDonner) })}${longTermMemoryLayer()}
 
 Le catalogue ci-dessus EST ton vocabulaire, et il n y en a pas d autre : tu ne
 peux pas inventer d action ni en apprendre. Tu composes tes enchainements a
@@ -888,7 +892,8 @@ function basePrompt (kind, supply, profil = null) {
     memoryGeneration = memory.generation
   }
 
-  const cle = profil ? `${profil.bois ? 'b' : ''}${profil.fabrication ? 'f' : ''}` : 'tout'
+  const cle = (!profil || profil.tout ? 'tout' : `${profil.bois ? 'b' : ''}${profil.fabrication ? 'f' : ''}`) +
+    (profil?.sansDonner ? '-d' : '')
   const key = `${kind}|${supply}|${cle}|${skills.docGeneration}|${memory.generation}`
   if (!prompts.has(key)) {
     prompts.set(key, buildSystemPrompt(kind, supply, profil))
