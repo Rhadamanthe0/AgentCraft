@@ -113,7 +113,30 @@ optimiser (pas de « benchmaxing »). Regles qui en decoulent :
   le modele redessinait trois fois la meme tour fermee, puis la boite de repli
   perdait la hauteur (build/tower 54/54 mais 4 de haut). Restent : terrain/
   plateau (2/3 buches, falaise), craft/torches.
-- Action `explorer` (branche claude/explorer-n57l9e, 2026-09-27) : la
+  PR #39 fusionnee (a87d4d2 : 75/84, KPI 8,4 %, 0 blocage, cabane 216 s ;
+  trees/double 77 s avec recolter, 91 s sans).
+- Cuisson au four (2026-09-27) : `craft.smelt` (four pose a 24 blocs ou pose
+  depuis l inventaire, combustible charbon > buches > planches > batons, jamais
+  l objet a cuire, 10 s par objet, produit mesure en inventaire) et action
+  `cuire` (objet du jeu ou mot francais, sinon la prochaine cuisson du
+  solveur). Le solveur ne marque plus la cuisson « non geree ».
+  craft/iron-pickaxe attend maintenant la pioche (cible 1, plafond 480 s :
+  chaine bois -> pierre -> fer -> four -> cuisson), toujours informatif.
+  Banc 66d7caf (73/84) : iron-pickaxe arrive a 2/3 fer (bois, etabli,
+  pioches bois et pierre faits) puis erre : `harvestResource` prend la
+  premiere recolte du plan dont la matiere est EN VUE (pierre du four) au lieu
+  de la premiere tout court (fer invisible). follow/straight : l ancienne
+  mission (pose de bloc) finissait 9 s apres le stop, suivi lance trop tard
+  => `build.moveTo`/`walkStep`/`placeOne`/`placeDoor` prennent le `signal`
+  de la mission. build/windows : plan libre 5x5x3 (une case d air sous le
+  toit), bot coince dessous, 60/61 => `compileBlueprint` refuse toute case
+  d air unique entre deux blocs a l interieur (piege a bot).
+  Banc 13208e8 : iron-pickaxe fait etabli, pioches bois et pierre, four,
+  mais le fer disparait : `casser` ne verifiait l outil qu au premier bloc,
+  la matiere visee passait de la pierre au fer en cours de rafale (plan
+  recalcule a chaque objet) et le minerai etait casse a la pioche en bois,
+  sans rien lacher. Outil verifie a CHAQUE bloc de la rafale.
+- Action `explorer` (PR #40, fusionnee : far-tree 38 s avec, 61 s sans) : la
   matiere visee hors de vue est cherchee par le code, en spirale autour du
   point de depart : huit caps, point debout rejoignable le plus lointain du
   cap (`pointDansLeCap`), arrivee neuve (>= 3/4 de trajet de tout lieu deja

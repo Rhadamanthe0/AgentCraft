@@ -77,3 +77,12 @@ test('trop de blocs : refuse', () => {
   const r = build.compileBlueprint({ largeur: 12, profondeur: 12, hauteur: 12, elements: [{ type: 'plein', de: [0, 0, 0], a: [11, 11, 11] }] })
   assert.equal(r.ok, false)
 })
+
+test('maison de 3 de haut : une seule case d air sous le toit, refusee (piege a bot)', () => {
+  // Vu en jeu (build/windows 66d7caf) : bot coince sous le toit, 60/61.
+  const r = build.compileBlueprint({ largeur: 5, profondeur: 5, hauteur: 3, elements: [{ type: 'creux', de: [0, 0, 0], a: [4, 2, 4] }] })
+  assert.equal(r.ok, false)
+  assert.match(r.errors[0], /une seule case d air/)
+  const ok = build.compileBlueprint({ largeur: 5, profondeur: 5, hauteur: 4, elements: [{ type: 'creux', de: [0, 0, 0], a: [4, 3, 4] }], porte: [2, 0] })
+  assert.equal(ok.ok, true)
+})

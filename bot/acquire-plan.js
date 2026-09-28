@@ -263,7 +263,7 @@ function planAcquire (args) {
     return have(name) >= qty
   }
 
-  // Voie four : planifiee, mais signalee non geree (le bot ne cuit pas).
+  // Voie four : action `cuire` (craft.smelt), combustible compte en planches.
   function bySmelt ({ name, qty, depth, next }) {
     if (!SMELT[name]) return null
     const need = qty - have(name)
@@ -279,8 +279,7 @@ function planAcquire (args) {
     take(raw, need)
     take('oak_planks', fuel)
     add(name, need)
-    steps.push({ op: 'cuire', objet: name, quantite: need, depuis: raw, supporte: false })
-    blocked.push({ objet: name, raison: 'le bot ne sait pas encore cuire au four' })
+    steps.push({ op: 'cuire', objet: name, quantite: need, depuis: raw })
     return true
   }
 
@@ -344,7 +343,7 @@ function summarize (plan) {
 function describe (plan, max = 8) {
   const lines = plan.etapes.slice(0, max).map(s => {
     if (s.op === 'recolter') return `recolter ${s.quantite} ${s.objet} (bloc ${s.bloc}${s.matiere ? `, matiere ${s.matiere}` : ''}${s.outil ? `, outil ${s.outil}` : ''})`
-    if (s.op === 'cuire') return `cuire ${s.quantite} ${s.objet} depuis ${s.depuis} (non gere)`
+    if (s.op === 'cuire') return `cuire ${s.quantite} ${s.objet} depuis ${s.depuis}`
     return `fabriquer ${s.quantite} ${s.objet}${s.etabli ? ' (etabli)' : ''}`
   })
   if (plan.etapes.length > max) lines.push(`... ${plan.etapes.length - max} etape(s) de plus`)

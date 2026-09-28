@@ -381,6 +381,34 @@ const ACTIONS = {
     }
   },
 
+  // Cuisson au four (craft.smelt) : lingots depuis le minerai cru, charbon
+  // de bois, verre, pierre... Four pose ou en inventaire, combustible pris
+  // en poche (charbon, puis buches, planches).
+  cuire: {
+    kinds: ['recolte', 'construction'],
+    harvesting: true,
+    summary: 'cuire au four : minerai cru en lingot, buche en charbon de bois, sable en verre',
+    scale: 'nombre d objets a cuire, de 1 a 16',
+    secondes: 10,
+    parBloc: true,
+    intent: "Transformer au four ce qui ne se fabrique pas : raw_iron en iron_ingot, raw_gold en gold_ingot, une buche en charcoal, sand en glass, cobblestone en stone. Il faut un four (pose a 24 blocs ou en inventaire : fabriquer furnace avec 8 cobblestone) et du combustible en poche (charbon, buches ou planches). 10 s par objet. objet = ce qu on veut obtenir ; sans objet, la prochaine cuisson du plan (environnement.prerequis)",
+    params: {
+      objet: {
+        json: { kind: 'text', max: 40 },
+        question: 'Quel objet obtenir par cuisson ?'
+      },
+      quantite: {
+        json: { kind: 'number', min: 1, max: 16 },
+        question: 'Combien en cuire ?'
+      },
+      ampleur: {
+        type: 'score',
+        question: 'Combien en cuire ?',
+        rubric: amountRubric(['un seul', 'deux', 'trois', 'huit', 'seize'])
+      }
+    }
+  },
+
   fabriquer: {
     kinds: ['recolte', 'construction'],
     harvesting: true,
@@ -1158,6 +1186,7 @@ const UNITES_PAR_AMPLEUR = {
   avancer: [1, 5, 10, 20, 40],
   casser: [2, 5, 9, 13, 16],
   recolter: [1, 2, 4, 8, 16],
+  cuire: [1, 2, 3, 8, 16],
   explorer: [8, 12, 16, 24, 32],
   ramasser: [1, 2, 3, 5, 6],
   construire: [4, 13, 22, 31, 40],
@@ -1231,6 +1260,10 @@ function parameterized () {
 // ---------------------------------------------------------------------------
 
 const ACTION_EXEMPLES = {
+  cuire: [
+    'prerequis : « cuire 3 iron_ingot depuis raw_iron », 3 raw_iron et un four -> {"action":"cuire","objet":"iron_ingot","quantite":3}',
+    'pas de four -> fabriquer furnace (8 cobblestone, etabli) avant cuire'
+  ],
   explorer: [
     'regarder_autour -> « rien » dans les quatre directions -> {"action":"explorer","distance":16}',
     'recolter -> « aucun bloc de la matiere visee en vue » -> {"action":"explorer","distance":16} puis recolter'

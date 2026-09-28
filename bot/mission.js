@@ -880,10 +880,28 @@ function createMissionRunner (host, injected = {}) {
   // Matiere a recolter maintenant : en fabrication, celle de la premiere
   // recolte du plan (bois, puis pierre pour une pioche en pierre) ; sinon la
   // matiere du brief.
+  // Premiere recolte du plan dont la matiere est EN VUE ; sinon la premiere.
+  // Sans ce choix, un plan « 3 fer puis 7 pierre » restait sur le fer invisible
+  // alors que la pierre du four etait a cote (craft/iron-pickaxe 66d7caf :
+  // 2/3 fer, puis errance jusqu au plafond). Memorise 1 s (appel frequent).
+  let harvestMemo = null
   function harvestResource () {
     if (!mission) return null
-    const step = acquisition()?.etapes.find(s => s.op === 'recolter' && s.matiere)
-    return step ? step.matiere : mission.resource
+    const etapes = acquisition()?.etapes?.filter(s => s.op === 'recolter' && s.matiere) ?? []
+    if (etapes.length === 0) return mission.resource
+    if (etapes.length === 1) return etapes[0].matiere
+    const cle = etapes.map(s => s.matiere).join('|')
+    if (harvestMemo && harvestMemo.mission === mission && harvestMemo.cle === cle && Date.now() - harvestMemo.at < 1000) {
+      return harvestMemo.valeur
+    }
+    let valeur = etapes[0].matiere
+    for (const s of etapes) {
+      let vu = null
+      try { vu = findTargetBlock(s.matiere, { anyHeight: true }) } catch (_) { vu = null }
+      if (vu) { valeur = s.matiere; break }
+    }
+    harvestMemo = { mission, cle, valeur, at: Date.now() }
+    return valeur
   }
 
   // Le meilleur bloc de la matiere visee a travailler : ni le bloc qui porte le
@@ -3172,7 +3190,18 @@ function createMissionRunner (host, injected = {}) {
           // L outil peut changer en cours de rafale (une touffe d herbe, puis
           // la terre en dessous). equipForBlock rend la main tout de suite si
           // le bon outil est deja en main.
-          if (mission.supply === 'harvest') await craft.equipForBlock(bot, block)
+          if (mission.supply === 'harvest') {
+            // Outil verifie pour CHAQUE bloc : la matiere visee peut changer en
+            // cours de rafale (plan recalcule a chaque objet), et un minerai
+            // casse sans le bon outil disparait sans rien lacher
+            // (craft/iron-pickaxe 13208e8 : fer casse a la pioche en bois).
+            const outil = craft.harvestCheck(bot, block)
+            if (!outil.ok) {
+              refusal = `${outil.reason} : il faut d abord une ${outil.need}`
+              break
+            }
+            await craft.equipForBlock(bot, block)
+          }
           // Viser avant de creuser : le serveur refuse un bloc que le joueur ne
           // regarde pas, et l animation part quand meme cote client.
           //
@@ -3443,6 +3472,35 @@ function createMissionRunner (host, injected = {}) {
       }
       return {
         resultat: `${atteints}/${total} objet(s) atteint(s), +${dirt} dirt secondaire dans l inventaire (carburant de pilier)`
+      }
+    },
+
+    // Cuisson au four (craft.smelt). L objet vient du modele (nom du jeu ou
+    // mot francais), sinon de la prochaine cuisson du solveur de prerequis.
+    async cuire (scale, params = {}) {
+      const bot = host.getBot()
+      const brut = String(params.objet ?? '').trim().toLowerCase()
+      const alias = [[/charbon de bois|charcoal/, 'charcoal'], [/fer|iron/, 'iron_ingot'], [/\bor\b|gold/, 'gold_ingot'],
+        [/cuivre|copper/, 'copper_ingot'], [/verre|glass/, 'glass'], [/pierre|^stone$/, 'stone']]
+      let objet = acquirePlan.SMELT[brut] ? brut : (alias.find(([re]) => re.test(brut))?.[1] ?? null)
+      const etape = acquisition()?.etapes?.find(e => e.op === 'cuire')
+      if (!objet && etape) objet = etape.objet
+      if (!objet && acquirePlan.SMELT[mission.fabricationCible]) objet = mission.fabricationCible
+      if (!objet) return { resultat: `cuisson impossible : objet non reconnu (${brut || 'vide'}) ; ex : iron_ingot, charcoal, glass`, echec: true, code: 'unknown' }
+      const quantite = Number.isFinite(Number(params.quantite))
+        ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
+        : (etape?.objet === objet ? etape.quantite : scaled(scale, 1, 16))
+      try {
+        const r = await craft.smelt(bot, objet, quantite, {
+          move: async stand => (await host.navigateToPosition(stand, {
+            signal: mission.navigationAbort.signal, __owner: stepToken, radius: 1, timeoutMs: 20000, distanceBudget: 48
+          }))?.reached === true
+        })
+        const res = `${r.produced}/${r.wanted} ${objet} cuit(s) depuis ${r.input} (combustible : ${r.fuelCount} ${r.fuel})`
+        return r.produced > 0 ? { resultat: res } : { resultat: `${res} : rien sorti du four`, echec: true }
+      } catch (err) {
+        const manque = (err.missing ?? []).map(m => `${m.count} ${m.name}`).join(', ')
+        return { resultat: `cuisson de ${objet} impossible : ${err.message}${manque ? ` (manque : ${manque})` : ''}`, echec: true, code: err.code }
       }
     },
 
@@ -4324,6 +4382,7 @@ function createMissionRunner (host, injected = {}) {
             build.placeOne(bot, entry.position, material, {
               accept: mission.buildMatch,
               sol: mission.plan?.origin?.y ?? null,
+              signal: mission.navigationAbort.signal,
               move: async stand => (await host.navigateToPosition(stand, {
                 signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.35, timeoutMs: 5000
               }))?.reached === true
@@ -4390,6 +4449,7 @@ function createMissionRunner (host, injected = {}) {
 
       try {
         await build.placeDoor(host.getBot(), mission.plan, item, {
+          signal: mission.navigationAbort.signal,
           move: async stand => (await host.navigateToPosition(stand, {
             signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.6, timeoutMs: 15000, distanceBudget: 48
           }))?.reached === true

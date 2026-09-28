@@ -129,7 +129,7 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
         'mission-delivery.test.js', 'piler-materials.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
         'delivery.test.js', 'planner-profile.test.js', 'llm.test.js', 'executor.test.js', 'objective-controller.test.js',
-        'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'explorer.test.js', 'explorer.test.js', 'reflexes.test.js']
+        'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js']
 
 
 

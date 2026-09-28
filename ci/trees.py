@@ -560,9 +560,13 @@ def base_levels():
             # c est s il le comprend et le dit (fin de mission par lui-meme)
             # au lieu d errer jusqu au plafond.
             'name': 'craft/iron-pickaxe',
-            'about': 'Inventaire vide, arbre, pierre, minerai de fer : « Fabrique une pioche en fer » (cuisson impossible : fin honnete attendue).',
+            'about': 'Inventaire vide, arbre, pierre, minerai de fer : « Fabrique une pioche en fer » '
+                     '(bois, pioche en bois, pierre, pioche en pierre, fer, four, cuisson, batons, pioche).',
+            # Chaine la plus longue du banc depuis la cuisson (2026-09-27) : la
+            # pioche en pierre seule prend 100-170 s ; four, 3 minerais et 30 s
+            # de cuisson en plus. Informatif tant qu il n a pas passe 3 bancs.
             'kind': 'gather', 'instruction': 'Fabrique une pioche en fer', 'items': ['iron_pickaxe'],
-            'target': 0, 'cap': 240, 'informative': True, 'variants': [sans('solveur')],
+            'target': 1, 'cap': 480, 'informative': True, 'variants': [sans('solveur')],
             'terrain': [(20, 200, 26, 24, 201, 30, 'stone'), (22, 201, 26, 22, 201, 26, 'iron_ore'),
                         (23, 201, 26, 23, 201, 26, 'iron_ore'), (24, 201, 27, 24, 201, 27, 'iron_ore')],
             'leaves': [(6, 204, 6, 10, 205, 10)], 'logs': _logs(*[(8, 200 + i, 8) for i in range(4)]), 'rules': {},
@@ -1518,7 +1522,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # 36105107224), used only to order the queue. A level missing here counts as
 # NEW_LEVEL_S (started early: unknown levels are often the long ones).
 EXPECTED_S = {
-    'composite/cabin-from-scratch': 900,
+    'composite/cabin-from-scratch': 900, 'craft/iron-pickaxe': 400, 'craft/iron-pickaxe~sans-solveur': 480,
     'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
     'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,
