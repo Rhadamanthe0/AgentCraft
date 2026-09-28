@@ -3884,6 +3884,22 @@ function createMissionRunner (host, injected = {}) {
         interaction: true, allowHighApproach: true, distanceBudget: budget
       })
       let result = await approach()
+      // Perche sur son propre pilier (piler juste avant) : le navigateur ne
+      // descend que de deux blocs, tout trajet repondait no_path
+      // (composite/cabin-from-scratch ba7cc6f : pilier de 3, puis ~50 avancer
+      // et recolter en no_path). Le pilier est defait, puis on re-tente.
+      if (result.code === 'no_path' && !mission.cancelled) {
+        const live = host.getBot()
+        const dessous = live?.entity && live.blockAt(live.entity.position.offset(0, -0.5, 0))
+        if (dessous && (PILER_DIRT.test(dessous.name) || /_planks$/.test(dessous.name)) && isPillarBlock(live, dessous)) {
+          const defaits = await descendScaffold(-Infinity, { pillarOnly: true })
+          if (defaits > 0) result = await approach()
+        }
+      }
+      // Recolte, ou construction qui s approvisionne (cabane depuis rien) : memes
+      // recours (montee, pont, trajet qui creuse). En construction, le trajet
+      // qui creuse ne casse jamais ce qu un joueur ou le bot a construit.
+      const recours = mission.kind === 'recolte' || mission.kind === 'construction'
       // Tronc enferme dans des feuilles : sans degagement, no_path en boucle et
       // aucune action ne pouvait ouvrir le passage. On casse seulement les
       // feuilles du couloir a hauteur du corps, puis on re-tente l approche.
@@ -3904,7 +3920,7 @@ function createMissionRunner (host, injected = {}) {
       // L escalier creuse par le pathfinder ne laissait pas la place de la tete
       // (sauts sur place mesures) ; le pilier maison est prouve.
       let climbed = null
-      if ((result.code === 'no_path' || result.code === 'needs_height') && mission.kind === 'recolte' && !mission.cancelled) {
+      if ((result.code === 'no_path' || result.code === 'needs_height') && recours && !mission.cancelled) {
         climbed = await climbToward(cible)
         if (climbed) {
           degage += ` (${climbed})`
@@ -3918,7 +3934,7 @@ function createMissionRunner (host, injected = {}) {
       // Eau seulement : perche sur un pilier, le vide alentour n est pas un
       // fosse (vu sur trees/tall : pont pose en l air depuis le pilier, puis
       // chute de 4 blocs en le defaisant).
-      if (result.code === 'no_path' && mission.kind === 'recolte' && !mission.cancelled && gapToward(cible.position, { liquidOnly: true })) {
+      if (result.code === 'no_path' && recours && !mission.cancelled && gapToward(cible.position, { liquidOnly: true })) {
         const bridged = await bridgeRounds(cible.position, stepToken, { liquidOnly: true })
         if (bridged) {
           degage += ' (pont de terre pose)'
@@ -3929,10 +3945,10 @@ function createMissionRunner (host, injected = {}) {
         }
       }
       const farAbove = result.code === 'needs_height' && Number(result.horizontalDistance) > REACH
-      if ((result.code === 'no_path' || farAbove) && !noye && mission.kind === 'recolte' && !mission.cancelled &&
+      if ((result.code === 'no_path' || farAbove) && !noye && recours && !mission.cancelled &&
         typeof host.digToward === 'function') {
         const dug = await host.digToward(cible.position.offset(0.5, 0.5, 0.5), {
-          signal: mission.navigationAbort.signal
+          signal: mission.navigationAbort.signal, protectBuilt: mission.kind === 'construction'
         })
         if (dug.reached) {
           mission.digPaths = (mission.digPaths ?? 0) + 1
@@ -3951,7 +3967,7 @@ function createMissionRunner (host, injected = {}) {
             }
             let travelled = dug.travelled
             if (!inReach() && !mission.cancelled) {
-              const closer = await host.digToward(centre, { signal: mission.navigationAbort.signal, range: 1 })
+              const closer = await host.digToward(centre, { signal: mission.navigationAbort.signal, range: 1, protectBuilt: mission.kind === 'construction' })
               if (closer.travelled) travelled += closer.travelled
             }
             result = inReach()
@@ -3967,7 +3983,7 @@ function createMissionRunner (host, injected = {}) {
       // (vu sur terrain/plateau : premier avancer en no_path, et seul un
       // modele qui relancait avancer de lui-meme finissait l arbre).
       if (!climbed && !result.reached && result.code !== 'advanced' && !noye &&
-        mission.kind === 'recolte' && !mission.cancelled) {
+        recours && !mission.cancelled) {
         climbed = await climbToward(cible)
         if (climbed) {
           degage += ` (${climbed})`
@@ -4316,8 +4332,16 @@ function createMissionRunner (host, injected = {}) {
         }
       }
 
+      // Perche sur son propre pilier : le sol se mesure depuis la ou l on se
+      // tient, et aucun terrain ne se trouvait a 3 blocs de haut
+      // (composite ba7cc6f : 21 fois « aucun terrain plat »). Pilier defait.
+      const dessous = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+      if (dessous && (PILER_DIRT.test(dessous.name) || /_planks$/.test(dessous.name)) && isPillarBlock(bot, dessous)) {
+        await descendScaffold(-Infinity, { pillarOnly: true })
+      }
+
       // Ou poser le chantier : aupres du repere demande, ou sur place.
-      let near = bot.entity.position
+      let near = host.getBot().entity.position
       if (mission.landmarkResource) {
         const anchor = findTargetBlock(mission.landmarkResource)
         if (!anchor) {
