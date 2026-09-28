@@ -1171,7 +1171,7 @@ const ETAT_SOUS_CHAMPS = {
     'materiau_manquant', 'porte_en_inventaire'
   ]),
   demandeur: new Set(['visible', 'distance']),
-  blocage: new Set(['detecte', 'raison', 'reparations_restantes', 'reparateur_disponible']),
+  blocage: new Set(['detecte', 'raison']),
   memoire: new Set(['jetons', 'plafonds', 'restants', 'generation', 'jetons_utilises', 'jetons_max', 'jetons_restants'])
 }
 
