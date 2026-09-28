@@ -825,13 +825,43 @@ function createMissionRunner (host, injected = {}) {
     return { bois: harvestResource() === 'bois', fabrication: Boolean(mission.fabricationCible), sansDonner }
   }
 
+  // Outil exige par la matiere de la mission (pierre, minerai) et absent de
+  // l inventaire : le plus modeste qui convient (wooden_pickaxe pour la
+  // pierre). Sans lui, une construction ou une recolte de pierre depuis rien
+  // tournait en rond : `explorer`/`recolter` visaient la pierre, qui ne lache
+  // rien a la main (composite/stone-hut-from-scratch be9e866 : 45 min, 0 bloc,
+  // « pas de pioche, il faut du bois » a chaque plan). Nul sinon.
+  const TOOL_TIERS = ['wooden', 'golden', 'stone', 'copper', 'iron', 'diamond', 'netherite']
+  function outilManquant (bot) {
+    if (!mission || mission.fabricationCible || !['construction', 'recolte'].includes(mission.kind) ||
+      mission.supply !== 'harvest') return null
+    const name = skills.RESOURCES[mission.resource]?.blocks?.[0]
+    const tools = name ? bot.registry?.blocksByName?.[name]?.harvestTools : null
+    if (!tools || Object.keys(tools).length === 0) return null
+    const ids = Object.keys(tools).map(Number)
+    const items = bot.inventory?.items() ?? []
+    if (items.some(item => ids.includes(item.type))) return null
+    // Chantier dont le materiau en poche suffit (pierre donnee) : pas d outil.
+    if (mission.kind === 'construction') {
+      const stock = items.filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
+      if (stock > 0 && stock >= (mission.plan ? buildProgress().left : 1)) return null
+    }
+    const noms = ids.map(id => bot.registry?.items?.[id]?.name).filter(Boolean)
+    return noms.sort((a, b) => TOOL_TIERS.indexOf(a.split('_')[0]) - TOOL_TIERS.indexOf(b.split('_')[0]))[0] ?? null
+  }
+
   function acquisition () {
     // Interrupteur A/B `solveur` : coupe, la mission retombe sur la seule
     // matiere du brief et le modele remonte seul la chaine.
-    if (!mission?.fabricationCible || !featureOn('solveur')) return null
+    if (!mission || !featureOn('solveur')) return null
     const bot = host.getBot()
+    if (!bot?.entity) return null
+    // Cible du plan : l objet a fabriquer, sinon l outil qu exige la matiere
+    // de la mission (le plan disparait des qu il est en poche).
+    const cible = mission.fabricationCible ?? outilManquant(bot)
+    if (!cible) return null
     const registry = craft.getDataset(bot)
-    if (!bot?.entity || !registry?.itemsByName) return null
+    if (!registry?.itemsByName) return null
     const inv = craft.inventoryMap(bot)
     const now = Date.now()
     const cache = mission.acquisition
@@ -864,12 +894,12 @@ function createMissionRunner (host, injected = {}) {
       } catch (_) { /* chunk absent */ }
     }
     if (mission.essenceVue) prefer.push(mission.essenceVue, mission.essenceVue.replace(/_log$/, '_planks'))
-    const key = JSON.stringify([mission.fabricationCible, mission.fabricationQuantite, inv, tableNearby, furnaceNearby, prefer])
+    const key = JSON.stringify([cible, mission.fabricationQuantite, inv, tableNearby, furnaceNearby, prefer])
     if (cache?.key === key) return cache.plan
     // Alias FR (pioche, hache...) : le candidat au plan le plus court.
-    const alias = craft.TARGETS[mission.fabricationCible]
-    const candidates = alias ? alias.resolve(bot) : [mission.fabricationCible]
-    const wanted = Math.max(1, (mission.fabricationQuantite ?? 1) - fabricationProduced())
+    const alias = craft.TARGETS[cible]
+    const candidates = alias ? alias.resolve(bot) : [cible]
+    const wanted = mission.fabricationCible ? Math.max(1, (mission.fabricationQuantite ?? 1) - fabricationProduced()) : 1
     let best = null
     for (const target of candidates) {
       let plan
@@ -2718,10 +2748,11 @@ function createMissionRunner (host, injected = {}) {
         // Gestes faits par les reflexes (sans toi) depuis peu : ramassage,
         // mise a l abri, pas de cote. Tiens-en compte, ne les refais pas.
         reflexes_recents: (mission.reflexes ?? []).slice(-3),
-        // Fabrication : chaine de prerequis calculee par le code depuis
-        // l inventaire reel (recolter / fabriquer / outil exige, etabli).
-        // La premiere etape est la prochaine chose utile ; `bloque` dit ce
-        // que le bot ne sait pas faire (cuisson...). Nul hors fabrication.
+        // Fabrication, ou outil exige par la matiere de la mission : chaine de
+        // prerequis calculee par le code depuis l inventaire reel (recolter /
+        // fabriquer / outil exige, etabli). La premiere etape est la prochaine
+        // chose utile ; `bloque` dit ce que le bot ne sait pas faire
+        // (cuisson...). Nul sinon.
         prerequis: (() => {
           const plan = acquisition()
           return plan ? { ...acquirePlan.summarize(plan), matiere_a_recolter: harvestResource() } : null

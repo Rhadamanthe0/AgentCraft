@@ -136,6 +136,9 @@ Connaissances calculees par le code, servies au modele dans l etat :
 
 - **solveur de prerequis** (`acquire-plan.js`) : chaine recolter / fabriquer /
   cuire depuis l inventaire reel, outil exige par chaque bloc, etabli d abord ;
+  cible = l objet a fabriquer, sinon l outil qu exige la matiere d une
+  construction ou d une recolte (pioche en bois pour la pierre) tant qu il
+  manque et que le materiau en poche ne suffit pas ;
   `harvestResource()` vise la premiere recolte du plan en vue ;
 - **besoins d un chantier** (`state.besoins`) : blocs restants, planches,
   porte, etabli, buches a recolter d un coup ;
