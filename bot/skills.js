@@ -238,7 +238,6 @@ const ACTIONS = {
     summary: 'casser les blocs a portee, en rafale',
     scale: 'duree de la rafale, en secondes',
     secondes: 0.45,
-    parBloc: true,
     intent: "Un bloc de la matiere visee est a portee de main : le casser maintenant, et enchainer sur les suivants a portee. C est la seule facon d obtenir de la matiere en survie. En mission bois, si environnement.dirt_secondaire_admise est vrai, casser de la dirt au sol a portee est autorise pour alimenter un pilier (comptee a part, quota bois inchange) ; sinon, ne casser que la matiere visee",
     // Le planificateur donne une valeur NUMERIQUE : il dit « casse pendant 5
     // secondes » et le code execute exactement cela.
@@ -263,7 +262,6 @@ const ACTIONS = {
     summary: 'aller a la matiere visee, la casser et ramasser, jusqu a la quantite',
     scale: 'nombre d objets de la matiere a obtenir, de 1 a 16',
     secondes: 3,
-    parBloc: true,
     intent: "Obtenir N objets de la matiere visee en une seule action : le code rejoint le bloc le plus proche, le casse, ramasse ce qui tombe et recommence jusqu a N (60 s au plus). Rend la main au premier obstacle (outil manquant, cible trop haute, aucun chemin) en le disant : piler, fabriquer ou avancer ensuite. Prefere-la a avancer + casser + ramasser pour toute recolte",
     params: {
       quantite: {
@@ -279,7 +277,6 @@ const ACTIONS = {
     summary: 'marcher sur les objets au sol',
     scale: 'nombre d objets vises, de 1 a 6',
     secondes: 0.8,
-    parBloc: true,
     intent: "Des objets sont tombes au sol a proximite : aller marcher dessus pour les mettre dans l inventaire. Un bloc casse n entre pas tout seul en inventaire s il est tombe plus loin. En mission bois, la dirt cassee pour un pilier compte aussi : si elle entre en inventaire, c est un succes, pas un echec",
     params: {
       quantite: {
@@ -297,7 +294,6 @@ const ACTIONS = {
     summary: 'deposer des objets aux pieds du joueur nomme et l en avertir',
     scale: 'nombre d objets deposes, de 1 a 64',
     secondes: 0.8,
-    parBloc: true,
     intent: "Deposer la quantite demandee d un objet d inventaire aux pieds du BON joueur (destinataire nomme) puis l en avertir : le succes vaut depot mesure (inventaire -N), jamais un ramassage suppose. Ne donner qu au joueur nomme et a portee (regard vers ses pieds) ; si absent, eloigne ou stock insuffisant, le dire sans pretendre un depot",
     params: {
       objet: {
@@ -324,7 +320,6 @@ const ACTIONS = {
     summary: 'cuire au four : minerai cru en lingot, buche en charbon de bois, sable en verre',
     scale: 'nombre d objets a cuire, de 1 a 16',
     secondes: 10,
-    parBloc: true,
     intent: "Transformer au four ce qui ne se fabrique pas : raw_iron en iron_ingot, raw_gold en gold_ingot, une buche en charcoal, sand en glass, cobblestone en stone. Il faut un four (pose a 24 blocs ou en inventaire : fabriquer furnace avec 8 cobblestone) et du combustible en poche (charbon, buches ou planches). 10 s par objet. objet = ce qu on veut obtenir ; sans objet, la prochaine cuisson du plan (environnement.prerequis)",
     params: {
       objet: {
@@ -376,7 +371,6 @@ const ACTIONS = {
     summary: 'rejoindre un bloc cible par un chemin, ou avancer sans cible',
     scale: 'budget de trajet, de 1 a 40 blocs',
     secondes: 0.15,
-    parBloc: true,
     intent: "Avec un bloc cible repere, calculer automatiquement un chemin autour des obstacles vers une position visible a portee de ce bloc. Distance est le budget du trajet : arret possible avant le budget si la cible est accessible, ou progression partielle a poursuivre apres lecture du resultat. Aucun pivoter ou appuyer prealable. Sur no_path ou stuck, signale le blocage ou change d objectif autorise, sans repeter aveuglement ni improviser des touches. Sans cible, avancer droit devant dans le cap actuel. Le resultat mesure le deplacement reel",
     params: {
       distance: {
@@ -395,7 +389,6 @@ const ACTIONS = {
     summary: 'chercher la matiere visee hors de vue, par trajets calcules',
     scale: 'longueur d un trajet de recherche, de 8 a 32 blocs',
     secondes: 0.4,
-    parBloc: true,
     intent: "Rien de la matiere visee n est en vue (regarder_autour ou recolter disent « rien ») : le code choisit le cap le moins explore, y va par un chemin calcule, regarde, et recommence (4 trajets, 45 s au plus) jusqu a voir la matiere ou le repere. Remplace pivoter + avancer sans cible pour chercher",
     params: {
       distance: {
@@ -425,7 +418,6 @@ const ACTIONS = {
     summary: 'monter en pilier avec dirt prioritaire puis planches solides',
     scale: 'hauteur du pilier, de 1 a 6 blocs',
     secondes: 1.5,
-    parBloc: true,
     intent: "Une cible proche est TROP HAUTE (environnement.cible_haute), ou environnement.acces_par_montee mesure une hauteur_min qui rend la cible masquee accessible : monter en pilier avec dirt/coarse_dirt en priorite puis planches solides du registre. Utiliser hauteur_min pour acces_par_montee, sinon denivele - 1 au plus ; inventaire.echafaudage.materiaux detaille le stock. Stock court : l action obtient elle-meme la terre manquante (pilier defait puis refait, terre prise a cote), meme perche. Sable, gravier et feuilles exclus. Chaque montee impose une reobservation avant la suite ; une pose partielle reste un echec mesure. Ne pile pas quand bloc_cible_a_portee est vrai (casse directement), ni dans un liquide, ni sans cible_haute ou acces_par_montee. Cet indice n autorise pas a casser des feuilles",
     params: {
       hauteur: {
@@ -440,7 +432,6 @@ const ACTIONS = {
     summary: 'poser les blocs prevus par le plan',
     scale: 'nombre de blocs poses, de 4 a 40',
     secondes: 0.6,
-    parBloc: true,
     intent: "L emplacement est choisi, il reste des blocs a poser ET le materiau est en inventaire : en poser maintenant, du bas vers le haut",
     params: {
       quantite: {
@@ -478,7 +469,6 @@ const ACTIONS = {
     summary: 'laisser finir',
     scale: 'duree de l attente, de 1 a 5 secondes',
     secondes: 1,
-    parBloc: true,
     intent: 'Une action est deja en cours et progresse : la laisser se terminer sans rien changer',
     params: {
       duree: {
@@ -977,44 +967,6 @@ function jsonParamsFor (action) {
   return jsonish.length > 0 ? Object.fromEntries(jsonish) : null
 }
 
-// Duree indicative d une action, en secondes.
-//
-// Elle sert au budget de temps d un plan (voir planner.js) : le planificateur
-// ne doit pas prevoir plus de travail qu il ne peut en replanifier pendant
-// l execution. Ce n est pas une mesure mais un ordre de grandeur — le but est
-// de distinguer un geste d une rafale de seize blocs, pas de predire la
-// milliseconde.
-//
-// `parBloc` veut dire que la duree se multiplie par l ampleur : casser deux
-// blocs et en casser seize ne comptent pas pareil.
-const UNITES_PAR_AMPLEUR = {
-  avancer: [1, 5, 10, 20, 40],
-  casser: [2, 5, 9, 13, 16],
-  recolter: [1, 2, 4, 8, 16],
-  cuire: [1, 2, 3, 8, 16],
-  explorer: [8, 12, 16, 24, 32],
-  ramasser: [1, 2, 3, 5, 6],
-  construire: [4, 13, 22, 31, 40],
-  attendre: [1, 2, 3, 4, 5],
-  piler: [1, 2, 3, 4, 6]
-}
-
-function estimatedSeconds (action, { scaleLevel = null, duree = null } = {}) {
-  const spec = ACTIONS[action]
-  if (!spec) return 1
-
-  // Une duree explicite gagne toujours : c est le cas de `sauter` et
-  // `appuyer`, ou le planificateur dit lui-meme combien de temps tenir.
-  if (typeof duree === 'number' && Number.isFinite(duree)) return duree
-
-  const base = typeof spec.secondes === 'number' ? spec.secondes : 1
-  const table = UNITES_PAR_AMPLEUR[action]
-  if (!spec.parBloc || !table) return base
-
-  const level = scaleLevel === null ? 2 : scaleLevel
-  return base * table[Math.max(0, Math.min(table.length - 1, Math.round(level)))]
-}
-
 // Duree estimee a partir des parametres NUMERIQUES du planificateur JSON :
 // `duree` (secondes) se prend telle quelle, `distance` et `quantite` se
 // multiplient par la duree unitaire de l action. C est ce que le modele a
@@ -1330,21 +1282,6 @@ function premierParametreHorsBornes (action, texte) {
   return null
 }
 
-// La liste des champs d etat valides, a plat, pour audit et /api/actions.
-function etatChamps () {
-  const champs = [...ETAT_SINGLETONS]
-  for (const champ of ETAT_ENV_CHAMPS) {
-    champs.push(`environnement.${champ}`)
-    if (champ === 'navigation' || champ === 'navigation_objet') {
-      for (const sous of ETAT_NAV_SOUS_CHAMPS) champs.push(`environnement.${champ}.${sous}`)
-    }
-  }
-  for (const [racine, sous] of Object.entries(ETAT_SOUS_CHAMPS)) {
-    for (const s of sous) champs.push(`${racine}.${s}`)
-  }
-  return champs.sort()
-}
-
 // Documentation d une action (native).
 function actionDoc (name) {
   return {
@@ -1577,7 +1514,6 @@ module.exports = {
   actionsFor,
   setFeatureEnabled,
   jsonParamsFor,
-  estimatedSeconds,
   estimatedSecondsFromParams,
   parameterized,
   // Documentation et exemples des actions (natifs).
@@ -1587,7 +1523,6 @@ module.exports = {
   documentedActions,
   describeAction,
   champsCites,
-  etatChamps,
   get docGeneration () { return docGeneration },
   kindCriteria,
   resourceCriteria,

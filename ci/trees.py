@@ -37,7 +37,8 @@ COUNT_Z = 200
 LOCAL_START = (10.5, 200, 18.5)
 TX, TZ = 18, 18  # Local tree position.
 LEAVES = 'oak_leaves[persistent=true]'
-# Reflexion (Muse, effort high) : jusqu a 60 s avant la premiere action.
+# Lecture d objectif (effort high, 30 s + un rejeu) : jusqu a 60 s avant la
+# premiere action.
 START_TIMEOUT_S = 75
 NO_PROGRESS_S = 60
 GRACE_AFTER_WOOD_S = 10
@@ -556,9 +557,8 @@ def base_levels():
             'leaves': [(2, 204, 4, 6, 205, 8)], 'logs': [((4, 200 + i, 6), 'birch_log') for i in range(4)], 'rules': {},
         },
         {
-            # Informatif : le bot ne sait pas cuire au four. Ce qui est mesure,
-            # c est s il le comprend et le dit (fin de mission par lui-meme)
-            # au lieu d errer jusqu au plafond.
+            # Chaine la plus longue (cuisson comprise), informative tant
+            # qu elle n a pas passe 3 bancs d affilee.
             'name': 'craft/iron-pickaxe',
             'about': 'Inventaire vide, arbre, pierre, minerai de fer : « Fabrique une pioche en fer » '
                      '(bois, pioche en bois, pierre, pioche en pierre, fer, four, cuisson, batons, pioche).',

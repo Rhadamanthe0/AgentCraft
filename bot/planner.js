@@ -1505,8 +1505,6 @@ module.exports = {
   DOOR_THRESHOLD,
   profileStatus,
   onProfileEvent,
-  _profile,
   _resetProfile,
-  _callWithProfile: callWithProfile,
   get lastError () { return lastError }
 }
