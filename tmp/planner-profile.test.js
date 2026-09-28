@@ -181,21 +181,19 @@ describe('profil pilote : pas de repli hors disponibilite', () => {
 })
 
 describe('profil pilote : helper unique sur tous les points d appel', () => {
-  it('classify/brief/conversation/compaction visent Muse en responses', async () => {
+  it('brief/conversation/compaction visent Muse en responses', async () => {
     const planner = loadPlanner({ PLANNER_MODEL: undefined })
     mockLlm(async (s, u, o) => {
       if (o.model !== MUSE) throw new Error('pas le pilote')
       // Reponse adaptee a l appelant, lue dans le prompt systeme.
-      if (String(s).includes('routes le chat')) return { content: '{"commande":"mission","confiance":0.9}', usage: null, ms: 1 }
       if (String(s).includes('lis l objectif')) return { content: '{"type":"recolte","matiere":"herbe","repere":"ici","porte":0,"confiance":0.9,"parcours":null,"degagement":0,"livraison":false,"recherche_web":false}', usage: null, ms: 1 }
       if (String(s).includes('interpretes chaque phrase')) return { content: '{"relation":"question","objective":"","response":"oui","clearanceBlocks":null}', usage: null, ms: 1 }
       return { content: 'resume bref', usage: null, ms: 1 }
     })
-    await planner.classify('bonjour')
     await planner.readBrief('ramasse de l herbe')
     await planner.interpretMessage('que fais-tu ?', {})
     await planner.compact('note de travail')
-    assert.equal(seen.length, 4)
+    assert.equal(seen.length, 3)
     for (const call of seen) {
       assert.equal(call.options.model, MUSE)
       assert.equal(call.options.protocol, 'responses')

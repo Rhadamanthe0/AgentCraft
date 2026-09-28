@@ -940,21 +940,6 @@ function resolve (input) {
   return ALIAS_TO_NAME.get(String(input || '').toLowerCase()) ?? null
 }
 
-// Options de la question d intention : les commandes routables depuis le chat.
-// 'aucune' est l echappatoire, sans quoi une phrase anodine ferait bouger le bot.
-function intentCriteria () {
-  const criteria = {}
-  for (const [name, spec] of Object.entries(COMMANDS)) {
-    if (spec.chat) criteria[name] = spec.intent
-  }
-  criteria.aucune = {
-    what: "Message qui ne s adresse pas au bot et ne lui demande rien : deux autres joueurs se parlent, remarque sur le paysage ou le clavier. C est le choix par defaut",
-    not_for: "Toute phrase qui s adresse au bot, meme seulement pour le saluer ou lui poser une question : elle devient une mission",
-    examples: ['joli paysage', 'je vais miner un peu', 'quelqu un a du fer ?', 'attends moi je reviens']
-  }
-  return criteria
-}
-
 // Les actions proposees pour ce type de mission seulement.
 // `supply` vaut 'harvest' (le bot recolte et fabrique ce qu il pose) ou
 // 'creative' (la main se remplit toute seule, pour une demonstration rapide).
@@ -1589,7 +1574,6 @@ module.exports = {
   SCALE_LEVELS,
   resolve,
   resolveResource,
-  intentCriteria,
   actionsFor,
   setFeatureEnabled,
   jsonParamsFor,

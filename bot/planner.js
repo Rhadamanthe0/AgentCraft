@@ -657,8 +657,8 @@ sinon l etape est jetee. Pour aller vers le joueur qui a parle : rejoindre_deman
 pour te tourner vers lui : tourner_vers_demandeur.
 
 NAVIGATION — le code calcule le chemin vers un bloc cible :
-- Ces regles priment sur toute documentation ajoutee ou tout exemple ancien
-  proposant appuyer ou sauter pour rejoindre un bloc cible.
+- Ces regles priment sur tout exemple proposant appuyer ou sauter pour
+  rejoindre un bloc cible.
 - environnement.navigation present indique un bloc utile repere. Si
   bloc_cible_a_portee est faux, appelle avancer directement : le navigateur
   calcule un trajet autour des obstacles vers une position ou le bloc est
@@ -697,8 +697,10 @@ ${si(bois, `  Exception : dirt_secondaire_admise vrai ET dirt_secondaire_cible n
   obtiens et ramasse les blocs manquants avant de planifier cette
   montee, si la consigne l autorise.
 - Pour ramasser, navigation_objet decrit un OBJET tombe, pas un bloc cible.
-  Appelle ramasser directement : cette action marche vers les objets.
-  +0 inventaire est un echec. Ne dirige pas avancer avec navigation_objet.
+  Appelle ramasser directement : cette action marche vers les objets (et
+  grimpe ou creuse vers un objet tombe sur un rebord, environnement.objets_au_sol
+  dy >= 2). +0 inventaire est un echec. Ne dirige pas avancer avec
+  navigation_objet.
 - pivoter, sauter et appuyer restent des gestes disponibles pour une demande
   explicite du joueur, pas une methode de secours pour atteindre une ressource.
 
@@ -740,8 +742,8 @@ Ce que l etat impose, et qui n est pas negociable :
   priment aussi sur ces exemples historiques. Garde l arbre commence demande
   par le joueur ; un ancien conseil de chercher un autre arbre ne remplace pas
   cet objectif quand les mesures actuelles permettent de poursuivre le travail.
-- environnement.objets_au_sol_a_proximite a 0 => ramasser ne ramassera rien
-  (+0 inventaire = echec, pas un succes). Attention au mot : « ramasse de
+- environnement.objets_au_sol_a_proximite a 0 => ramasser ne sert a rien (rien
+  au sol) ; environnement.objets_au_sol nomme ce qui est tombe. Attention au mot : « ramasse de
   l herbe » ou « ramasse des graines » veut dire en OBTENIR, donc CASSER de
   l herbe (les graines tombent de l herbe cassee). L action ramasser ne sert
   qu a marcher sur des objets deja tombes, guides par
@@ -808,7 +810,8 @@ ${si(bois, `- environnement.acces_par_montee non null => la cible retenue devien
   via etat.fabrications_possibles et les recettes du jeu : planches avant
   batons avant etabli avant outil, sans inventer de recette. Si
   fabrications_possibles est vide ou ne contient pas la cible, recolte d abord
-  la matiere brute (casser/ramasser) puis fabrique. Ne conclus jamais sur un
+  la matiere brute (recolter) puis fabrique ; ce qui ne se fabrique pas se
+  cuit (cuire). Ne conclus jamais sur un
   quota de recolte ni sur un seul plan : seul l objet cible compte.
 - environnement.prerequis (fabrication) = chaine calculee par le code depuis
   l inventaire reel et les donnees du jeu : prochaine_etape, a_recolter
@@ -1172,32 +1175,6 @@ function optionList (criteria) {
     .join('\n')
 }
 
-function intentPrompt () {
-  const key = 'intent'
-  if (!prompts.has(key)) {
-    prompts.set(key, `Tu routes le chat d un serveur Minecraft. Tu decides si un message s adresse au bot et ce que le bot doit en faire.
-
-Tu recois {"message": "<ce qu un joueur vient d ecrire>"} et tu rends du JSON, rien d autre :
-{"commande": "<un nom de la liste>", "confiance": 0.0}
-
-Choix possibles, et rien d autre :
-${optionList(skills.intentCriteria())}
-
-Regles :
-- "mission" des qu un joueur s adresse au bot, meme pour le saluer ou lui poser
-  une question : le bot en fera une mission et composera lui-meme les actions.
-  Cela couvre les ordres, les gestes, les deplacements et les questions.
-- "stop" seulement pour un ordre clair d arret.
-- "aucune" est reserve aux messages qui ne s adressent PAS au bot : deux autres
-  joueurs se parlent, remarque sur le paysage ou le clavier. Dans le doute sur une
-  phrase qui t est adressee, choisis "mission".
-- "confiance" de 0 a 1 : ta certitude. En dessous de ${MIN_CONFIDENCE} le bot ne fera rien.
-- Tu ne lis pas de coordonnees : la commande de deplacement chiffre s ecrit avec
-  un prefixe et ne passe jamais par toi.`)
-  }
-  return prompts.get(key)
-}
-
 function briefPrompt () {
   const key = 'brief'
   if (!prompts.has(key)) {
@@ -1271,33 +1248,6 @@ Tu ne rends aucune dimension et aucun nombre de blocs : le code les lit
 lui-meme dans la phrase.`)
   }
   return prompts.get(key)
-}
-
-// Renvoie { command, confidence, actionable }, ou null si le planificateur est
-// eteint — index.js le traite alors comme une panne et le dit dans le chat.
-async function classify (message, opts = {}) {
-  if (!isEnabled()) return null
-
-  const response = await call(intentPrompt(), JSON.stringify({ message }), null, { ...opts, task: 'classify' })
-  const parsed = parseJson(response.content)
-
-  const command = String(parsed?.commande ?? 'aucune').trim().toLowerCase()
-  const confidence = Number.isFinite(Number(parsed?.confiance))
-    ? Math.max(0, Math.min(1, Number(parsed.confiance)))
-    : 0
-
-  // Un nom hors catalogue est traite comme « aucune » : mieux vaut un bot muet
-  // qu un bot qui devine, c est la regle du projet.
-  const known = Object.prototype.hasOwnProperty.call(skills.intentCriteria(), command)
-
-  return {
-    command: known ? command : 'aucune',
-    confidence: known ? confidence : 0,
-    probabilities: null,
-    actionable: known && command !== 'aucune' && confidence >= MIN_CONFIDENCE,
-    usage: response.usage ?? null,
-    ms: response.ms
-  }
 }
 
 function pick (value, criteria, fallback) {
@@ -1532,7 +1482,6 @@ module.exports = {
   isEnabled,
   warmup,
   plan,
-  classify,
   readBrief,
   designBlueprint,
   interpretMessage,
