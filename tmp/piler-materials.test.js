@@ -258,6 +258,9 @@ test('avancer : plafond reel a mi-hauteur, aucun pilier automatique', async t =>
   assert.deepEqual(f.placements, [])
   assert.equal(f.step.echec, true)
   assert.equal(f.step.code, 'cible_haute')
+  // The measured obstruction is reported, not a piler recommendation.
+  assert.match(f.step.resultat, /montee bloquee ici : stone a \+3/)
+  assert.doesNotMatch(f.step.resultat, /piler peut aider/)
 })
 
 // Decentre (z 0.18) : la tete touche aussi la colonne z = -1, comme piler la

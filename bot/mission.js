@@ -2451,22 +2451,22 @@ function createMissionRunner (host, injected = {}) {
     const feetY = Math.floor(here.y)
     // Same sight rule as findTargetBlock, applied during the search: buried
     // matches (stone under the floor) must not fill the result cap.
-    const exposed = pos => blocExpose(bot, pos, feetY)
+    // Same footprint exclusion as findTargetBlock, also during the search:
+    // the house being built is not a resource to climb to, and its placed
+    // blocks must not fill the result cap.
+    const emprise = empriseChantier()
+    const admis = pos => !dansEmprise(emprise, pos) && blocExpose(bot, pos, feetY)
     let positions
     try {
-      positions = bot.findBlocks({ matching: ids, useExtraInfo: block => exposed(block.position), maxDistance: SEARCH_RADIUS, count: 32 })
-        .filter(exposed)
+      positions = bot.findBlocks({ matching: ids, useExtraInfo: block => admis(block.position), maxDistance: SEARCH_RADIUS, count: 32 })
+        .filter(admis)
     } catch (_) {
       return null
     }
 
-    // Same footprint exclusion as findTargetBlock: the house being built is
-    // not a resource to climb to.
-    const emprise = empriseChantier()
     let best = null
 
     for (const position of positions) {
-      if (dansEmprise(emprise, position)) continue
       const dy = position.y - feetY
       if (dy <= MAX_REACH_UP || dy > MAX_REACH_UP + PILER_MAX) continue
       const horizontal = Math.hypot(position.x + 0.5 - here.x, position.z + 0.5 - here.z)
@@ -4056,17 +4056,20 @@ function createMissionRunner (host, injected = {}) {
         const pied = poste.entity.position.floored()
         const centre = high.position.offset(0.5, 0.5, 0.5)
         let besoin = 0
+        let montee = null
         const colonnes = colonnesSousHitbox(poste.entity.position, pied.y)
         const sousHitbox = p => colonnes.some(c => c.x === p.x && c.z === p.z)
         for (let h = 1; h <= PILER_MAX && !besoin; h += 1) {
           // Real cells the head crosses at this level, in every column under
           // the hitbox as piler checks them: solid or liquid stops the climb.
           // Leaves are admitted, piler clears them.
-          const bloque = colonnes.some(c => {
-            const tete = poste.blockAt(c.offset(0, h + 1, 0))
-            return !tete || estLiquide(tete.name) || (estSolide(tete) && !/_leaves$/.test(tete.name))
-          })
-          if (bloque) break
+          const obstacle = colonnes.map(c => poste.blockAt(c.offset(0, h + 1, 0)))
+            .find(tete => !tete || estLiquide(tete.name) || (estSolide(tete) && !/_leaves$/.test(tete.name)))
+          if (obstacle !== undefined) {
+            montee = `montee bloquee ici : ${obstacle?.name ?? 'bloc inconnu'} a +${h + 1} au-dessus des pieds, ` +
+              'piler ne passerait pas : changer de poste (autre cote de la cible)'
+            break
+          }
           // The pillar's own blocks as they would stand, and the leaves piler
           // would have cleared along the climb, like climbAccessHint.
           const vue = { entity: poste.entity,
@@ -4097,7 +4100,7 @@ function createMissionRunner (host, injected = {}) {
         // Measured after the attempt: piler may have gathered dirt or left a partial pillar.
         const stock = scaffoldingStock(host.getBot()).total
         const dirt = craft.countOf(host.getBot(), PILER_DIRT)
-        const next = stock > 0
+        const next = montee && !besoin ? montee : stock > 0
           ? 'piler peut aider si l appui et l espace au-dessus sont libres ; la pose reste a verifier'
           : 'stock court : piler recupere lui-meme la terre manquante (pilier defait puis refait, terre prise a cote)'
         return {
