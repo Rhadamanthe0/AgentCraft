@@ -24,7 +24,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
     stopsAtPlans.push(stops)
     const step = (action, choices = {}) => ({ action, choices, scale: 0, scaleLevel: null })
     // Other first actions keep the queue short: status shows the last 5 steps.
-    const steps = first !== 'piler' ? [step(states.length === 1 ? first : 'terminer')]
+    const steps = first !== 'piler' ? (states.length === 1 ? [step(first), step('dire', { texte: 'OLD QUEUE' })] : [step('terminer')])
       : states.length === 1 ? [step('piler', { hauteur: height }), step('dire', { texte: 'OLD QUEUE' })]
         : states.length === 2 ? [step('dire', { texte: 'OLD PREFETCH' })] : [step('terminer')]
     if (states.length === 2) signal.addEventListener('abort', () => { staleAborted = true }, { once: true })
@@ -198,6 +198,8 @@ test('avancer : pilier pose et cible a portee au sommet, succes', async t => {
   assert.equal(f.placements.length, 6)
   assert.equal(f.step.echec, false)
   assert.equal(f.step.code, 'pilier')
+  // Climbed and gathered: the queued step belongs to the pre-climb state.
+  assert.equal(f.messages.some(message => /OLD QUEUE/.test(message)), false)
 })
 
 // Perche a +2 sans terre autour : le pilier defait rend ses 2 blocs, refait a
@@ -220,4 +222,11 @@ test('pilier refait plus haut mais gain net court : echec partiel', async t => {
   assert.equal(f.step.echec, true)
   assert.equal(f.step.code, 'pilier_partiel')
   assert.match(f.step.resultat, /gain net 1\/4 \(pilier de 2 defait puis refait a 3\) : prendre de la terre plus loin/)
+})
+
+test('bois en blocs (hyphae) compte comme source de planches pour l echafaudage', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'crimson_hyphae', count: 2 }], height: 3, start: new Vec3(0.5, 67, 0.5),
+    extra: { '0,65,0': 'dirt', '0,66,0': 'dirt' } })
+  assert.equal(f.step.echec, true)
+  assert.match(f.step.resultat, /fabriquer des planches \(2 buche\(s\) en inventaire\)/)
 })

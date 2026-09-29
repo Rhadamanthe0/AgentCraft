@@ -208,6 +208,20 @@ test('cible haute exposee trouvee malgre 32 correspondances enfouies plus proche
   assert.match(step.resultat, /\+5/)
 })
 
+// piler est reserve a recolte et construction (skills.js) : un deplacement ne
+// creuse ni ne monte de lui-meme vers une cible haute.
+test('deplacement avec cible haute : aucun pilier automatique', async () => {
+  const f = highTargetFixture({ stock: 2, kind: 'deplacement' })
+  let digs = 0
+  f.bot.dig = async () => { digs++; throw new Error('no automatic digging') }
+  await f.r.start('va a cote de cet arbre', 'human')
+  const state = await finished(f.r)
+  const step = state.historique.find(entry => entry.action === 'avancer')
+  assert.doesNotMatch(step.resultat, /Pilier tente/)
+  assert.equal(f.controls.some(c => c.control === 'jump'), false)
+  assert.equal(digs, 0)
+})
+
 test('cible basse prioritaire sur cible haute : approche normale preservee', async () => {
   const f = highTargetFixture({ low: true })
   await f.r.start('ramasse du bois', 'human')

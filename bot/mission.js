@@ -4038,13 +4038,15 @@ function createMissionRunner (host, injected = {}) {
         // 7b01683 : refus « stock court » a 0 dirt, un tour de plan perdu).
         const besoin = high.denivele - MAX_REACH_UP
         let tentative = ''
-        if (besoin >= 1 && besoin <= PILER_MAX && !mission.cancelled) {
+        // Same mission kinds as the planner's piler (skills.js): a movement goal
+        // never digs terrain nor builds a pillar on its own.
+        if (besoin >= 1 && besoin <= PILER_MAX && ['recolte', 'construction'].includes(mission.kind) && !mission.cancelled) {
           const pile = await ACTIONS.piler(null, { hauteur: besoin })
           // Reach checked from the top: gathering dirt may have moved the post.
           const atteinte = pile.echec ? null : findTargetBlock()
           const live = host.getBot()
           if (atteinte && live?.entity && blockInReach(live, live.entity.position, atteinte.position.offset(0.5, 0.5, 0.5), REACH)) {
-            return { resultat: `cible haute ${high.cible} : ${pile.resultat}`, code: 'pilier' }
+            return { resultat: `cible haute ${high.cible} : ${pile.resultat}`, code: 'pilier', reobserver: true }
           }
           tentative = pile.echec ? ` Pilier tente : ${pile.resultat}.`
             : ` Pilier pose (${pile.resultat}) mais aucune cible a portee depuis le sommet : reobserver.`
@@ -4286,7 +4288,7 @@ function createMissionRunner (host, injected = {}) {
           const pile = await ACTIONS.piler(null, { hauteur: besoin })
           const live = host.getBot()
           if (!pile.echec && live?.entity && blockInReach(live, live.entity.position, cible.position.offset(0.5, 0.5, 0.5), REACH)) {
-            return { resultat: `${cible.name} rejoint a portee par un pilier de ${besoin} : ${pile.resultat}`, code: 'pilier' }
+            return { resultat: `${cible.name} rejoint a portee par un pilier de ${besoin} : ${pile.resultat}`, code: 'pilier', reobserver: true }
           }
           degage += ` (pilier de ${besoin} : ${pile.resultat})`
         }
@@ -4626,8 +4628,8 @@ function createMissionRunner (host, injected = {}) {
       // Short of it, a failure that names the remedy, not « reobserver »
       // (trees/tall c6dd16e : cinq piler(3) de suite rendus « 2/2 », sans gain).
       if (!failure && !cibleAtteinte && redescendu && poses - redescendu < hauteur) {
-        const bois = host.getBot().inventory.items()
-          .filter(item => /_(log|stem)$/.test(item.name)).reduce((n, item) => n + item.count, 0)
+        // Same wood pattern as craft.js plank recipes.
+        const bois = craft.countOf(host.getBot(), /_log$|_wood$|_stem$|_hyphae$/)
         const net = poses - redescendu
         failure = `aucune terre de plus a portee, gain net ${Math.max(0, net)}/${hauteur} ` +
           `(pilier de ${redescendu} defait puis refait a ${poses}) : ` +
