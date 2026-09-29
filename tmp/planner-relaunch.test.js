@@ -72,8 +72,9 @@ describe('relance d un plan sans reponse', () => {
     const planner = await warmPlanner([silent, async () => okPlan()])
     const result = await planner.plan({ consigne: 'test' }, 'recolte', 'harvest')
     assert.equal(result.steps.length, 1)
+    assert.ok(result.ms >= 190, `duree du plan avec l appel abandonne (${result.ms} ms)`)
     assert.equal(calls.length, 2)
-    assert.equal(calls[0].options.timeoutMs, 200)
+    assert.ok(calls[0].options.timeoutMs > 180 && calls[0].options.timeoutMs <= 200, `premier appel coupe au delai de relance (${calls[0].options.timeoutMs} ms)`)
     assert.equal(calls[1].concurrent, 0, 'jamais deux appels en meme temps')
     assert.ok(calls[1].options.timeoutMs <= 3000 - 190 && calls[1].options.timeoutMs > 2500, 'temps restant du delai total')
     assert.equal(planner.stats.relances, 1)
@@ -115,7 +116,7 @@ describe('relance d un plan sans reponse', () => {
     const planner = await warmPlanner([silent, async () => okPlan()], { PLANNER_TIMEOUT_MS: '150', PLANNER_TIMEOUT_MS_PLAN: '3000' })
     await planner.plan({ consigne: 'test' }, 'recolte', 'harvest')
     assert.equal(calls.length, 2)
-    assert.equal(calls[0].options.timeoutMs, 200)
+    assert.ok(calls[0].options.timeoutMs > 180 && calls[0].options.timeoutMs <= 200, `premier appel coupe au delai de relance (${calls[0].options.timeoutMs} ms)`)
   })
 
   it('troncature tardive de la relance : son reessai reste dans le delai total', async () => {
@@ -133,11 +134,13 @@ describe('relance d un plan sans reponse', () => {
     const refusedLate = options => new Promise((resolve, reject) =>
       setTimeout(() => reject(Object.assign(new Error('HTTP 400 : Upstream request failed'), { code: 'LLM_HTTP', status: 400 })), options.timeoutMs - 100))
     const planner = await warmPlanner([silent, refusedLate, silent], { PLANNER_TIMEOUT_MS: '1500', PLANNER_REASONING_EFFORT: 'low' })
+    const requestsBefore = planner.stats.tentatives
     const started = Date.now()
     await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest'), /planificateur indisponible/)
     assert.equal(calls.length, 3, 'appel coupe, relance refusee (400), rejeu sans le champ')
     assert.equal(calls[1].options.reasoningEffort, 'low')
     assert.equal(calls[2].options.reasoningEffort, undefined)
+    assert.equal(planner.stats.tentatives - requestsBefore, 3, 'le rejeu sans le champ compte comme une requete')
     assert.ok(calls[2].options.timeoutMs <= 150, `rejeu borne par le delai restant (${calls[2].options.timeoutMs} ms)`)
     assert.ok(Date.now() - started < 1500 + 150, `echec en ${Date.now() - started} ms`)
   })

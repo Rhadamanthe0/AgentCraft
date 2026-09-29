@@ -359,7 +359,8 @@ async function callRelaunched (system, user, opts) {
     console.log(`[planner] pas de reponse en ${opts.relanceMs} ms : appel relance, ${left} ms restantes (delai total ${timeoutMs} ms)`)
     const result = await callWithProfileOnce(system, user, { ...opts, timeoutMs: left, fixedTimeout: true, deadline: started + timeoutMs })
     stats.relances_reussies += 1
-    return result
+    // Plan latency covers the abandoned call too, not just the answered one.
+    return { ...result, ms: Date.now() - started }
   }
 }
 
@@ -445,6 +446,7 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
       // aiguillee (vu : un bot sur 16, tous ses appels en 400). L appel est
       // rejoue aussitot sans le champ ; le champ n est retire pour la
       // session qu apres deux refus suivis d un succes sans lui.
+      stats.tentatives += 1
       const result = await llm.call(system, user, { ...plain, timeoutMs: timeLeft() })
       const [counts, off, field] = effort
         ? [effortRefusals, effortOff, 'reasoning_effort']
