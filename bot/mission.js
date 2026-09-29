@@ -988,6 +988,18 @@ function createMissionRunner (host, injected = {}) {
     return acquirePlan.describe(plan, 1)[0] ?? null
   }
 
+  // The solver's next step, done in place of a step with nothing left to do
+  // (craft/iron-pickaxe 76553e7: ingots already smelted, « cuire » asked
+  // twice then « explorer », « recolter », 90 s and five planner calls before
+  // « fabriquer iron_pickaxe »). Only a craft or a smelt: a harvest stays the
+  // model's call. Returns the action result, or null.
+  async function etapeSuivanteAuLieu (prefixe) {
+    const suivante = acquisition()?.etapes?.[0]
+    if (suivante?.op !== 'fabriquer' && suivante?.op !== 'cuire') return null
+    const r = await ACTIONS[suivante.op](null, { objet: suivante.objet, quantite: suivante.quantite })
+    return { ...r, resultat: `${prefixe}, etape suivante du plan faite a la place : ${r.resultat}` }
+  }
+
   // Le meilleur bloc de la matiere visee a travailler : ni le bloc qui porte le
   // bot, ni un bloc situe trop bas sous lui, ni un bloc trop haut pour etre
   // atteint. Parmi les candidats, on preferre TOUJOURS un bloc reellement
@@ -3394,7 +3406,10 @@ function createMissionRunner (host, injected = {}) {
         : scaled(scale, 1, 16)
       const suite = rienARecolter()
       // Pas un echec : rien n a rate, la file continue (plan anticipe perime).
-      if (suite) return { resultat: `rien a recolter : tout est en poche, etape suivante du plan : ${suite}`, code: 'plan' }
+      if (suite) {
+        return (await etapeSuivanteAuLieu('rien a recolter : tout est en poche')) ??
+          { resultat: `rien a recolter : tout est en poche, etape suivante du plan : ${suite}`, code: 'plan' }
+      }
       const assez = materiauSuffisant()
       if (assez) return { resultat: `rien a recolter : ${assez}` }
       const matiere = harvestResource()
@@ -3663,6 +3678,14 @@ function createMissionRunner (host, injected = {}) {
       const quantite = Number.isFinite(Number(params.quantite))
         ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
         : (etape?.objet === objet ? etape.quantite : scaled(scale, 1, 16))
+      // Output already smelted: the solver, run on the real inventory, has
+      // no smelt left. Its next step instead of « rien a cuire ».
+      const plan = acquisition()
+      if (mission.fabricationCible && plan?.ok && !etape && objet !== (CIBLE_ITEM[mission.fabricationCible] ?? mission.fabricationCible) &&
+        craft.countOf(bot, new RegExp(`^${objet}$`)) > 0) {
+        const r = await etapeSuivanteAuLieu(`${objet} deja cuit(s)`)
+        if (r) return r
+      }
       try {
         const r = await craft.smelt(bot, objet, quantite, {
           move: async stand => (await host.navigateToPosition(stand, {
@@ -4964,7 +4987,10 @@ function createMissionRunner (host, injected = {}) {
         ? Math.max(8, Math.min(32, Math.round(Number(params.distance))))
         : scaled(scale, 8, 32)
       const suite = rienARecolter()
-      if (suite) return { resultat: `rien a chercher : tout est en poche, etape suivante du plan : ${suite}`, code: 'plan' }
+      if (suite) {
+        return (await etapeSuivanteAuLieu('rien a chercher : tout est en poche')) ??
+          { resultat: `rien a chercher : tout est en poche, etape suivante du plan : ${suite}`, code: 'plan' }
+      }
       const assez = materiauSuffisant()
       if (assez) return { resultat: `rien a chercher : ${assez}` }
       const enVue = () => findTargetBlock(undefined, { anyHeight: true }) ??
