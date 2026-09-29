@@ -195,6 +195,36 @@ test('partiel honnête sans doublon : -2 bûches / +4 planches au lieu de +8', a
   assert.equal(bot._state.stock.oak_log ?? 0, 0)
 })
 
+test('produit invisible en local : la resynchronisation serveur le compte', async () => {
+  // Vu sur craft/torches (0f59abf) : buche consommee, planches absentes du
+  // modele local pendant 3,5 s, arret « consommation incertaine » a tort.
+  const recipes = [{ result: { id: 'oak_planks', count: 4 }, ingredients: [{ id: 'oak_log', count: 1 }] }]
+  let hidden = 0
+  let calls = 0
+  const bot = makeFake({
+    stock: { oak_log: 2 },
+    recipes,
+    craftBehavior: async (recipe, n, state) => {
+      calls += 1
+      state.stock.oak_log -= 1
+      if (state.stock.oak_log <= 0) delete state.stock.oak_log
+      if (calls === 2) { hidden += 4; return }
+      state.stock.oak_planks = (state.stock.oak_planks ?? 0) + 4
+    }
+  })
+  let syncs = 0
+  bot._syncWindow = async () => {
+    syncs += 1
+    bot._state.stock.oak_planks = (bot._state.stock.oak_planks ?? 0) + hidden
+    hidden = 0
+  }
+  const res = await craft.make(bot, 'oak_planks', 8)
+  assert.equal(res.produced, 8)
+  assert.ok(!res.partial, 'pas d arret partiel')
+  assert.equal(calls, 2, 'aucun craft rejoue')
+  assert.ok(syncs >= 2)
+})
+
 test('ingredients restes dans la grille 2x2 : rendus a la fermeture, craft rejoue', async () => {
   // Vu sur craft/torches (4ee01ef) : craft desynchronise, planches restees dans
   // la grille de l inventaire (slots 1 a 4), comptees comme consommees.
