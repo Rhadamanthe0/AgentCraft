@@ -4690,7 +4690,7 @@ function createMissionRunner (host, injected = {}) {
       const volume = forme.compiled
         ? { width: forme.compiled.width, depth: forme.compiled.depth, height: forme.compiled.height }
         : (forme.box ?? { width: dims.width, depth: dims.depth, height: dims.height })
-      const site = build.findSite(bot, { near, ...volume })
+      const site = build.findSite(bot, { near, ...volume, pied: Math.floor(host.getBot().entity.position.y + 0.01) })
 
       if (!site) {
         return { resultat: 'aucun terrain plat et degage aux alentours', echec: true }

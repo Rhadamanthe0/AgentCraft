@@ -123,3 +123,16 @@ test('findSite : pas au bord d un rocher (le toit y perdait ses postes)', () => 
     assert.ok(x - 1 >= 6 && x + 3 <= 14 && z - 1 >= 28 && z + 3 <= 34, `bord du rocher : ${x},${z}`)
   }
 })
+
+test('findSite : repere sur un rocher, bot au sol : chantier au niveau de ses pieds', () => {
+  const build = require('../bot/build')
+  // Rocher de 3 de haut (sommet a 203), bot au sol (pieds a 200) : le sommet
+  // tiendrait le chantier, mais aucun poste de la deuxieme rangee n y est joignable.
+  const bot = siteWorld({ rock: { x1: 6, x2: 14, z1: 28, z2: 34, top: 202 } })
+  const site = build.findSite(bot, { near: { x: 12.5, y: 202, z: 31.5 }, width: 3, depth: 3, height: 3, pied: 200 })
+  assert.ok(site)
+  assert.equal(site.origin.y, 200)
+  // Sans hauteur de pieds connue, le choix d avant reste (sommet admis).
+  const libre = build.findSite(bot, { near: { x: 12.5, y: 202, z: 31.5 }, width: 3, depth: 3, height: 3 })
+  assert.equal(libre.origin.y, 203)
+})
