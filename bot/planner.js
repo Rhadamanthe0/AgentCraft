@@ -50,6 +50,10 @@ const TIMEOUT_MS = Number(process.env.PLANNER_TIMEOUT_MS || 12000)
 // the overall deadline stays TIMEOUT_MS. A/B switch: feature `relance_plan`
 // (mission.js).
 const RELAUNCH_MS = Number(process.env.PLANNER_RELAUNCH_MS || 10000)
+// Below this time left, a relaunch has no chance of an answer: no relaunch.
+const RELAUNCH_MIN_LEFT_MS = 1000
+// Models that answered at least once in this process (relaunch only these).
+const warmModels = new Set()
 const PLAN_MAX = Number(process.env.PLANNER_PLAN_MAX || 5)
 // Budget de temps d un plan, en secondes. Demande par le proprietaire, et c est
 // la bonne unite : compter les actions melange un saut de 0,3 s et une rafale
@@ -315,8 +319,13 @@ async function callWithProfile (system, user, opts = {}) {
   const task = opts.task ?? 'plan'
   const started = Date.now()
   try {
-    const relaunch = opts.relanceMs > 0 && opts.relanceMs < effectiveTimeout(opts)
+    // Relaunch only a model that already answered once (a cold model gets the
+    // whole delay) and only when a relaunch still fits in the delay.
+    const model = modelChain.modelFor(task, process.env, MODEL)?.model
+    const relaunch = opts.relanceMs > 0 && warmModels.has(model) &&
+      effectiveTimeout(opts) - opts.relanceMs >= RELAUNCH_MIN_LEFT_MS
     const result = relaunch ? await callRelaunched(system, user, opts) : await callWithProfileOnce(system, user, opts)
+    warmModels.add(result.model)
     recordLatency(task, Date.now() - started, 'ok')
     return result
   } catch (err) {
@@ -336,17 +345,19 @@ function effectiveTimeout (opts) {
 // time left, so the total delay stays `timeoutMs`: a silent call no longer
 // holds the mission for the whole delay. Never two calls at once. Only a delay
 // is relaunched: a refusal (403 included) or a cancellation is thrown as is.
+// Each call carries its deadline, which also bounds its internal retries
+// (truncation, refused reasoning field).
 async function callRelaunched (system, user, opts) {
   const timeoutMs = effectiveTimeout(opts)
   const started = Date.now()
   try {
-    return await callWithProfileOnce(system, user, { ...opts, timeoutMs: opts.relanceMs, fixedTimeout: true })
+    return await callWithProfileOnce(system, user, { ...opts, timeoutMs: opts.relanceMs, fixedTimeout: true, deadline: started + opts.relanceMs })
   } catch (err) {
     const left = timeoutMs - (Date.now() - started)
-    if (err?.code !== 'LLM_TIMEOUT' || opts.signal?.aborted || left < 1000) throw err
+    if (err?.code !== 'LLM_TIMEOUT' || opts.signal?.aborted || left < RELAUNCH_MIN_LEFT_MS) throw err
     stats.relances += 1
     console.log(`[planner] pas de reponse en ${opts.relanceMs} ms : appel relance, ${left} ms restantes (delai total ${timeoutMs} ms)`)
-    const result = await callWithProfileOnce(system, user, { ...opts, timeoutMs: left, fixedTimeout: true })
+    const result = await callWithProfileOnce(system, user, { ...opts, timeoutMs: left, fixedTimeout: true, deadline: started + timeoutMs })
     stats.relances_reussies += 1
     return result
   }
@@ -388,7 +399,7 @@ async function callWithProfileOnce (system, user, opts = {}) {
   }
 }
 
-async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, apiKey = null, task = 'plan' } = {}) {
+async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan' } = {}) {
   const EFFORT = modelChain.effortFor(task)
   // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
   const base = BASE_URL
@@ -414,7 +425,9 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     // accepte reasoning_effort) : jamais les deux dans le meme appel.
     const thinking = !effort && proto === 'chat' && THINKING === 'disabled' && !thinkingOff.has(model) ? { type: 'disabled' } : null
     const plain = {
-      baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs,
+      // A deadline (relaunch) bounds every transport of the call, retries included.
+      baseUrl: base, apiKey: key, model, temperature, maxTokens: budget,
+      timeoutMs: deadline ? Math.max(1, Math.min(timeoutMs, deadline - Date.now())) : timeoutMs,
       keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null, headers, image, signal, protocol: proto
     }
     if (!thinking && !effort) return llm.call(system, user, plain)
@@ -970,7 +983,8 @@ async function call (system, user, image = null, opts = {}) {
     maxTokens: EFFECTIVE_MAX_TOKENS,
     temperature: TEMPERATURE,
     timeoutMs: budget,
-    // Relaunch only once warm: the warm-up delay covers a cold model.
+    // Relaunch only once warm: the warm-up delay covers a cold model
+    // (callWithProfile also requires that very model to have answered once).
     relanceMs: warm ? (opts.relanceMs ?? 0) : 0,
     task: opts.task ?? 'plan'
   })

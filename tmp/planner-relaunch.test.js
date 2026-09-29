@@ -104,10 +104,11 @@ describe('relance d un plan sans reponse', () => {
     assert.equal(planner.stats.relances_reussies, 0)
   })
 
-  it('moins d une seconde restante : pas de relance, le delai total est tenu', async () => {
+  it('relance impossible (moins d une seconde apres elle) : appel ordinaire, tout le delai', async () => {
     const planner = await warmPlanner([silent], { PLANNER_TIMEOUT_MS: '1000', PLANNER_RELAUNCH_MS: '900' })
     await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest'), /planificateur indisponible/)
     assert.equal(calls.length, 1)
+    assert.equal(calls[0].options.timeoutMs, 1000, 'premier appel non raccourci')
   })
 
   it('delai propre au plan plus long : la relance s applique sur ce delai', async () => {
@@ -115,6 +116,25 @@ describe('relance d un plan sans reponse', () => {
     await planner.plan({ consigne: 'test' }, 'recolte', 'harvest')
     assert.equal(calls.length, 2)
     assert.equal(calls[0].options.timeoutMs, 200)
+  })
+
+  it('troncature tardive de la relance : son reessai reste dans le delai total', async () => {
+    const truncatedLate = options => new Promise((resolve, reject) =>
+      setTimeout(() => reject(new Error('reponse incomplete (max_output_tokens)')), options.timeoutMs - 100))
+    const planner = await warmPlanner([silent, truncatedLate, silent], { PLANNER_TIMEOUT_MS: '1500' })
+    const started = Date.now()
+    await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest'), /planificateur indisponible/)
+    assert.equal(calls.length, 3, 'appel coupe, relance tronquee, reessai de troncature')
+    assert.ok(calls[2].options.timeoutMs <= 150, `reessai borne par le delai restant (${calls[2].options.timeoutMs} ms)`)
+    assert.ok(Date.now() - started < 1500 + 150, `echec en ${Date.now() - started} ms`)
+  })
+
+  it('modele du plan encore froid (autre modele deja chaud) : tout le delai, sans relance', async () => {
+    const planner = await warmPlanner([silent], { PLANNER_TIMEOUT_MS: '500' })
+    process.env.PLANNER_MODEL_PLAN = 'glm-5.3-flash'
+    await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest'), /planificateur indisponible/)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].options.timeoutMs, 500)
   })
 
   it('interrupteur relance_plan coupe : un seul appel, meme muet', async () => {

@@ -726,7 +726,8 @@ def _block(name, turns, species):
 def vary(level, seed):
     if seed is None:
         return level
-    rng = random.Random(f"{seed}:{level['name']}")
+    # An A/B variant plays its base level's scene: only the switched mode differs.
+    rng = random.Random(f"{seed}:{level.get('variantOf') or level['name']}")
     turns, mirror, species = rng.randrange(4), rng.random() < .5, rng.choice(SPECIES)
     out = dict(level)
     out['variation'] = {'rotation': turns * 90, 'miroir': mirror, 'essence': species}
