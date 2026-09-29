@@ -33,6 +33,9 @@ const DEFAULT_SIZE = 5
 const PLACE_REACH = 4.2
 const SITE_MIN_DISTANCE = 3
 const SITE_MAX_DISTANCE = 12
+// Sol sec au meme niveau autour de l emprise (postes de tir), en blocs.
+const SITE_MARGIN = 1
+const LIQUID = /water|lava|bubble_column/
 // Delai d un trajet vers un poste de tir en gestes unitaires. Marcher prend du
 // temps (Fix 3 : plus aucun pathfinder en mission, meme pour rallier un poste).
 const MOVE_TIMEOUT_MS = Number(process.env.BUILD_MOVE_TIMEOUT_MS || 12000)
@@ -535,17 +538,24 @@ function groundLevel (bot, x, z, yHint) {
 
 // Un emplacement convient s il est plat, libre sur toute la hauteur, et si
 // aucun tronc ne le traverse : on veut la maison **a cote** de l arbre.
+// Autour, un anneau de SITE_MARGIN bloc(s) de sol sec au meme niveau, avec la
+// place d un corps : les postes de tir des murs et du toit y sont. Sans lui,
+// un chantier colle a un fosse mettait ses postes dans l eau (cabin-across-
+// water 9ee7d81 : bot tombe, sauvetage sans fin) et un chantier au bord d un
+// rocher perdait ceux du toit (stone-hut 9ee7d81 : toit injoignable, 7 fois).
 function siteFits (bot, origin, width, depth, height) {
-  for (let dx = 0; dx < width; dx += 1) {
-    for (let dz = 0; dz < depth; dz += 1) {
+  for (let dx = -SITE_MARGIN; dx < width + SITE_MARGIN; dx += 1) {
+    for (let dz = -SITE_MARGIN; dz < depth + SITE_MARGIN; dz += 1) {
       const x = origin.x + dx
       const z = origin.z + dz
 
       const level = groundLevel(bot, x, z, origin.y)
       if (level !== origin.y) return false
 
-      for (let dy = 0; dy < height; dy += 1) {
-        if (!isFree(bot.blockAt(new Vec3(x, origin.y + dy, z)))) return false
+      const inside = dx >= 0 && dx < width && dz >= 0 && dz < depth
+      for (let dy = 0; dy < (inside ? height : 2); dy += 1) {
+        const block = bot.blockAt(new Vec3(x, origin.y + dy, z))
+        if (!isFree(block) || LIQUID.test(block.name)) return false
       }
     }
   }
