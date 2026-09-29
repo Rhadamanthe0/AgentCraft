@@ -66,7 +66,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
     placeBlock: async support => {
       if (placements.length + 1 === refuseAt) throw new Error('server refused')
       const name = wrongBlock ? 'coarse_dirt' : bot.heldItem.name
-      blocks.set(`0,${support.position.y + 1},0`, name)
+      blocks.set(`${support.position.x},${support.position.y + 1},${support.position.z}`, name)
       bot.heldItem.count--
       placements.push(name)
       onPlace?.(placements, blocks, bot)
@@ -246,6 +246,17 @@ test('atterrissage sur un voisin de meme hauteur : montee comptee', async t => {
   const f = await simulate(t, { inventory: [{ name: 'dirt', count: 2 }], height: 1, logY: 69, extra: { '1,65,0': 'oak_log' },
     onPlace: (_placements, _blocks, bot) => { bot.entity.position.x = 1.1 } })
   assert.deepEqual(f.placements, ['dirt'])
+  assert.equal(f.step.echec, false, f.step.resultat)
+  assert.equal(f.step.code, 'pilier_pose')
+})
+
+// Glisse hors de l axe du pilier : le centre du bot passe au-dessus du vide,
+// l appui reste le pilier sous la hitbox. La montee continue sur cette colonne
+// (trees/tall 799e412 : « plus d appui solide sous les pieds »).
+test('glisse hors de l axe du pilier : montee poursuivie sur la colonne qui porte', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 6 }],
+    onPlace: (placements, _blocks, bot) => { if (placements.length === 1) bot.entity.position.x = 1.1 } })
+  assert.deepEqual(f.placements, Array(6).fill('dirt'))
   assert.equal(f.step.echec, false, f.step.resultat)
   assert.equal(f.step.code, 'pilier_pose')
 })

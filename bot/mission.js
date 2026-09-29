@@ -4530,7 +4530,13 @@ function createMissionRunner (host, injected = {}) {
         const poseConforme = nom => nom === stock.nom ||
           (/dirt$/.test(stock.nom) && (nom === 'grass_block' || nom === 'dirt'))
 
-        const ancre = live.entity.position.floored()
+        // Center column first; after a slide the bot may stand on a
+        // neighbour column of its hitbox (trees/tall 799e412 : pieds z 21.02,
+        // appui en z 20, « plus d appui solide sous les pieds »).
+        const centre = live.entity.position.floored()
+        const ancre = [centre, ...colonnesSousHitbox(live.entity.position, centre.y)
+          .filter(colonne => !colonne.equals(centre))]
+          .find(colonne => estSolide(live.blockAt(colonne.offset(0, -1, 0))) && !estSolide(live.blockAt(colonne))) ?? centre
         const appui = live.blockAt(ancre.offset(0, -1, 0))
         if (!estSolide(appui)) {
           failure = 'plus d appui solide sous les pieds'
