@@ -4056,15 +4056,28 @@ function createMissionRunner (host, injected = {}) {
         const pied = poste.entity.position.floored()
         const centre = high.position.offset(0.5, 0.5, 0.5)
         let besoin = 0
+        const colonnes = colonnesSousHitbox(poste.entity.position, pied.y)
+        const sousHitbox = p => colonnes.some(c => c.x === p.x && c.z === p.z)
         for (let h = 1; h <= PILER_MAX && !besoin; h += 1) {
-          // Real cells the head crosses at this level: solid or liquid stops
-          // the climb (leaves are cleared by piler), like climbAccessHint.
-          const tete = poste.blockAt(pied.offset(0, h + 1, 0))
-          if (!tete || estLiquide(tete.name) || (estSolide(tete) && !/_leaves$/.test(tete.name))) break
-          // The pillar's own blocks as they would stand, like climbAccessHint.
+          // Real cells the head crosses at this level, in every column under
+          // the hitbox as piler checks them: solid or liquid stops the climb.
+          // Leaves are admitted, piler clears them.
+          const bloque = colonnes.some(c => {
+            const tete = poste.blockAt(c.offset(0, h + 1, 0))
+            return !tete || estLiquide(tete.name) || (estSolide(tete) && !/_leaves$/.test(tete.name))
+          })
+          if (bloque) break
+          // The pillar's own blocks as they would stand, and the leaves piler
+          // would have cleared along the climb, like climbAccessHint.
           const vue = { entity: poste.entity,
-            blockAt: p => p.x === pied.x && p.z === pied.z && p.y >= pied.y && p.y < pied.y + h
-              ? { name: 'dirt', position: p, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] } : poste.blockAt(p) }
+            blockAt: p => {
+              if (p.x === pied.x && p.z === pied.z && p.y >= pied.y && p.y < pied.y + h) {
+                return { name: 'dirt', position: p, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
+              }
+              const reel = poste.blockAt(p)
+              return reel && /_leaves$/.test(reel.name) && sousHitbox(p) && p.y > pied.y && p.y <= pied.y + h + 1
+                ? { name: 'air', position: p, boundingBox: 'empty', shapes: [] } : reel
+            } }
           if (blockInReach(vue, poste.entity.position.offset(0, h, 0), centre, REACH)) besoin = h
         }
         let tentative = ''

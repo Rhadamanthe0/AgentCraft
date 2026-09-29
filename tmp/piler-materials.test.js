@@ -259,3 +259,19 @@ test('avancer : plafond reel a mi-hauteur, aucun pilier automatique', async t =>
   assert.equal(f.step.echec, true)
   assert.equal(f.step.code, 'cible_haute')
 })
+
+// Decentre (z 0.18) : la tete touche aussi la colonne z = -1, comme piler la
+// verifie. Un plafond mi-hauteur y annule le pilier automatique.
+test('avancer : plafond dans la colonne voisine sous la hitbox, aucun pilier automatique', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], first: 'avancer', logAt: new Vec3(3, 70, 0),
+    start: new Vec3(0.5, 65, 0.18), extra: { '0,68,-1': 'stone' } })
+  assert.deepEqual(f.placements, [])
+  assert.equal(f.step.code, 'cible_haute')
+})
+
+// Feuilles sur la montee : piler les casse, la hauteur reste mesurable.
+test('avancer : feuilles sur la montee comptees comme degagees', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], first: 'avancer', logAt: new Vec3(3, 70, 0),
+    extra: { '0,68,0': 'oak_leaves' } })
+  assert.equal(f.placements.length, 3, f.step.resultat)
+})
