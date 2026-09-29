@@ -4620,13 +4620,15 @@ function createMissionRunner (host, injected = {}) {
       if (poses === 0) {
         return { resultat: `pilier impossible : ${failure ?? 'aucun bloc pose'}`, echec: true }
       }
-      // Pillar undone then rebuilt no higher: no dirt beyond its own blocks.
-      // Reported as a failure, not « reobserver » (trees/tall c6dd16e : cinq
-      // piler(3) de suite rendus « 2/2 », 8 etapes sans progres).
-      if (!failure && !cibleAtteinte && redescendu && poses <= redescendu) {
+      // Pillar undone then rebuilt: the request is a net gain over the start.
+      // Short of it, a failure that names the remedy, not « reobserver »
+      // (trees/tall c6dd16e : cinq piler(3) de suite rendus « 2/2 », sans gain).
+      if (!failure && !cibleAtteinte && redescendu && poses - redescendu < hauteur) {
         const bois = host.getBot().inventory.items()
           .filter(item => /_(log|stem)$/.test(item.name)).reduce((n, item) => n + item.count, 0)
-        failure = `aucune terre de plus a portee, pilier refait a la meme hauteur (${poses}) sans gain : ` +
+        const net = poses - redescendu
+        failure = `aucune terre de plus a portee, gain net ${Math.max(0, net)}/${hauteur} ` +
+          `(pilier de ${redescendu} defait puis refait a ${poses}) : ` +
           (bois ? `fabriquer des planches (${bois} buche(s) en inventaire) pour l echafaudage` : 'prendre de la terre plus loin')
       }
       const complet = !failure && (poses === hauteurVisee || cibleAtteinte)

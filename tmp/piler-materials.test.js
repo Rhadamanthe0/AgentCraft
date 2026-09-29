@@ -208,5 +208,16 @@ test('pilier defait puis refait sans gain : echec qui propose les planches', asy
     extra: { '0,65,0': 'dirt', '0,66,0': 'dirt' } })
   assert.deepEqual(f.placements, ['dirt', 'dirt'])
   assert.equal(f.step.echec, true)
-  assert.match(f.step.resultat, /sans gain : fabriquer des planches \(3 buche\(s\) en inventaire\)/)
+  assert.match(f.step.resultat, /gain net 0\/4 .*: fabriquer des planches \(3 buche\(s\) en inventaire\)/)
+})
+
+// Un bloc en reserve : pilier de 2 defait, refait a 3, gain net 1 sur 4
+// demandes. Partiel, jamais « pilier_pose ».
+test('pilier refait plus haut mais gain net court : echec partiel', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 1 }], height: 3, start: new Vec3(0.5, 67, 0.5),
+    extra: { '0,65,0': 'dirt', '0,66,0': 'dirt' } })
+  assert.deepEqual(f.placements, ['dirt', 'dirt', 'dirt'])
+  assert.equal(f.step.echec, true)
+  assert.equal(f.step.code, 'pilier_partiel')
+  assert.match(f.step.resultat, /gain net 1\/4 \(pilier de 2 defait puis refait a 3\) : prendre de la terre plus loin/)
 })
