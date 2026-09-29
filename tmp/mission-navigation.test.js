@@ -152,12 +152,19 @@ test('cible seulement en hauteur, stock vide : piler va chercher la terre voisin
     ? { name: 'dirt', position, shapes: [[0, 0, 0, 1, 1, 1]] } : originalAt(position)
   const digs = []
   f.bot.lookAt = async () => {}
-  f.bot.dig = async block => { digs.push(block.name); throw new Error('no automatic digging') }
+  f.bot.dig = async block => { digs.push(block.name); dug = true }
+  let dug = false
+  f.bot.inventory.items = () => dug ? [{ name: 'dirt', count: 1 }] : []
   await f.r.start('ramasse du bois', 'human')
+  // A successful dig adds piler's pickup wait: poll longer than finished().
+  for (let i = 0; i < 2000 && f.r.isRunning(); i++) await new Promise(resolve => setTimeout(resolve, 5))
   const state = await finished(f.r)
   assert.ok(digs.includes('dirt'), `terre voisine visee par piler (${digs.join(', ') || 'aucun coup'})`)
   const step = state.historique.find(entry => entry.action === 'avancer')
-  assert.equal(step.code, 'cible_haute', 'sans terre obtenue, le constat chiffre reste')
+  assert.equal(step.code, 'cible_haute', 'pose impossible, le constat chiffre reste')
+  // Stock measured after the attempt, and piler's own failure kept.
+  assert.match(step.resultat, /1 blocs d echafaudage \(1 dirt\)/)
+  assert.match(step.resultat, /Pilier tente : /)
 })
 
 test('cible basse prioritaire sur cible haute : approche normale preservee', async () => {

@@ -4017,23 +4017,26 @@ function createMissionRunner (host, injected = {}) {
       // Explicit movement gestures keep their existing free-movement semantics.
       const high = !cible && mission.kind !== 'geste' ? highTargetHint() : null
       if (high) {
-        const stock = scaffoldingStock(host.getBot()).total
         // Cible deja a portee horizontale, seule la hauteur manque : le code
         // monte lui-meme (trees/bent 93a6f04 : echec « piler peut aider »).
         // Stock court compris : piler prend la terre voisine lui-meme (trees/bent
         // 7b01683 : refus « stock court » a 0 dirt, un tour de plan perdu).
         const besoin = high.denivele - MAX_REACH_UP
+        let tentative = ''
         if (besoin >= 1 && besoin <= PILER_MAX && !mission.cancelled) {
           const pile = await ACTIONS.piler(null, { hauteur: besoin })
           if (!pile.echec) return { resultat: `cible haute ${high.cible} : ${pile.resultat}`, code: 'pilier' }
+          tentative = ` Pilier tente : ${pile.resultat}.`
         }
+        // Measured after the attempt: piler may have gathered dirt or left a partial pillar.
+        const stock = scaffoldingStock(host.getBot()).total
         const dirt = craft.countOf(host.getBot(), PILER_DIRT)
         const next = stock > 0
           ? 'piler peut aider si l appui et l espace au-dessus sont libres ; la pose reste a verifier'
           : 'stock court : piler recupere lui-meme la terre manquante (pilier defait puis refait, terre prise a cote)'
         return {
           resultat: `cible haute ${high.cible} a ${high.distance} bloc(s), +${high.denivele} en hauteur, ` +
-            `${stock} blocs d echafaudage (${dirt} dirt) en inventaire : ${next}. Avancer au sol ne resout pas ce denivele.`,
+            `${stock} blocs d echafaudage (${dirt} dirt) en inventaire : ${next}. Avancer au sol ne resout pas ce denivele.${tentative}`,
           echec: true,
           code: 'cible_haute'
         }
