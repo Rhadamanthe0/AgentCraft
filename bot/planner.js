@@ -1431,6 +1431,9 @@ position » = le joueur. Si tu reformules, nomme-les : « position de depart du
 bot », « le joueur <nom> » (jamais « ma position » ni « ta place »).
 amend = modifie une mission EN COURS : objective est sa consigne COMPLETE revisee,
 en conservant les exigences non modifiees. Ne rejoue pas ce qui est explicitement deja accompli.
+Un ordre qui abandonne la mission en cours pour un AUTRE but (« laisse tomber »,
+« oublie ca », « finalement » suivi d un autre but) est new, pas amend : objective
+ne contient que le nouveau but, jamais la mission abandonnee.
 context = information utile a la mission courante sans changer son objectif
 ("je suis derriere toi", "je suis la") : pas de nouvel objectif.
 Une correction du moyen immediat ou de la position du bot conserve le but :
