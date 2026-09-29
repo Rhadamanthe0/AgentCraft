@@ -881,6 +881,19 @@ async function makeOnce (bot, targetName, wanted = 1, opts = {}) {
         }
       }
       if (consumed > 0) {
+        // The local model can lie (craft/torches 0f59abf: log gone, planks
+        // unseen for 3.5 s): ask the server for the whole inventory first.
+        await resyncInventory(bot)
+        afterTarget = countOf(bot, new RegExp(`^${escapeRegExp(op.target.name)}$`))
+        if (afterTarget > beforeTarget) {
+          executedRepeats += 1
+          lastError = null
+          await sleep(120)
+          continue
+        }
+        consumed = consumedSince()
+      }
+      if (consumed > 0) {
         // Incertain : des ingrédients ont disparu sans produit. Ne pas
         // rejouer (doublons/gaspillage) : arrêt partiel, produit réel rendu.
         lastError = new Error(`${op.target.name} non fabrique (consommation incertaine : -${consumed} ingredient(s) sans produit, arret partiel)`)
