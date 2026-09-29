@@ -230,3 +230,12 @@ test('bois en blocs (hyphae) compte comme source de planches pour l echafaudage'
   assert.equal(f.step.echec, true)
   assert.match(f.step.resultat, /fabriquer des planches \(2 buche\(s\) en inventaire\)/)
 })
+
+// Cible a +5 et 3 blocs de cote : denivele - portee (2) laisse la buche a 4.6
+// blocs. La hauteur se mesure avec la portee reelle depuis un poste virtuel.
+test('avancer : hauteur du pilier mesuree avec la portee reelle, cible decalee', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], first: 'avancer', logAt: new Vec3(3, 70, 0) })
+  assert.equal(f.placements.length, 3)
+  assert.equal(f.step.echec, false)
+  assert.equal(f.step.code, 'pilier')
+})

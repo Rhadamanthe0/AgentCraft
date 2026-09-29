@@ -1790,6 +1790,21 @@ function createMissionRunner (host, injected = {}) {
     injoignables.set(posKey(pos), Date.now() + INJOIGNABLE_MS)
   }
 
+  // Chantier en cours : ne jamais creuser son emprise (+1 autour), ni le sol
+  // dessous ni la maison deja posee (vu sur build/no-materials : terre prise
+  // sous le chantier, « aucun appui »).
+  function empriseChantier () {
+    if (mission?.kind !== 'construction' || !mission.plan?.blocks?.length) return null
+    const xs = mission.plan.blocks.map(b => b.position.x)
+    const zs = mission.plan.blocks.map(b => b.position.z)
+    const ys = mission.plan.blocks.map(b => b.position.y)
+    return { x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, z0: Math.min(...zs) - 1, z1: Math.max(...zs) + 1, y: Math.min(...ys) }
+  }
+  function dansEmprise (emprise, position) {
+    return Boolean(emprise) && position.x >= emprise.x0 && position.x <= emprise.x1 &&
+      position.z >= emprise.z0 && position.z <= emprise.z1
+  }
+
   function findTargetBlock (resource, opts = {}) {
     // Surcharge toleree : findTargetBlock({ yaw }) vaut secteur sur la matiere
     // courante. Rien d autre n utilise cette forme aujourd hui.
@@ -1837,15 +1852,7 @@ function createMissionRunner (host, injected = {}) {
     // falaise), pas pour la casser d ici. Les bornes verticales ci-dessous
     // restent celles de `casser`.
     const anyHeight = opts.anyHeight === true
-    // Chantier en cours : ne jamais creuser son emprise (+1 autour), ni le sol
-    // dessous ni la maison deja posee (vu sur build/no-materials : terre prise
-    // sous le chantier, « aucun appui »).
-    const emprise = mission?.kind === 'construction' && mission.plan?.blocks?.length ? (() => {
-      const xs = mission.plan.blocks.map(b => b.position.x)
-      const zs = mission.plan.blocks.map(b => b.position.z)
-      const ys = mission.plan.blocks.map(b => b.position.y)
-      return { x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, z0: Math.min(...zs) - 1, z1: Math.max(...zs) + 1, y: Math.min(...ys) }
-    })() : null
+    const emprise = empriseChantier()
 
     // Cible mise de cote (sans chemin) : ignoree tant qu il en reste une
     // autre, jamais quand c est la derniere. Vu sur terrain/plateau (a45b981,
@@ -1853,8 +1860,7 @@ function createMissionRunner (host, injected = {}) {
     // invisible une fois le bot monte (« rien » partout, errance, chute).
     const candidates = []
     const collect = list => { for (const position of list) {
-      if (emprise && position.x >= emprise.x0 && position.x <= emprise.x1 &&
-        position.z >= emprise.z0 && position.z <= emprise.z1) continue
+      if (dansEmprise(emprise, position)) continue
       if (!anyHeight && position.y < feetY - MAX_DIG_DEPTH) continue
       // Trop haut pour etre atteint depuis le sol : passer a la cible suivante
       // plutot que de s acharner sur le haut d un tronc.
@@ -2454,9 +2460,13 @@ function createMissionRunner (host, injected = {}) {
       return null
     }
 
+    // Same footprint exclusion as findTargetBlock: the house being built is
+    // not a resource to climb to.
+    const emprise = empriseChantier()
     let best = null
 
     for (const position of positions) {
+      if (dansEmprise(emprise, position)) continue
       const dy = position.y - feetY
       if (dy <= MAX_REACH_UP || dy > MAX_REACH_UP + PILER_MAX) continue
       const horizontal = Math.hypot(position.x + 0.5 - here.x, position.z + 0.5 - here.z)
@@ -2467,11 +2477,14 @@ function createMissionRunner (host, injected = {}) {
     }
 
     if (!best) return null
-    return {
+    const hint = {
       cible: best.block.name,
       denivele: best.dy,
       distance: Number(best.horizontal.toFixed(1))
     }
+    // Code-side only: the planner state serializes the three fields above.
+    Object.defineProperty(hint, 'position', { value: best.block.position, enumerable: false })
+    return hint
   }
 
   // Measure access from supported virtual posts without changing the world or permissions.
@@ -4036,7 +4049,20 @@ function createMissionRunner (host, injected = {}) {
         // monte lui-meme (trees/bent 93a6f04 : echec « piler peut aider »).
         // Stock court compris : piler prend la terre voisine lui-meme (trees/bent
         // 7b01683 : refus « stock court » a 0 dirt, un tour de plan perdu).
-        const besoin = high.denivele - MAX_REACH_UP
+        // Minimum height measured with the real reach (3D distance and sight
+        // line from a virtual post), not denivele - MAX_REACH_UP: a target
+        // also 3 blocks away sideways needs more (revue Codex).
+        const poste = host.getBot()
+        const pied = poste.entity.position.floored()
+        const centre = high.position.offset(0.5, 0.5, 0.5)
+        let besoin = 0
+        for (let h = 1; h <= PILER_MAX && !besoin; h += 1) {
+          // The pillar's own blocks as they would stand, like climbAccessHint.
+          const vue = { entity: poste.entity,
+            blockAt: p => p.x === pied.x && p.z === pied.z && p.y >= pied.y && p.y < pied.y + h
+              ? { name: 'dirt', position: p, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] } : poste.blockAt(p) }
+          if (blockInReach(vue, poste.entity.position.offset(0, h, 0), centre, REACH)) besoin = h
+        }
         let tentative = ''
         // Same mission kinds as the planner's piler (skills.js): a movement goal
         // never digs terrain nor builds a pillar on its own.
