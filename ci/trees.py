@@ -1643,18 +1643,26 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
         except Exception:
             return None
 
+    def mission_start(bot):
+        try:
+            return ((bot_api(bot, '/api/mission') or {}).get('mission') or {}).get('debut')
+        except Exception:
+            return None
+
     def run_one(worker, index, first):
         level = all_levels[index]
         if not first:
             reset(worker.bot)
         print(f'{level["name"]} ({worker.username}) started', flush=True)
         calls_before = None
+        mission_before = None
         try:
             if before_level:
                 before_level()
             if level.get('features'):
                 bot_api(worker.bot, '/api/features', level['features'])
             calls_before = planner_calls(worker.bot)
+            mission_before = mission_start(worker.bot)
             result = run_level(level, origins[index], worker.bot, worker.username, output, rcon, bot_api, worker.probe)
         except Exception as error:  # a crashing level never takes its worker down silently
             result = {'test': level['name'], 'success': False, 'bot': worker.username, 'error': str(error)}
@@ -1669,6 +1677,11 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
         # a analyser a chaque banc).
         try:
             m = (bot_api(worker.bot, '/api/mission') or {}).get('mission') or {}
+            # No mission started by this level: the bot still reports the
+            # previous level's, already counted there (chat/chatter-ignored
+            # 6ab854b: a tree level's piler failure counted twice).
+            if m.get('debut') is None or m.get('debut') == mission_before:
+                m = {}
             steps = m.get('etapes') or 0
             fails = m.get('etapes_en_echec') or 0
             blocages = m.get('blocages') or []

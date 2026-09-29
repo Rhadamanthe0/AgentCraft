@@ -333,3 +333,109 @@ test('primitif live 2 buches -> 8 planches : pas de regression', async () => {
   assert.equal(res.wanted, 8)
   assert.equal(res.partial, false)
 })
+
+test('outil deja en poche redemande : etape suivante du plan, pas de refus', async () => {
+  // Vu sur craft/iron-pickaxe (6ab854b) : pioche en pierre deja faite par une
+  // etape reprise, redemandee, refusee « pas utile », plan jete.
+  const makeCalls = []
+  try {
+    const brief = realShapeBrief({
+      kind: 'recolte', resource: 'bois',
+      fabrication: 'torch', fabricationQuantite: 4, _texte: 'fabrique 4 torches'
+    })
+    const stub = async (bot, target, wanted) => {
+      makeCalls.push({ target, wanted })
+      if (target !== 'torch') throw Object.assign(new Error(`inattendu ${target}`), { code: 'unknown' })
+      bot._stock.torch = (bot._stock.torch ?? 0) + 4
+      return { item: 'torch', produced: 4, wanted, usedTable: false }
+    }
+    const { status } = await runMission({
+      brief,
+      stock: { wooden_pickaxe: 1, stick: 1, coal: 1 },
+      plans: ['fabriquer:wooden_pickaxe:1', 'terminer'],
+      makeStub: stub
+    })
+    assert.ok(!makeCalls.some(c => /pickaxe|pioche/.test(c.target)), 'aucune pioche refaite')
+    const fab = status.historique.find(h => h.action === 'fabriquer')
+    assert.doesNotMatch(fab.resultat, /pas utile/)
+    assert.match(fab.resultat, /^wooden_pickaxe deja dans l inventaire, etape suivante du plan faite a la place : /)
+  } finally {
+    restorePlanner()
+    restoreCraft()
+  }
+})
+
+// Plan du solveur impose (fabriquer la cible), sans recolte ni cuisson.
+async function runWithPlan (plans, stock) {
+  const acquirePlan = require('../bot/acquire-plan')
+  const orig = acquirePlan.planAcquire
+  acquirePlan.planAcquire = () => ({ ok: true, etapes: [{ op: 'fabriquer', objet: 'torch', quantite: 4 }], bloque: [] })
+  const makeCalls = []
+  try {
+    const brief = realShapeBrief({
+      kind: 'recolte', resource: 'bois',
+      fabrication: 'torch', fabricationQuantite: 4, _texte: 'fabrique 4 torches'
+    })
+    const stub = async (bot, target, wanted) => {
+      makeCalls.push(target)
+      bot._stock.torch = (bot._stock.torch ?? 0) + 4
+      return { item: 'torch', produced: 4, wanted, usedTable: false }
+    }
+    const { status } = await runMission({ brief, stock, plans, makeStub: stub })
+    return { status, makeCalls }
+  } finally {
+    acquirePlan.planAcquire = orig
+    restorePlanner()
+    restoreCraft()
+  }
+}
+
+test('recolte inutile (tout en poche) : l etape suivante du plan est faite', async () => {
+  // Vu sur craft/iron-pickaxe (76553e7) : « rien a recolter : tout est en
+  // poche, etape suivante du plan : fabriquer 1 iron_pickaxe », non faite.
+  const { status, makeCalls } = await runWithPlan(['recolter:bois:3', 'terminer'], { stick: 1, coal: 1 })
+  assert.deepEqual(makeCalls, ['torch'])
+  const r = status.historique.find(h => h.action === 'recolter')
+  assert.match(r.resultat, /^rien a recolter : tout est en poche, etape suivante du plan faite a la place : /)
+  assert.ok(!r.echec)
+})
+
+test('cuisson deja faite : l etape suivante du plan au lieu de « rien a cuire »', async () => {
+  // Vu sur craft/iron-pickaxe (76553e7) : lingots deja cuits, « cuire
+  // iron_ingot » redemande deux fois, deux echecs.
+  const { status, makeCalls } = await runWithPlan(['cuire:iron_ingot:3', 'terminer'], { iron_ingot: 3, stick: 1, coal: 1 })
+  assert.deepEqual(makeCalls, ['torch'])
+  const c = status.historique.find(h => h.action === 'cuire')
+  assert.match(c.resultat, /^iron_ingot deja cuit\(s\), etape suivante du plan faite a la place : /)
+  assert.ok(!c.echec)
+})
+
+test('recolte dont l outil reste a fabriquer : la recolte faisable est visee', async () => {
+  // Vu sur craft/iron-pickaxe (e6e8328) : fer en vue, pioche en pierre encore
+  // au plan, « iron_ore ne lache rien sans pioche » : la pierre etait faisable.
+  const acquirePlan = require('../bot/acquire-plan')
+  const orig = acquirePlan.planAcquire
+  acquirePlan.planAcquire = () => ({
+    ok: true,
+    bloque: [],
+    etapes: [
+      { op: 'fabriquer', objet: 'stone_pickaxe', quantite: 1, etabli: true },
+      { op: 'recolter', objet: 'raw_iron', quantite: 3, bloc: 'iron_ore', matiere: 'minerai', outil: 'stone_pickaxe' },
+      { op: 'recolter', objet: 'cobblestone', quantite: 8, bloc: 'stone', matiere: 'pierre', outil: 'wooden_pickaxe' },
+      { op: 'fabriquer', objet: 'iron_pickaxe', quantite: 1, etabli: true }
+    ]
+  })
+  try {
+    const brief = realShapeBrief({
+      kind: 'recolte', resource: 'minerai',
+      fabrication: 'iron_pickaxe', fabricationQuantite: 1, _texte: 'fabrique une pioche en fer'
+    })
+    const { status } = await runMission({ brief, stock: { wooden_pickaxe: 1, stone_pickaxe: 0, iron_pickaxe: 0 }, plans: ['recolter:pierre:3', 'terminer'] })
+    const r = status.historique.find(h => h.action === 'recolter')
+    assert.match(r.resultat, /objet\(s\) de pierre/)
+  } finally {
+    acquirePlan.planAcquire = orig
+    restorePlanner()
+    restoreCraft()
+  }
+})
