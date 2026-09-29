@@ -949,8 +949,14 @@ function createMissionRunner (host, injected = {}) {
     // recolte en vue » pouvait basculer en cours de route (fer puis pierre),
     // et le compte « 5/3 » melangeait deux matieres (iron-pickaxe 45ee8cf).
     if (mission.matiereFigee) return mission.matiereFigee
-    const etapes = acquisition()?.etapes?.filter(s => s.op === 'recolter' && s.matiere) ?? []
-    if (etapes.length === 0) return mission.resource
+    // A harvest whose tool the plan still has to craft before it cannot yield
+    // yet (craft/iron-pickaxe e6e8328: iron in view, stone pickaxe planned
+    // first, « iron_ore ne lache rien sans pioche »).
+    const toutes = acquisition()?.etapes ?? []
+    const faisable = (s, i) => !s.outil || !toutes.slice(0, i).some(e => e.op === 'fabriquer' && e.objet === s.outil)
+    const recoltes = toutes.filter(s => s.op === 'recolter' && s.matiere)
+    const etapes = toutes.filter((s, i) => s.op === 'recolter' && s.matiere && faisable(s, i))
+    if (etapes.length === 0) return recoltes[0]?.matiere ?? mission.resource
     if (etapes.length === 1) return etapes[0].matiere
     const cle = etapes.map(s => s.matiere).join('|')
     if (harvestMemo && harvestMemo.mission === mission && harvestMemo.cle === cle && Date.now() - harvestMemo.at < 1000) {

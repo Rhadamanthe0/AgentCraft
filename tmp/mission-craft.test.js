@@ -409,3 +409,33 @@ test('cuisson deja faite : l etape suivante du plan au lieu de « rien a cuire �
   assert.match(c.resultat, /^iron_ingot deja cuit\(s\), etape suivante du plan faite a la place : /)
   assert.ok(!c.echec)
 })
+
+test('recolte dont l outil reste a fabriquer : la recolte faisable est visee', async () => {
+  // Vu sur craft/iron-pickaxe (e6e8328) : fer en vue, pioche en pierre encore
+  // au plan, « iron_ore ne lache rien sans pioche » : la pierre etait faisable.
+  const acquirePlan = require('../bot/acquire-plan')
+  const orig = acquirePlan.planAcquire
+  acquirePlan.planAcquire = () => ({
+    ok: true,
+    bloque: [],
+    etapes: [
+      { op: 'fabriquer', objet: 'stone_pickaxe', quantite: 1, etabli: true },
+      { op: 'recolter', objet: 'raw_iron', quantite: 3, bloc: 'iron_ore', matiere: 'minerai', outil: 'stone_pickaxe' },
+      { op: 'recolter', objet: 'cobblestone', quantite: 8, bloc: 'stone', matiere: 'pierre', outil: 'wooden_pickaxe' },
+      { op: 'fabriquer', objet: 'iron_pickaxe', quantite: 1, etabli: true }
+    ]
+  })
+  try {
+    const brief = realShapeBrief({
+      kind: 'recolte', resource: 'minerai',
+      fabrication: 'iron_pickaxe', fabricationQuantite: 1, _texte: 'fabrique une pioche en fer'
+    })
+    const { status } = await runMission({ brief, stock: { wooden_pickaxe: 1, stone_pickaxe: 0, iron_pickaxe: 0 }, plans: ['recolter:pierre:3', 'terminer'] })
+    const r = status.historique.find(h => h.action === 'recolter')
+    assert.match(r.resultat, /objet\(s\) de pierre/)
+  } finally {
+    acquirePlan.planAcquire = orig
+    restorePlanner()
+    restoreCraft()
+  }
+})
