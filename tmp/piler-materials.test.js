@@ -10,7 +10,7 @@ const craft = require('../bot/craft')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {} }) {
+async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null }) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
@@ -23,8 +23,10 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
     states.push(state)
     stopsAtPlans.push(stops)
     const step = (action, choices = {}) => ({ action, choices, scale: 0, scaleLevel: null })
-    const steps = states.length === 1 ? [step('piler', { hauteur: height }), step('dire', { texte: 'OLD QUEUE' })]
-      : states.length === 2 ? [step('dire', { texte: 'OLD PREFETCH' })] : [step('terminer')]
+    // Other first actions keep the queue short: status shows the last 5 steps.
+    const steps = first !== 'piler' ? [step(states.length === 1 ? first : 'terminer')]
+      : states.length === 1 ? [step('piler', { hauteur: height }), step('dire', { texte: 'OLD QUEUE' })]
+        : states.length === 2 ? [step('dire', { texte: 'OLD PREFETCH' })] : [step('terminer')]
     if (states.length === 2) signal.addEventListener('abort', () => { staleAborted = true }, { once: true })
     return { ms: 0, seconds: 1, rejected: [], done: 0, finished: false, steps }
   })
@@ -39,7 +41,8 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
       coarse_dirt: { id: 3, boundingBox: 'block' }, oak_planks: { id: 4, boundingBox: 'block' },
       birch_planks: { id: 5, boundingBox: 'block' }, fake_planks: { id: 6, boundingBox: 'empty' } }, itemsByName: {} },
     inventory: { items: () => stock.filter(item => item.count > 0) }, players: {}, entities: {},
-    findBlocks: ({ matching }) => matching.includes(1) ? [log] : [], findBlock: () => null,
+    findBlocks: ({ matching }) => matching.includes(1) && blocks.get(`${log.x},${log.y},${log.z}`) === 'oak_log' ? [log] : [],
+    findBlock: () => null,
     blockAt: p => { const position = p.floored(); const name = blocks.get(`${position.x},${position.y},${position.z}`) ?? 'air'
       return { name, position, boundingBox: name === 'air' ? 'empty' : 'block', shapes: name === 'air' ? [] : [[0, 0, 0, 1, 1, 1]] } },
     clearControlStates () {},
@@ -59,6 +62,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
       blocks.set(`0,${support.position.y + 1},0`, name)
       bot.heldItem.count--
       placements.push(name)
+      onPlace?.(placements, blocks)
       if (loseStock) stock.forEach(item => { item.count = 0 })
       if (retryError) throw new Error('late server error')
     } }
@@ -70,7 +74,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
   for (let i = 0; i < 600 && runner.isRunning(); i++) { t.mock.timers.tick(50); await flush() }
   assert.equal(runner.isRunning(), false)
   const status = runner.status()
-  return { status, step: status.historique.find(step => step.action === 'piler'), placements, commands, states, messages, staleAborted, stopsAtPlans }
+  return { status, step: status.historique.find(step => step.action === first), placements, commands, states, messages, staleAborted, stopsAtPlans }
 }
 
 test('stock1 hauteur6 : refus integral avant equipement saut ou pose', async t => {
@@ -169,4 +173,22 @@ test('buche voisine au-dessus de la tete et a portee : montee finie sans echec',
   assert.equal(f.step.echec, false)
   assert.equal(f.step.code, 'pilier_pose')
   assert.match(f.step.resultat, /oak_log deja a portee, casser depuis le haut/)
+})
+
+// Poste deplace ou cible disparue pendant la montee : le sommet atteint ne
+// prouve pas la portee, avancer le mesure avant de dire la cible rejointe.
+test('avancer : pilier pose mais aucune cible a portee au sommet, echec mesure', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], first: 'avancer',
+    onPlace: (placements, blocks) => { if (placements.length === 6) blocks.delete('1,74,0') } })
+  assert.equal(f.placements.length, 6)
+  assert.equal(f.step.echec, true)
+  assert.equal(f.step.code, 'cible_haute')
+  assert.match(f.step.resultat, /Pilier pose .* aucune cible a portee depuis le sommet/)
+})
+
+test('avancer : pilier pose et cible a portee au sommet, succes', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], first: 'avancer' })
+  assert.equal(f.placements.length, 6)
+  assert.equal(f.step.echec, false)
+  assert.equal(f.step.code, 'pilier')
 })

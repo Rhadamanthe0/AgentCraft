@@ -403,6 +403,19 @@ function estLiquide (nom) {
   return typeof nom === 'string' && /water|lava|bubble_column/.test(nom)
 }
 
+// At least one face open to sight (leaves, plants, glass and liquids let it
+// through). La face du dessous ne se voit que d en dessous : sous les pieds du
+// bot, elle ne compte pas (vu sur craft/stone-pickaxe : dessous de la couche de
+// pierre sous l arene, a l air libre, vise puis creuse vers le bas).
+function blocExpose (bot, pos, feetLevel) {
+  const see = p => {
+    const b = bot.blockAt(p)
+    return !b || b.boundingBox !== 'block' || /_leaves$|glass/.test(b.name)
+  }
+  return [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
+    .some(([x, y, z]) => !(y === -1 && pos.y < feetLevel) && see(pos.offset(x, y, z)))
+}
+
 // Columns under the bot's 0.6-wide hitbox at height y.
 function colonnesSousHitbox (position, y) {
   const span = v => [...new Set([Math.floor(v - 0.3), Math.floor(v + 0.3 - 1e-6)])]
@@ -1802,16 +1815,8 @@ function createMissionRunner (host, injected = {}) {
     // sous le sol etait visee pour avancer (« rejoint a portee ») puis
     // introuvable pour casser, en boucle (vu : craft/stone-pickaxe, 90 etapes,
     // les 32 plus proches etant toutes sous le sol de l arene).
-    const see = pos => {
-      const b = bot.blockAt(pos)
-      return !b || b.boundingBox !== 'block' || /_leaves$|glass/.test(b.name)
-    }
-    // La face du dessous ne se voit que d en dessous : sous les pieds du bot,
-    // elle ne compte pas (vu sur craft/stone-pickaxe : dessous de la couche de
-    // pierre sous l arene, a l air libre, vise puis creuse vers le bas).
     const feetLevel = Math.floor(bot.entity.position.y)
-    const exposed = pos => [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
-      .some(([x, y, z]) => !(y === -1 && pos.y < feetLevel) && see(pos.offset(x, y, z)))
+    const exposed = pos => blocExpose(bot, pos, feetLevel)
     let positions
     try {
       // Filtre PENDANT la recherche : sous une arene ou un sol de pierre, des
@@ -2452,6 +2457,8 @@ function createMissionRunner (host, injected = {}) {
       if (dy <= MAX_REACH_UP || dy > MAX_REACH_UP + PILER_MAX) continue
       const horizontal = Math.hypot(position.x + 0.5 - here.x, position.z + 0.5 - here.z)
       if (horizontal > REACH) continue
+      // Same sight rule as findTargetBlock: an enclosed block is not work.
+      if (!blocExpose(bot, position, feetY)) continue
       const block = bot.blockAt(position)
       if (!block) continue
       if (!best || dy < best.dy) best = { block, dy, horizontal }
@@ -4031,8 +4038,14 @@ function createMissionRunner (host, injected = {}) {
         let tentative = ''
         if (besoin >= 1 && besoin <= PILER_MAX && !mission.cancelled) {
           const pile = await ACTIONS.piler(null, { hauteur: besoin })
-          if (!pile.echec) return { resultat: `cible haute ${high.cible} : ${pile.resultat}`, code: 'pilier' }
-          tentative = ` Pilier tente : ${pile.resultat}.`
+          // Reach checked from the top: gathering dirt may have moved the post.
+          const atteinte = pile.echec ? null : findTargetBlock()
+          const live = host.getBot()
+          if (atteinte && live?.entity && blockInReach(live, live.entity.position, atteinte.position.offset(0.5, 0.5, 0.5), REACH)) {
+            return { resultat: `cible haute ${high.cible} : ${pile.resultat}`, code: 'pilier' }
+          }
+          tentative = pile.echec ? ` Pilier tente : ${pile.resultat}.`
+            : ` Pilier pose (${pile.resultat}) mais aucune cible a portee depuis le sommet : reobserver.`
         }
         // Measured after the attempt: piler may have gathered dirt or left a partial pillar.
         const stock = scaffoldingStock(host.getBot()).total

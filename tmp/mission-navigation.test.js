@@ -167,6 +167,25 @@ test('cible seulement en hauteur, stock vide : piler va chercher la terre voisin
   assert.match(step.resultat, /Pilier tente : /)
 })
 
+// Cible haute enfermee (aucune face visible) : ni pilier ni terre prise pour
+// elle, meme regle de vue que findTargetBlock.
+test('cible haute enfermee : aucun pilier automatique', async () => {
+  const f = highTargetFixture({ stock: 2 })
+  const log = new Vec3(0, 70, 0)
+  const originalAt = f.bot.blockAt
+  f.bot.blockAt = position => [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
+    .some(([x, y, z]) => position.equals(log.offset(x, y, z)))
+    ? { name: 'stone', position, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] } : originalAt(position)
+  let digs = 0
+  f.bot.dig = async () => { digs++; throw new Error('no automatic digging') }
+  await f.r.start('ramasse du bois', 'human')
+  const state = await finished(f.r)
+  const step = state.historique.find(entry => entry.action === 'avancer')
+  assert.notEqual(step.code, 'cible_haute')
+  assert.doesNotMatch(step.resultat, /cible haute|pilier/i)
+  assert.equal(digs, 0)
+})
+
 test('cible basse prioritaire sur cible haute : approche normale preservee', async () => {
   const f = highTargetFixture({ low: true })
   await f.r.start('ramasse du bois', 'human')
