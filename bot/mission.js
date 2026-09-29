@@ -4550,7 +4550,11 @@ function createMissionRunner (host, injected = {}) {
         const landed = live.entity?.onGround && Math.abs(live.entity.position.y - (ancre.y + 1)) <= 0.25 &&
           Math.floor(live.entity.position.x) === ancre.x && Math.floor(live.entity.position.z) === ancre.z
         if (!landed) {
-          failure = 'atterrissage sur le bloc pose non prouve'
+          // Where the feet are, for the next bench to tell a slide off the
+          // block from a hang in the air (trees/pillar 2da82d4, three times).
+          const p = live.entity?.position
+          failure = 'atterrissage sur le bloc pose non prouve' +
+            (p ? ` (pieds ${p.x.toFixed(2)} ${p.y.toFixed(2)} ${p.z.toFixed(2)}, ${live.entity.onGround ? 'au sol' : 'en l air'}, bloc ${ancre.x} ${ancre.y} ${ancre.z})` : '')
           break
         }
         await sleep(150)
