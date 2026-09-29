@@ -193,8 +193,8 @@ def compare_variants(tests):
             parts.append(f"{t['elapsedS']} s")
         if t.get('plannerCalls') is not None:
             parts.append(f"{t['plannerCalls']} appels")
-        if t.get('plannerRelaunches'):
-            parts.append(f"{t['plannerRelaunches']} relances")
+        if t.get('plannerRequests') is not None:
+            parts.append(f"{t['plannerRequests']} requetes au modele")
         if t.get('damageTaken'):
             parts.append(f"{t['damageTaken']} degats")
         for key in ('itemsHeld', 'blocksPlaced', 'bonusItems'):

@@ -1640,11 +1640,11 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
                 pass
 
     def planner_calls(bot):
-        # (plan calls, relaunches): the relaunch is an extra model request
-        # that `appels` does not count.
+        # (plan calls, model requests): `appels` counts parsed plans only;
+        # `tentatives` counts every transport, failed and relaunched ones included.
         try:
             p = bot_api(bot, '/api/status').get('planner') or {}
-            return p.get('appels'), p.get('relances')
+            return p.get('appels'), p.get('tentatives')
         except Exception:
             return None, None
 
@@ -1659,14 +1659,14 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
         if not first:
             reset(worker.bot)
         print(f'{level["name"]} ({worker.username}) started', flush=True)
-        calls_before = relaunches_before = None
+        calls_before = requests_before = None
         mission_before = None
         try:
             if before_level:
                 before_level()
             if level.get('features'):
                 bot_api(worker.bot, '/api/features', level['features'])
-            calls_before, relaunches_before = planner_calls(worker.bot)
+            calls_before, requests_before = planner_calls(worker.bot)
             mission_before = mission_start(worker.bot)
             result = run_level(level, origins[index], worker.bot, worker.username, output, rcon, bot_api, worker.probe)
         except Exception as error:  # a crashing level never takes its worker down silently
@@ -1674,11 +1674,11 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
         result['type'] = mission_type(level['name'])
         if level.get('variation'):
             result['variation'] = level['variation']
-        calls_after, relaunches_after = planner_calls(worker.bot)
+        calls_after, requests_after = planner_calls(worker.bot)
         if calls_before is not None and calls_after is not None:
             result['plannerCalls'] = calls_after - calls_before
-        if relaunches_before is not None and relaunches_after is not None:
-            result['plannerRelaunches'] = relaunches_after - relaunches_before
+        if requests_before is not None and requests_after is not None:
+            result['plannerRequests'] = requests_after - requests_before
         # KPI de la mission (demande du proprietaire, 2026-09-27) : part
         # d actions en echec, blocages annonces (cause et derniers resultats,
         # a analyser a chaque banc).
