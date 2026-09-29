@@ -4086,7 +4086,10 @@ function createMissionRunner (host, injected = {}) {
         let tentative = ''
         // Same mission kinds as the planner's piler (skills.js): a movement goal
         // never digs terrain nor builds a pillar on its own.
-        if (besoin >= 1 && besoin <= PILER_MAX && ['recolte', 'construction'].includes(mission.kind) && !mission.cancelled) {
+        // An active chantier is never touched: piler may undo a column or dig
+        // dirt next to the bot without the footprint protection.
+        if (besoin >= 1 && besoin <= PILER_MAX && ['recolte', 'construction'].includes(mission.kind) &&
+          !empriseChantier() && !mission.cancelled) {
           const pile = await ACTIONS.piler(null, { hauteur: besoin })
           // Reach checked from the top: gathering dirt may have moved the post.
           const atteinte = pile.echec ? null : findTargetBlock()
@@ -4100,6 +4103,10 @@ function createMissionRunner (host, injected = {}) {
         // Measured after the attempt: piler may have gathered dirt or left a partial pillar.
         const stock = scaffoldingStock(host.getBot()).total
         const dirt = craft.countOf(host.getBot(), PILER_DIRT)
+        if (!besoin && !montee) {
+          montee = `aucune hauteur de pilier (1 a ${PILER_MAX}) ne met la cible a portee d ici : ` +
+            'changer de poste (se rapprocher horizontalement)'
+        }
         const next = montee && !besoin ? montee : stock > 0
           ? 'piler peut aider si l appui et l espace au-dessus sont libres ; la pose reste a verifier'
           : 'stock court : piler recupere lui-meme la terre manquante (pilier defait puis refait, terre prise a cote)'

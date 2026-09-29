@@ -278,3 +278,13 @@ test('avancer : feuilles sur la montee comptees comme degagees', async t => {
     extra: { '0,68,0': 'oak_leaves' } })
   assert.equal(f.placements.length, 3, f.step.resultat)
 })
+
+// A +9 et 4 blocs de cote, aucune hauteur de 1 a 6 ne met la buche a portee :
+// ni pilier ni conseil de piler, changer de poste.
+test('avancer : aucune hauteur de pilier ne suffit, changer de poste', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], first: 'avancer', logAt: new Vec3(4, 74, 0) })
+  assert.deepEqual(f.placements, [])
+  assert.equal(f.step.code, 'cible_haute')
+  assert.match(f.step.resultat, /aucune hauteur de pilier \(1 a 6\)/)
+  assert.doesNotMatch(f.step.resultat, /piler peut aider/)
+})
