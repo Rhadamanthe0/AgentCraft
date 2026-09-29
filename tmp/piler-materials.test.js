@@ -69,7 +69,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
       blocks.set(`0,${support.position.y + 1},0`, name)
       bot.heldItem.count--
       placements.push(name)
-      onPlace?.(placements, blocks)
+      onPlace?.(placements, blocks, bot)
       if (loseStock) stock.forEach(item => { item.count = 0 })
       if (retryError) throw new Error('late server error')
     } }
@@ -238,4 +238,14 @@ test('avancer : hauteur du pilier mesuree avec la portee reelle, cible decalee',
   assert.equal(f.placements.length, 3)
   assert.equal(f.step.echec, false)
   assert.equal(f.step.code, 'pilier')
+})
+
+// Glisse du bloc pose sur un voisin de meme hauteur (buche) : le +1 est reel,
+// pas un atterrissage manque (trees/bent 9f907a6).
+test('atterrissage sur un voisin de meme hauteur : montee comptee', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 2 }], height: 1, logY: 69, extra: { '1,65,0': 'oak_log' },
+    onPlace: (_placements, _blocks, bot) => { bot.entity.position.x = 1.1 } })
+  assert.deepEqual(f.placements, ['dirt'])
+  assert.equal(f.step.echec, false, f.step.resultat)
+  assert.equal(f.step.code, 'pilier_pose')
 })

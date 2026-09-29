@@ -4629,8 +4629,14 @@ function createMissionRunner (host, injected = {}) {
           break
         }
         poses += 1
-        const landed = live.entity?.onGround && Math.abs(live.entity.position.y - (ancre.y + 1)) <= 0.25 &&
-          Math.floor(live.entity.position.x) === ancre.x && Math.floor(live.entity.position.z) === ancre.z
+        // Supported at the new height by any solid block under the hitbox: the
+        // bot may slide from the placed block onto a neighbour of the same
+        // height (trees/bent 9f907a6 : pieds 418.10 201 17.50 sur la buche
+        // voisine, bloc pose en 417 200 17), the +1 is real.
+        const pieds = live.entity?.position
+        const landed = live.entity?.onGround && pieds && Math.abs(pieds.y - (ancre.y + 1)) <= 0.25 &&
+          Math.hypot(pieds.x - (ancre.x + 0.5), pieds.z - (ancre.z + 0.5)) <= 1.5 &&
+          colonnesSousHitbox(pieds, ancre.y).some(colonne => estSolide(live.blockAt(colonne)))
         if (!landed) {
           // Where the feet are, for the next bench to tell a slide off the
           // block from a hang in the air (trees/pillar 2da82d4, three times).
