@@ -138,6 +138,28 @@ test('cible seulement en hauteur : pilier tente avec stock, sinon refus sans con
   }
 })
 
+// Stock vide mais terre a cote : piler va chercher la terre lui-meme au lieu
+// d un refus « stock court » qui coutait un tour de planificateur (trees/bent
+// 7b01683, trees/tall 122bb4b).
+test('cible seulement en hauteur, stock vide : piler va chercher la terre voisine', async () => {
+  const f = highTargetFixture({ stock: 0 })
+  const dirt = new Vec3(2, 65, 0)
+  f.bot.registry.blocksByName.dirt = { id: 2 }
+  const originalFind = f.bot.findBlocks
+  const originalAt = f.bot.blockAt
+  f.bot.findBlocks = options => options.matching.includes(2) ? [dirt] : originalFind(options)
+  f.bot.blockAt = position => position.equals(dirt)
+    ? { name: 'dirt', position, shapes: [[0, 0, 0, 1, 1, 1]] } : originalAt(position)
+  const digs = []
+  f.bot.lookAt = async () => {}
+  f.bot.dig = async block => { digs.push(block.name); throw new Error('no automatic digging') }
+  await f.r.start('ramasse du bois', 'human')
+  const state = await finished(f.r)
+  assert.ok(digs.includes('dirt'), `terre voisine visee par piler (${digs.join(', ') || 'aucun coup'})`)
+  const step = state.historique.find(entry => entry.action === 'avancer')
+  assert.equal(step.code, 'cible_haute', 'sans terre obtenue, le constat chiffre reste')
+})
+
 test('cible basse prioritaire sur cible haute : approche normale preservee', async () => {
   const f = highTargetFixture({ low: true })
   await f.r.start('ramasse du bois', 'human')

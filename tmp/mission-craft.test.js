@@ -410,6 +410,43 @@ test('cuisson deja faite : l etape suivante du plan au lieu de « rien a cuire �
   assert.ok(!c.echec)
 })
 
+test('toutes les recoltes attendent un outil a fabriquer : l etape suivante du plan est faite', async () => {
+  // Vu sur craft/iron-pickaxe (7b01683) : bois recolte, reste pierre et fer,
+  // pioche en bois pas encore fabriquee, « stone ne lache rien sans pioche ».
+  const acquirePlan = require('../bot/acquire-plan')
+  const orig = acquirePlan.planAcquire
+  acquirePlan.planAcquire = () => ({
+    ok: true,
+    bloque: [],
+    etapes: [
+      { op: 'fabriquer', objet: 'wooden_pickaxe', quantite: 1, etabli: true },
+      { op: 'recolter', objet: 'cobblestone', quantite: 3, bloc: 'stone', matiere: 'pierre', outil: 'wooden_pickaxe' },
+      { op: 'fabriquer', objet: 'stone_pickaxe', quantite: 1, etabli: true }
+    ]
+  })
+  const makeCalls = []
+  try {
+    const brief = realShapeBrief({
+      kind: 'recolte', resource: 'pierre',
+      fabrication: 'stone_pickaxe', fabricationQuantite: 1, _texte: 'fabrique une pioche en pierre'
+    })
+    const stub = async (bot, target, wanted) => {
+      makeCalls.push(target)
+      bot._stock[target] = (bot._stock[target] ?? 0) + 1
+      return { item: target, produced: 1, wanted, usedTable: false }
+    }
+    const { status } = await runMission({ brief, stock: { wooden_pickaxe: 0, stone_pickaxe: 0 }, plans: ['recolter:pierre:3', 'terminer'], makeStub: stub })
+    const r = status.historique.find(h => h.action === 'recolter')
+    assert.deepEqual(makeCalls, ['wooden_pickaxe'])
+    assert.match(r.resultat, /^stone exige wooden_pickaxe, encore a fabriquer, etape suivante du plan faite a la place : /)
+    assert.ok(!r.echec, r.resultat)
+  } finally {
+    acquirePlan.planAcquire = orig
+    restorePlanner()
+    restoreCraft()
+  }
+})
+
 test('recolte dont l outil reste a fabriquer : la recolte faisable est visee', async () => {
   // Vu sur craft/iron-pickaxe (e6e8328) : fer en vue, pioche en pierre encore
   // au plan, « iron_ore ne lache rien sans pioche » : la pierre etait faisable.

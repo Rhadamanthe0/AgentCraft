@@ -943,6 +943,19 @@ function createMissionRunner (host, injected = {}) {
   // alors que la pierre du four etait a cote (craft/iron-pickaxe 66d7caf :
   // 2/3 fer, puis errance jusqu au plafond). Memorise 1 s (appel frequent).
   let harvestMemo = null
+  // A harvest is feasible unless its tool is crafted earlier in the plan.
+  function recolteFaisable (toutes, s, i) {
+    return !s.outil || !toutes.slice(0, i).some(e => e.op === 'fabriquer' && e.objet === s.outil)
+  }
+  // The plan's harvests all wait for a tool still to craft: harvesting now
+  // yields nothing (craft/iron-pickaxe 7b01683: wood done, stone asked before
+  // the wooden pickaxe, « stone ne lache rien sans pioche »).
+  function recolteEnAttenteOutil () {
+    const toutes = acquisition()?.etapes ?? []
+    const recoltes = toutes.map((s, i) => [s, i]).filter(([s]) => s.op === 'recolter' && s.matiere)
+    if (recoltes.length === 0 || recoltes.some(([s, i]) => recolteFaisable(toutes, s, i))) return null
+    return recoltes[0][0]
+  }
   function harvestResource () {
     if (!mission) return null
     // `recolter` fige sa matiere le temps de l action : le choix « premiere
@@ -953,7 +966,7 @@ function createMissionRunner (host, injected = {}) {
     // yet (craft/iron-pickaxe e6e8328: iron in view, stone pickaxe planned
     // first, « iron_ore ne lache rien sans pioche »).
     const toutes = acquisition()?.etapes ?? []
-    const faisable = (s, i) => !s.outil || !toutes.slice(0, i).some(e => e.op === 'fabriquer' && e.objet === s.outil)
+    const faisable = (s, i) => recolteFaisable(toutes, s, i)
     const recoltes = toutes.filter(s => s.op === 'recolter' && s.matiere)
     const etapes = toutes.filter((s, i) => s.op === 'recolter' && s.matiere && faisable(s, i))
     if (etapes.length === 0) return recoltes[0]?.matiere ?? mission.resource
@@ -3418,6 +3431,11 @@ function createMissionRunner (host, injected = {}) {
       }
       const assez = materiauSuffisant()
       if (assez) return { resultat: `rien a recolter : ${assez}` }
+      const enAttente = recolteEnAttenteOutil()
+      if (enAttente) {
+        const r = await etapeSuivanteAuLieu(`${enAttente.bloc ?? enAttente.matiere} exige ${enAttente.outil}, encore a fabriquer`)
+        if (r) return r
+      }
       const matiere = harvestResource()
       if (!skills.RESOURCES[matiere]?.items) {
         return { resultat: 'aucune matiere a recolter pour cette mission', echec: true }
@@ -4000,11 +4018,12 @@ function createMissionRunner (host, injected = {}) {
       const high = !cible && mission.kind !== 'geste' ? highTargetHint() : null
       if (high) {
         const stock = scaffoldingStock(host.getBot()).total
-        // Cible deja a portee horizontale, seule la hauteur manque : avec
-        // l echafaudage en poche, le code monte lui-meme (meme regle que
-        // needs_height plus bas ; trees/bent 93a6f04 : echec « piler peut aider »).
+        // Cible deja a portee horizontale, seule la hauteur manque : le code
+        // monte lui-meme (trees/bent 93a6f04 : echec « piler peut aider »).
+        // Stock court compris : piler prend la terre voisine lui-meme (trees/bent
+        // 7b01683 : refus « stock court » a 0 dirt, un tour de plan perdu).
         const besoin = high.denivele - MAX_REACH_UP
-        if (besoin >= 1 && besoin <= PILER_MAX && stock >= besoin && !mission.cancelled) {
+        if (besoin >= 1 && besoin <= PILER_MAX && !mission.cancelled) {
           const pile = await ACTIONS.piler(null, { hauteur: besoin })
           if (!pile.echec) return { resultat: `cible haute ${high.cible} : ${pile.resultat}`, code: 'pilier' }
         }
