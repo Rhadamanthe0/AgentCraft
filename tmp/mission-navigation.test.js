@@ -186,6 +186,28 @@ test('cible haute enfermee : aucun pilier automatique', async () => {
   assert.equal(digs, 0)
 })
 
+// 32 correspondances enfouies plus proches (pierre sous le sol) ne remplissent
+// pas le plafond de resultats : le filtre de vue s applique pendant la recherche.
+test('cible haute exposee trouvee malgre 32 correspondances enfouies plus proches', async () => {
+  const f = highTargetFixture({ stock: 2 })
+  const buried = Array.from({ length: 32 }, (_, i) => new Vec3(i % 8 - 4, 60, Math.floor(i / 8) - 2))
+  const isBuried = p => buried.some(b => b.equals(p))
+  const nearBuried = p => p.y >= 59 && p.y <= 61 && Math.abs(p.x) <= 5 && Math.abs(p.z) <= 5
+  const originalAt = f.bot.blockAt
+  f.bot.blockAt = position => isBuried(position) ? { name: 'oak_log', position, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
+    : nearBuried(position) ? { name: 'stone', position, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] } : originalAt(position)
+  f.bot.findBlocks = ({ matching, useExtraInfo, count }) => {
+    if (!matching.includes(1)) return []
+    const all = [...buried, new Vec3(0, 70, 0)]
+    return (typeof useExtraInfo === 'function' ? all.filter(p => useExtraInfo(f.bot.blockAt(p))) : all).slice(0, count)
+  }
+  await f.r.start('ramasse du bois', 'human')
+  const state = await finished(f.r)
+  const step = state.historique.find(entry => entry.action === 'avancer')
+  assert.equal(step.code, 'cible_haute')
+  assert.match(step.resultat, /\+5/)
+})
+
 test('cible basse prioritaire sur cible haute : approche normale preservee', async () => {
   const f = highTargetFixture({ low: true })
   await f.r.start('ramasse du bois', 'human')

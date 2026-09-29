@@ -2441,15 +2441,19 @@ function createMissionRunner (host, injected = {}) {
     const ids = targetBlockIds()
     if (!bot?.entity || ids.length === 0) return null
 
+    const here = bot.entity.position
+    const feetY = Math.floor(here.y)
+    // Same sight rule as findTargetBlock, applied during the search: buried
+    // matches (stone under the floor) must not fill the result cap.
+    const exposed = pos => blocExpose(bot, pos, feetY)
     let positions
     try {
-      positions = bot.findBlocks({ matching: ids, maxDistance: SEARCH_RADIUS, count: 32 })
+      positions = bot.findBlocks({ matching: ids, useExtraInfo: block => exposed(block.position), maxDistance: SEARCH_RADIUS, count: 32 })
+        .filter(exposed)
     } catch (_) {
       return null
     }
 
-    const here = bot.entity.position
-    const feetY = Math.floor(here.y)
     let best = null
 
     for (const position of positions) {
@@ -2457,8 +2461,6 @@ function createMissionRunner (host, injected = {}) {
       if (dy <= MAX_REACH_UP || dy > MAX_REACH_UP + PILER_MAX) continue
       const horizontal = Math.hypot(position.x + 0.5 - here.x, position.z + 0.5 - here.z)
       if (horizontal > REACH) continue
-      // Same sight rule as findTargetBlock: an enclosed block is not work.
-      if (!blocExpose(bot, position, feetY)) continue
       const block = bot.blockAt(position)
       if (!block) continue
       if (!best || dy < best.dy) best = { block, dy, horizontal }
