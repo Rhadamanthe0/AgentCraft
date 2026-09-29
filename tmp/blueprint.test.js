@@ -132,6 +132,9 @@ test('findSite : repere sur un rocher, bot au sol : chantier au niveau de ses pi
   const site = build.findSite(bot, { near: { x: 12.5, y: 202, z: 31.5 }, width: 3, depth: 3, height: 3, pied: 200 })
   assert.ok(site)
   assert.equal(site.origin.y, 200)
+  // Plus bas que les pieds, le rayon decide encore : bot sur le rocher, sommet choisi.
+  const dessus = build.findSite(bot, { near: { x: 12.5, y: 203, z: 31.5 }, width: 3, depth: 3, height: 3, pied: 203 })
+  assert.equal(dessus.origin.y, 203)
   // Sans hauteur de pieds connue, le choix d avant reste (sommet admis).
   const libre = build.findSite(bot, { near: { x: 12.5, y: 202, z: 31.5 }, width: 3, depth: 3, height: 3 })
   assert.equal(libre.origin.y, 203)

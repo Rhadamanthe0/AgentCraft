@@ -563,14 +563,16 @@ function siteFits (bot, origin, width, depth, height) {
 }
 
 // Cherche un terrain autour du repere, du plus proche au plus eloigne.
-// `pied` : hauteur des pieds du bot. Un terrain a +-1 de ses pieds passe
-// d abord : il s y rend a pied. Un repere en hauteur (rocher) placait le
-// chantier sur son sommet, 3 blocs au-dessus du bot, et aucun poste de la
-// deuxieme rangee n etait joignable (stone-hut f331d6f : 600 s, 9/24 blocs).
+// `pied` : hauteur des pieds du bot. Un terrain a plus d un bloc au-dessus
+// ne se rejoint pas a pied : il ne passe qu en dernier recours, le rayon
+// restant le premier critere pour tous les autres. Un repere en hauteur
+// (rocher) placait le chantier sur son sommet, 3 blocs au-dessus du bot, et
+// aucun poste de la deuxieme rangee n etait joignable (stone-hut f331d6f :
+// 956 s, 9/24 blocs).
 function findSite (bot, { near, width, depth, height, pied = null }) {
   const base = groundLevel(bot, Math.floor(near.x), Math.floor(near.z), Math.floor(near.y)) ??
     Math.floor(near.y)
-  const passes = Number.isFinite(pied) ? [level => Math.abs(level - pied) <= 1, () => true] : [() => true]
+  const passes = Number.isFinite(pied) ? [level => level <= pied + 1, () => true] : [() => true]
 
   for (const admis of passes) {
     for (let radius = SITE_MIN_DISTANCE; radius <= SITE_MAX_DISTANCE; radius += 1) {

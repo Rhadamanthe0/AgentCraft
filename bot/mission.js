@@ -4057,6 +4057,10 @@ function createMissionRunner (host, injected = {}) {
         const centre = high.position.offset(0.5, 0.5, 0.5)
         let besoin = 0
         for (let h = 1; h <= PILER_MAX && !besoin; h += 1) {
+          // Real cells the head crosses at this level: solid or liquid stops
+          // the climb (leaves are cleared by piler), like climbAccessHint.
+          const tete = poste.blockAt(pied.offset(0, h + 1, 0))
+          if (!tete || estLiquide(tete.name) || (estSolide(tete) && !/_leaves$/.test(tete.name))) break
           // The pillar's own blocks as they would stand, like climbAccessHint.
           const vue = { entity: poste.entity,
             blockAt: p => p.x === pied.x && p.z === pied.z && p.y >= pied.y && p.y < pied.y + h

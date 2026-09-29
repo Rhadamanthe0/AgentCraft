@@ -249,3 +249,13 @@ test('atterrissage sur un voisin de meme hauteur : montee comptee', async t => {
   assert.equal(f.step.echec, false, f.step.resultat)
   assert.equal(f.step.code, 'pilier_pose')
 })
+
+// Bloc solide dans la colonne a mi-hauteur : la cible serait a portee au-dessus,
+// mais la montee s arreterait dessous. Aucun pilier automatique ni stock gaspille.
+test('avancer : plafond reel a mi-hauteur, aucun pilier automatique', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], first: 'avancer', logAt: new Vec3(3, 70, 0),
+    extra: { '0,68,0': 'stone' } })
+  assert.deepEqual(f.placements, [])
+  assert.equal(f.step.echec, true)
+  assert.equal(f.step.code, 'cible_haute')
+})
