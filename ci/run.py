@@ -584,7 +584,17 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             bots_wanted = args.suite in ('trees', 'all') and bool(planner_key_present())
             # Two containers host all pool bots and all probe players.
             extra = [BOTS_SERVICE, PROBES_SERVICE] if bots_wanted else []
-            compose('up', '-d', '--wait', '--wait-timeout', '240', 'harness', *extra, timeout=290)
+            up = ('up', '-d', '--wait', '--wait-timeout', '240', 'harness', *extra)
+            started_up = compose(*up, timeout=290, check=False)
+            if started_up.returncode and 'address already in use' in started_up.stdout + started_up.stderr:
+                # Rootless Podman gives each container its ephemeral loopback
+                # ports while they start in parallel; two can collide (runs
+                # 36602808398, 36606649304). Recreated once, with new ports;
+                # --no-deps keeps the running Paper server and its arenas.
+                print('Ports ephemeres en collision au demarrage : conteneurs recrees une fois', flush=True)
+                compose(*up, '--force-recreate', '--no-deps', timeout=290)
+            elif started_up.returncode:
+                raise RuntimeError(f'Command failed ({started_up.returncode}): docker compose up harness; see commands.log')
             load_endpoints()
             ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
             mode = rcon('data get entity TestProbe1 playerGameType')
