@@ -4395,6 +4395,7 @@ function createMissionRunner (host, injected = {}) {
       // ses blocs ; la hauteur visee reste la meme (pilier refait plus haut).
       let hauteurVisee = hauteur
       let recupere = ''
+      let redescendu = 0
       if (available.total < hauteur && !mission.cancelled) {
         const yHaut = bot.entity.position.y
         const under = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
@@ -4402,7 +4403,7 @@ function createMissionRunner (host, injected = {}) {
           await descendScaffold(-Infinity, { pillarOnly: true })
           await collectScaffoldDrops(stepToken, { budgetMs: 15000 })
         }
-        const redescendu = Math.max(0, Math.round(yHaut - host.getBot().entity.position.y))
+        redescendu = Math.max(0, Math.round(yHaut - host.getBot().entity.position.y))
         hauteurVisee = Math.min(PILER_MAX, hauteur + redescendu)
         if (scaffoldingStock(bot).total < hauteurVisee) {
           // Bornes de temps : vu sur chat/replace-and-join, bot tombe dans un
@@ -4618,6 +4619,15 @@ function createMissionRunner (host, injected = {}) {
       if (poses > 0 && !host.getBot()?.entity?.onGround) failure ??= 'atterrissage final non prouve'
       if (poses === 0) {
         return { resultat: `pilier impossible : ${failure ?? 'aucun bloc pose'}`, echec: true }
+      }
+      // Pillar undone then rebuilt no higher: no dirt beyond its own blocks.
+      // Reported as a failure, not « reobserver » (trees/tall c6dd16e : cinq
+      // piler(3) de suite rendus « 2/2 », 8 etapes sans progres).
+      if (!failure && !cibleAtteinte && redescendu && poses <= redescendu) {
+        const bois = host.getBot().inventory.items()
+          .filter(item => /_(log|stem)$/.test(item.name)).reduce((n, item) => n + item.count, 0)
+        failure = `aucune terre de plus a portee, pilier refait a la meme hauteur (${poses}) sans gain : ` +
+          (bois ? `fabriquer des planches (${bois} buche(s) en inventaire) pour l echafaudage` : 'prendre de la terre plus loin')
       }
       const complet = !failure && (poses === hauteurVisee || cibleAtteinte)
       return {

@@ -55,6 +55,13 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
         bot.entity.onGround = !noLanding
       }
     },
+    dig: async block => {
+      blocks.delete(`${block.position.x},${block.position.y},${block.position.z}`)
+      const owned = stock.find(item => item.name === block.name)
+      if (owned) owned.count++
+      else stock.push({ name: block.name, count: 1 })
+      bot.entity.position.y = block.position.y
+    },
     equip: async item => { commands.push({ equip: item.name }); bot.heldItem = item }, lookAt: async () => {},
     placeBlock: async support => {
       if (placements.length + 1 === refuseAt) throw new Error('server refused')
@@ -191,4 +198,15 @@ test('avancer : pilier pose et cible a portee au sommet, succes', async t => {
   assert.equal(f.placements.length, 6)
   assert.equal(f.step.echec, false)
   assert.equal(f.step.code, 'pilier')
+})
+
+// Perche a +2 sans terre autour : le pilier defait rend ses 2 blocs, refait a
+// la meme hauteur, aucun gain. Echec qui dit le recours, pas « reobserver »
+// (trees/tall c6dd16e : cinq piler de suite rendus « 2/2 »).
+test('pilier defait puis refait sans gain : echec qui propose les planches', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'oak_log', count: 3 }], height: 3, start: new Vec3(0.5, 67, 0.5),
+    extra: { '0,65,0': 'dirt', '0,66,0': 'dirt' } })
+  assert.deepEqual(f.placements, ['dirt', 'dirt'])
+  assert.equal(f.step.echec, true)
+  assert.match(f.step.resultat, /sans gain : fabriquer des planches \(3 buche\(s\) en inventaire\)/)
 })
