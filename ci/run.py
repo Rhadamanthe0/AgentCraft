@@ -689,7 +689,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     stats[worker.username] = {k: p.get(k) for k in (
                         'appels', 'etapes_servies', 'echecs', 'moyenne_ms', 'jetons_total', 'jetons_en_cache_total',
                         'jetons_sortie_total', 'jetons_raisonnement_total', 'modele_servi', 'cle_servie', 'bascules_cle',
-                        'latences')}
+                        'relances', 'relances_gagnantes', 'latences')}
 
                 def pool_factory(queue, run_one):
                     return Pool(queue, run_one, LauncherControl(http), controller, collector, rcon, capacity_config,
@@ -729,6 +729,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     # Repli de cle (PLANNER_KEY_FIRST) : cle du dernier appel servi, bascules.
                     'cles_servies': sorted({v['cle_servie'] for v in stats.values() if v.get('cle_servie')}),
                     'bascules_cle': sum(v.get('bascules_cle') or 0 for v in stats.values()),
+                    # Plan calls relaunched after PLANNER_RELAUNCH_MS of silence, and won by the relaunch.
+                    'relances': sum(v.get('relances') or 0 for v in stats.values()),
+                    'relances_gagnantes': sum(v.get('relances_gagnantes') or 0 for v in stats.values()),
                     # Duree reelle par usage (plan, chat, brief, compact...), tous bots.
                     'latences': latency_summary(stats),
                 }

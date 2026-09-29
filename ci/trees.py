@@ -513,7 +513,8 @@ def base_levels():
             'about': 'Tronc 2x2 de 4 buches de haut (16 buches), couronne au-dessus : un seul arbre, tout a couper.',
             'leaves': [(TX-2, 204, TZ-2, TX+3, 205, TZ+3)],
             'logs': _logs(*[(TX + dx, 200 + i, TZ + dz) for i in range(4) for dx in (0, 1) for dz in (0, 1)]),
-            'rules': {}, 'variants': [sans('recolter')],
+            # Second A/B: plan calls without the relaunch after 10 s of silence.
+            'rules': {}, 'variants': [sans('recolter'), sans('relance_plan')],
         },
         {
             'name': 'terrain/moat',
@@ -1600,7 +1601,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 EXPECTED_S = {
     'composite/cabin-from-scratch': 900, 'composite/stone-hut-from-scratch': 1200,
     'composite/cabin-change-of-mind': 1000, 'composite/cabin-across-water': 1000, 'craft/iron-pickaxe': 400, 'craft/iron-pickaxe~sans-solveur': 480,
-    'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
+    'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'trees/double~sans-relance_plan': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
     'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,
     'chat/question-keeps-mission': 27, 'chat/stop-tree': 27, 'join/tall-cliff': 26, 'terrain/dirt-wall': 25,

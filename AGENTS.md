@@ -287,6 +287,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `PLANNER_MODEL[_PLAN/_BRIEF/_CHAT/_COMPACT]` | `PLANNER_MODEL` | un modele par usage (une liste ne garde que sa tete) |
 | `PLANNER_REASONING_EFFORT[_<USAGE>]` | vide | `reasoning_effort` (ou `reasoning.effort`) |
 | `PLANNER_TIMEOUT_MS[_<USAGE>]` | 12000 | delai d un appel |
+| `PLANNER_RELAUNCH_MS` | 10000 | plan sans reponse apres ce delai : un second appel identique part, la premiere reponse gagne, delai total inchange (interrupteur `relance_plan`) |
 | `PLANNER_PLAN_MAX` | 5 | actions max par plan |
 | `PLANNER_BUDGET_MIN_S` / `_MAX_S` | 6 / 10 | secondes de jeu visees par plan (consigne du prompt, jamais appliquee) |
 | `PLANNER_MAX_TOKENS` | 2000 | sortie, raisonnement compris |

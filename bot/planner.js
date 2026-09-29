@@ -45,6 +45,11 @@ const API_KEY = process.env.PLANNER_API_KEY || ''
 const PILOT_MODEL = 'muse-spark-1.3-contributor'
 const MODEL = (process.env.PLANNER_MODEL || '').trim() || PILOT_MODEL
 const TIMEOUT_MS = Number(process.env.PLANNER_TIMEOUT_MS || 12000)
+// Relaunch of a silent plan call (owner's decision, 2026-09-29): with no answer
+// after RELAUNCH_MS, an identical second call starts; the first answer wins and
+// the other is aborted. The overall deadline stays TIMEOUT_MS. A/B switch:
+// feature `relance_plan` (mission.js).
+const RELAUNCH_MS = Number(process.env.PLANNER_RELAUNCH_MS || 10000)
 const PLAN_MAX = Number(process.env.PLANNER_PLAN_MAX || 5)
 // Budget de temps d un plan, en secondes. Demande par le proprietaire, et c est
 // la bonne unite : compter les actions melange un saut de 0,3 s et une rafale
@@ -266,6 +271,10 @@ const stats = {
   tentatives: 0,
   troncatures: 0,
   reessais: 0,
+  // Plan calls relaunched after RELAUNCH_MS of silence, and those won by the
+  // relaunched call.
+  relances: 0,
+  relances_gagnantes: 0,
   // Nombre d appels qui ont reellement porte une image (mini-carte). Reste a 0
   // tant que MISSION_SCREENSHOT n est pas actif : c est la preuve lisible dans
   // /api/status que le drapeau fait quelque chose.
@@ -306,13 +315,64 @@ async function callWithProfile (system, user, opts = {}) {
   const task = opts.task ?? 'plan'
   const started = Date.now()
   try {
-    const result = await callWithProfileOnce(system, user, opts)
+    const relaunch = opts.relanceMs > 0 && opts.relanceMs < (opts.timeoutMs ?? TIMEOUT_MS)
+    const result = relaunch ? await callRelaunched(system, user, opts) : await callWithProfileOnce(system, user, opts)
     recordLatency(task, Date.now() - started, 'ok')
     return result
   } catch (err) {
     const outcome = opts.signal?.aborted ? 'annule' : /pas de reponse|timeout|abort/i.test(String(err?.message)) ? 'delai' : 'erreur'
     recordLatency(task, Date.now() - started, outcome)
     throw err
+  }
+}
+
+// First call, then after `relanceMs` without an answer an identical second one,
+// both ending at the same deadline (`timeoutMs` from the start): a silent call
+// no longer holds the mission for the whole delay. First success wins, the
+// other call is aborted. An early error (refusal, 403) is thrown as is and
+// never relaunched; a failure of one call waits for the other.
+async function callRelaunched (system, user, opts) {
+  const { signal = null, relanceMs } = opts
+  const timeoutMs = Math.max(opts.timeoutMs ?? TIMEOUT_MS, modelChain.timeoutFor(opts.task ?? 'plan') ?? 0)
+  const deadline = Date.now() + timeoutMs
+  const controllers = []
+  const abortAll = () => { for (const c of controllers) c.abort() }
+  signal?.addEventListener('abort', abortAll, { once: true })
+  try {
+    return await new Promise((resolve, reject) => {
+      let pending = 0
+      let settled = false
+      const finish = (fn, value) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        fn(value)
+      }
+      const launch = (second) => {
+        const c = new AbortController()
+        controllers.push(c)
+        pending += 1
+        callWithProfileOnce(system, user, { ...opts, signal: c.signal, timeoutMs: second ? Math.max(1000, deadline - Date.now()) : timeoutMs, fixedTimeout: true })
+          .then(res => {
+            if (second && !settled) stats.relances_gagnantes += 1
+            finish(resolve, res)
+          }, err => {
+            pending -= 1
+            // The caller's abort must read as a cancellation, not a failure.
+            if (signal?.aborted || pending === 0) finish(reject, err)
+          })
+      }
+      const timer = setTimeout(() => {
+        if (settled || signal?.aborted) return
+        stats.relances += 1
+        console.log(`[planner] pas de reponse en ${relanceMs} ms : appel relance (delai total inchange, ${timeoutMs} ms)`)
+        launch(true)
+      }, relanceMs)
+      launch(false)
+    })
+  } finally {
+    signal?.removeEventListener('abort', abortAll)
+    abortAll()
   }
 }
 
@@ -330,7 +390,7 @@ async function callWithProfileOnce (system, user, opts = {}) {
   // Delai propre a l usage (PLANNER_TIMEOUT_MS_<USAGE>) : un modele qui
   // raisonne plus (muse pour la reflexion) a besoin de plus.
   const taskTimeout = modelChain.timeoutFor(task)
-  if (taskTimeout) opts = { ...opts, timeoutMs: Math.max(taskTimeout, opts.timeoutMs ?? 0) }
+  if (taskTimeout && !opts.fixedTimeout) opts = { ...opts, timeoutMs: Math.max(taskTimeout, opts.timeoutMs ?? 0) }
   // Repli de CLE seulement (PLANNER_KEY_FIRST) : meme modele, autre cle.
   // Sans aucune cle (base locale type Ollama) : un appel sans cle, comme avant.
   const configured = modelChain.keyOrder(process.env)
@@ -934,6 +994,8 @@ async function call (system, user, image = null, opts = {}) {
     maxTokens: EFFECTIVE_MAX_TOKENS,
     temperature: TEMPERATURE,
     timeoutMs: budget,
+    // Relaunch only once warm: the warm-up delay covers a cold model.
+    relanceMs: warm ? (opts.relanceMs ?? 0) : 0,
     task: opts.task ?? 'plan'
   })
 }
@@ -1111,7 +1173,9 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
 
   let response
   try {
-    response = await call(system, user, image, { signal: opts.signal ?? null, task: 'plan' })
+    response = await call(system, user, image, {
+      signal: opts.signal ?? null, task: 'plan', relanceMs: opts.relance === false ? 0 : RELAUNCH_MS
+    })
     lastError = null
   } catch (err) {
     // Un plan speculatif jete (stop, echec, fin) n est pas une panne du

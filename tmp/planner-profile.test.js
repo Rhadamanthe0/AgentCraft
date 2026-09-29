@@ -48,6 +48,7 @@ beforeEach(() => {
     PLANNER_SESSION_ID: process.env.PLANNER_SESSION_ID,
     PLANNER_MAX_TOKENS: process.env.PLANNER_MAX_TOKENS,
     PLANNER_TIMEOUT_MS: process.env.PLANNER_TIMEOUT_MS,
+    PLANNER_RELAUNCH_MS: process.env.PLANNER_RELAUNCH_MS,
     PLANNER_PILOT_MAX_TOKENS: process.env.PLANNER_PILOT_MAX_TOKENS,
     PLANNER_PILOT_RETRY_MAX_TOKENS: process.env.PLANNER_PILOT_RETRY_MAX_TOKENS,
     PLANNER_PILOT_COOLDOWN_MS: process.env.PLANNER_PILOT_COOLDOWN_MS,
@@ -73,7 +74,9 @@ afterEach(() => {
 
 describe('profil pilote : selection par defaut et gardes', () => {
   it('marge temporaire DeepSeek : 4096 jetons et 45 s apres chauffe, annulation conservee', async () => {
-    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK, PLANNER_MAX_TOKENS: '4096', PLANNER_TIMEOUT_MS: '45000' })
+    // Without relaunch (PLANNER_RELAUNCH_MS=0) the caller's signal reaches the
+    // transport as is; the relaunch path is covered by planner-relaunch.test.js.
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK, PLANNER_MAX_TOKENS: '4096', PLANNER_TIMEOUT_MS: '45000', PLANNER_RELAUNCH_MS: '0' })
     mockLlm(async () => okPlan())
     const signal = new AbortController().signal
     await planner.plan({ consigne: 'premier appel' }, 'recolte', 'harvest')

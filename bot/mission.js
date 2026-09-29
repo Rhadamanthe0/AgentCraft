@@ -5458,7 +5458,7 @@ function createMissionRunner (host, injected = {}) {
     const controller = new AbortController()
     const promise = planner.plan(
       snap, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
-      { signal: controller.signal, profil: profilPrompt() }
+      { signal: controller.signal, profil: profilPrompt(), relance: featureOn('relance_plan') }
     )
     // Rejet attendu si abort avant consommation (voir abortPrefetch).
     promise.catch(() => {})
@@ -5515,7 +5515,7 @@ function createMissionRunner (host, injected = {}) {
         const revision = mission.planRevision
         const result = await planner.plan(
           state, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
-          { signal: mission.navigationAbort.signal, profil: profilPrompt() }
+          { signal: mission.navigationAbort.signal, profil: profilPrompt(), relance: featureOn('relance_plan') }
         )
 
         if (mission.planRevision !== revision) throw new Error('plan annule apres precision')
