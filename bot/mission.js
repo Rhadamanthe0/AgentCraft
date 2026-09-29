@@ -403,6 +403,12 @@ function estLiquide (nom) {
   return typeof nom === 'string' && /water|lava|bubble_column/.test(nom)
 }
 
+// Columns under the bot's 0.6-wide hitbox at height y.
+function colonnesSousHitbox (position, y) {
+  const span = v => [...new Set([Math.floor(v - 0.3), Math.floor(v + 0.3 - 1e-6)])]
+  return span(position.x).flatMap(x => span(position.z).map(z => new Vec3(x, y, z)))
+}
+
 function estSolide (bloc) {
   if (!bloc || !bloc.name) return false
   if (bloc.boundingBox === 'empty') return false
@@ -4432,6 +4438,7 @@ function createMissionRunner (host, injected = {}) {
       const y0 = bot.entity.position.y
       let poses = 0
       let failure = null
+      let cibleAtteinte = null
 
       for (let niveau = 0; niveau < hauteurVisee; niveau += 1) {
         if (mission.cancelled) break
@@ -4464,20 +4471,29 @@ function createMissionRunner (host, injected = {}) {
           break
         }
         // Plafond : un pilier sous un toit coince la tete du bot. Des feuilles
-        // (couronne d un arbre) se cassent au lieu d arreter la montee.
-        for (const dy of [2, 1]) {
-          const haut = live.blockAt(ancre.offset(0, dy, 0))
-          if (!haut || !/_leaves$/.test(haut.name)) continue
-          try {
-            await withTimeout(live.lookAt(haut.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
-            await withTimeout(live.dig(haut), 6000, 'creusage trop long')
-            mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
-          } catch (_) {}
+        // (couronne d un arbre) se cassent au lieu d arreter la montee. Toutes
+        // les colonnes sous la hitbox comptent : decentre, la tete touche la
+        // colonne voisine (trees/tall 9e079e5 : z 19.18).
+        const colonnes = colonnesSousHitbox(live.entity.position, ancre.y)
+        for (const colonne of colonnes) {
+          for (const dy of [2, 1]) {
+            const haut = live.blockAt(colonne.offset(0, dy, 0))
+            if (!haut || !/_leaves$/.test(haut.name)) continue
+            try {
+              await withTimeout(live.lookAt(haut.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+              await withTimeout(live.dig(haut), 6000, 'creusage trop long')
+              mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
+            } catch (_) {}
+          }
         }
-        const dessus1 = live.blockAt(ancre.offset(0, 1, 0))
-        const dessus2 = live.blockAt(ancre.offset(0, 2, 0))
-        if ((dessus1 && estSolide(dessus1)) || (dessus2 && estSolide(dessus2))) {
-          failure = 'plafond au-dessus : impossible de monter ici'
+        if (colonnes.some(colonne => [1, 2].some(dy => estSolide(live.blockAt(colonne.offset(0, dy, 0)))))) {
+          // Often the trunk itself (trees/tall 9e079e5 : buche voisine au-dessus
+          // de la tete, « saut trop bas » au niveau 5) : if the target is
+          // breakable from here, the climb is done, same rule as the preflight.
+          const atteinte = poses > 0 && !params.interne && mission?.kind !== 'construction' ? findTargetBlock() : null
+          if (atteinte && blockInReach(live, live.entity.position, atteinte.position.offset(0.5, 0.5, 0.5), REACH)) {
+            cibleAtteinte = atteinte.name
+          } else failure = 'plafond au-dessus : impossible de monter ici'
           break
         }
 
@@ -4590,11 +4606,13 @@ function createMissionRunner (host, injected = {}) {
       if (poses === 0) {
         return { resultat: `pilier impossible : ${failure ?? 'aucun bloc pose'}`, echec: true }
       }
+      const complet = !failure && (poses === hauteurVisee || cibleAtteinte)
       return {
         resultat: `pilier de ${poses}/${hauteurVisee} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)${recupere}${ajuste}` +
-          (failure ? `, arret : ${failure}` : ', reobserver depuis le haut'),
-        echec: poses !== hauteurVisee || Boolean(failure),
-        code: poses === hauteurVisee && !failure ? 'pilier_pose' : 'pilier_partiel',
+          (failure ? `, arret : ${failure}`
+            : cibleAtteinte ? `, arret : ${cibleAtteinte} deja a portee, casser depuis le haut` : ', reobserver depuis le haut'),
+        echec: !complet,
+        code: complet ? 'pilier_pose' : 'pilier_partiel',
         reobserver: true
       }
     },

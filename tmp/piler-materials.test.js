@@ -10,7 +10,7 @@ const craft = require('../bot/craft')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74 }) {
+async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {} }) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
@@ -29,16 +29,17 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
     return { ms: 0, seconds: 1, rejected: [], done: 0, finished: false, steps }
   })
   const stock = inventory.map(item => ({ ...item }))
-  const blocks = new Map([['0,64,0', 'stone'], [`1,${logY},0`, 'oak_log']])
+  const log = logAt ?? new Vec3(1, logY, 0)
+  const blocks = new Map([['0,64,0', 'stone'], [`${log.x},${log.y},${log.z}`, 'oak_log'], ...Object.entries(extra)])
   const placements = []
   const commands = []
   const messages = []
-  const bot = { entity: { position: new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
+  const bot = { entity: { position: start ?? new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
     registry: { blocksByName: { oak_log: { id: 1 }, dirt: { id: 2, boundingBox: 'block' },
       coarse_dirt: { id: 3, boundingBox: 'block' }, oak_planks: { id: 4, boundingBox: 'block' },
       birch_planks: { id: 5, boundingBox: 'block' }, fake_planks: { id: 6, boundingBox: 'empty' } }, itemsByName: {} },
     inventory: { items: () => stock.filter(item => item.count > 0) }, players: {}, entities: {},
-    findBlocks: ({ matching }) => matching.includes(1) ? [new Vec3(1, logY, 0)] : [], findBlock: () => null,
+    findBlocks: ({ matching }) => matching.includes(1) ? [log] : [], findBlock: () => null,
     blockAt: p => { const position = p.floored(); const name = blocks.get(`${position.x},${position.y},${position.z}`) ?? 'air'
       return { name, position, boundingBox: name === 'air' ? 'empty' : 'block', shapes: name === 'air' ? [] : [[0, 0, 0, 1, 1, 1]] } },
     clearControlStates () {},
@@ -149,4 +150,23 @@ test('hauteur trop courte pour la buche la plus basse : portee au minimum mesure
   const f = await simulate(t, { inventory: [{ name: 'dirt', count: 6 }], height: 1 })
   assert.match(f.step.resultat, /hauteur 1 portee a 6/)
   assert.ok(f.placements.length > 1)
+})
+
+// Decentre (z 0.18), la tete du bot touche aussi la colonne z = -1 : un bloc
+// solide y arrete le saut (trees/tall 9e079e5, « saut trop bas » au niveau 5).
+test('bloc solide au-dessus de la colonne voisine sous la hitbox : plafond dit, pas de saut', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], start: new Vec3(0.5, 65, 0.18),
+    extra: { '0,69,-1': 'stone' } })
+  assert.deepEqual(f.placements, ['dirt', 'dirt'])
+  assert.equal(f.step.echec, true)
+  assert.match(f.step.resultat, /plafond au-dessus/)
+})
+
+test('buche voisine au-dessus de la tete et a portee : montee finie sans echec', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], start: new Vec3(0.5, 65, 0.18),
+    logAt: new Vec3(0, 70, -1) })
+  assert.deepEqual(f.placements, ['dirt', 'dirt', 'dirt'])
+  assert.equal(f.step.echec, false)
+  assert.equal(f.step.code, 'pilier_pose')
+  assert.match(f.step.resultat, /oak_log deja a portee, casser depuis le haut/)
 })
