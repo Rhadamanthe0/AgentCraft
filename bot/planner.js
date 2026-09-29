@@ -45,6 +45,15 @@ const API_KEY = process.env.PLANNER_API_KEY || ''
 const PILOT_MODEL = 'muse-spark-1.3-contributor'
 const MODEL = (process.env.PLANNER_MODEL || '').trim() || PILOT_MODEL
 const TIMEOUT_MS = Number(process.env.PLANNER_TIMEOUT_MS || 12000)
+// Relaunch of a silent plan call (owner's decision, 2026-09-29): with no answer
+// after RELAUNCH_MS, the call is cut and made again once with the time left;
+// the overall deadline stays TIMEOUT_MS. A/B switch: feature `relance_plan`
+// (mission.js).
+const RELAUNCH_MS = Number(process.env.PLANNER_RELAUNCH_MS || 10000)
+// Below this time left, a relaunch has no chance of an answer: no relaunch.
+const RELAUNCH_MIN_LEFT_MS = 1000
+// Models that answered at least once in this process (relaunch only these).
+const warmModels = new Set()
 const PLAN_MAX = Number(process.env.PLANNER_PLAN_MAX || 5)
 // Budget de temps d un plan, en secondes. Demande par le proprietaire, et c est
 // la bonne unite : compter les actions melange un saut de 0,3 s et une rafale
@@ -266,6 +275,10 @@ const stats = {
   tentatives: 0,
   troncatures: 0,
   reessais: 0,
+  // Plan calls relaunched after RELAUNCH_MS of silence, and relaunches that
+  // got an answer.
+  relances: 0,
+  relances_reussies: 0,
   // Nombre d appels qui ont reellement porte une image (mini-carte). Reste a 0
   // tant que MISSION_SCREENSHOT n est pas actif : c est la preuve lisible dans
   // /api/status que le drapeau fait quelque chose.
@@ -306,13 +319,48 @@ async function callWithProfile (system, user, opts = {}) {
   const task = opts.task ?? 'plan'
   const started = Date.now()
   try {
-    const result = await callWithProfileOnce(system, user, opts)
+    // Relaunch only a model that already answered once (a cold model gets the
+    // whole delay) and only when a relaunch still fits in the delay.
+    const model = modelChain.modelFor(task, process.env, MODEL)?.model
+    const relaunch = opts.relanceMs > 0 && warmModels.has(model) &&
+      effectiveTimeout(opts) - opts.relanceMs >= RELAUNCH_MIN_LEFT_MS
+    const result = relaunch ? await callRelaunched(system, user, opts) : await callWithProfileOnce(system, user, opts)
+    warmModels.add(result.model)
     recordLatency(task, Date.now() - started, 'ok')
     return result
   } catch (err) {
     const outcome = opts.signal?.aborted ? 'annule' : /pas de reponse|timeout|abort/i.test(String(err?.message)) ? 'delai' : 'erreur'
     recordLatency(task, Date.now() - started, outcome)
     throw err
+  }
+}
+
+// Transport delay of a call: the common one, or the task's own if longer
+// (same rule as callWithProfileOnce).
+function effectiveTimeout (opts) {
+  return Math.max(opts.timeoutMs ?? TIMEOUT_MS, modelChain.timeoutFor(opts.task ?? 'plan') ?? 0)
+}
+
+// A call with no answer after `relanceMs` is cut and made again once with the
+// time left, so the total delay stays `timeoutMs`: a silent call no longer
+// holds the mission for the whole delay. Never two calls at once. Only a delay
+// is relaunched: a refusal (403 included) or a cancellation is thrown as is.
+// Each call carries its deadline, which also bounds its internal retries
+// (truncation, refused reasoning field).
+async function callRelaunched (system, user, opts) {
+  const timeoutMs = effectiveTimeout(opts)
+  const started = Date.now()
+  try {
+    return await callWithProfileOnce(system, user, { ...opts, timeoutMs: opts.relanceMs, fixedTimeout: true, deadline: started + opts.relanceMs })
+  } catch (err) {
+    const left = timeoutMs - (Date.now() - started)
+    if (err?.code !== 'LLM_TIMEOUT' || opts.signal?.aborted || left < RELAUNCH_MIN_LEFT_MS) throw err
+    stats.relances += 1
+    console.log(`[planner] pas de reponse en ${opts.relanceMs} ms : appel relance, ${left} ms restantes (delai total ${timeoutMs} ms)`)
+    const result = await callWithProfileOnce(system, user, { ...opts, timeoutMs: left, fixedTimeout: true, deadline: started + timeoutMs })
+    stats.relances_reussies += 1
+    // Plan latency covers the abandoned call too, not just the answered one.
+    return { ...result, ms: Date.now() - started }
   }
 }
 
@@ -330,7 +378,7 @@ async function callWithProfileOnce (system, user, opts = {}) {
   // Delai propre a l usage (PLANNER_TIMEOUT_MS_<USAGE>) : un modele qui
   // raisonne plus (muse pour la reflexion) a besoin de plus.
   const taskTimeout = modelChain.timeoutFor(task)
-  if (taskTimeout) opts = { ...opts, timeoutMs: Math.max(taskTimeout, opts.timeoutMs ?? 0) }
+  if (taskTimeout && !opts.fixedTimeout) opts = { ...opts, timeoutMs: Math.max(taskTimeout, opts.timeoutMs ?? 0) }
   // Repli de CLE seulement (PLANNER_KEY_FIRST) : meme modele, autre cle.
   // Sans aucune cle (base locale type Ollama) : un appel sans cle, comme avant.
   const configured = modelChain.keyOrder(process.env)
@@ -352,7 +400,7 @@ async function callWithProfileOnce (system, user, opts = {}) {
   }
 }
 
-async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, model: forced = null, apiKey = null, task = 'plan' } = {}) {
+async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan' } = {}) {
   const EFFORT = modelChain.effortFor(task)
   // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
   const base = BASE_URL
@@ -368,6 +416,9 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
   const pilotFirst = target0 === PILOT_MODEL
     ? Math.max(Number.isFinite(maxTokens) ? maxTokens : PILOT_EFFECTIVE_MAX_TOKENS, PILOT_EFFECTIVE_MAX_TOKENS)
     : maxTokens
+  // A deadline (relaunch) bounds every transport of the call, retries
+  // included: the delay is recomputed just before each one.
+  const timeLeft = () => deadline ? Math.max(1, Math.min(timeoutMs, deadline - Date.now())) : timeoutMs
   async function doCall (model, proto, budget) {
     const headers = zenHeaders()
     stats.tentatives += 1
@@ -378,8 +429,10 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     // accepte reasoning_effort) : jamais les deux dans le meme appel.
     const thinking = !effort && proto === 'chat' && THINKING === 'disabled' && !thinkingOff.has(model) ? { type: 'disabled' } : null
     const plain = {
-      baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs,
-      keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null, headers, image, signal, protocol: proto
+      baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs: timeLeft(),
+      keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null, headers, image, signal, protocol: proto,
+      // The transport's own retry (transient 5xx/429/400) is a request too.
+      onRetry: () => { stats.tentatives += 1 }
     }
     if (!thinking && !effort) return llm.call(system, user, plain)
     try {
@@ -395,7 +448,8 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
       // aiguillee (vu : un bot sur 16, tous ses appels en 400). L appel est
       // rejoue aussitot sans le champ ; le champ n est retire pour la
       // session qu apres deux refus suivis d un succes sans lui.
-      const result = await llm.call(system, user, plain)
+      stats.tentatives += 1
+      const result = await llm.call(system, user, { ...plain, timeoutMs: timeLeft() })
       const [counts, off, field] = effort
         ? [effortRefusals, effortOff, 'reasoning_effort']
         : [thinkingRefusals, thinkingOff, 'thinking']
@@ -934,6 +988,9 @@ async function call (system, user, image = null, opts = {}) {
     maxTokens: EFFECTIVE_MAX_TOKENS,
     temperature: TEMPERATURE,
     timeoutMs: budget,
+    // Relaunch only once warm: the warm-up delay covers a cold model
+    // (callWithProfile also requires that very model to have answered once).
+    relanceMs: warm ? (opts.relanceMs ?? 0) : 0,
     task: opts.task ?? 'plan'
   })
 }
@@ -1111,7 +1168,9 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
 
   let response
   try {
-    response = await call(system, user, image, { signal: opts.signal ?? null, task: 'plan' })
+    response = await call(system, user, image, {
+      signal: opts.signal ?? null, task: 'plan', relanceMs: opts.relance === false ? 0 : RELAUNCH_MS
+    })
     lastError = null
   } catch (err) {
     // Un plan speculatif jete (stop, echec, fin) n est pas une panne du
@@ -1372,6 +1431,9 @@ position » = le joueur. Si tu reformules, nomme-les : « position de depart du
 bot », « le joueur <nom> » (jamais « ma position » ni « ta place »).
 amend = modifie une mission EN COURS : objective est sa consigne COMPLETE revisee,
 en conservant les exigences non modifiees. Ne rejoue pas ce qui est explicitement deja accompli.
+Un ordre qui abandonne la mission en cours pour un AUTRE but (« laisse tomber »,
+« oublie ca », « finalement » suivi d un autre but) est new, pas amend : objective
+ne contient que le nouveau but, jamais la mission abandonnee.
 context = information utile a la mission courante sans changer son objectif
 ("je suis derriere toi", "je suis la") : pas de nouvel objectif.
 Une correction du moyen immediat ou de la position du bot conserve le but :

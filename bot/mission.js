@@ -4550,7 +4550,11 @@ function createMissionRunner (host, injected = {}) {
         const landed = live.entity?.onGround && Math.abs(live.entity.position.y - (ancre.y + 1)) <= 0.25 &&
           Math.floor(live.entity.position.x) === ancre.x && Math.floor(live.entity.position.z) === ancre.z
         if (!landed) {
-          failure = 'atterrissage sur le bloc pose non prouve'
+          // Where the feet are, for the next bench to tell a slide off the
+          // block from a hang in the air (trees/pillar 2da82d4, three times).
+          const p = live.entity?.position
+          failure = 'atterrissage sur le bloc pose non prouve' +
+            (p ? ` (pieds ${p.x.toFixed(2)} ${p.y.toFixed(2)} ${p.z.toFixed(2)}, ${live.entity.onGround ? 'au sol' : 'en l air'}, bloc ${ancre.x} ${ancre.y} ${ancre.z})` : '')
           break
         }
         await sleep(150)
@@ -5454,7 +5458,7 @@ function createMissionRunner (host, injected = {}) {
     const controller = new AbortController()
     const promise = planner.plan(
       snap, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
-      { signal: controller.signal, profil: profilPrompt() }
+      { signal: controller.signal, profil: profilPrompt(), relance: featureOn('relance_plan') }
     )
     // Rejet attendu si abort avant consommation (voir abortPrefetch).
     promise.catch(() => {})
@@ -5511,7 +5515,7 @@ function createMissionRunner (host, injected = {}) {
         const revision = mission.planRevision
         const result = await planner.plan(
           state, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
-          { signal: mission.navigationAbort.signal, profil: profilPrompt() }
+          { signal: mission.navigationAbort.signal, profil: profilPrompt(), relance: featureOn('relance_plan') }
         )
 
         if (mission.planRevision !== revision) throw new Error('plan annule apres precision')

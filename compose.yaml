@@ -125,6 +125,9 @@ services:
       PLANNER_USER_AGENT: "${PLANNER_USER_AGENT:-minecraft-bot/1.0}"
       PLANNER_PLAN_MAX: "${PLANNER_PLAN_MAX:-5}"
       PLANNER_TIMEOUT_MS: "${PLANNER_TIMEOUT_MS:-12000}"
+      # Relance d un plan sans reponse (0 = jamais) ; FEATURE_RELANCE_PLAN=0 la coupe aussi.
+      PLANNER_RELAUNCH_MS: "${PLANNER_RELAUNCH_MS:-10000}"
+      FEATURE_RELANCE_PLAN: "${FEATURE_RELANCE_PLAN:-}"
       # 2000 : le raisonnement de deepseek-v4.1-flash compte dedans.
       PLANNER_MAX_TOKENS: "${PLANNER_MAX_TOKENS:-2000}"
       PLANNER_DEBUG: "${PLANNER_DEBUG:-}"

@@ -42,7 +42,7 @@ mode qui n apporte rien de mesurable n est pas garde** ; a resultats egaux, on
 garde la version la plus simple.
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
-`prompt_type`, `reflexes` (tous allumes par defaut).
+`prompt_type`, `reflexes`, `relance_plan` (tous allumes par defaut).
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
@@ -89,7 +89,7 @@ Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
 | Chaines de modeles, bascule sur refus/delai, fournisseurs gratuits (Zen anonyme, Groq, Gemini, OpenRouter) | 2026-09-26 | un modele par usage, une panne remonte telle quelle |
 | Routage double MiMo/Muse, supervisor/, kernel/, bridge/, unlock-service | 2026-09-27 | jamais branches au bot |
 | `approcher`, ancien `explorer` (GoalNearXZ) | 2026-09-22 | pathfinder 26.1 peu fiable ; remplaces par le navigateur partage |
-| Double appel au modele par tour | refuse | sur-ingenierie |
+| Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
 
 ## 2. Ce que c est
 
@@ -287,6 +287,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `PLANNER_MODEL[_PLAN/_BRIEF/_CHAT/_COMPACT]` | `PLANNER_MODEL` | un modele par usage (une liste ne garde que sa tete) |
 | `PLANNER_REASONING_EFFORT[_<USAGE>]` | vide | `reasoning_effort` (ou `reasoning.effort`) |
 | `PLANNER_TIMEOUT_MS[_<USAGE>]` | 12000 | delai d un appel |
+| `PLANNER_RELAUNCH_MS` | 10000 | plan sans reponse apres ce delai : appel coupe et refait une fois avec le temps restant, jamais deux appels en meme temps, delai total inchange (interrupteur `relance_plan`, decision du proprietaire 2026-09-29) |
 | `PLANNER_PLAN_MAX` | 5 | actions max par plan |
 | `PLANNER_BUDGET_MIN_S` / `_MAX_S` | 6 / 10 | secondes de jeu visees par plan (consigne du prompt, jamais appliquee) |
 | `PLANNER_MAX_TOKENS` | 2000 | sortie, raisonnement compris |

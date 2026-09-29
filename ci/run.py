@@ -134,7 +134,7 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
         # Ajoutes le 2026-09-27 (revue : 1 a 11 s chacun, regressions a bas cout).
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
         'mission-delivery.test.js', 'piler-materials.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
-        'delivery.test.js', 'planner-profile.test.js', 'llm.test.js', 'executor.test.js', 'objective-controller.test.js',
+        'delivery.test.js', 'planner-profile.test.js', 'planner-relaunch.test.js','llm.test.js', 'executor.test.js', 'objective-controller.test.js',
         'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js']
 
 
@@ -193,6 +193,8 @@ def compare_variants(tests):
             parts.append(f"{t['elapsedS']} s")
         if t.get('plannerCalls') is not None:
             parts.append(f"{t['plannerCalls']} appels")
+        if t.get('plannerRequests') is not None:
+            parts.append(f"{t['plannerRequests']} requetes au modele")
         if t.get('damageTaken'):
             parts.append(f"{t['damageTaken']} degats")
         for key in ('itemsHeld', 'blocksPlaced', 'bonusItems'):
@@ -582,7 +584,17 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             bots_wanted = args.suite in ('trees', 'all') and bool(planner_key_present())
             # Two containers host all pool bots and all probe players.
             extra = [BOTS_SERVICE, PROBES_SERVICE] if bots_wanted else []
-            compose('up', '-d', '--wait', '--wait-timeout', '240', 'harness', *extra, timeout=290)
+            up = ('up', '-d', '--wait', '--wait-timeout', '240', 'harness', *extra)
+            started_up = compose(*up, timeout=290, check=False)
+            if started_up.returncode and 'address already in use' in started_up.stdout + started_up.stderr:
+                # Rootless Podman gives each container its ephemeral loopback
+                # ports while they start in parallel; two can collide (runs
+                # 36602808398, 36606649304). Recreated once, with new ports;
+                # --no-deps keeps the running Paper server and its arenas.
+                print('Ports ephemeres en collision au demarrage : conteneurs recrees une fois', flush=True)
+                compose(*up, '--force-recreate', '--no-deps', timeout=290)
+            elif started_up.returncode:
+                raise RuntimeError(f'Command failed ({started_up.returncode}): docker compose up harness; see commands.log')
             load_endpoints()
             ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
             mode = rcon('data get entity TestProbe1 playerGameType')
@@ -689,7 +701,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     stats[worker.username] = {k: p.get(k) for k in (
                         'appels', 'etapes_servies', 'echecs', 'moyenne_ms', 'jetons_total', 'jetons_en_cache_total',
                         'jetons_sortie_total', 'jetons_raisonnement_total', 'modele_servi', 'cle_servie', 'bascules_cle',
-                        'latences')}
+                        'relances', 'relances_reussies', 'latences')}
 
                 def pool_factory(queue, run_one):
                     return Pool(queue, run_one, LauncherControl(http), controller, collector, rcon, capacity_config,
@@ -729,6 +741,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     # Repli de cle (PLANNER_KEY_FIRST) : cle du dernier appel servi, bascules.
                     'cles_servies': sorted({v['cle_servie'] for v in stats.values() if v.get('cle_servie')}),
                     'bascules_cle': sum(v.get('bascules_cle') or 0 for v in stats.values()),
+                    # Plan calls relaunched after PLANNER_RELAUNCH_MS of silence, and answered on relaunch.
+                    'relances': sum(v.get('relances') or 0 for v in stats.values()),
+                    'relances_reussies': sum(v.get('relances_reussies') or 0 for v in stats.values()),
                     # Duree reelle par usage (plan, chat, brief, compact...), tous bots.
                     'latences': latency_summary(stats),
                 }

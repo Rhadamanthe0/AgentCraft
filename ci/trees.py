@@ -513,7 +513,8 @@ def base_levels():
             'about': 'Tronc 2x2 de 4 buches de haut (16 buches), couronne au-dessus : un seul arbre, tout a couper.',
             'leaves': [(TX-2, 204, TZ-2, TX+3, 205, TZ+3)],
             'logs': _logs(*[(TX + dx, 200 + i, TZ + dz) for i in range(4) for dx in (0, 1) for dz in (0, 1)]),
-            'rules': {}, 'variants': [sans('recolter')],
+            # Second A/B: plan calls without the relaunch after 10 s of silence.
+            'rules': {}, 'variants': [sans('recolter'), sans('relance_plan')],
         },
         {
             'name': 'terrain/moat',
@@ -725,7 +726,8 @@ def _block(name, turns, species):
 def vary(level, seed):
     if seed is None:
         return level
-    rng = random.Random(f"{seed}:{level['name']}")
+    # An A/B variant plays its base level's scene: only the switched mode differs.
+    rng = random.Random(f"{seed}:{level.get('variantOf') or level['name']}")
     turns, mirror, species = rng.randrange(4), rng.random() < .5, rng.choice(SPECIES)
     out = dict(level)
     out['variation'] = {'rotation': turns * 90, 'miroir': mirror, 'essence': species}
@@ -1600,7 +1602,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 EXPECTED_S = {
     'composite/cabin-from-scratch': 900, 'composite/stone-hut-from-scratch': 1200,
     'composite/cabin-change-of-mind': 1000, 'composite/cabin-across-water': 1000, 'craft/iron-pickaxe': 400, 'craft/iron-pickaxe~sans-solveur': 480,
-    'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
+    'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'trees/double~sans-relance_plan': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
     'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,
     'chat/question-keeps-mission': 27, 'chat/stop-tree': 27, 'join/tall-cliff': 26, 'terrain/dirt-wall': 25,
@@ -1638,10 +1640,13 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
                 pass
 
     def planner_calls(bot):
+        # (plan calls, model requests): `appels` counts parsed plans only;
+        # `tentatives` counts every transport, failed and relaunched ones included.
         try:
-            return (bot_api(bot, '/api/status').get('planner') or {}).get('appels')
+            p = bot_api(bot, '/api/status').get('planner') or {}
+            return p.get('appels'), p.get('tentatives')
         except Exception:
-            return None
+            return None, None
 
     def mission_start(bot):
         try:
@@ -1654,14 +1659,14 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
         if not first:
             reset(worker.bot)
         print(f'{level["name"]} ({worker.username}) started', flush=True)
-        calls_before = None
+        calls_before = requests_before = None
         mission_before = None
         try:
             if before_level:
                 before_level()
             if level.get('features'):
                 bot_api(worker.bot, '/api/features', level['features'])
-            calls_before = planner_calls(worker.bot)
+            calls_before, requests_before = planner_calls(worker.bot)
             mission_before = mission_start(worker.bot)
             result = run_level(level, origins[index], worker.bot, worker.username, output, rcon, bot_api, worker.probe)
         except Exception as error:  # a crashing level never takes its worker down silently
@@ -1669,9 +1674,11 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
         result['type'] = mission_type(level['name'])
         if level.get('variation'):
             result['variation'] = level['variation']
-        calls_after = planner_calls(worker.bot)
+        calls_after, requests_after = planner_calls(worker.bot)
         if calls_before is not None and calls_after is not None:
             result['plannerCalls'] = calls_after - calls_before
+        if requests_before is not None and requests_after is not None:
+            result['plannerRequests'] = requests_after - requests_before
         # KPI de la mission (demande du proprietaire, 2026-09-27) : part
         # d actions en echec, blocages annonces (cause et derniers resultats,
         # a analyser a chaque banc).
