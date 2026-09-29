@@ -218,6 +218,25 @@ const CIBLE_ITEM = {
   hache: 'wooden_axe', pioche: 'wooden_pickaxe', pelle: 'wooden_shovel'
 }
 
+// Items one copy of which is enough for any recipe chain.
+const OUTIL_OU_POSTE = /^(crafting_table|furnace)$|_(pickaxe|axe|shovel|hoe|sword)$/
+
+// Where an already obtained table, furnace or tool is, or null.
+function dejaObtenu (bot, item) {
+  if (item === 'crafting_table') {
+    const posee = craft.placedTable(bot)
+    if (posee) return `un etabli est deja pose a ${bot.entity.position.distanceTo(posee.position).toFixed(1)} bloc(s)`
+  }
+  if (item === 'furnace') {
+    const four = craft.furnaceBlock(bot)
+    if (four) return `un four est deja pose a ${bot.entity.position.distanceTo(four.position).toFixed(1)} bloc(s)`
+  }
+  if (craft.countOf(bot, new RegExp(`^${item}$`)) > 0) {
+    return item === 'crafting_table' ? 'un etabli est deja dans l inventaire' : `${item} deja dans l inventaire`
+  }
+  return null
+}
+
 // Des batons entrent-ils dans une recette de la cible ? Vu sur craft/table :
 // 1 buche, 4 planches, puis 2 batons (2 planches perdues) et plus assez pour
 // l etabli. Sans registre (tests purs), on garde l ancienne tolerance.
@@ -3725,33 +3744,21 @@ function createMissionRunner (host, injected = {}) {
           }
         }
       }
-      // Une etape reprise du plan (reorientation) est utile par definition :
-      // `dansLePlan` avait ete calcule sur l objet demande. Vu sur
-      // craft/furnace (8d6a7b8) : batons redemandes, pioche en bois du plan
-      // substituee puis refusee « pas utile pour furnace ».
-      if (mission.fabricationCible && !dansLePlan && !reorientation &&
-        !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
-        return {
-          resultat: `${target} n est pas utile pour ${mission.fabricationCible} : fabrique ${mission.fabricationCible} ` +
-            'ou ses ingredients (planches, batons, etabli), rien d autre',
-          echec: true
-        }
-      }
-
-      // Un etabli deja pose tout pres suffit : en refaire un pour une autre
-      // cible gaspille 4 planches (vu sur craft/axe : deux etablis, plus de
-      // planches pour la hache). Sauf si l etabli est lui-meme demande.
-      if (target === 'etabli' && mission.fabricationCible && mission.fabricationCible !== 'etabli') {
-        const posee = craft.placedTable(bot)
-        const enPoche = craft.countOf(bot, /^crafting_table$/) > 0
-        if (posee || enPoche) {
-          // Faire l etape suivante du plan (ou la cible) au lieu de refuser :
-          // le refus comptait un echec sans rien avoir casse (craft/iron-pickaxe
-          // 9ee7d81 : « un etabli est deja pose a 1.5 bloc(s) »).
-          const ou = posee
-            ? `un etabli est deja pose a ${bot.entity.position.distanceTo(posee.position).toFixed(1)} bloc(s)`
-            : 'un etabli est deja dans l inventaire'
-          const suivante = acquisition()?.etapes?.find(e => !(e.op === 'fabriquer' && e.objet === 'crafting_table'))
+      // Etabli, four ou outil deja obtenu (pose tout pres ou en poche) : en
+      // refaire un gaspille des ingredients (vu sur craft/axe : deux etablis,
+      // plus de planches pour la hache) et le refuser comptait un echec sans
+      // rien avoir casse (craft/iron-pickaxe 9ee7d81 : « un etabli est deja
+      // pose » ; 6ab854b : pioche en pierre et four deja faits par une etape
+      // reprise, redemandes, « pas utile pour iron_pickaxe »). On fait l etape
+      // suivante du plan, ou la cible, a la place. Sauf si l objet est la cible.
+      const itemDemande = CIBLE_ITEM[target] ?? target
+      const itemCible = CIBLE_ITEM[mission.fabricationCible] ?? mission.fabricationCible
+      const outil = OUTIL_OU_POSTE.test(itemDemande)
+      if (mission.fabricationCible && itemDemande !== itemCible && !reorientation &&
+        (itemDemande === 'crafting_table' || (outil && !dansLePlan))) {
+        const ou = dejaObtenu(bot, itemDemande)
+        if (ou) {
+          const suivante = acquisition()?.etapes?.find(e => !(e.op === 'fabriquer' && (CIBLE_ITEM[e.objet] ?? e.objet) === itemDemande))
           if (suivante?.op === 'recolter' || suivante?.op === 'cuire') {
             const r = suivante.op === 'recolter'
               ? await ACTIONS.recolter(null, { quantite: suivante.quantite })
@@ -3766,6 +3773,18 @@ function createMissionRunner (host, injected = {}) {
             target = mission.fabricationCible
             wanted = Math.max(1, (mission.fabricationQuantite ?? 1) - fabricationProduced())
           }
+        }
+      }
+      // Une etape reprise du plan (reorientation) est utile par definition :
+      // `dansLePlan` avait ete calcule sur l objet demande. Vu sur
+      // craft/furnace (8d6a7b8) : batons redemandes, pioche en bois du plan
+      // substituee puis refusee « pas utile pour furnace ».
+      if (mission.fabricationCible && !dansLePlan && !reorientation &&
+        !fabricationUtile(target, mission.fabricationCible, bot.registry)) {
+        return {
+          resultat: `${target} n est pas utile pour ${mission.fabricationCible} : fabrique ${mission.fabricationCible} ` +
+            'ou ses ingredients (planches, batons, etabli), rien d autre',
+          echec: true
         }
       }
 

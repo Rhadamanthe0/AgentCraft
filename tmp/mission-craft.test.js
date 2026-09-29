@@ -333,3 +333,34 @@ test('primitif live 2 buches -> 8 planches : pas de regression', async () => {
   assert.equal(res.wanted, 8)
   assert.equal(res.partial, false)
 })
+
+test('outil deja en poche redemande : etape suivante du plan, pas de refus', async () => {
+  // Vu sur craft/iron-pickaxe (6ab854b) : pioche en pierre deja faite par une
+  // etape reprise, redemandee, refusee « pas utile », plan jete.
+  const makeCalls = []
+  try {
+    const brief = realShapeBrief({
+      kind: 'recolte', resource: 'bois',
+      fabrication: 'torch', fabricationQuantite: 4, _texte: 'fabrique 4 torches'
+    })
+    const stub = async (bot, target, wanted) => {
+      makeCalls.push({ target, wanted })
+      if (target !== 'torch') throw Object.assign(new Error(`inattendu ${target}`), { code: 'unknown' })
+      bot._stock.torch = (bot._stock.torch ?? 0) + 4
+      return { item: 'torch', produced: 4, wanted, usedTable: false }
+    }
+    const { status } = await runMission({
+      brief,
+      stock: { wooden_pickaxe: 1, stick: 1, coal: 1 },
+      plans: ['fabriquer:wooden_pickaxe:1', 'terminer'],
+      makeStub: stub
+    })
+    assert.ok(!makeCalls.some(c => /pickaxe|pioche/.test(c.target)), 'aucune pioche refaite')
+    const fab = status.historique.find(h => h.action === 'fabriquer')
+    assert.doesNotMatch(fab.resultat, /pas utile/)
+    assert.match(fab.resultat, /^wooden_pickaxe deja dans l inventaire, etape suivante du plan faite a la place : /)
+  } finally {
+    restorePlanner()
+    restoreCraft()
+  }
+})
