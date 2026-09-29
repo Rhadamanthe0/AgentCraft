@@ -530,6 +530,7 @@ def base_levels():
             'leaves': [(TX, 209, TZ, TX, 209, TZ)],
             'logs': _logs(*[(TX, 200 + i, TZ) for i in range(9)]),
             'rules': {'dirt_placed_max': 0},
+            'variants': [sans('arbre_fini')],
         },
         {
             'name': 'terrain/moat',

@@ -86,6 +86,19 @@ const SCREENSHOT_ON = process.env.MISSION_SCREENSHOT === '1'
 // allumee) pour mesurer ce qu il apporte, sans redemarrer le bot. Priorite :
 // /api/features, puis la variable FEATURE_<NOM> ('0'/'1'), puis le defaut du
 // mode. Un processus = un bot, donc un etat par bot.
+// Tree in progress and its scaffold, carried across a revision or a restart
+// (plain integer coordinates only; anything else is dropped).
+function celluleValide (c) {
+  return c && [c.x, c.y, c.z].every(Number.isInteger) ? { x: c.x, y: c.y, z: c.z } : null
+}
+function suiviArbre (source) {
+  const poses = Array.isArray(source?.echafaudagePose) ? source.echafaudagePose.map(celluleValide).filter(Boolean) : []
+  return {
+    arbreEnCours: celluleValide(source?.arbreEnCours),
+    echafaudagePose: poses.map(c => new Vec3(c.x, c.y, c.z))
+  }
+}
+
 const featureOverrides = {}
 function featureOn (name, fallback = true) {
   if (Object.prototype.hasOwnProperty.call(featureOverrides, name)) return featureOverrides[name]
@@ -800,6 +813,8 @@ function createMissionRunner (host, injected = {}) {
         // Grand livre des dons (S6) : preuves persistantes pour rehydrate.
         livraison: deliveryLedgersFor(mission).map(deliveryLedgerView),
         dimensions: mission.dimensions ? { ...mission.dimensions } : null,
+        arbreEnCours: celluleValide(mission.arbreEnCours),
+        echafaudagePose: (mission.echafaudagePose ?? []).map(celluleValide).filter(Boolean),
         route: mission.movementTask
           ? { steps: JSON.parse(JSON.stringify(mission.movementTask.steps)), cursor: mission.movementTask.cursor, origin: mission.movementTask.origin ? { ...mission.movementTask.origin } : null }
           : null
@@ -2040,16 +2055,24 @@ function createMissionRunner (host, injected = {}) {
   // Tree started by any wood job: the first log cut fixes it. Its logs are
   // those 26-connected to the trunk column, within TREE_RADIUS: a bent trunk
   // or a branch stays in, a neighbour tree that does not touch it stays out.
+  // The first cut may be high on the trunk (bot on a ledge): the scan goes
+  // TREE_HEIGHT down as well as up. null = a cell is not loaded (chunk far
+  // away): unknown, never read as a finished tree.
   function logsOfTree (t) {
     const bot = host.getBot()
-    if (!t || !bot?.entity) return []
-    const isLog = p => TREE_LOG.test(bot.blockAt(p)?.name ?? '')
+    if (!t || !bot?.entity) return null
+    let inconnu = false
+    const isLog = p => {
+      const b = bot.blockAt(p)
+      if (!b) inconnu = true
+      return TREE_LOG.test(b?.name ?? '')
+    }
     const key = p => `${p.x},${p.y},${p.z}`
     const seen = new Set()
     const logs = []
     for (let dx = -1; dx <= 1; dx += 1) {
       for (let dz = -1; dz <= 1; dz += 1) {
-        for (let dy = -1; dy <= TREE_HEIGHT; dy += 1) {
+        for (let dy = -TREE_HEIGHT; dy <= TREE_HEIGHT; dy += 1) {
           const p = new Vec3(t.x + dx, t.y + dy, t.z + dz)
           if (isLog(p)) { seen.add(key(p)); logs.push(p) }
         }
@@ -2061,14 +2084,14 @@ function createMissionRunner (host, injected = {}) {
           for (let dz = -1; dz <= 1; dz += 1) {
             const q = logs[i].offset(dx, dy, dz)
             if (Math.abs(q.x - t.x) > TREE_RADIUS || Math.abs(q.z - t.z) > TREE_RADIUS) continue
-            if (q.y < t.y - 1 || q.y > t.y + TREE_HEIGHT || seen.has(key(q))) continue
+            if (Math.abs(q.y - t.y) > TREE_HEIGHT || seen.has(key(q))) continue
             seen.add(key(q))
             if (isLog(q)) logs.push(q)
           }
         }
       }
     }
-    return logs
+    return inconnu ? null : logs
   }
 
   // Logs still standing on the tree in progress, or null (none started, or
@@ -2082,7 +2105,11 @@ function createMissionRunner (host, injected = {}) {
     const cle = `${mission.id}|${t.x},${t.y},${t.z}|${mission.broken}|${mission.dirtSecondaire ?? 0}`
     if (!arbreMemo || arbreMemo.cle !== cle || Date.now() - arbreMemo.at > 250) {
       const logs = logsOfTree(t)
-      arbreMemo = { cle, at: Date.now(), logs: logs.length > 0 ? logs : null }
+      // Unknown (unloaded): keep the last measure of this tree; none yet
+      // (restored after a restart, far away) counts as not finished.
+      const memeArbre = arbreMemo && arbreMemo.cle.split('|').slice(0, 2).join('|') === cle.split('|').slice(0, 2).join('|')
+      const connu = logs ?? (memeArbre ? arbreMemo.logs : [new Vec3(t.x, t.y, t.z)])
+      arbreMemo = { cle, at: Date.now(), logs: connu && connu.length > 0 ? connu : null }
     }
     return arbreMemo.logs
   }
@@ -2094,8 +2121,11 @@ function createMissionRunner (host, injected = {}) {
   // Runs inside the step slot (owner token), after the step that cut the
   // last log, like the reflexes.
   async function demonterEchafaudage (owner) {
-    if (!mission?.echafaudagePose?.length || !mission.arbreEnCours || arbreInacheve() || !featureOn('arbre_fini')) return 0
-    const poses = mission.echafaudagePose
+    if (!mission?.arbreEnCours || arbreInacheve() || !featureOn('arbre_fini')) return 0
+    // Finished: forgotten at once, so a pillar for the next tree is never
+    // taken for this one's.
+    mission.arbreEnCours = null
+    const poses = mission.echafaudagePose ?? []
     mission.echafaudagePose = []
     const present = p => {
       const b = host.getBot()?.blockAt(p)
@@ -2103,7 +2133,29 @@ function createMissionRunner (host, injected = {}) {
     }
     let restants = poses.filter(present)
     if (restants.length === 0) return 0
-    let retires = await descendScaffold(-Infinity, { pillarOnly: true })
+    // Down through recorded cells only: terrain or a player build under the
+    // feet is never dug.
+    const enregistre = new Set(restants.map(p => `${p.x},${p.y},${p.z}`))
+    let retires = 0
+    for (let i = 0; i < restants.length && !mission.cancelled; i += 1) {
+      const bot = host.getBot()
+      if (!bot?.entity) break
+      const below = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+      if (!below || !enregistre.has(`${below.position.x},${below.position.y},${below.position.z}`) || !present(below.position)) break
+      const dessous = bot.blockAt(below.position.offset(0, -1, 0))
+      if (!dessous || dessous.boundingBox !== 'block') break
+      try {
+        await withTimeout(bot.lookAt(below.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+        await withTimeout(bot.dig(below), 6000, 'creusage trop long')
+      } catch (_) {
+        break
+      }
+      const until = Date.now() + 1500
+      while (Date.now() < until && !(host.getBot()?.entity?.onGround && host.getBot().entity.position.y < below.position.y + 0.5)) {
+        await sleep(50)
+      }
+      retires += 1
+    }
     restants = restants.filter(present).sort((a, b) => b.y - a.y)
     for (const p of restants) {
       if (mission.cancelled) break
@@ -6592,6 +6644,8 @@ function createMissionRunner (host, injected = {}) {
       wholeTree: kind === 'recolte' && resource === 'bois' && !fabricationCible &&
         build.parseQuota(sansCoordonnees(text), { allowBlockUnits: true }) === null && WHOLE_TREE_TEXT.test(text),
       tree: null,
+      // A revision keeps the tree in progress (player rule, see arbreInacheve).
+      ...suiviArbre(opts.revisionOf),
       // Fabrication generique : cible validee registre + quantite codee,
       // persistee et servie dans buildState (consigne.fabrication_cible).
       // Legacy recolte sans cible : null, chemin inchange.
@@ -6954,6 +7008,7 @@ function createMissionRunner (host, injected = {}) {
       objectiveMode: obj.mode === 'permanent' ? 'permanent' : 'temporary',
       maintenance: null,
       rehydrated: true,
+      ...suiviArbre(desc),
       baseUnits: Math.max(0, Number(prog.unites_recoltees ?? prog.faits ?? 0) || 0),
       state: 'running',
       cancelled: false,

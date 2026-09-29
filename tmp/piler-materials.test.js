@@ -342,3 +342,14 @@ test('arbre fini depuis le pilier : pilier retire avant la fin', async t => {
   assert.equal([65, 66, 67, 68, 69, 70].filter(y => f.blocks.has(`0,${y},0`)).length, 0, 'pilier defait')
   assert.equal(f.status.echafaudage_laisse, 0)
 })
+
+// Premier arbre fini, pilier monte ensuite pour le suivant : l ancre du
+// premier est oubliee a sa fin, le nouveau pilier n est pas defait avant
+// d avoir servi (revue Codex 71cbbf4).
+test('arbre fini puis pilier pour le suivant : pilier garde', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 6 }], logAt: new Vec3(3, 74, 0), allLogs: true,
+    extra: { '1,65,0': 'oak_log' }, queue: [['casser'], ['piler']] })
+  assert.equal(f.blocks.has('1,65,0'), false, 'premier arbre coupe')
+  assert.deepEqual(f.placements, Array(6).fill('dirt'))
+  assert.equal([65, 66, 67, 68, 69, 70].filter(y => f.blocks.has(`0,${y},0`)).length, 6, 'pilier garde')
+})
