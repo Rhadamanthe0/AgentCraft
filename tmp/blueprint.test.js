@@ -86,3 +86,40 @@ test('maison de 3 de haut : une seule case d air sous le toit, refusee (piege a 
   const ok = build.compileBlueprint({ largeur: 5, profondeur: 5, hauteur: 4, elements: [{ type: 'creux', de: [0, 0, 0], a: [4, 3, 4] }], porte: [2, 0] })
   assert.equal(ok.ok, true)
 })
+
+// --- Choix du terrain : anneau de sol sec autour de l emprise ---------------
+
+function siteWorld ({ water = [], rock = null } = {}) {
+  const Vec3 = require('vec3').Vec3
+  const at = (x, y, z) => {
+    if (rock && x >= rock.x1 && x <= rock.x2 && z >= rock.z1 && z <= rock.z2 && y >= 200 && y <= rock.top) {
+      return { name: 'stone', boundingBox: 'block' }
+    }
+    if (y === 199 && water.includes(x)) return { name: 'water', boundingBox: 'empty' }
+    if (y <= 199) return { name: 'grass_block', boundingBox: 'block' }
+    return { name: 'air', boundingBox: 'empty' }
+  }
+  return { blockAt: v => at(v.x, v.y, v.z), Vec3 }
+}
+
+test('findSite : jamais un chantier colle a l eau (postes de tir au sec)', () => {
+  const build = require('../bot/build')
+  const bot = siteWorld({ water: [16, 17] })
+  const site = build.findSite(bot, { near: { x: 10.5, y: 200, z: 18.5 }, width: 4, depth: 4, height: 4 })
+  assert.ok(site, 'un terrain existe')
+  const { x } = site.origin
+  // Emprise [x, x+3] et anneau [x-1, x+4] hors de l eau (16-17).
+  assert.ok(x + 4 < 16 || x - 1 > 17, `emprise ${x}..${x + 3} trop pres de l eau`)
+})
+
+test('findSite : pas au bord d un rocher (le toit y perdait ses postes)', () => {
+  const build = require('../bot/build')
+  // Rocher 9x7, bot debout dessus : un 3x3 + anneau tient au milieu, pas au bord.
+  const bot = siteWorld({ rock: { x1: 6, x2: 14, z1: 28, z2: 34, top: 202 } })
+  const site = build.findSite(bot, { near: { x: 12.5, y: 203, z: 31.5 }, width: 3, depth: 3, height: 3 })
+  assert.ok(site)
+  const { x, y, z } = site.origin
+  if (y === 203) {
+    assert.ok(x - 1 >= 6 && x + 3 <= 14 && z - 1 >= 28 && z + 3 <= 34, `bord du rocher : ${x},${z}`)
+  }
+})

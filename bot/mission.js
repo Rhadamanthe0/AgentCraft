@@ -3743,20 +3743,28 @@ function createMissionRunner (host, injected = {}) {
       // planches pour la hache). Sauf si l etabli est lui-meme demande.
       if (target === 'etabli' && mission.fabricationCible && mission.fabricationCible !== 'etabli') {
         const posee = craft.placedTable(bot)
-        if (posee) {
-          return {
-            resultat: `un etabli est deja pose a ${bot.entity.position.distanceTo(posee.position).toFixed(1)} bloc(s) : ` +
-              `fabrique directement ${mission.fabricationCible}, l etabli pose sera utilise`,
-            echec: true
+        const enPoche = craft.countOf(bot, /^crafting_table$/) > 0
+        if (posee || enPoche) {
+          // Faire l etape suivante du plan (ou la cible) au lieu de refuser :
+          // le refus comptait un echec sans rien avoir casse (craft/iron-pickaxe
+          // 9ee7d81 : « un etabli est deja pose a 1.5 bloc(s) »).
+          const ou = posee
+            ? `un etabli est deja pose a ${bot.entity.position.distanceTo(posee.position).toFixed(1)} bloc(s)`
+            : 'un etabli est deja dans l inventaire'
+          const suivante = acquisition()?.etapes?.find(e => !(e.op === 'fabriquer' && e.objet === 'crafting_table'))
+          if (suivante?.op === 'recolter' || suivante?.op === 'cuire') {
+            const r = suivante.op === 'recolter'
+              ? await ACTIONS.recolter(null, { quantite: suivante.quantite })
+              : await ACTIONS.cuire(null, { objet: suivante.objet, quantite: suivante.quantite })
+            return { ...r, resultat: `${ou}, etape suivante du plan faite a la place : ${r.resultat}` }
           }
-        }
-        // Deja en poche : il sera pose tout seul par la fabrication de la cible
-        // (vu sur craft/axe : deux etablis d affilee, plus de bois pour la hache).
-        if (craft.countOf(bot, /^crafting_table$/) > 0) {
-          return {
-            resultat: `un etabli est deja dans l inventaire : fabrique directement ${mission.fabricationCible}, ` +
-              'l etabli sera pose automatiquement',
-            echec: true
+          reorientation = `${ou}, etape suivante du plan faite a la place : `
+          if (suivante?.op === 'fabriquer') {
+            target = suivante.objet
+            wanted = Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Number(suivante.quantite) || CRAFT_MIN))
+          } else {
+            target = mission.fabricationCible
+            wanted = Math.max(1, (mission.fabricationQuantite ?? 1) - fabricationProduced())
           }
         }
       }
