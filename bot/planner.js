@@ -415,6 +415,9 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
   const pilotFirst = target0 === PILOT_MODEL
     ? Math.max(Number.isFinite(maxTokens) ? maxTokens : PILOT_EFFECTIVE_MAX_TOKENS, PILOT_EFFECTIVE_MAX_TOKENS)
     : maxTokens
+  // A deadline (relaunch) bounds every transport of the call, retries
+  // included: the delay is recomputed just before each one.
+  const timeLeft = () => deadline ? Math.max(1, Math.min(timeoutMs, deadline - Date.now())) : timeoutMs
   async function doCall (model, proto, budget) {
     const headers = zenHeaders()
     stats.tentatives += 1
@@ -425,9 +428,7 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     // accepte reasoning_effort) : jamais les deux dans le meme appel.
     const thinking = !effort && proto === 'chat' && THINKING === 'disabled' && !thinkingOff.has(model) ? { type: 'disabled' } : null
     const plain = {
-      // A deadline (relaunch) bounds every transport of the call, retries included.
-      baseUrl: base, apiKey: key, model, temperature, maxTokens: budget,
-      timeoutMs: deadline ? Math.max(1, Math.min(timeoutMs, deadline - Date.now())) : timeoutMs,
+      baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs: timeLeft(),
       keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null, headers, image, signal, protocol: proto
     }
     if (!thinking && !effort) return llm.call(system, user, plain)
@@ -444,7 +445,7 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
       // aiguillee (vu : un bot sur 16, tous ses appels en 400). L appel est
       // rejoue aussitot sans le champ ; le champ n est retire pour la
       // session qu apres deux refus suivis d un succes sans lui.
-      const result = await llm.call(system, user, plain)
+      const result = await llm.call(system, user, { ...plain, timeoutMs: timeLeft() })
       const [counts, off, field] = effort
         ? [effortRefusals, effortOff, 'reasoning_effort']
         : [thinkingRefusals, thinkingOff, 'thinking']

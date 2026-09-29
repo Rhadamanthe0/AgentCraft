@@ -10,7 +10,7 @@ const llm = require('../bot/llm')
 
 const PLANNER_PATH = require.resolve('../bot/planner')
 const VARS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_SESSION_ID', 'PLANNER_TIMEOUT_MS', 'PLANNER_RELAUNCH_MS',
-  'PLANNER_TIMEOUT_MS_PLAN', 'PLANNER_API_KEY', 'OPENCODE_SECONDARY_API_KEY', 'PLANNER_KEY_FIRST', 'BOT_USERNAME']
+  'PLANNER_TIMEOUT_MS_PLAN', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN','PLANNER_API_KEY', 'OPENCODE_SECONDARY_API_KEY', 'PLANNER_KEY_FIRST', 'BOT_USERNAME']
 
 let origCall
 let savedEnv
@@ -126,6 +126,19 @@ describe('relance d un plan sans reponse', () => {
     await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest'), /planificateur indisponible/)
     assert.equal(calls.length, 3, 'appel coupe, relance tronquee, reessai de troncature')
     assert.ok(calls[2].options.timeoutMs <= 150, `reessai borne par le delai restant (${calls[2].options.timeoutMs} ms)`)
+    assert.ok(Date.now() - started < 1500 + 150, `echec en ${Date.now() - started} ms`)
+  })
+
+  it('refus 400 tardif du champ de raisonnement : le rejeu sans le champ reste dans le delai total', async () => {
+    const refusedLate = options => new Promise((resolve, reject) =>
+      setTimeout(() => reject(Object.assign(new Error('HTTP 400 : Upstream request failed'), { code: 'LLM_HTTP', status: 400 })), options.timeoutMs - 100))
+    const planner = await warmPlanner([silent, refusedLate, silent], { PLANNER_TIMEOUT_MS: '1500', PLANNER_REASONING_EFFORT: 'low' })
+    const started = Date.now()
+    await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest'), /planificateur indisponible/)
+    assert.equal(calls.length, 3, 'appel coupe, relance refusee (400), rejeu sans le champ')
+    assert.equal(calls[1].options.reasoningEffort, 'low')
+    assert.equal(calls[2].options.reasoningEffort, undefined)
+    assert.ok(calls[2].options.timeoutMs <= 150, `rejeu borne par le delai restant (${calls[2].options.timeoutMs} ms)`)
     assert.ok(Date.now() - started < 1500 + 150, `echec en ${Date.now() - started} ms`)
   })
 
