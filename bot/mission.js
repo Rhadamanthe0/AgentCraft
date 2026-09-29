@@ -981,6 +981,8 @@ function createMissionRunner (host, injected = {}) {
     // recolte en vue » pouvait basculer en cours de route (fer puis pierre),
     // et le compte « 5/3 » melangeait deux matieres (iron-pickaxe 45ee8cf).
     if (mission.matiereFigee) return mission.matiereFigee
+    // A tree in progress comes first, whatever the plan needs next.
+    if (arbreInacheve()) return 'bois'
     // A harvest whose tool the plan still has to craft before it cannot yield
     // yet (craft/iron-pickaxe e6e8328: iron in view, stone pickaxe planned
     // first, « iron_ore ne lache rien sans pioche »).
@@ -1845,6 +1847,12 @@ function createMissionRunner (host, injected = {}) {
     } catch (err) {
       return null
     }
+    // Tree in progress: its logs only, the others wait (player rule).
+    const arbre = (resource ?? harvestResource()) === 'bois' ? arbreInacheve() : null
+    if (arbre) {
+      const visibles = arbre.filter(exposed)
+      positions = visibles.length > 0 ? visibles : arbre
+    }
 
     const here = bot.entity.position
     const feetY = Math.floor(here.y)
@@ -2027,6 +2035,101 @@ function createMissionRunner (host, injected = {}) {
         return sum + (item && TREE_LOG.test(item.name) ? item.count : 0)
       }, 0)
     return { buches_restantes: standing, buches_au_sol: onGround, termine: standing === 0 && onGround === 0 }
+  }
+
+  // Tree started by any wood job: the first log cut fixes it. Its logs are
+  // those 26-connected to the trunk column, within TREE_RADIUS: a bent trunk
+  // or a branch stays in, a neighbour tree that does not touch it stays out.
+  function logsOfTree (t) {
+    const bot = host.getBot()
+    if (!t || !bot?.entity) return []
+    const isLog = p => TREE_LOG.test(bot.blockAt(p)?.name ?? '')
+    const key = p => `${p.x},${p.y},${p.z}`
+    const seen = new Set()
+    const logs = []
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dz = -1; dz <= 1; dz += 1) {
+        for (let dy = -1; dy <= TREE_HEIGHT; dy += 1) {
+          const p = new Vec3(t.x + dx, t.y + dy, t.z + dz)
+          if (isLog(p)) { seen.add(key(p)); logs.push(p) }
+        }
+      }
+    }
+    for (let i = 0; i < logs.length; i += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dz = -1; dz <= 1; dz += 1) {
+            const q = logs[i].offset(dx, dy, dz)
+            if (Math.abs(q.x - t.x) > TREE_RADIUS || Math.abs(q.z - t.z) > TREE_RADIUS) continue
+            if (q.y < t.y - 1 || q.y > t.y + TREE_HEIGHT || seen.has(key(q))) continue
+            seen.add(key(q))
+            if (isLog(q)) logs.push(q)
+          }
+        }
+      }
+    }
+    return logs
+  }
+
+  // Logs still standing on the tree in progress, or null (none started, or
+  // finished). While not null, no other tree is a target and the job does
+  // not end (player rule: never leave a tree partly cut). Switch arbre_fini.
+  // Memo: read many times per step; a break or 250 ms renew it.
+  let arbreMemo = null
+  function arbreInacheve () {
+    if (!mission?.arbreEnCours || !featureOn('arbre_fini')) return null
+    const t = mission.arbreEnCours
+    const cle = `${mission.id}|${t.x},${t.y},${t.z}|${mission.broken}|${mission.dirtSecondaire ?? 0}`
+    if (!arbreMemo || arbreMemo.cle !== cle || Date.now() - arbreMemo.at > 250) {
+      const logs = logsOfTree(t)
+      arbreMemo = { cle, at: Date.now(), logs: logs.length > 0 ? logs : null }
+    }
+    return arbreMemo.logs
+  }
+
+  // Tree finished: the pillars climbed for it come down (player rule: remove
+  // what was built next to it). The one under the feet first, then the
+  // columns left standing, top first, from the ground. One pass: what stays
+  // out of reach is logged, never retried forever.
+  // Runs inside the step slot (owner token), after the step that cut the
+  // last log, like the reflexes.
+  async function demonterEchafaudage (owner) {
+    if (!mission?.echafaudagePose?.length || !mission.arbreEnCours || arbreInacheve() || !featureOn('arbre_fini')) return 0
+    const poses = mission.echafaudagePose
+    mission.echafaudagePose = []
+    const present = p => {
+      const b = host.getBot()?.blockAt(p)
+      return Boolean(b && (PILER_DIRT.test(b.name) || /_planks$/.test(b.name)))
+    }
+    let restants = poses.filter(present)
+    if (restants.length === 0) return 0
+    let retires = await descendScaffold(-Infinity, { pillarOnly: true })
+    restants = restants.filter(present).sort((a, b) => b.y - a.y)
+    for (const p of restants) {
+      if (mission.cancelled) break
+      const bot = host.getBot()
+      if (!bot?.entity || !present(p)) continue
+      const centre = p.offset(0.5, 0.5, 0.5)
+      if (!blockInReach(bot, bot.entity.position, centre, REACH)) {
+        try {
+          await host.navigateToPosition(new Vec3(p.x + 0.5, bot.entity.position.y, p.z + 0.5), {
+            signal: mission.navigationAbort.signal, __owner: owner, radius: 2, distanceBudget: 16, timeoutMs: 8000
+          })
+        } catch (_) {}
+      }
+      const live = host.getBot()
+      if (!live?.entity || !blockInReach(live, live.entity.position, centre, REACH)) continue
+      try {
+        await withTimeout(live.lookAt(centre, true), 4000, 'visee trop longue')
+        await withTimeout(live.dig(live.blockAt(p)), 6000, 'creusage trop long')
+        retires += 1
+      } catch (_) {}
+    }
+    const laisses = restants.filter(present).length
+    console.log(`[mission] arbre fini : echafaudage retire (${retires} bloc(s))` +
+      (laisses ? `, ${laisses} hors de portee laisse(s)` : ''))
+    mission.echafaudageLaisse = (mission.echafaudageLaisse ?? 0) + laisses
+    return retires
   }
 
   function nearbyItems () {
@@ -2463,6 +2566,8 @@ function createMissionRunner (host, injected = {}) {
     } catch (_) {
       return null
     }
+    const arbre = harvestResource() === 'bois' ? arbreInacheve() : null
+    if (arbre) positions = arbre.filter(admis)
 
     let best = null
 
@@ -2753,6 +2858,10 @@ function createMissionRunner (host, injected = {}) {
       // Un arbre entier demande : le code compte ses buches, le modele decide.
       arbre_demande: mission.wholeTree
         ? (treeStatus() ?? { commence: false, consigne: 'coupe une premiere buche : elle fixe l arbre' })
+        : null,
+      // Tree started (any wood job): finished before anything else.
+      arbre_en_cours: arbreInacheve()
+        ? { buches_debout: arbreInacheve().length, consigne: 'couper toutes ses buches avant toute autre chose (piler si trop haut) ; aucun autre arbre avant' }
         : null,
       // Compteurs de memoire seulement : la memoire long terme est passee en
       // couche 3 du prompt systeme (mise en cache), la memoire de mission en
@@ -3409,6 +3518,9 @@ function createMissionRunner (host, injected = {}) {
         if (!secondaire && mission.wholeTree && !mission.tree) {
           mission.tree = { x: block.position.x, y: block.position.y, z: block.position.z }
         }
+        if (!secondaire && TREE_LOG.test(block.name) && featureOn('arbre_fini') && !arbreInacheve()) {
+          mission.arbreEnCours = { x: block.position.x, y: block.position.y, z: block.position.z }
+        }
         await sleep(120)
       }
 
@@ -3451,13 +3563,14 @@ function createMissionRunner (host, injected = {}) {
       const visee = Number.isFinite(Number(params.quantite))
         ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
         : scaled(scale, 1, 16)
-      const suite = rienARecolter()
+      const arbreEnCours = Boolean(arbreInacheve())
+      const suite = arbreEnCours ? null : rienARecolter()
       // Pas un echec : rien n a rate, la file continue (plan anticipe perime).
       if (suite) {
         return (await etapeSuivanteAuLieu('rien a recolter : tout est en poche')) ??
           { resultat: `rien a recolter : tout est en poche, etape suivante du plan : ${suite}`, code: 'plan' }
       }
-      const assez = materiauSuffisant()
+      const assez = arbreEnCours ? null : materiauSuffisant()
       if (assez) return { resultat: `rien a recolter : ${assez}` }
       const enAttente = recolteEnAttenteOutil()
       if (enAttente) {
@@ -3482,7 +3595,8 @@ function createMissionRunner (host, injected = {}) {
         const etapes = []
         let arret = null
         let rienARamasser = 0
-        while (!mission.cancelled && gagne() < visee && Date.now() - debut < RECOLTER_MAX_MS) {
+        // A tree in progress is cut to the last log, past the quantity asked.
+        while (!mission.cancelled && (gagne() < visee || arbreInacheve()) && Date.now() - debut < RECOLTER_MAX_MS) {
           const bot = host.getBot()
           if (!bot?.entity) break
           const cible = findTargetBlock()
@@ -3501,6 +3615,9 @@ function createMissionRunner (host, injected = {}) {
           } else if (cible || findTargetBlock(undefined, { anyHeight: true }) || highTargetHint()) {
             r = await ACTIONS.avancer(null, { distance: 24 })
             etapes.push('avancer')
+          } else if (arbreInacheve()) {
+            const n = arbreInacheve().length
+            r = { resultat: `arbre commence, ${n} buche(s) encore debout hors de portee d ici : piler ou changer de poste pour les couper, aucun autre arbre avant`, echec: true, code: 'arbre_inacheve' }
           } else {
             // Jamais de marche a l aveugle : `avancer` sans cible irait droit
             // devant. Explorer reste une decision du modele.
@@ -3508,7 +3625,7 @@ function createMissionRunner (host, injected = {}) {
           }
           if (r.echec) { arret = r; break }
           rienARamasser = 0
-          if (etapes[etapes.length - 1] === 'casser' && gagne() < visee) {
+          if (etapes[etapes.length - 1] === 'casser' && (gagne() < visee || arbreInacheve())) {
             await waitItemsSettled()
             if (nearbyItems().length > 0) {
               const pris = await ACTIONS.ramasser(null, { quantite: 6 })
@@ -4510,6 +4627,9 @@ function createMissionRunner (host, injected = {}) {
       let poses = 0
       let failure = null
       let cibleAtteinte = null
+      // Climbed for a log: the pillar comes down once the tree is finished.
+      const pourArbre = featureOn('arbre_fini') &&
+        Boolean(arbreInacheve() || TREE_LOG.test(highTargetHint()?.cible ?? '') || TREE_LOG.test(findTargetBlock()?.name ?? ''))
 
       for (let niveau = 0; niveau < hauteurVisee; niveau += 1) {
         if (mission.cancelled) break
@@ -4662,6 +4782,7 @@ function createMissionRunner (host, injected = {}) {
           break
         }
         poses += 1
+        if (pourArbre) (mission.echafaudagePose ??= []).push(ancre.clone())
         // Supported at the new height by any solid block under the hitbox: the
         // bot may slide from the placed block onto a neighbour of the same
         // height (trees/bent 9f907a6 : pieds 418.10 201 17.50 sur la buche
@@ -5704,6 +5825,8 @@ function createMissionRunner (host, injected = {}) {
 
   function finishAllowed (state) {
     if (mission.pendingJoin) return { ok: false, why: 'le demandeur n a pas ete rejoint : retente rejoindre_demandeur ou signale l echec' }
+    const arbre = arbreInacheve()
+    if (arbre) return { ok: false, why: `arbre commence : il reste ${arbre.length} buche(s) debout, les couper toutes avant de finir (piler si trop haut)` }
     // Livraison (S6) : jugee sur le prouve et les obligations, jamais sur les
     // compteurs broken/collected ni le quota ressource. L incertain, l absence
     // de plafond et le manque de prouve refusent terminer/fini ; satisfaits,
@@ -5964,6 +6087,7 @@ function createMissionRunner (host, injected = {}) {
                 async () => {
                   const value = await run(decision.scale, decision.choices)
                   await reflexPass(token, decision.step)
+                  await demonterEchafaudage(token)
                   return value
                 })
             } catch (refus) {
@@ -5989,6 +6113,7 @@ function createMissionRunner (host, injected = {}) {
           // l executeur est exige (index.runPhysical fail-closed).
           outcome = await run(decision.scale, decision.choices)
           await reflexPass(null, decision.step)
+          await demonterEchafaudage(null)
         }
       } catch (err) {
         outcome = { resultat: `erreur : ${err.message}`, echec: true }
@@ -6038,7 +6163,8 @@ function createMissionRunner (host, injected = {}) {
       // Quantite explicite atteinte en inventaire (recolte simple) : clore.
       // Vu sur gather/flowers : 3 fleurs en inventaire des 67 s, le modele
       // perdait le compte et cherchait encore des fleurs jusqu au plafond.
-      if (mission.kind === 'recolte' && mission.quotaExplicite && !mission.wholeTree &&
+      const arbreOuvert = Boolean(arbreInacheve())
+      if (mission.kind === 'recolte' && mission.quotaExplicite && !mission.wholeTree && !arbreOuvert &&
         !mission.fabricationCible && collected() >= mission.quota) {
         finish('done', `quantite demandee en inventaire (${collected()}/${mission.quota})`)
         return
@@ -6047,7 +6173,7 @@ function createMissionRunner (host, injected = {}) {
       // Sinon le plan anticipe, calcule avant le craft, passait encore
       // (craft/door cabbdfcd : 3 portes faites, puis « planches » sans buche,
       // echec et 10 s de plus). Avec un don demande, le modele livre d abord.
-      if (mission.kind === 'recolte' && mission.fabricationCible && !livraisonDemandee(mission) &&
+      if (mission.kind === 'recolte' && mission.fabricationCible && !livraisonDemandee(mission) && !arbreOuvert &&
         fabricationProduced() >= (mission.fabricationQuantite ?? 1)) {
         finish('done', `${mission.fabricationCible} fabrique(s) en inventaire (${fabricationProduced()}/${mission.fabricationQuantite ?? 1})`)
         return
@@ -6062,13 +6188,13 @@ function createMissionRunner (host, injected = {}) {
       // compte pas les blocs (vu : arche 11/11, 74 appels jusqu au plafond).
       if (mission.kind === 'construction' && mission.plan) {
         const chantier = buildProgress()
-        if (chantier.total > 0 && chantier.left === 0 && (!mission.wantsDoor || doorPlaced())) {
+        if (chantier.total > 0 && chantier.left === 0 && !arbreOuvert && (!mission.wantsDoor || doorPlaced())) {
           finish('done', `chantier complet (${chantier.done}/${chantier.total} blocs${mission.wantsDoor ? ', porte posee' : ''})`)
           return
         }
       }
 
-      if (mission.wholeTree && treeStatus()?.termine) {
+      if (mission.wholeTree && !arbreOuvert && treeStatus()?.termine) {
         // La demande vient de l objectif (revision) ou d une precision
         // ajoutee en cours de route (vu : « et rapporte moi le bois » classe
         // en precision, objectif inchange, bois jamais rapporte).
@@ -6095,7 +6221,7 @@ function createMissionRunner (host, injected = {}) {
         // fini : meme refus reinjecte que pour `fini` (3 au plus), au lieu de
         // clore la mission en echec (chat/replace-and-join 73b4876 : plan
         // « ramasser -> terminer » avec 2 buches encore sur l arbre).
-        if (!allowed.ok && (mission.quotaExplicite || mission.wholeTree) && mission.finishRefused < REFUSALS_BEFORE_YIELD) {
+        if (!allowed.ok && (mission.quotaExplicite || mission.wholeTree || arbreOuvert) && mission.finishRefused < REFUSALS_BEFORE_YIELD) {
           mission.finishRefused += 1
           mission.refusalNote = allowed.why
           mission.queue = []
@@ -6984,6 +7110,7 @@ function createMissionRunner (host, injected = {}) {
       dirt_secondaire: mission.dirtSecondaire ?? 0,
       feuilles_degagees: mission.leavesCleared ?? 0,
       arbre_entier: mission.wholeTree ? (treeStatus() ?? { commence: false }) : null,
+      echafaudage_laisse: mission.echafaudageLaisse ?? 0,
       // Grand livre des dons (S6) : tente/retire/prouve/incertain par engagement.
       livraison: deliveryLedgersFor(mission).map(deliveryLedgerView),
       fabrication_cible: mission.fabricationCible ?? null,

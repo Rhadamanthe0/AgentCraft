@@ -454,6 +454,15 @@ de la dirt au sol pour alimenter le pilier est autorise quand
 de la dirt) : elle est comptee a part (`progression.dirt_secondaire`) et ne
 fausse ni le quota bois ni l'arret (`finishAllowed()` l'ignore).
 
+Un arbre commence est fini (interrupteur `arbre_fini`) : la premiere buche
+coupee fixe l'arbre (buches reliees au tronc). Tant qu'il en reste une debout,
+`findTargetBlock` et `cible_haute` ne visent que lui, `recolter` continue
+au-dela de la quantite demandee, `finishAllowed()` refuse la fin et l'etat
+porte `arbre_en_cours` (buches debout). Une fois l'arbre fini, les piliers
+montes pour lui sont defaits : celui sous les pieds en redescendant, les
+autres depuis le sol ; un bloc hors de portee est laisse et compte
+(`echafaudage_laisse`).
+
 ### Hache opportuniste, craft unitaire et alias
 
 Couper du bois a la main est lent : en mission bois sans hache, quand une

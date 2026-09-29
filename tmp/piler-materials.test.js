@@ -10,7 +10,7 @@ const craft = require('../bot/craft')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null }) {
+async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null }) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
@@ -24,7 +24,9 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
     stopsAtPlans.push(stops)
     const step = (action, choices = {}) => ({ action, choices, scale: 0, scaleLevel: null })
     // Other first actions keep the queue short: status shows the last 5 steps.
-    const steps = first !== 'piler' ? (states.length === 1 ? [step(first), step('dire', { texte: 'OLD QUEUE' })] : [step('terminer')])
+    // queue: actions of each successive plan, then the default script.
+    const steps = queue?.[states.length - 1] ? queue[states.length - 1].map(action => step(action))
+      : first !== 'piler' ? (states.length === 1 ? [step(first), step('dire', { texte: 'OLD QUEUE' })] : [step('terminer')])
       : states.length === 1 ? [step('piler', { hauteur: height }), step('dire', { texte: 'OLD QUEUE' })]
         : states.length === 2 ? [step('dire', { texte: 'OLD PREFETCH' })] : [step('terminer')]
     if (states.length === 2) signal.addEventListener('abort', () => { staleAborted = true }, { once: true })
@@ -41,7 +43,11 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
       coarse_dirt: { id: 3, boundingBox: 'block' }, oak_planks: { id: 4, boundingBox: 'block' },
       birch_planks: { id: 5, boundingBox: 'block' }, fake_planks: { id: 6, boundingBox: 'empty' } }, itemsByName: {} },
     inventory: { items: () => stock.filter(item => item.count > 0) }, players: {}, entities: {},
-    findBlocks: ({ matching }) => matching.includes(1) && blocks.get(`${log.x},${log.y},${log.z}`) === 'oak_log' ? [log] : [],
+    // allLogs: every oak_log of the map, nearest first; else the main log only.
+    findBlocks: ({ matching }) => !matching.includes(1) ? []
+      : !allLogs ? (blocks.get(`${log.x},${log.y},${log.z}`) === 'oak_log' ? [log] : [])
+      : [...blocks].filter(([, name]) => name === 'oak_log').map(([key]) => new Vec3(...key.split(',').map(Number)))
+        .sort((a, b) => a.distanceTo(bot.entity.position) - b.distanceTo(bot.entity.position)),
     findBlock: () => null,
     blockAt: p => { const position = p.floored(); const name = blocks.get(`${position.x},${position.y},${position.z}`) ?? 'air'
       return { name, position, boundingBox: name === 'air' ? 'empty' : 'block', shapes: name === 'air' ? [] : [[0, 0, 0, 1, 1, 1]] } },
@@ -60,7 +66,8 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
       const owned = stock.find(item => item.name === block.name)
       if (owned) owned.count++
       else stock.push({ name: block.name, count: 1 })
-      bot.entity.position.y = block.position.y
+      // Digging under the feet drops the bot into the hole.
+      if (block.position.y < bot.entity.position.y) bot.entity.position.y = block.position.y
     },
     equip: async item => { commands.push({ equip: item.name }); bot.heldItem = item }, lookAt: async () => {},
     placeBlock: async support => {
@@ -77,11 +84,11 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
   const runner = createMissionRunner({ getBot: () => bot, isReady: () => true, inLiquid: () => false,
     stopPathfinding () { stops++ }, chat: text => messages.push(text) })
   t.after(() => runner.stop('test cleanup'))
-  await runner.start('casse cet arbre', 'human')
+  await runner.start(text, 'human')
   for (let i = 0; i < 600 && runner.isRunning(); i++) { t.mock.timers.tick(50); await flush() }
   assert.equal(runner.isRunning(), false)
   const status = runner.status()
-  return { status, step: status.historique.find(step => step.action === first), placements, commands, states, messages, staleAborted, stopsAtPlans }
+  return { status, blocks, step: status.historique.find(step => step.action === first), placements, commands, states, messages, staleAborted, stopsAtPlans }
 }
 
 test('stock1 hauteur6 : refus integral avant equipement saut ou pose', async t => {
@@ -298,4 +305,40 @@ test('avancer : aucune hauteur de pilier ne suffit, changer de poste', async t =
   assert.equal(f.step.code, 'cible_haute')
   assert.match(f.step.resultat, /aucune hauteur de pilier \(1 a 6\)/)
   assert.doesNotMatch(f.step.resultat, /piler peut aider/)
+})
+
+// Arbre commence avec une quantite dite : ni la quantite atteinte ni terminer
+// ne closent tant qu il reste des buches debout, et l arbre voisin n est pas
+// la cible (regle joueur : jamais d arbre partiellement coupe).
+async function arbreCommence (t, arbreFini) {
+  const avant = process.env.FEATURE_ARBRE_FINI
+  process.env.FEATURE_ARBRE_FINI = arbreFini ? '1' : '0'
+  t.after(() => { if (avant === undefined) delete process.env.FEATURE_ARBRE_FINI; else process.env.FEATURE_ARBRE_FINI = avant })
+  const tronc = Object.fromEntries([65, 66, 67, 68, 69, 70, 71, 72].map(y => [`1,${y},0`, 'oak_log']))
+  return simulate(t, { inventory: [], first: 'casser', text: 'coupe 2 buches', logY: 65, allLogs: true,
+    extra: { ...tronc, '5,65,0': 'oak_log', '5,66,0': 'oak_log' } })
+}
+
+test('arbre commence : pas de fin ni d autre arbre tant qu il reste des buches', async t => {
+  const f = await arbreCommence(t, true)
+  assert.equal(f.status.etat, 'failed')
+  assert.match(f.status.raison, /arbre commence : il reste 6 buche\(s\) debout/)
+  const apres = f.states[f.states.length - 1]
+  assert.equal(JSON.stringify(apres).includes('"buches_debout":6'), true)
+  assert.notEqual(apres.environnement.distance_du_bloc_cible, 4.5, 'l arbre voisin n est pas la cible')
+})
+
+test('arbre commence sans l interrupteur : quantite atteinte, mission close', async t => {
+  const f = await arbreCommence(t, false)
+  assert.equal(f.status.etat, 'done')
+})
+
+// Arbre fini depuis le pilier : le pilier monte pour lui est defait (regle
+// joueur : retirer ce qui a ete construit a cote de l arbre).
+test('arbre fini depuis le pilier : pilier retire avant la fin', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 6 }], queue: [['piler'], ['casser']] })
+  assert.deepEqual(f.placements, Array(6).fill('dirt'))
+  assert.equal(f.status.etat, 'done', f.status.raison)
+  assert.equal([65, 66, 67, 68, 69, 70].filter(y => f.blocks.has(`0,${y},0`)).length, 0, 'pilier defait')
+  assert.equal(f.status.echafaudage_laisse, 0)
 })
