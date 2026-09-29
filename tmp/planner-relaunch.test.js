@@ -38,10 +38,12 @@ async function warmPlanner (impls, env = {}) {
   await planner.plan({ consigne: 'chauffe' }, 'recolte', 'harvest')
   calls = []
   let i = 0
+  let active = 0
   llm.call = async (system, user, options = {}) => {
     const impl = impls[Math.min(i++, impls.length - 1)]
-    calls.push({ options, at: Date.now() })
-    return impl(options)
+    calls.push({ options, at: Date.now(), concurrent: active })
+    active += 1
+    try { return await impl(options) } finally { active -= 1 }
   }
   return planner
 }
@@ -66,68 +68,69 @@ afterEach(() => {
 })
 
 describe('relance d un plan sans reponse', () => {
-  it('appel muet : un second appel part apres le delai de relance et sa reponse sert', async () => {
+  it('appel muet : coupe au delai de relance, refait une fois avec le temps restant', async () => {
     const planner = await warmPlanner([silent, async () => okPlan()])
-    const started = Date.now()
     const result = await planner.plan({ consigne: 'test' }, 'recolte', 'harvest')
     assert.equal(result.steps.length, 1)
     assert.equal(calls.length, 2)
-    assert.ok(calls[1].at - started >= 190, 'relance apres PLANNER_RELAUNCH_MS')
-    assert.equal(calls[0].options.signal.aborted, true, 'appel muet annule une fois la reponse arrivee')
-    assert.ok(calls[1].options.timeoutMs <= 3000 - 150, 'delai total inchange')
+    assert.equal(calls[0].options.timeoutMs, 200)
+    assert.equal(calls[1].concurrent, 0, 'jamais deux appels en meme temps')
+    assert.ok(calls[1].options.timeoutMs <= 3000 - 190 && calls[1].options.timeoutMs > 2500, 'temps restant du delai total')
     assert.equal(planner.stats.relances, 1)
-    assert.equal(planner.stats.relances_gagnantes, 1)
+    assert.equal(planner.stats.relances_reussies, 1)
   })
 
   it('reponse avant le delai de relance : un seul appel', async () => {
     const planner = await warmPlanner([async () => okPlan()])
     await planner.plan({ consigne: 'test' }, 'recolte', 'harvest')
-    await new Promise(resolve => setTimeout(resolve, 300))
     assert.equal(calls.length, 1)
-    assert.equal(calls[0].options.timeoutMs, 3000)
     assert.equal(planner.stats.relances, 0)
-  })
-
-  it('premier appel qui repond pendant la relance : il gagne, la relance est annulee', async () => {
-    const late = options => new Promise(resolve => setTimeout(() => resolve(okPlan()), 350))
-    const planner = await warmPlanner([late, silent])
-    await planner.plan({ consigne: 'test' }, 'recolte', 'harvest')
-    assert.equal(calls.length, 2)
-    assert.equal(calls[1].options.signal.aborted, true)
-    assert.equal(planner.stats.relances, 1)
-    assert.equal(planner.stats.relances_gagnantes, 0)
   })
 
   it('refus immediat (403) : leve tel quel, sans relance', async () => {
     const refused = async () => { throw Object.assign(new Error('HTTP 403 FreeTierError'), { code: 'LLM_HTTP', status: 403 }) }
     const planner = await warmPlanner([refused, async () => okPlan()])
     await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest'), /FreeTierError/)
-    await new Promise(resolve => setTimeout(resolve, 300))
     assert.equal(calls.length, 1)
     assert.equal(planner.stats.relances, 0)
   })
 
   it('deux appels muets : echec au delai total, pas au double', async () => {
-    const planner = await warmPlanner([silent], { PLANNER_TIMEOUT_MS: '1200' })
+    const planner = await warmPlanner([silent], { PLANNER_TIMEOUT_MS: '1500' })
     const started = Date.now()
     await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest'), /planificateur indisponible/)
     assert.equal(calls.length, 2)
-    assert.ok(Date.now() - started < 1200 + 300, `echec en ${Date.now() - started} ms`)
+    assert.ok(Date.now() - started < 1500 + 150, `echec en ${Date.now() - started} ms`)
+    assert.equal(planner.stats.relances_reussies, 0)
+  })
+
+  it('moins d une seconde restante : pas de relance, le delai total est tenu', async () => {
+    const planner = await warmPlanner([silent], { PLANNER_TIMEOUT_MS: '1000', PLANNER_RELAUNCH_MS: '900' })
+    await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest'), /planificateur indisponible/)
+    assert.equal(calls.length, 1)
+  })
+
+  it('delai propre au plan plus long : la relance s applique sur ce delai', async () => {
+    const planner = await warmPlanner([silent, async () => okPlan()], { PLANNER_TIMEOUT_MS: '150', PLANNER_TIMEOUT_MS_PLAN: '3000' })
+    await planner.plan({ consigne: 'test' }, 'recolte', 'harvest')
+    assert.equal(calls.length, 2)
+    assert.equal(calls[0].options.timeoutMs, 200)
   })
 
   it('interrupteur relance_plan coupe : un seul appel, meme muet', async () => {
     const planner = await warmPlanner([silent], { PLANNER_TIMEOUT_MS: '500' })
     await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest', {}, null, { relance: false }), /planificateur indisponible/)
     assert.equal(calls.length, 1)
+    assert.equal(calls[0].options.timeoutMs, 500)
     assert.equal(planner.stats.relances, 0)
   })
 
-  it('annulation par l appelant : les deux appels sont annules, plan annule', async () => {
+  it('annulation par l appelant : pas de relance, plan annule', async () => {
     const planner = await warmPlanner([silent])
     const controller = new AbortController()
-    setTimeout(() => controller.abort(), 300)
+    setTimeout(() => controller.abort(), 100)
     await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest', {}, null, { signal: controller.signal }), /plan annule/)
-    assert.equal(calls.length, 2)
-    assert.ok(calls.every(c => c.options.signal.aborted))
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].options.signal, controller.signal, 'signal de l appelant transmis tel quel')
   })
 })

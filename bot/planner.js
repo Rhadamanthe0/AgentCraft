@@ -46,9 +46,9 @@ const PILOT_MODEL = 'muse-spark-1.3-contributor'
 const MODEL = (process.env.PLANNER_MODEL || '').trim() || PILOT_MODEL
 const TIMEOUT_MS = Number(process.env.PLANNER_TIMEOUT_MS || 12000)
 // Relaunch of a silent plan call (owner's decision, 2026-09-29): with no answer
-// after RELAUNCH_MS, an identical second call starts; the first answer wins and
-// the other is aborted. The overall deadline stays TIMEOUT_MS. A/B switch:
-// feature `relance_plan` (mission.js).
+// after RELAUNCH_MS, the call is cut and made again once with the time left;
+// the overall deadline stays TIMEOUT_MS. A/B switch: feature `relance_plan`
+// (mission.js).
 const RELAUNCH_MS = Number(process.env.PLANNER_RELAUNCH_MS || 10000)
 const PLAN_MAX = Number(process.env.PLANNER_PLAN_MAX || 5)
 // Budget de temps d un plan, en secondes. Demande par le proprietaire, et c est
@@ -271,10 +271,10 @@ const stats = {
   tentatives: 0,
   troncatures: 0,
   reessais: 0,
-  // Plan calls relaunched after RELAUNCH_MS of silence, and those won by the
-  // relaunched call.
+  // Plan calls relaunched after RELAUNCH_MS of silence, and relaunches that
+  // got an answer.
   relances: 0,
-  relances_gagnantes: 0,
+  relances_reussies: 0,
   // Nombre d appels qui ont reellement porte une image (mini-carte). Reste a 0
   // tant que MISSION_SCREENSHOT n est pas actif : c est la preuve lisible dans
   // /api/status que le drapeau fait quelque chose.
@@ -315,7 +315,7 @@ async function callWithProfile (system, user, opts = {}) {
   const task = opts.task ?? 'plan'
   const started = Date.now()
   try {
-    const relaunch = opts.relanceMs > 0 && opts.relanceMs < (opts.timeoutMs ?? TIMEOUT_MS)
+    const relaunch = opts.relanceMs > 0 && opts.relanceMs < effectiveTimeout(opts)
     const result = relaunch ? await callRelaunched(system, user, opts) : await callWithProfileOnce(system, user, opts)
     recordLatency(task, Date.now() - started, 'ok')
     return result
@@ -326,53 +326,29 @@ async function callWithProfile (system, user, opts = {}) {
   }
 }
 
-// First call, then after `relanceMs` without an answer an identical second one,
-// both ending at the same deadline (`timeoutMs` from the start): a silent call
-// no longer holds the mission for the whole delay. First success wins, the
-// other call is aborted. An early error (refusal, 403) is thrown as is and
-// never relaunched; a failure of one call waits for the other.
+// Transport delay of a call: the common one, or the task's own if longer
+// (same rule as callWithProfileOnce).
+function effectiveTimeout (opts) {
+  return Math.max(opts.timeoutMs ?? TIMEOUT_MS, modelChain.timeoutFor(opts.task ?? 'plan') ?? 0)
+}
+
+// A call with no answer after `relanceMs` is cut and made again once with the
+// time left, so the total delay stays `timeoutMs`: a silent call no longer
+// holds the mission for the whole delay. Never two calls at once. Only a delay
+// is relaunched: a refusal (403 included) or a cancellation is thrown as is.
 async function callRelaunched (system, user, opts) {
-  const { signal = null, relanceMs } = opts
-  const timeoutMs = Math.max(opts.timeoutMs ?? TIMEOUT_MS, modelChain.timeoutFor(opts.task ?? 'plan') ?? 0)
-  const deadline = Date.now() + timeoutMs
-  const controllers = []
-  const abortAll = () => { for (const c of controllers) c.abort() }
-  signal?.addEventListener('abort', abortAll, { once: true })
+  const timeoutMs = effectiveTimeout(opts)
+  const started = Date.now()
   try {
-    return await new Promise((resolve, reject) => {
-      let pending = 0
-      let settled = false
-      const finish = (fn, value) => {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
-        fn(value)
-      }
-      const launch = (second) => {
-        const c = new AbortController()
-        controllers.push(c)
-        pending += 1
-        callWithProfileOnce(system, user, { ...opts, signal: c.signal, timeoutMs: second ? Math.max(1000, deadline - Date.now()) : timeoutMs, fixedTimeout: true })
-          .then(res => {
-            if (second && !settled) stats.relances_gagnantes += 1
-            finish(resolve, res)
-          }, err => {
-            pending -= 1
-            // The caller's abort must read as a cancellation, not a failure.
-            if (signal?.aborted || pending === 0) finish(reject, err)
-          })
-      }
-      const timer = setTimeout(() => {
-        if (settled || signal?.aborted) return
-        stats.relances += 1
-        console.log(`[planner] pas de reponse en ${relanceMs} ms : appel relance (delai total inchange, ${timeoutMs} ms)`)
-        launch(true)
-      }, relanceMs)
-      launch(false)
-    })
-  } finally {
-    signal?.removeEventListener('abort', abortAll)
-    abortAll()
+    return await callWithProfileOnce(system, user, { ...opts, timeoutMs: opts.relanceMs, fixedTimeout: true })
+  } catch (err) {
+    const left = timeoutMs - (Date.now() - started)
+    if (err?.code !== 'LLM_TIMEOUT' || opts.signal?.aborted || left < 1000) throw err
+    stats.relances += 1
+    console.log(`[planner] pas de reponse en ${opts.relanceMs} ms : appel relance, ${left} ms restantes (delai total ${timeoutMs} ms)`)
+    const result = await callWithProfileOnce(system, user, { ...opts, timeoutMs: left, fixedTimeout: true })
+    stats.relances_reussies += 1
+    return result
   }
 }
 
