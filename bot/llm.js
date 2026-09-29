@@ -212,8 +212,13 @@ async function call (system, user, options = {}) {
     // 400 « Upstream request failed » de Zen), dans le meme delai global. Une
     // vraie erreur de requete (cle, modele, schema) n est jamais rejouee.
     if (!response.ok && await isTransient(response)) {
-      await new Promise(resolve => setTimeout(resolve, 500))
-      onRetry?.()
+      // The pause ends early on abort (delay or caller): the fetch below then
+      // throws at once instead of starting after the deadline.
+      await new Promise(resolve => {
+        const pause = setTimeout(resolve, 500)
+        controller.signal.addEventListener('abort', () => { clearTimeout(pause); resolve() }, { once: true })
+      })
+      if (!controller.signal.aborted) onRetry?.()
       response = await fetch(endpoint, { method: 'POST', signal: controller.signal, headers, body })
     }
 
