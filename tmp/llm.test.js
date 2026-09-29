@@ -212,6 +212,18 @@ describe('llm.call : erreurs, annulation, timeout (les deux endpoints)', () => {
     )
   })
 
+  it('panne passagere (503) : un reessai, signale a l appelant par onRetry', async () => {
+    let fetches = 0
+    let retries = 0
+    mockFetch(async () => (++fetches === 1
+      ? httpError(503, 'Endpoint is unavailable')
+      : okJson({ choices: [{ message: { content: '{"ok":1}' }, finish_reason: 'stop' }] })))
+    const r = await llm.call('s', 'u', { baseUrl: BASE, model: 'deepseek-v4.1-flash', onRetry: () => { retries += 1 } })
+    assert.equal(r.content, '{"ok":1}')
+    assert.equal(fetches, 2)
+    assert.equal(retries, 1)
+  })
+
   it('HTTP 503 responses sans secret', async () => {
     mockFetch(async () => httpError(503, 'Endpoint is unavailable'))
     await assert.rejects(

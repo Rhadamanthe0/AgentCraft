@@ -124,7 +124,10 @@ async function call (system, user, options = {}) {
     reasoning = null,
     // `reasoning_effort` (chat) : 'low' coupe ~80 % du raisonnement de
     // space-bunny-free (plan ~2 s au lieu de ~6 s, mesure 2026-09-26).
-    reasoningEffort = null
+    reasoningEffort = null,
+    // Called before the internal retry on a transient gateway failure, so the
+    // caller can count every request actually sent.
+    onRetry = null
   } = options
 
   if (!baseUrl || !model) throw new Error('transport LLM mal configure (baseUrl ou model manquant)')
@@ -210,6 +213,7 @@ async function call (system, user, options = {}) {
     // vraie erreur de requete (cle, modele, schema) n est jamais rejouee.
     if (!response.ok && await isTransient(response)) {
       await new Promise(resolve => setTimeout(resolve, 500))
+      onRetry?.()
       response = await fetch(endpoint, { method: 'POST', signal: controller.signal, headers, body })
     }
 

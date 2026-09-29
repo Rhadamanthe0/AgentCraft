@@ -430,7 +430,9 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     const thinking = !effort && proto === 'chat' && THINKING === 'disabled' && !thinkingOff.has(model) ? { type: 'disabled' } : null
     const plain = {
       baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs: timeLeft(),
-      keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null, headers, image, signal, protocol: proto
+      keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null, headers, image, signal, protocol: proto,
+      // The transport's own retry (transient 5xx/429/400) is a request too.
+      onRetry: () => { stats.tentatives += 1 }
     }
     if (!thinking && !effort) return llm.call(system, user, plain)
     try {
