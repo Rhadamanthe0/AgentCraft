@@ -4280,7 +4280,14 @@ function createMissionRunner (host, injected = {}) {
               return reel && /_leaves$/.test(reel.name) && sousHitbox(p) && p.y > pied.y && p.y <= pied.y + h + 1
                 ? { name: 'air', position: p, boundingBox: 'empty', shapes: [] } : reel
             } }
-          if (blockInReach(vue, poste.entity.position.offset(0, h, 0), centre, REACH)) besoin = h
+          // Mesure depuis l'ancrage (pieds floores : case entiere), celui du
+          // pilier que piler pose reellement : un y fractionnaire (atterissage
+          // tolere a +0.25, appui sur une feuille) mettait le poste virtuel
+          // une cellule trop haut, son sol tombait sur l'air et le constat
+          // disait « aucune hauteur ne met la cible a portee » d'un poste ou
+          // piler marcherait (banc composite 755b262, cabane 45 min).
+          const posteFictif = new Vec3(poste.entity.position.x, pied.y + h, poste.entity.position.z)
+          if (blockInReach(vue, posteFictif, centre, REACH)) besoin = h
         }
         let tentative = ''
         // Same mission kinds as the planner's piler (skills.js): a movement goal

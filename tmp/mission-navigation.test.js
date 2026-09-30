@@ -39,7 +39,7 @@ async function finished (r) {
   return r.status()
 }
 
-function highTargetFixture ({ stock = 2, low = false, high = true, kind = 'recolte', navigationResult = null } = {}) {
+function highTargetFixture ({ stock = 2, low = false, high = true, kind = 'recolte', navigationResult = null, feetY = 65 } = {}) {
   planner.readBrief = async () => ({ ...brief, kind, resource: 'bois' })
   let plans = 0
   planner.plan = async () => ({ ms: 0, seconds: 1, rejected: [], done: 0, finished: false,
@@ -48,7 +48,7 @@ function highTargetFixture ({ stock = 2, low = false, high = true, kind = 'recol
   const controls = []
   const navigation = []
   let looks = 0
-  const bot = { entity: { position: new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
+  const bot = { entity: { position: new Vec3(0.5, feetY, 0.5), yaw: 0, pitch: 0, onGround: true },
     registry: { blocksByName: { oak_log: { id: 1 } }, itemsByName: {} },
     inventory: { items: () => stock ? [{ name: 'dirt', count: stock }] : [] }, players: {}, entities: {},
     findBlocks: ({ matching }) => matching.includes(1) ? positions : [], findBlock: () => null,
@@ -220,6 +220,27 @@ test('deplacement avec cible haute : aucun pilier automatique', async () => {
   assert.doesNotMatch(step.resultat, /Pilier tente/)
   assert.equal(f.controls.some(c => c.control === 'jump'), false)
   assert.equal(digs, 0)
+})
+
+// Pieds en y fractionnaire (atterrissage tolere, appui sur une feuille) : la
+// hauteur de pilier utile se mesure depuis l'ancrage floored. Depuis un y
+// brut, le poste virtuel tombe une cellule trop haut, son sol sur l'air, et le
+// constat claimait « aucune hauteur de pilier » pour une cible evidente
+// (banc composite 755b262 : cabane bouclee 45 min sur ce message).
+test('pieds y 65.15 : pilier automatique mesure depuis l ancrage', async t => {
+  const f = highTargetFixture({ stock: 2, feetY: 65.15 })
+  const originalFind = f.bot.findBlocks
+  const originalAt = f.bot.blockAt
+  f.bot.blockAt = position => position.equals(new Vec3(3, 69, 0))
+    ? { name: 'oak_log', position, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
+    : originalAt(position)
+  f.bot.findBlocks = options => options.matching?.includes?.(1) ? [new Vec3(3, 69, 0)] : originalFind(options)
+  await f.r.start('ramasse du bois', 'human')
+  const state = await finished(f.r)
+  const step = state.historique.find(entry => entry.action === 'avancer')
+  assert.equal(step.code, 'cible_haute')
+  assert.match(step.resultat, /\+4/)
+  assert.match(step.resultat, /Pilier tente/)
 })
 
 test('cible basse prioritaire sur cible haute : approche normale preservee', async () => {
