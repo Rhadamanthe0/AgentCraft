@@ -458,7 +458,10 @@ Un arbre commence est fini (interrupteur `arbre_fini`) : la premiere buche
 coupee fixe l'arbre (buches reliees au tronc). Tant qu'il en reste une debout,
 `findTargetBlock` et `cible_haute` ne visent que lui, `recolter` continue
 au-dela de la quantite demandee, `finishAllowed()` refuse la fin et l'etat
-porte `arbre_en_cours` (buches debout). Une fois l'arbre fini, les piliers
+porte `arbre_en_cours` (buches debout). `avancer` vise aussi ses buches hors
+des bornes verticales de casse, y compris pendant une construction.
+Pour un arbre entier demande, le retour ou don du bois attend la coupe et
+le ramassage complets, meme sans `arbre_fini`. Une fois l'arbre fini, les piliers
 montes pour lui sont defaits : celui sous les pieds en redescendant, les
 autres depuis le sol ; les blocs non retires restent memorises et sont retentes au plus trois fois
 par mission, puis comptes (`echafaudage_laisse`). Leurs coordonnees sont

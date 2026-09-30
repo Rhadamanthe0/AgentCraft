@@ -3426,6 +3426,23 @@ function createMissionRunner (host, injected = {}) {
     return r.reached || gagne >= 1 ? gagne : 0
   }
 
+  // Un retour ou don demande apres la coupe attend aussi le bois tombe.
+  // Le plan anticipe peut proposer de partir avant la derniere mesure.
+  function arbreAvantLivraison () {
+    if (!demandeDuJoueur(mission, /rapport|ram[eè]n|apport|livr|donn/i)) return null
+    const ouvert = arbreInacheve()
+    if (ouvert) return { resultat: `arbre commence : ${ouvert.length} buche(s) encore debout, finir la coupe avant de rapporter le bois`, echec: true, code: 'arbre_inacheve' }
+    if (!mission.wholeTree) return null
+    const arbre = treeStatus()
+    if (!arbre || arbre.buches_restantes > 0) {
+      return { resultat: 'arbre demande encore a couper avant de rapporter le bois', echec: true, code: 'arbre_inacheve' }
+    }
+    if (arbre.buches_au_sol > 0) {
+      return { resultat: `${arbre.buches_au_sol} buche(s) au sol a ramasser avant de rapporter le bois`, echec: true, code: 'arbre_a_ramasser' }
+    }
+    return null
+  }
+
   const ACTIONS = {
     // Il y avait ici `approcher`, qui deleguait au pathfinder (GoalNearXZ). Le
     // pathfinder est casse au-dela de quelques blocs sur cette version (arret a
@@ -3437,6 +3454,8 @@ function createMissionRunner (host, injected = {}) {
     // Meme navigateur que !viens : A* pour le chemin, execution locale verifiee.
     // Le modele choisit la destination, jamais les touches du trajet.
     async rejoindre_demandeur () {
+      const arbre = arbreAvantLivraison()
+      if (arbre) return arbre
       mission.pendingJoin = true
       // Token proprietaire prive (objet opaque) : la sous-etape nav s execute
       // DANS le slot de l etape, sans reacquerir (busy permanent sinon).
@@ -4159,6 +4178,8 @@ function createMissionRunner (host, injected = {}) {
       if (!livraisonDemandee(mission)) {
         return { resultat: 'don refuse : le joueur n a rien demande a recevoir ; garder les objets en inventaire', echec: true, code: 'not_requested' }
       }
+      const arbre = arbreAvantLivraison()
+      if (arbre) return arbre
       const ceiling = deliveryCeiling(mission)
       const key = deliveryLedgerKey(deliveryScope(mission), destinataire, objet)
       let ledger = deliveryLedgers.get(key)
@@ -4331,7 +4352,7 @@ function createMissionRunner (host, injected = {}) {
 
       // Matiere plus bas ou plus haut que les bornes de casse : on la vise
       // quand meme pour s en approcher (en creusant au besoin, sans chute).
-      if (!cible && mission.kind === 'recolte') cible = findTargetBlock(undefined, { anyHeight: true })
+      if (!cible && (mission.kind === 'recolte' || arbreInacheve())) cible = findTargetBlock(undefined, { anyHeight: true })
 
       if (!cible) {
         // Filet minimal sans cible : meme budget que le chemin avec cible
