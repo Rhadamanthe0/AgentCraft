@@ -44,8 +44,10 @@ function fixture ({ logs, quantite }) {
       const i = standing.findIndex(p => p.equals(block.position))
       if (i >= 0) {
         standing.splice(i, 1); held += 1
-        bot.emit('playerCollect', bot.entity, { name: 'item', uuid: `pickup-${block.position}`,
-          position: block.position.offset(0.5, 0.5, 0.5), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) })
+        const pickup = { name: 'item', uuid: `pickup-${block.position}`,
+          position: block.position.offset(0.5, 0.5, 0.5), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }
+        bot.emit('entitySpawn', pickup)
+        bot.emit('playerCollect', bot.entity, pickup)
       }
     }
   }

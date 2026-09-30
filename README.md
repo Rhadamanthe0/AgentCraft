@@ -466,7 +466,10 @@ objets apparus apres ses coupes sont conserves pour la reprise ; les arbres
 voisins et le bois deja au sol restent hors de cette mesure. Une cellule non
 chargee ne prouve jamais la fin. Chaque coupe attend une preuve de collecte
 par `playerCollect`, meme si l'objet ou sa metadata apparait tardivement.
-Les preuves sont conservees pour la reprise. Pour un trajet de remise independant,
+La preuve associe l'UUID a la position initiale d'apparition et au type de
+la coupe mesuree. Une pile fusionnee ne prouve qu'une unite par origine ;
+une origine inconnue ne permet pas de conclure. Ces mesures sont conservees
+pour la reprise. Pour un trajet de remise independant,
 `rejoindre_demandeur.objet` identifie l'objet, meme si le don vient dans un autre
 plan. Sans cet objet, un retour apres demande d'arbre entier attend son bois.
 Une fois l'arbre fini, les piliers

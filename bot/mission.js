@@ -99,6 +99,9 @@ function suiviArbre (source) {
     buchesArbreDemande: Array.isArray(source?.buchesArbreDemande) ? cells(source.buchesArbreDemande) : null,
     dropsArbreDemande: Array.isArray(source?.dropsArbreDemande) ? source.dropsArbreDemande.filter(id => typeof id === 'string') : [],
     arbreEntitiesInitial: Array.isArray(source?.arbreEntitiesInitial) ? source.arbreEntitiesInitial.filter(id => typeof id === 'string') : [],
+    arbreSources: Array.isArray(source?.arbreSources) ? source.arbreSources.filter(c => celluleValide(c) && typeof c.objet === 'string').map(c => ({ ...celluleValide(c), objet: c.objet, drop: typeof c.drop === 'string' ? c.drop : null })) : [],
+    arbreSpawns: Array.isArray(source?.arbreSpawns) ? source.arbreSpawns.filter(c => typeof c.id === 'string' && [c.x, c.y, c.z].every(Number.isFinite)).map(c => ({ id: c.id, x: c.x, y: c.y, z: c.z, objet: typeof c.objet === 'string' ? c.objet : null, gone: c.gone === true, tiers: c.tiers === true, fin: c.fin && [c.fin.x, c.fin.y, c.fin.z].every(Number.isFinite) ? { ...c.fin } : null })) : [],
+    arbreBaseline: Array.isArray(source?.arbreBaseline) ? source.arbreBaseline.filter(c => typeof c.id === 'string' && typeof c.objet === 'string' && Number.isFinite(c.count)).map(c => ({ ...c })) : [],
     arbreCoupes: Math.max(0, Number(source?.arbreCoupes) || 0),
     arbreCollectes: Math.max(0, Number(source?.arbreCollectes) || 0),
     arbreCollecteIds: Array.isArray(source?.arbreCollecteIds) ? source.arbreCollecteIds.filter(id => typeof id === 'string') : [],
@@ -832,6 +835,9 @@ function createMissionRunner (host, injected = {}) {
         buchesArbreDemande: mission.buchesArbreDemande,
         dropsArbreDemande: mission.dropsArbreDemande,
         arbreEntitiesInitial: mission.arbreEntitiesInitial,
+        arbreSources: mission.arbreSources,
+        arbreSpawns: mission.arbreSpawns,
+        arbreBaseline: mission.arbreBaseline,
         arbreCoupes: mission.arbreCoupes,
         arbreCollectes: mission.arbreCollectes,
         arbreCollecteIds: mission.arbreCollecteIds,
@@ -2066,8 +2072,7 @@ function createMissionRunner (host, injected = {}) {
     const standing = measured.filter(b => !b || TREE_LOG.test(b.name)).length
     // La mesure reste ouverte jusqu a la preuve de collecte : un spawn ou
     // sa metadata peut arriver apres la fin de la rafale de casse.
-    const avant = new Set(mission.arbreEntitiesInitial ?? [])
-    for (const c of cells) noterDropsArbre(avant, c)
+    noterDropsArbre()
     prouverCollectesArbre()
     const owned = new Set(mission.dropsArbreDemande ?? [])
     const onGround = Object.entries(bot.entities ?? {})
@@ -2085,8 +2090,30 @@ function createMissionRunner (host, injected = {}) {
 
   let botCollecteObserve = null
   const collectesEnAttente = new Map()
+  function recevoirSpawnArbre (entity) {
+    if (!mission?.wholeTree || entity?.name !== 'item' || !entity.position) return
+    const id = entity.uuid || String(entity.id)
+    mission.arbreSpawns ??= []
+    if (!mission.arbreSpawns.some(s => s.id === id)) mission.arbreSpawns.push({ id, x: entity.position.x, y: entity.position.y, z: entity.position.z, objet: null, gone: false, tiers: false })
+    actualiserSpawnArbre(entity)
+  }
+  function actualiserSpawnArbre (entity) {
+    const spawn = mission?.arbreSpawns?.find(s => s.id === (entity?.uuid || String(entity?.id)))
+    if (!spawn) return
+    try { const item = entity.getDroppedItem?.(); if (item) spawn.objet = item.name } catch (_) {}
+  }
+  function recevoirDisparitionArbre (entity) {
+    actualiserSpawnArbre(entity)
+    const spawn = mission?.arbreSpawns?.find(s => s.id === (entity?.uuid || String(entity?.id)))
+    if (spawn) { spawn.gone = true; if (entity.position) spawn.fin = { x: entity.position.x, y: entity.position.y, z: entity.position.z } }
+  }
   function recevoirCollecteArbre (collector, entity) {
-    if (!mission?.wholeTree || collector?.id !== host.getBot()?.entity?.id || !entity) return
+    if (!mission?.wholeTree || !entity) return
+    if (collector?.id !== host.getBot()?.entity?.id) {
+      const spawn = mission.arbreSpawns?.find(s => s.id === (entity.uuid || String(entity.id)))
+      if (spawn) spawn.tiers = true
+      return
+    }
     const id = entity.uuid || String(entity.id)
     collectesEnAttente.set(id, entity)
     const avant = mission.arbreCollectes
@@ -2098,11 +2125,19 @@ function createMissionRunner (host, injected = {}) {
     const bot = host.getBot()
     if (botCollecteObserve === bot) return
     retirerObservateurArbre()
+    bot?.on?.('entitySpawn', recevoirSpawnArbre)
+    bot?.on?.('entityUpdate', actualiserSpawnArbre)
+    bot?.on?.('itemDrop', actualiserSpawnArbre)
+    bot?.on?.('entityGone', recevoirDisparitionArbre)
     bot?.on?.('playerCollect', recevoirCollecteArbre)
     bot?.once?.('end', retirerObservateurArbre)
     botCollecteObserve = bot
   }
   function retirerObservateurArbre () {
+    botCollecteObserve?.removeListener?.('entitySpawn', recevoirSpawnArbre)
+    botCollecteObserve?.removeListener?.('entityUpdate', actualiserSpawnArbre)
+    botCollecteObserve?.removeListener?.('itemDrop', actualiserSpawnArbre)
+    botCollecteObserve?.removeListener?.('entityGone', recevoirDisparitionArbre)
     botCollecteObserve?.removeListener?.('playerCollect', recevoirCollecteArbre)
     botCollecteObserve?.removeListener?.('end', retirerObservateurArbre)
     botCollecteObserve = null
@@ -2110,37 +2145,67 @@ function createMissionRunner (host, injected = {}) {
   }
   function prouverCollectesArbre () {
     if (!mission?.tree || !mission.buchesArbreDemande?.length) return
+    for (const spawn of mission.arbreSpawns ?? []) {
+      if (spawn.objet) attribuerDropArbre(spawn.id, { getDroppedItem: () => ({ name: spawn.objet }) })
+    }
     const exclus = new Set(mission.arbreEntitiesInitial ?? [])
     const deja = new Set(mission.arbreCollecteIds ?? [])
     for (const [id, e] of collectesEnAttente) {
-      if (deja.has(id) || exclus.has(id)) { collectesEnAttente.delete(id); continue }
+      if (deja.has(id)) { collectesEnAttente.delete(id); continue }
       let item
       try { item = e.getDroppedItem?.() } catch (_) {}
       if (!item || !e.position) continue
-      const proche = mission.buchesArbreDemande.some(c => e.position.y <= c.y + 1 &&
-        Math.hypot(e.position.x - c.x - 0.5, e.position.z - c.z - 0.5) <= TREE_RADIUS)
-      if (TREE_LOG.test(item.name) && proche) {
-        mission.arbreCollectes = (mission.arbreCollectes ?? 0) + Math.max(0, Number(item.count) || 0)
-        deja.add(id)
+      if (exclus.has(id)) {
+        const baseline = mission.arbreBaseline?.find(b => b.id === id && b.objet === item.name)
+        const candidats = (mission.arbreSpawns ?? []).filter(spawn => spawn.gone && !spawn.tiers && !deja.has(spawn.id) &&
+          spawn.objet === item.name && (mission.dropsArbreDemande ?? []).includes(spawn.id) && baseline &&
+          spawn.fin && Math.hypot(spawn.fin.x - e.position.x, spawn.fin.y - e.position.y, spawn.fin.z - e.position.z) <= 0.75)
+        const delta = baseline ? item.count - baseline.count : 0
+        // Sans origine mesuree disparue et delta exact, la fusion reste ambigue.
+        if (delta > 0 && delta === candidats.length) {
+          mission.arbreCollectes = (mission.arbreCollectes ?? 0) + delta
+          for (const spawn of candidats) deja.add(spawn.id)
+          collectesEnAttente.delete(id)
+        }
+        continue
       }
-      collectesEnAttente.delete(id)
+      attribuerDropArbre(id, e)
+      if ((mission.dropsArbreDemande ?? []).includes(id) && TREE_LOG.test(item.name)) {
+        // Une coupe prouve une unite, jamais les objets etrangers fusionnes dans sa pile.
+        const fusionnes = (mission.arbreSpawns ?? []).filter(spawn => spawn.id !== id && spawn.gone && !spawn.tiers &&
+          !deja.has(spawn.id) && spawn.objet === item.name && (mission.dropsArbreDemande ?? []).includes(spawn.id) &&
+          spawn.fin && Math.hypot(spawn.fin.x - e.position.x, spawn.fin.y - e.position.y, spawn.fin.z - e.position.z) <= 0.75)
+        const credits = item.count === 1 + fusionnes.length ? fusionnes : []
+        mission.arbreCollectes = (mission.arbreCollectes ?? 0) + Math.min(1, Math.max(0, Number(item.count) || 0)) + credits.length
+        for (const spawn of credits) deja.add(spawn.id)
+        deja.add(id)
+        collectesEnAttente.delete(id)
+      }
     }
     mission.arbreCollecteIds = [...deja]
   }
 
-  // Seuls les objets apparus apres une coupe de cet arbre sont suivis.
-  // Les buches deja au sol et les arbres voisins restent hors engagement.
-  function noterDropsArbre (avant, coupe) {
+  // La position initiale du paquet spawn reste immuable : un objet voisin
+  // qui roule vers cet arbre ne devient pas une preuve de sa coupe.
+  function attribuerDropArbre (id, entity) {
+    if ((mission.arbreEntitiesInitial ?? []).includes(id)) return
+    if ((mission.dropsArbreDemande ?? []).includes(id)) return
+    const spawn = mission.arbreSpawns?.find(s => s.id === id)
+    let item
+    try { item = entity.getDroppedItem?.() } catch (_) {}
+    if (!spawn || !item || !TREE_LOG.test(item.name)) return
+    const source = mission.arbreSources?.find(c => !c.drop && c.objet === item.name &&
+      Math.hypot(spawn.x - c.x - 0.5, spawn.y - c.y - 0.5, spawn.z - c.z - 0.5) <= 0.9)
+    if (!source) return
+    source.drop = id
+    mission.dropsArbreDemande ??= []
+    mission.dropsArbreDemande.push(id)
+  }
+  function noterDropsArbre () {
     if (!mission.wholeTree || !mission.tree) return
-    const ids = new Set(mission.dropsArbreDemande ?? [])
     for (const [id, e] of Object.entries(host.getBot()?.entities ?? {})) {
-      if (avant.has(e?.uuid || id) || e?.name !== 'item' || !e.position) continue
-      let item
-      try { item = e.getDroppedItem?.() } catch (_) {}
-      if (item && TREE_LOG.test(item.name) && e.position.y <= coupe.y + 1 &&
-        Math.hypot(e.position.x - coupe.x - 0.5, e.position.z - coupe.z - 0.5) <= TREE_RADIUS) ids.add(e.uuid || id)
+      if (e?.name === 'item') attribuerDropArbre(e.uuid || id, e)
     }
-    mission.dropsArbreDemande = [...ids]
   }
 
   // Tree started by any wood job: the first log cut fixes it. Its logs are
@@ -3644,7 +3709,6 @@ function createMissionRunner (host, injected = {}) {
       let broken = 0
       let refusal = null
       const nomsCasses = new Map()
-      const coupesArbre = []
 
       // On enchaine sans relacher : relacher entre chaque bloc pour redemander
       // son avis au modele fait perdre du temps et donne en jeu l impression
@@ -3660,8 +3724,15 @@ function createMissionRunner (host, injected = {}) {
         const debutArbre = !secondaire && TREE_LOG.test(block.name) && featureOn('arbre_fini') && !mission.arbreEnCours
         const debutArbreDemande = !secondaire && mission.wholeTree && !mission.tree && TREE_LOG.test(block.name)
         const initialLogs = debutArbre || debutArbreDemande ? logsOfTree(block.position) : null
-        const dropsAvant = new Set(Object.entries(bot.entities ?? {}).map(([id, e]) => e.uuid || id))
-        if (debutArbreDemande) mission.arbreEntitiesInitial = Object.entries(bot.entities ?? {}).map(([id, e]) => e.uuid || id)
+        if (debutArbreDemande) {
+          mission.arbreEntitiesInitial = Object.entries(bot.entities ?? {}).map(([id, e]) => e.uuid || id)
+          mission.arbreBaseline = Object.entries(bot.entities ?? {}).flatMap(([id, e]) => {
+            let item
+            try { item = e.getDroppedItem?.() } catch (_) {}
+            return item && TREE_LOG.test(item.name) && e.position
+              ? [{ id: e.uuid || id, objet: item.name, count: item.count, x: e.position.x, y: e.position.y, z: e.position.z }] : []
+          })
+        }
         if (mission.wholeTree) observerCollecteArbre()
         try {
           // L outil peut changer en cours de rafale (une touffe d herbe, puis
@@ -3712,6 +3783,8 @@ function createMissionRunner (host, injected = {}) {
           mission.buchesArbreDemande = initialLogs?.map(celluleValide) ?? null
         }
         if (!secondaire && mission.wholeTree && TREE_LOG.test(block.name)) {
+          mission.arbreSources ??= []
+          mission.arbreSources.push({ ...celluleValide(block.position), objet: block.name, drop: null })
           mission.arbreCoupes = (mission.arbreCoupes ?? 0) + 1
           prouverCollectesArbre()
         }
@@ -3721,8 +3794,7 @@ function createMissionRunner (host, injected = {}) {
         }
         await sleep(120)
         if (!secondaire && TREE_LOG.test(block.name)) {
-          coupesArbre.push({ avant: dropsAvant, coupe: block.position })
-          noterDropsArbre(dropsAvant, block.position)
+          noterDropsArbre()
         }
         // The tree boundary also applies inside nested casser/recolter bursts.
         // Teardown runs in the same physical slot before another tree is anchored.
@@ -3738,7 +3810,7 @@ function createMissionRunner (host, injected = {}) {
 
       // Laisse les objets tomber et entrer dans l inventaire avant l etat suivant.
       await sleep(400)
-      for (const { avant, coupe } of coupesArbre) noterDropsArbre(avant, coupe)
+      noterDropsArbre()
       // Hors bois (dont le ramassage est deja pilote par l arbre) : l objet
       // casse a distance reste au sol ; le prendre aussitot (vu sur
       // gather/flowers : 4 fleurs cassees, 2 en inventaire, mission close).
@@ -6827,7 +6899,8 @@ function createMissionRunner (host, injected = {}) {
       // par defaut. L arbre est fixe par la premiere buche coupee ; la fin est
       // jugee sur ses buches restantes et son bois au sol (finishAllowed).
       wholeTree: kind === 'recolte' && resource === 'bois' && !fabricationCible &&
-        build.parseQuota(sansCoordonnees(text), { allowBlockUnits: true }) === null && WHOLE_TREE_TEXT.test(text),
+        ((opts.revisionOf?.wholeTree === true && !!opts.revisionOf?.tree) ||
+          (build.parseQuota(sansCoordonnees(text), { allowBlockUnits: true }) === null && WHOLE_TREE_TEXT.test(text))),
       tree: null,
       // A revision keeps the tree in progress (player rule, see arbreInacheve).
       ...suiviArbre(opts.revisionOf),
