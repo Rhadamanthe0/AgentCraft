@@ -7,6 +7,7 @@ const assert = require('node:assert/strict')
 const { Vec3 } = require('vec3')
 const planner = require('../bot/planner')
 const craft = require('../bot/craft')
+const delivery = require('../bot/delivery')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
@@ -399,6 +400,45 @@ test('rapporter l arbre : le retour est permis quand coupe et ramassage sont mes
   assert.equal(joins, 1)
   assert.equal(f.status.etat, 'done')
   assert.match(f.status.raison, /bois rapporte/)
+})
+
+for (const demande of ['remets-moi', 'file-moi', 'passe-moi', 'au joueur']) {
+  test(`livraison ${demande} : la derniere buche bloque le retour et le don`, async t => {
+    let joins = 0
+    const f = await simulate(t, { inventory: [], first: 'casser',
+      text: demande === 'au joueur' ? 'coupe un arbre, le bois au joueur' : `coupe un arbre et ${demande} le bois`, logY: 65,
+      queue: [['casser'], ['rejoindre_demandeur'],
+        [{ action: 'donner', choices: { objet: 'oak_log', quantite: 1, destinataire: 'human' } }]],
+      onDig: (_block, bot) => {
+        bot.entities.drop = { name: 'item', position: new Vec3(4.5, 65, 0.5),
+          getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }
+      }, navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 1 } } })
+    assert.equal(joins, 0)
+    for (const action of ['rejoindre_demandeur', 'donner']) {
+      const step = f.states.flatMap(state => state.dernieres_etapes ?? []).find(step => step.action === action)
+      assert.equal(step.code, 'arbre_a_ramasser')
+    }
+  })
+}
+
+test('arbre de cabane encore debout : le don independant de pommes reste permis', async t => {
+  const gifts = []
+  let joins = 0
+  t.mock.method(delivery, 'giveToPlayer', async (_bot, options) => {
+    gifts.push({ item: options.item, count: options.count })
+    return { status: 'succeeded', requested: options.count, deposited: options.count,
+      inventoryRemoved: options.count, evidence: { item: options.item }, reason: 'depot mesure' }
+  })
+  const f = await simulate(t, { inventory: [{ name: 'apple', count: 2 }], kind: 'construction', first: 'casser',
+    text: 'construis une cabane en bois et donne deux pommes a human', logY: 65,
+    extra: { '1,66,0': 'oak_log', '1,67,0': 'oak_log', '1,68,0': 'oak_log', '1,69,0': 'oak_log' }, allLogs: true,
+    queue: [['casser'], ['rejoindre_demandeur', { action: 'donner', choices: { objet: 'apple', quantite: 2, destinataire: 'human' } }]],
+    navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 1 } } })
+  assert.ok(f.blocks.has('1,69,0'), 'une partie du tronc reste debout')
+  assert.deepEqual(gifts, [{ item: 'apple', count: 2 }])
+  assert.equal(joins, 1)
+  const step = f.states.flatMap(state => state.dernieres_etapes ?? []).find(step => step.action === 'donner')
+  assert.equal(Boolean(step.echec), false)
 })
 
 // Arbre fini depuis le pilier : le pilier monte pour lui est defait (regle

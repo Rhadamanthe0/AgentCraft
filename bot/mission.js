@@ -3428,8 +3428,9 @@ function createMissionRunner (host, injected = {}) {
 
   // Un retour ou don demande apres la coupe attend aussi le bois tombe.
   // Le plan anticipe peut proposer de partir avant la derniere mesure.
-  function arbreAvantLivraison () {
-    if (!demandeDuJoueur(mission, /rapport|ram[eè]n|apport|livr|donn/i)) return null
+  function arbreAvantLivraison (objet = null) {
+    if (!livraisonDemandee(mission)) return null
+    if (objet !== null && !skills.RESOURCES.bois.raw.test(objet) && !skills.RESOURCES.bois.items.test(objet)) return null
     const ouvert = arbreInacheve()
     if (ouvert) return { resultat: `arbre commence : ${ouvert.length} buche(s) encore debout, finir la coupe avant de rapporter le bois`, echec: true, code: 'arbre_inacheve' }
     if (!mission.wholeTree) return null
@@ -3454,7 +3455,11 @@ function createMissionRunner (host, injected = {}) {
     // Meme navigateur que !viens : A* pour le chemin, execution locale verifiee.
     // Le modele choisit la destination, jamais les touches du trajet.
     async rejoindre_demandeur () {
-      const arbre = arbreAvantLivraison()
+      // Le don suivant identifie ce retour dans un plan composite : aller
+      // remettre des pommes n est pas encore rapporter le bois de l arbre.
+      const donSuivant = mission.queue[0]
+      const objet = donSuivant?.action === 'donner' ? String(donSuivant.choices?.objet ?? '').trim().toLowerCase() || null : null
+      const arbre = arbreAvantLivraison(objet)
       if (arbre) return arbre
       mission.pendingJoin = true
       // Token proprietaire prive (objet opaque) : la sous-etape nav s execute
@@ -4178,7 +4183,7 @@ function createMissionRunner (host, injected = {}) {
       if (!livraisonDemandee(mission)) {
         return { resultat: 'don refuse : le joueur n a rien demande a recevoir ; garder les objets en inventaire', echec: true, code: 'not_requested' }
       }
-      const arbre = arbreAvantLivraison()
+      const arbre = arbreAvantLivraison(objet)
       if (arbre) return arbre
       const ceiling = deliveryCeiling(mission)
       const key = deliveryLedgerKey(deliveryScope(mission), destinataire, objet)
