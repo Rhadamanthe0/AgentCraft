@@ -86,6 +86,23 @@ const SCREENSHOT_ON = process.env.MISSION_SCREENSHOT === '1'
 // allumee) pour mesurer ce qu il apporte, sans redemarrer le bot. Priorite :
 // /api/features, puis la variable FEATURE_<NOM> ('0'/'1'), puis le defaut du
 // mode. Un processus = un bot, donc un etat par bot.
+// Tree in progress and its scaffold, carried across a revision or a restart
+// (plain integer coordinates only; anything else is dropped).
+function celluleValide (c) {
+  return c && [c.x, c.y, c.z].every(Number.isInteger) ? { x: c.x, y: c.y, z: c.z } : null
+}
+function suiviArbre (source) {
+  const cells = value => Array.isArray(value) ? value.map(celluleValide).filter(Boolean) : []
+  const poses = cells(source?.echafaudagePose)
+  return {
+    arbreEnCours: celluleValide(source?.arbreEnCours),
+    buchesArbre: Array.isArray(source?.buchesArbre) ? source.buchesArbre.map(celluleValide).filter(Boolean) : null,
+    echafaudageEnAttente: cells(source?.echafaudageEnAttente).map(c => new Vec3(c.x, c.y, c.z)),
+    echafaudageEssais: {},
+    echafaudagePose: poses.map(c => new Vec3(c.x, c.y, c.z))
+  }
+}
+
 const featureOverrides = {}
 function featureOn (name, fallback = true) {
   if (Object.prototype.hasOwnProperty.call(featureOverrides, name)) return featureOverrides[name]
@@ -401,6 +418,25 @@ function estAir (nom) {
 
 function estLiquide (nom) {
   return typeof nom === 'string' && /water|lava|bubble_column/.test(nom)
+}
+
+// At least one face open to sight (leaves, plants, glass and liquids let it
+// through). La face du dessous ne se voit que d en dessous : sous les pieds du
+// bot, elle ne compte pas (vu sur craft/stone-pickaxe : dessous de la couche de
+// pierre sous l arene, a l air libre, vise puis creuse vers le bas).
+function blocExpose (bot, pos, feetLevel) {
+  const see = p => {
+    const b = bot.blockAt(p)
+    return !b || b.boundingBox !== 'block' || /_leaves$|glass/.test(b.name)
+  }
+  return [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
+    .some(([x, y, z]) => !(y === -1 && pos.y < feetLevel) && see(pos.offset(x, y, z)))
+}
+
+// Columns under the bot's 0.6-wide hitbox at height y.
+function colonnesSousHitbox (position, y) {
+  const span = v => [...new Set([Math.floor(v - 0.3), Math.floor(v + 0.3 - 1e-6)])]
+  return span(position.x).flatMap(x => span(position.z).map(z => new Vec3(x, y, z)))
 }
 
 function estSolide (bloc) {
@@ -781,6 +817,10 @@ function createMissionRunner (host, injected = {}) {
         // Grand livre des dons (S6) : preuves persistantes pour rehydrate.
         livraison: deliveryLedgersFor(mission).map(deliveryLedgerView),
         dimensions: mission.dimensions ? { ...mission.dimensions } : null,
+        arbreEnCours: celluleValide(mission.arbreEnCours),
+        buchesArbre: mission.buchesArbre,
+        echafaudageEnAttente: (mission.echafaudageEnAttente ?? []).map(celluleValide).filter(Boolean),
+        echafaudagePose: (mission.echafaudagePose ?? []).map(celluleValide).filter(Boolean),
         route: mission.movementTask
           ? { steps: JSON.parse(JSON.stringify(mission.movementTask.steps)), cursor: mission.movementTask.cursor, origin: mission.movementTask.origin ? { ...mission.movementTask.origin } : null }
           : null
@@ -943,17 +983,32 @@ function createMissionRunner (host, injected = {}) {
   // alors que la pierre du four etait a cote (craft/iron-pickaxe 66d7caf :
   // 2/3 fer, puis errance jusqu au plafond). Memorise 1 s (appel frequent).
   let harvestMemo = null
+  // A harvest is feasible unless its tool is crafted earlier in the plan.
+  function recolteFaisable (toutes, s, i) {
+    return !s.outil || !toutes.slice(0, i).some(e => e.op === 'fabriquer' && e.objet === s.outil)
+  }
+  // The plan's harvests all wait for a tool still to craft: harvesting now
+  // yields nothing (craft/iron-pickaxe 7b01683: wood done, stone asked before
+  // the wooden pickaxe, « stone ne lache rien sans pioche »).
+  function recolteEnAttenteOutil () {
+    const toutes = acquisition()?.etapes ?? []
+    const recoltes = toutes.map((s, i) => [s, i]).filter(([s]) => s.op === 'recolter' && s.matiere)
+    if (recoltes.length === 0 || recoltes.some(([s, i]) => recolteFaisable(toutes, s, i))) return null
+    return recoltes[0][0]
+  }
   function harvestResource () {
     if (!mission) return null
     // `recolter` fige sa matiere le temps de l action : le choix « premiere
     // recolte en vue » pouvait basculer en cours de route (fer puis pierre),
     // et le compte « 5/3 » melangeait deux matieres (iron-pickaxe 45ee8cf).
     if (mission.matiereFigee) return mission.matiereFigee
+    // A tree in progress comes first, whatever the plan needs next.
+    if (arbreInacheve()) return 'bois'
     // A harvest whose tool the plan still has to craft before it cannot yield
     // yet (craft/iron-pickaxe e6e8328: iron in view, stone pickaxe planned
     // first, « iron_ore ne lache rien sans pioche »).
     const toutes = acquisition()?.etapes ?? []
-    const faisable = (s, i) => !s.outil || !toutes.slice(0, i).some(e => e.op === 'fabriquer' && e.objet === s.outil)
+    const faisable = (s, i) => recolteFaisable(toutes, s, i)
     const recoltes = toutes.filter(s => s.op === 'recolter' && s.matiere)
     const etapes = toutes.filter((s, i) => s.op === 'recolter' && s.matiere && faisable(s, i))
     if (etapes.length === 0) return recoltes[0]?.matiere ?? mission.resource
@@ -1758,6 +1813,21 @@ function createMissionRunner (host, injected = {}) {
     injoignables.set(posKey(pos), Date.now() + INJOIGNABLE_MS)
   }
 
+  // Chantier en cours : ne jamais creuser son emprise (+1 autour), ni le sol
+  // dessous ni la maison deja posee (vu sur build/no-materials : terre prise
+  // sous le chantier, « aucun appui »).
+  function empriseChantier () {
+    if (mission?.kind !== 'construction' || !mission.plan?.blocks?.length) return null
+    const xs = mission.plan.blocks.map(b => b.position.x)
+    const zs = mission.plan.blocks.map(b => b.position.z)
+    const ys = mission.plan.blocks.map(b => b.position.y)
+    return { x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, z0: Math.min(...zs) - 1, z1: Math.max(...zs) + 1, y: Math.min(...ys) }
+  }
+  function dansEmprise (emprise, position) {
+    return Boolean(emprise) && position.x >= emprise.x0 && position.x <= emprise.x1 &&
+      position.z >= emprise.z0 && position.z <= emprise.z1
+  }
+
   function findTargetBlock (resource, opts = {}) {
     // Surcharge toleree : findTargetBlock({ yaw }) vaut secteur sur la matiere
     // courante. Rien d autre n utilise cette forme aujourd hui.
@@ -1783,16 +1853,8 @@ function createMissionRunner (host, injected = {}) {
     // sous le sol etait visee pour avancer (« rejoint a portee ») puis
     // introuvable pour casser, en boucle (vu : craft/stone-pickaxe, 90 etapes,
     // les 32 plus proches etant toutes sous le sol de l arene).
-    const see = pos => {
-      const b = bot.blockAt(pos)
-      return !b || b.boundingBox !== 'block' || /_leaves$|glass/.test(b.name)
-    }
-    // La face du dessous ne se voit que d en dessous : sous les pieds du bot,
-    // elle ne compte pas (vu sur craft/stone-pickaxe : dessous de la couche de
-    // pierre sous l arene, a l air libre, vise puis creuse vers le bas).
     const feetLevel = Math.floor(bot.entity.position.y)
-    const exposed = pos => [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
-      .some(([x, y, z]) => !(y === -1 && pos.y < feetLevel) && see(pos.offset(x, y, z)))
+    const exposed = pos => blocExpose(bot, pos, feetLevel)
     let positions
     try {
       // Filtre PENDANT la recherche : sous une arene ou un sol de pierre, des
@@ -1806,6 +1868,12 @@ function createMissionRunner (host, injected = {}) {
     } catch (err) {
       return null
     }
+    // Tree in progress: its logs only, the others wait (player rule).
+    const arbre = (resource ?? harvestResource()) === 'bois' ? arbreInacheve() : null
+    if (arbre) {
+      const visibles = arbre.filter(exposed)
+      positions = visibles.length > 0 ? visibles : arbre
+    }
 
     const here = bot.entity.position
     const feetY = Math.floor(here.y)
@@ -1813,15 +1881,7 @@ function createMissionRunner (host, injected = {}) {
     // falaise), pas pour la casser d ici. Les bornes verticales ci-dessous
     // restent celles de `casser`.
     const anyHeight = opts.anyHeight === true
-    // Chantier en cours : ne jamais creuser son emprise (+1 autour), ni le sol
-    // dessous ni la maison deja posee (vu sur build/no-materials : terre prise
-    // sous le chantier, « aucun appui »).
-    const emprise = mission?.kind === 'construction' && mission.plan?.blocks?.length ? (() => {
-      const xs = mission.plan.blocks.map(b => b.position.x)
-      const zs = mission.plan.blocks.map(b => b.position.z)
-      const ys = mission.plan.blocks.map(b => b.position.y)
-      return { x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, z0: Math.min(...zs) - 1, z1: Math.max(...zs) + 1, y: Math.min(...ys) }
-    })() : null
+    const emprise = empriseChantier()
 
     // Cible mise de cote (sans chemin) : ignoree tant qu il en reste une
     // autre, jamais quand c est la derniere. Vu sur terrain/plateau (a45b981,
@@ -1829,8 +1889,7 @@ function createMissionRunner (host, injected = {}) {
     // invisible une fois le bot monte (« rien » partout, errance, chute).
     const candidates = []
     const collect = list => { for (const position of list) {
-      if (emprise && position.x >= emprise.x0 && position.x <= emprise.x1 &&
-        position.z >= emprise.z0 && position.z <= emprise.z1) continue
+      if (dansEmprise(emprise, position)) continue
       if (!anyHeight && position.y < feetY - MAX_DIG_DEPTH) continue
       // Trop haut pour etre atteint depuis le sol : passer a la cible suivante
       // plutot que de s acharner sur le haut d un tronc.
@@ -1997,6 +2056,153 @@ function createMissionRunner (host, injected = {}) {
         return sum + (item && TREE_LOG.test(item.name) ? item.count : 0)
       }, 0)
     return { buches_restantes: standing, buches_au_sol: onGround, termine: standing === 0 && onGround === 0 }
+  }
+
+  // Tree started by any wood job: the first log cut fixes it. Its logs are
+  // those 26-connected to the first cut, within TREE_RADIUS: a bent trunk
+  // or a branch stays in, a neighbour tree that does not touch it stays out.
+  // The first cut may be high on the trunk (bot on a ledge): the scan goes
+  // TREE_HEIGHT down as well as up. null = a cell is not loaded (chunk far
+  // away): unknown, never read as a finished tree.
+  function logsOfTree (t) {
+    const bot = host.getBot()
+    if (!t || !bot?.entity) return null
+    let inconnu = false
+    const isLog = p => {
+      const b = bot.blockAt(p)
+      if (!b) inconnu = true
+      return TREE_LOG.test(b?.name ?? '')
+    }
+    const key = p => `${p.x},${p.y},${p.z}`
+    const seen = new Set()
+    const logs = []
+    // Start at the cut cell only. A disconnected log in the same column
+    // is not part of this tree. The initial connected set is saved before digging.
+    const anchor = new Vec3(t.x, t.y, t.z)
+    seen.add(key(anchor))
+    logs.push(anchor)
+    for (let i = 0; i < logs.length; i += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dz = -1; dz <= 1; dz += 1) {
+            const q = logs[i].offset(dx, dy, dz)
+            if (Math.abs(q.x - t.x) > TREE_RADIUS || Math.abs(q.z - t.z) > TREE_RADIUS) continue
+            if (Math.abs(q.y - t.y) > TREE_HEIGHT || seen.has(key(q))) continue
+            seen.add(key(q))
+            if (isLog(q)) logs.push(q)
+          }
+        }
+      }
+    }
+    return inconnu ? null : logs.filter(isLog)
+  }
+
+  // Logs still standing on the tree in progress, or null (none started, or
+  // finished). While not null, no other tree is a target and the job does
+  // not end (player rule: never leave a tree partly cut). Switch arbre_fini.
+  // Memo: read many times per step; a break or 250 ms renew it.
+  let arbreMemo = null
+  function arbreInacheve () {
+    if (!mission?.arbreEnCours || !featureOn('arbre_fini')) return null
+    const t = mission.arbreEnCours
+    const cle = `${mission.id}|${t.x},${t.y},${t.z}|${mission.broken}|${mission.dirtSecondaire ?? 0}`
+    if (!arbreMemo || arbreMemo.cle !== cle || Date.now() - arbreMemo.at > 250) {
+      const bot = host.getBot()
+      const tracked = mission.buchesArbre
+      const measured = tracked?.map(c => ({ pos: new Vec3(c.x, c.y, c.z), block: bot?.blockAt(new Vec3(c.x, c.y, c.z)) }))
+      const logs = measured ? (measured.some(c => !c.block) ? null : measured.filter(c => TREE_LOG.test(c.block.name)).map(c => c.pos)) : logsOfTree(t)
+      // Unknown (unloaded): keep the last measure of this tree; none yet
+      // (restored after a restart, far away) counts as not finished.
+      const memeArbre = arbreMemo && arbreMemo.cle.split('|').slice(0, 2).join('|') === cle.split('|').slice(0, 2).join('|')
+      const connu = logs ?? (memeArbre ? arbreMemo.logs : [new Vec3(t.x, t.y, t.z)])
+      arbreMemo = { cle, at: Date.now(), logs: connu && connu.length > 0 ? connu : null }
+    }
+    return arbreMemo.logs
+  }
+
+  // Tree finished: the pillars climbed for it come down (player rule: remove
+  // what was built next to it). The one under the feet first, then the
+  // columns left standing, top first, from the ground. One pass: what stays
+  // out of reach is kept for up to three passes, then reported for recovery.
+  // Runs inside the step slot (owner token), after the step that cut the
+  // last log, like the reflexes.
+  async function demonterEchafaudage (owner) {
+    if (!mission || !featureOn('arbre_fini')) return 0
+    if (mission.arbreEnCours && !arbreInacheve()) {
+      mission.arbreEnCours = null
+      mission.buchesArbre = null
+      mission.echafaudageEnAttente = [...(mission.echafaudageEnAttente ?? []), ...(mission.echafaudagePose ?? [])]
+      mission.echafaudagePose = []
+    }
+    // Keep unresolved cells separate from the next tree's scaffold. Three
+    // attempts per mission; persisted cells can be retried after a restart.
+    const pending = mission.echafaudageEnAttente ?? []
+    const attempts = mission.echafaudageEssais ??= {}
+    const key = p => `${p.x},${p.y},${p.z}`
+    const poses = pending.filter(p => (attempts[key(p)] ?? 0) < 3)
+    for (const p of poses) attempts[key(p)] = (attempts[key(p)] ?? 0) + 1
+    const present = p => {
+      const b = host.getBot()?.blockAt(p)
+      return Boolean(b && (PILER_DIRT.test(b.name) || /_planks$/.test(b.name)))
+    }
+    // An unloaded cell is unknown, not proof that the scaffold is gone.
+    const unresolved = p => !host.getBot()?.blockAt(p) || present(p)
+    let restants = poses.filter(present)
+    if (restants.length === 0) {
+      mission.echafaudageEnAttente = pending.filter(unresolved)
+      mission.echafaudageLaisse = mission.echafaudageEnAttente.length
+      return 0
+    }
+    // Down through recorded cells only: terrain or a player build under the
+    // feet is never dug.
+    const enregistre = new Set(restants.map(p => `${p.x},${p.y},${p.z}`))
+    let retires = 0
+    for (let i = 0; i < restants.length && !mission.cancelled; i += 1) {
+      const bot = host.getBot()
+      if (!bot?.entity) break
+      const below = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+      if (!below || !enregistre.has(`${below.position.x},${below.position.y},${below.position.z}`) || !present(below.position)) break
+      const dessous = bot.blockAt(below.position.offset(0, -1, 0))
+      if (!dessous || dessous.boundingBox !== 'block') break
+      try {
+        await withTimeout(bot.lookAt(below.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+        await withTimeout(bot.dig(below), 6000, 'creusage trop long')
+      } catch (_) {
+        break
+      }
+      const until = Date.now() + 1500
+      while (Date.now() < until && !(host.getBot()?.entity?.onGround && host.getBot().entity.position.y < below.position.y + 0.5)) {
+        await sleep(50)
+      }
+      retires += 1
+    }
+    restants = restants.filter(present).sort((a, b) => b.y - a.y)
+    for (const p of restants) {
+      if (mission.cancelled) break
+      const bot = host.getBot()
+      if (!bot?.entity || !present(p)) continue
+      const centre = p.offset(0.5, 0.5, 0.5)
+      if (!blockInReach(bot, bot.entity.position, centre, REACH)) {
+        try {
+          await host.navigateToPosition(new Vec3(p.x + 0.5, bot.entity.position.y, p.z + 0.5), {
+            signal: mission.navigationAbort.signal, __owner: owner, radius: 2, distanceBudget: 16, timeoutMs: 8000
+          })
+        } catch (_) {}
+      }
+      const live = host.getBot()
+      if (!live?.entity || !blockInReach(live, live.entity.position, centre, REACH)) continue
+      try {
+        await withTimeout(live.lookAt(centre, true), 4000, 'visee trop longue')
+        await withTimeout(live.dig(live.blockAt(p)), 6000, 'creusage trop long')
+        retires += 1
+      } catch (_) {}
+    }
+    mission.echafaudageEnAttente = pending.filter(unresolved)
+    const laisses = mission.echafaudageEnAttente.length
+    console.log(`[mission] arbre fini : echafaudage retire (${retires} bloc(s))` +
+      (laisses ? `, ${laisses} hors de portee laisse(s)` : ''))
+    mission.echafaudageLaisse = laisses
+    return retires
   }
 
   function nearbyItems () {
@@ -2417,15 +2623,25 @@ function createMissionRunner (host, injected = {}) {
     const ids = targetBlockIds()
     if (!bot?.entity || ids.length === 0) return null
 
+    const here = bot.entity.position
+    const feetY = Math.floor(here.y)
+    // Same sight rule as findTargetBlock, applied during the search: buried
+    // matches (stone under the floor) must not fill the result cap.
+    // Same footprint exclusion as findTargetBlock, also during the search:
+    // the house being built is not a resource to climb to, and its placed
+    // blocks must not fill the result cap.
+    const emprise = empriseChantier()
+    const admis = pos => !dansEmprise(emprise, pos) && blocExpose(bot, pos, feetY)
     let positions
     try {
-      positions = bot.findBlocks({ matching: ids, maxDistance: SEARCH_RADIUS, count: 32 })
+      positions = bot.findBlocks({ matching: ids, useExtraInfo: block => admis(block.position), maxDistance: SEARCH_RADIUS, count: 32 })
+        .filter(admis)
     } catch (_) {
       return null
     }
+    const arbre = harvestResource() === 'bois' ? arbreInacheve() : null
+    if (arbre) positions = arbre.filter(admis)
 
-    const here = bot.entity.position
-    const feetY = Math.floor(here.y)
     let best = null
 
     for (const position of positions) {
@@ -2439,11 +2655,14 @@ function createMissionRunner (host, injected = {}) {
     }
 
     if (!best) return null
-    return {
+    const hint = {
       cible: best.block.name,
       denivele: best.dy,
       distance: Number(best.horizontal.toFixed(1))
     }
+    // Code-side only: the planner state serializes the three fields above.
+    Object.defineProperty(hint, 'position', { value: best.block.position, enumerable: false })
+    return hint
   }
 
   // Measure access from supported virtual posts without changing the world or permissions.
@@ -2712,6 +2931,10 @@ function createMissionRunner (host, injected = {}) {
       // Un arbre entier demande : le code compte ses buches, le modele decide.
       arbre_demande: mission.wholeTree
         ? (treeStatus() ?? { commence: false, consigne: 'coupe une premiere buche : elle fixe l arbre' })
+        : null,
+      // Tree started (any wood job): finished before anything else.
+      arbre_en_cours: arbreInacheve()
+        ? { buches_debout: arbreInacheve().length, consigne: 'couper toutes ses buches avant toute autre chose (piler si trop haut) ; aucun autre arbre avant' }
         : null,
       // Compteurs de memoire seulement : la memoire long terme est passee en
       // couche 3 du prompt systeme (mise en cache), la memoire de mission en
@@ -3321,6 +3544,8 @@ function createMissionRunner (host, injected = {}) {
         // plus, on arrete la rafale au lieu de viser un bloc haut injoignable.
         if (bot.entity.position.distanceTo(block.position.offset(0.5, 0.5, 0.5)) > REACH) break
 
+        const debutArbre = !secondaire && TREE_LOG.test(block.name) && featureOn('arbre_fini') && !mission.arbreEnCours
+        const initialLogs = debutArbre ? logsOfTree(block.position) : null
         try {
           // L outil peut changer en cours de rafale (une touffe d herbe, puis
           // la terre en dessous). equipForBlock rend la main tout de suite si
@@ -3368,7 +3593,17 @@ function createMissionRunner (host, injected = {}) {
         if (!secondaire && mission.wholeTree && !mission.tree) {
           mission.tree = { x: block.position.x, y: block.position.y, z: block.position.z }
         }
+        if (debutArbre) {
+          mission.arbreEnCours = { x: block.position.x, y: block.position.y, z: block.position.z }
+          mission.buchesArbre = initialLogs?.map(celluleValide) ?? null
+        }
         await sleep(120)
+        // The tree boundary also applies inside nested casser/recolter bursts.
+        // Teardown runs in the same physical slot before another tree is anchored.
+        if (mission.arbreEnCours && !arbreInacheve()) {
+          await demonterEchafaudage(stepToken)
+          break
+        }
       }
 
       if (broken === 0) {
@@ -3410,14 +3645,20 @@ function createMissionRunner (host, injected = {}) {
       const visee = Number.isFinite(Number(params.quantite))
         ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
         : scaled(scale, 1, 16)
-      const suite = rienARecolter()
+      const arbreEnCours = Boolean(arbreInacheve())
+      const suite = arbreEnCours ? null : rienARecolter()
       // Pas un echec : rien n a rate, la file continue (plan anticipe perime).
       if (suite) {
         return (await etapeSuivanteAuLieu('rien a recolter : tout est en poche')) ??
           { resultat: `rien a recolter : tout est en poche, etape suivante du plan : ${suite}`, code: 'plan' }
       }
-      const assez = materiauSuffisant()
+      const assez = arbreEnCours ? null : materiauSuffisant()
       if (assez) return { resultat: `rien a recolter : ${assez}` }
+      const enAttente = recolteEnAttenteOutil()
+      if (enAttente) {
+        const r = await etapeSuivanteAuLieu(`${enAttente.bloc ?? enAttente.matiere} exige ${enAttente.outil}, encore a fabriquer`)
+        if (r) return r
+      }
       const matiere = harvestResource()
       if (!skills.RESOURCES[matiere]?.items) {
         return { resultat: 'aucune matiere a recolter pour cette mission', echec: true }
@@ -3436,7 +3677,8 @@ function createMissionRunner (host, injected = {}) {
         const etapes = []
         let arret = null
         let rienARamasser = 0
-        while (!mission.cancelled && gagne() < visee && Date.now() - debut < RECOLTER_MAX_MS) {
+        // A tree in progress is cut to the last log, past the quantity asked.
+        while (!mission.cancelled && (gagne() < visee || arbreInacheve()) && Date.now() - debut < RECOLTER_MAX_MS) {
           const bot = host.getBot()
           if (!bot?.entity) break
           const cible = findTargetBlock()
@@ -3455,6 +3697,9 @@ function createMissionRunner (host, injected = {}) {
           } else if (cible || findTargetBlock(undefined, { anyHeight: true }) || highTargetHint()) {
             r = await ACTIONS.avancer(null, { distance: 24 })
             etapes.push('avancer')
+          } else if (arbreInacheve()) {
+            const n = arbreInacheve().length
+            r = { resultat: `arbre commence, ${n} buche(s) encore debout hors de portee d ici : piler ou changer de poste pour les couper, aucun autre arbre avant`, echec: true, code: 'arbre_inacheve' }
           } else {
             // Jamais de marche a l aveugle : `avancer` sans cible irait droit
             // devant. Explorer reste une decision du modele.
@@ -3462,7 +3707,7 @@ function createMissionRunner (host, injected = {}) {
           }
           if (r.echec) { arret = r; break }
           rienARamasser = 0
-          if (etapes[etapes.length - 1] === 'casser' && gagne() < visee) {
+          if (etapes[etapes.length - 1] === 'casser' && (gagne() < visee || arbreInacheve())) {
             await waitItemsSettled()
             if (nearbyItems().length > 0) {
               const pris = await ACTIONS.ramasser(null, { quantite: 6 })
@@ -3999,22 +4244,86 @@ function createMissionRunner (host, injected = {}) {
       // Explicit movement gestures keep their existing free-movement semantics.
       const high = !cible && mission.kind !== 'geste' ? highTargetHint() : null
       if (high) {
-        const stock = scaffoldingStock(host.getBot()).total
-        // Cible deja a portee horizontale, seule la hauteur manque : avec
-        // l echafaudage en poche, le code monte lui-meme (meme regle que
-        // needs_height plus bas ; trees/bent 93a6f04 : echec « piler peut aider »).
-        const besoin = high.denivele - MAX_REACH_UP
-        if (besoin >= 1 && besoin <= PILER_MAX && stock >= besoin && !mission.cancelled) {
-          const pile = await ACTIONS.piler(null, { hauteur: besoin })
-          if (!pile.echec) return { resultat: `cible haute ${high.cible} : ${pile.resultat}`, code: 'pilier' }
+        // Cible deja a portee horizontale, seule la hauteur manque : le code
+        // monte lui-meme (trees/bent 93a6f04 : echec « piler peut aider »).
+        // Stock court compris : piler prend la terre voisine lui-meme (trees/bent
+        // 7b01683 : refus « stock court » a 0 dirt, un tour de plan perdu).
+        // Minimum height measured with the real reach (3D distance and sight
+        // line from a virtual post), not denivele - MAX_REACH_UP: a target
+        // also 3 blocks away sideways needs more (revue Codex).
+        const poste = host.getBot()
+        const pied = poste.entity.position.floored()
+        const centre = high.position.offset(0.5, 0.5, 0.5)
+        let besoin = 0
+        let montee = null
+        const colonnes = colonnesSousHitbox(poste.entity.position, pied.y)
+        const sousHitbox = p => colonnes.some(c => c.x === p.x && c.z === p.z)
+        for (let h = 1; h <= PILER_MAX && !besoin; h += 1) {
+          // Real cells the head crosses at this level, in every column under
+          // the hitbox as piler checks them: solid or liquid stops the climb.
+          // Leaves are admitted, piler clears them.
+          const obstacle = colonnes.map(c => poste.blockAt(c.offset(0, h + 1, 0)))
+            .find(tete => !tete || estLiquide(tete.name) || (estSolide(tete) && !/_leaves$/.test(tete.name)))
+          if (obstacle !== undefined) {
+            montee = `montee bloquee ici : ${obstacle?.name ?? 'bloc inconnu'} a +${h + 1} au-dessus des pieds, ` +
+              'piler ne passerait pas : changer de poste (autre cote de la cible)'
+            break
+          }
+          // The pillar's own blocks as they would stand, and the leaves piler
+          // would have cleared along the climb, like climbAccessHint.
+          const vue = { entity: poste.entity,
+            blockAt: p => {
+              if (p.x === pied.x && p.z === pied.z && p.y >= pied.y && p.y < pied.y + h) {
+                return { name: 'dirt', position: p, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
+              }
+              const reel = poste.blockAt(p)
+              return reel && /_leaves$/.test(reel.name) && sousHitbox(p) && p.y > pied.y && p.y <= pied.y + h + 1
+                ? { name: 'air', position: p, boundingBox: 'empty', shapes: [] } : reel
+            } }
+          // Mesure depuis l'ancrage (pieds floores : case entiere), celui du
+          // pilier que piler pose reellement : un y fractionnaire (atterissage
+          // tolere a +0.25, appui sur une feuille) mettait le poste virtuel
+          // une cellule trop haut, son sol tombait sur l'air et le constat
+          // disait « aucune hauteur ne met la cible a portee » d'un poste ou
+          // piler marcherait (banc composite 755b262, cabane 45 min).
+          const posteFictif = new Vec3(poste.entity.position.x, pied.y + h, poste.entity.position.z)
+          if (blockInReach(vue, posteFictif, centre, REACH)) besoin = h
         }
+        let tentative = ''
+        // Same mission kinds as the planner's piler (skills.js): a movement goal
+        // never digs terrain nor builds a pillar on its own.
+        // An active chantier is never touched: piler may undo a column or dig
+        // dirt next to the bot without the footprint protection.
+        if (besoin >= 1 && besoin <= PILER_MAX && ['recolte', 'construction'].includes(mission.kind) &&
+          !empriseChantier() && !mission.cancelled) {
+          const pile = await ACTIONS.piler(null, { hauteur: besoin })
+          // Reach checked from the top: gathering dirt may have moved the post.
+          // En construction, findTargetBlock peut renvoyer la terre a creuser
+          // (build/tower 0b1d4a3) : une buche de l'arbre commence porte la
+          // decision, pas ce bloc-là (memes gardes que le plafond de piler).
+          const cibleVisee = pile.echec ? null : findTargetBlock()
+          const cibleBuche = cibleVisee && TREE_LOG.test(cibleVisee.name)
+          const atteinte = cibleVisee && (mission.kind !== 'construction' || cibleBuche) ? cibleVisee : null
+          const live = host.getBot()
+          if (atteinte && live?.entity && blockInReach(live, live.entity.position, atteinte.position.offset(0.5, 0.5, 0.5), REACH)) {
+            return { resultat: `cible haute ${high.cible} : ${pile.resultat}`, code: 'pilier', reobserver: true }
+          }
+          tentative = pile.echec ? ` Pilier tente : ${pile.resultat}.`
+            : ` Pilier pose (${pile.resultat}) mais aucune cible a portee depuis le sommet : reobserver.`
+        }
+        // Measured after the attempt: piler may have gathered dirt or left a partial pillar.
+        const stock = scaffoldingStock(host.getBot()).total
         const dirt = craft.countOf(host.getBot(), PILER_DIRT)
-        const next = stock > 0
+        if (!besoin && !montee) {
+          montee = `aucune hauteur de pilier (1 a ${PILER_MAX}) ne met la cible a portee d ici : ` +
+            'changer de poste (se rapprocher horizontalement)'
+        }
+        const next = montee && !besoin ? montee : stock > 0
           ? 'piler peut aider si l appui et l espace au-dessus sont libres ; la pose reste a verifier'
           : 'stock court : piler recupere lui-meme la terre manquante (pilier defait puis refait, terre prise a cote)'
         return {
           resultat: `cible haute ${high.cible} a ${high.distance} bloc(s), +${high.denivele} en hauteur, ` +
-            `${stock} blocs d echafaudage (${dirt} dirt) en inventaire : ${next}. Avancer au sol ne resout pas ce denivele.`,
+            `${stock} blocs d echafaudage (${dirt} dirt) en inventaire : ${next}. Avancer au sol ne resout pas ce denivele.${tentative}`,
           echec: true,
           code: 'cible_haute'
         }
@@ -4243,7 +4552,7 @@ function createMissionRunner (host, injected = {}) {
           const pile = await ACTIONS.piler(null, { hauteur: besoin })
           const live = host.getBot()
           if (!pile.echec && live?.entity && blockInReach(live, live.entity.position, cible.position.offset(0.5, 0.5, 0.5), REACH)) {
-            return { resultat: `${cible.name} rejoint a portee par un pilier de ${besoin} : ${pile.resultat}`, code: 'pilier' }
+            return { resultat: `${cible.name} rejoint a portee par un pilier de ${besoin} : ${pile.resultat}`, code: 'pilier', reobserver: true }
           }
           degage += ` (pilier de ${besoin} : ${pile.resultat})`
         }
@@ -4354,6 +4663,7 @@ function createMissionRunner (host, injected = {}) {
       // ses blocs ; la hauteur visee reste la meme (pilier refait plus haut).
       let hauteurVisee = hauteur
       let recupere = ''
+      let redescendu = 0
       if (available.total < hauteur && !mission.cancelled) {
         const yHaut = bot.entity.position.y
         const under = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
@@ -4361,7 +4671,7 @@ function createMissionRunner (host, injected = {}) {
           await descendScaffold(-Infinity, { pillarOnly: true })
           await collectScaffoldDrops(stepToken, { budgetMs: 15000 })
         }
-        const redescendu = Math.max(0, Math.round(yHaut - host.getBot().entity.position.y))
+        redescendu = Math.max(0, Math.round(yHaut - host.getBot().entity.position.y))
         hauteurVisee = Math.min(PILER_MAX, hauteur + redescendu)
         if (scaffoldingStock(bot).total < hauteurVisee) {
           // Bornes de temps : vu sur chat/replace-and-join, bot tombe dans un
@@ -4410,6 +4720,10 @@ function createMissionRunner (host, injected = {}) {
       const y0 = bot.entity.position.y
       let poses = 0
       let failure = null
+      let cibleAtteinte = null
+      // Climbed for a log: the pillar comes down once the tree is finished.
+      const pourArbre = featureOn('arbre_fini') &&
+        Boolean(arbreInacheve() || TREE_LOG.test(highTargetHint()?.cible ?? '') || TREE_LOG.test(findTargetBlock()?.name ?? ''))
 
       for (let niveau = 0; niveau < hauteurVisee; niveau += 1) {
         if (mission.cancelled) break
@@ -4430,7 +4744,13 @@ function createMissionRunner (host, injected = {}) {
         const poseConforme = nom => nom === stock.nom ||
           (/dirt$/.test(stock.nom) && (nom === 'grass_block' || nom === 'dirt'))
 
-        const ancre = live.entity.position.floored()
+        // Center column first; after a slide the bot may stand on a
+        // neighbour column of its hitbox (trees/tall 799e412 : pieds z 21.02,
+        // appui en z 20, « plus d appui solide sous les pieds »).
+        const centre = live.entity.position.floored()
+        const ancre = [centre, ...colonnesSousHitbox(live.entity.position, centre.y)
+          .filter(colonne => !colonne.equals(centre))]
+          .find(colonne => estSolide(live.blockAt(colonne.offset(0, -1, 0))) && !estSolide(live.blockAt(colonne))) ?? centre
         const appui = live.blockAt(ancre.offset(0, -1, 0))
         if (!estSolide(appui)) {
           failure = 'plus d appui solide sous les pieds'
@@ -4442,20 +4762,35 @@ function createMissionRunner (host, injected = {}) {
           break
         }
         // Plafond : un pilier sous un toit coince la tete du bot. Des feuilles
-        // (couronne d un arbre) se cassent au lieu d arreter la montee.
-        for (const dy of [2, 1]) {
-          const haut = live.blockAt(ancre.offset(0, dy, 0))
-          if (!haut || !/_leaves$/.test(haut.name)) continue
-          try {
-            await withTimeout(live.lookAt(haut.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
-            await withTimeout(live.dig(haut), 6000, 'creusage trop long')
-            mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
-          } catch (_) {}
+        // (couronne d un arbre) se cassent au lieu d arreter la montee. Toutes
+        // les colonnes sous la hitbox comptent : decentre, la tete touche la
+        // colonne voisine (trees/tall 9e079e5 : z 19.18).
+        const colonnes = colonnesSousHitbox(live.entity.position, ancre.y)
+        for (const colonne of colonnes) {
+          for (const dy of [2, 1]) {
+            const haut = live.blockAt(colonne.offset(0, dy, 0))
+            if (!haut || !/_leaves$/.test(haut.name)) continue
+            try {
+              await withTimeout(live.lookAt(haut.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+              await withTimeout(live.dig(haut), 6000, 'creusage trop long')
+              mission.leavesCleared = (mission.leavesCleared ?? 0) + 1
+            } catch (_) {}
+          }
         }
-        const dessus1 = live.blockAt(ancre.offset(0, 1, 0))
-        const dessus2 = live.blockAt(ancre.offset(0, 2, 0))
-        if ((dessus1 && estSolide(dessus1)) || (dessus2 && estSolide(dessus2))) {
-          failure = 'plafond au-dessus : impossible de monter ici'
+        if (colonnes.some(colonne => [1, 2].some(dy => estSolide(live.blockAt(colonne.offset(0, dy, 0)))))) {
+          // Often the trunk itself (trees/tall 9e079e5 : buche voisine au-dessus
+          // de la tete, « saut trop bas » au niveau 5) : if the target is
+          // breakable from here, the climb is done, same rule as the preflight.
+          // En construction aussi : findTargetBlock peut y renvoyer la terre a
+          // creuser (build/tower 0b1d4a3), on n'accepte donc que la buche de
+          // l'arbre commence (banc composite bdda929 : plafond au tronc puis
+          // echafaudage demonte, la cible a +4 jamais rejoinie ni coupe).
+          const cibleVisee = poses > 0 && !params.interne ? findTargetBlock() : null
+          const cibleBuche = cibleVisee && TREE_LOG.test(cibleVisee.name)
+          if (cibleVisee && (mission?.kind !== 'construction' || cibleBuche) &&
+            blockInReach(live, live.entity.position, cibleVisee.position.offset(0.5, 0.5, 0.5), REACH)) {
+            cibleAtteinte = cibleVisee.name
+          } else failure = 'plafond au-dessus : impossible de monter ici'
           break
         }
 
@@ -4547,8 +4882,15 @@ function createMissionRunner (host, injected = {}) {
           break
         }
         poses += 1
-        const landed = live.entity?.onGround && Math.abs(live.entity.position.y - (ancre.y + 1)) <= 0.25 &&
-          Math.floor(live.entity.position.x) === ancre.x && Math.floor(live.entity.position.z) === ancre.z
+        if (pourArbre) (mission.echafaudagePose ??= []).push(ancre.clone())
+        // Supported at the new height by any solid block under the hitbox: the
+        // bot may slide from the placed block onto a neighbour of the same
+        // height (trees/bent 9f907a6 : pieds 418.10 201 17.50 sur la buche
+        // voisine, bloc pose en 417 200 17), the +1 is real.
+        const pieds = live.entity?.position
+        const landed = live.entity?.onGround && pieds && Math.abs(pieds.y - (ancre.y + 1)) <= 0.25 &&
+          Math.hypot(pieds.x - (ancre.x + 0.5), pieds.z - (ancre.z + 0.5)) <= 1.5 &&
+          colonnesSousHitbox(pieds, ancre.y).some(colonne => estSolide(live.blockAt(colonne)))
         if (!landed) {
           // Where the feet are, for the next bench to tell a slide off the
           // block from a hang in the air (trees/pillar 2da82d4, three times).
@@ -4568,11 +4910,24 @@ function createMissionRunner (host, injected = {}) {
       if (poses === 0) {
         return { resultat: `pilier impossible : ${failure ?? 'aucun bloc pose'}`, echec: true }
       }
+      // Pillar undone then rebuilt: the request is a net gain over the start.
+      // Short of it, a failure that names the remedy, not « reobserver »
+      // (trees/tall c6dd16e : cinq piler(3) de suite rendus « 2/2 », sans gain).
+      if (!failure && !cibleAtteinte && redescendu && poses - redescendu < hauteur) {
+        // Same wood pattern as craft.js plank recipes.
+        const bois = craft.countOf(host.getBot(), /_log$|_wood$|_stem$|_hyphae$/)
+        const net = poses - redescendu
+        failure = `aucune terre de plus a portee, gain net ${Math.max(0, net)}/${hauteur} ` +
+          `(pilier de ${redescendu} defait puis refait a ${poses}) : ` +
+          (bois ? `fabriquer des planches (${bois} buche(s) en inventaire) pour l echafaudage` : 'prendre de la terre plus loin')
+      }
+      const complet = !failure && (poses === hauteurVisee || cibleAtteinte)
       return {
         resultat: `pilier de ${poses}/${hauteurVisee} bloc(s) (+${gain.toFixed(1)} blocs en hauteur)${recupere}${ajuste}` +
-          (failure ? `, arret : ${failure}` : ', reobserver depuis le haut'),
-        echec: poses !== hauteurVisee || Boolean(failure),
-        code: poses === hauteurVisee && !failure ? 'pilier_pose' : 'pilier_partiel',
+          (failure ? `, arret : ${failure}`
+            : cibleAtteinte ? `, arret : ${cibleAtteinte} deja a portee, casser depuis le haut` : ', reobserver depuis le haut'),
+        echec: !complet,
+        code: complet ? 'pilier_pose' : 'pilier_partiel',
         reobserver: true
       }
     },
@@ -4621,7 +4976,7 @@ function createMissionRunner (host, injected = {}) {
       const volume = forme.compiled
         ? { width: forme.compiled.width, depth: forme.compiled.depth, height: forme.compiled.height }
         : (forme.box ?? { width: dims.width, depth: dims.depth, height: dims.height })
-      const site = build.findSite(bot, { near, ...volume })
+      const site = build.findSite(bot, { near, ...volume, pied: Math.floor(host.getBot().entity.position.y + 0.01) })
 
       if (!site) {
         return { resultat: 'aucun terrain plat et degage aux alentours', echec: true }
@@ -5562,7 +5917,8 @@ function createMissionRunner (host, injected = {}) {
   // l arret tant qu il contredit les chiffres, et on renvoie le refus dans
   // l etat du tour suivant pour que le modele corrige au lieu d insister.
   //
-  // Le refus n est pas eternel : apres REFUSALS_BEFORE_YIELD, on cede. Un bot
+  // Pour les quotas ordinaires, on cede apres REFUSALS_BEFORE_YIELD.
+  // Un arbre commence reste ouvert : seuls stop et les plafonds globaux interrompent sa coupe. Un bot
   // qui ne peut plus rien faire d utile (plus un seul bloc a portee, matiere
   // introuvable) doit pouvoir rendre la main plutot que de tourner jusqu a la
   // limite de duree.
@@ -5570,6 +5926,8 @@ function createMissionRunner (host, injected = {}) {
 
   function finishAllowed (state) {
     if (mission.pendingJoin) return { ok: false, why: 'le demandeur n a pas ete rejoint : retente rejoindre_demandeur ou signale l echec' }
+    const arbre = arbreInacheve()
+    if (arbre) return { ok: false, why: `arbre commence : il reste ${arbre.length} buche(s) debout, les couper toutes avant de finir (piler si trop haut)` }
     // Livraison (S6) : jugee sur le prouve et les obligations, jamais sur les
     // compteurs broken/collected ni le quota ressource. L incertain, l absence
     // de plafond et le manque de prouve refusent terminer/fini ; satisfaits,
@@ -5754,12 +6112,12 @@ function createMissionRunner (host, injected = {}) {
         const frais = buildState()
         const allowed = finishAllowed(frais)
 
-        if (!allowed.ok && mission.finishRefused >= REFUSALS_BEFORE_YIELD) {
+        if (!allowed.ok && !arbreInacheve() && mission.finishRefused >= REFUSALS_BEFORE_YIELD) {
           finish('failed', allowed.why)
           return
         }
 
-        if (!allowed.ok && mission.finishRefused < REFUSALS_BEFORE_YIELD) {
+        if (!allowed.ok && (arbreInacheve() || mission.finishRefused < REFUSALS_BEFORE_YIELD)) {
           mission.finishRefused += 1
           // Reinjecte au tour suivant : le modele voit pourquoi son arret a ete
           // refuse, au lieu de reproposer le meme.
@@ -5830,6 +6188,7 @@ function createMissionRunner (host, injected = {}) {
                 async () => {
                   const value = await run(decision.scale, decision.choices)
                   await reflexPass(token, decision.step)
+                  await demonterEchafaudage(token)
                   return value
                 })
             } catch (refus) {
@@ -5855,6 +6214,7 @@ function createMissionRunner (host, injected = {}) {
           // l executeur est exige (index.runPhysical fail-closed).
           outcome = await run(decision.scale, decision.choices)
           await reflexPass(null, decision.step)
+          await demonterEchafaudage(null)
         }
       } catch (err) {
         outcome = { resultat: `erreur : ${err.message}`, echec: true }
@@ -5904,7 +6264,8 @@ function createMissionRunner (host, injected = {}) {
       // Quantite explicite atteinte en inventaire (recolte simple) : clore.
       // Vu sur gather/flowers : 3 fleurs en inventaire des 67 s, le modele
       // perdait le compte et cherchait encore des fleurs jusqu au plafond.
-      if (mission.kind === 'recolte' && mission.quotaExplicite && !mission.wholeTree &&
+      const arbreOuvert = Boolean(arbreInacheve())
+      if (mission.kind === 'recolte' && mission.quotaExplicite && !mission.wholeTree && !arbreOuvert &&
         !mission.fabricationCible && collected() >= mission.quota) {
         finish('done', `quantite demandee en inventaire (${collected()}/${mission.quota})`)
         return
@@ -5913,7 +6274,7 @@ function createMissionRunner (host, injected = {}) {
       // Sinon le plan anticipe, calcule avant le craft, passait encore
       // (craft/door cabbdfcd : 3 portes faites, puis « planches » sans buche,
       // echec et 10 s de plus). Avec un don demande, le modele livre d abord.
-      if (mission.kind === 'recolte' && mission.fabricationCible && !livraisonDemandee(mission) &&
+      if (mission.kind === 'recolte' && mission.fabricationCible && !livraisonDemandee(mission) && !arbreOuvert &&
         fabricationProduced() >= (mission.fabricationQuantite ?? 1)) {
         finish('done', `${mission.fabricationCible} fabrique(s) en inventaire (${fabricationProduced()}/${mission.fabricationQuantite ?? 1})`)
         return
@@ -5928,13 +6289,13 @@ function createMissionRunner (host, injected = {}) {
       // compte pas les blocs (vu : arche 11/11, 74 appels jusqu au plafond).
       if (mission.kind === 'construction' && mission.plan) {
         const chantier = buildProgress()
-        if (chantier.total > 0 && chantier.left === 0 && (!mission.wantsDoor || doorPlaced())) {
+        if (chantier.total > 0 && chantier.left === 0 && !arbreOuvert && (!mission.wantsDoor || doorPlaced())) {
           finish('done', `chantier complet (${chantier.done}/${chantier.total} blocs${mission.wantsDoor ? ', porte posee' : ''})`)
           return
         }
       }
 
-      if (mission.wholeTree && treeStatus()?.termine) {
+      if (mission.wholeTree && !arbreOuvert && treeStatus()?.termine) {
         // La demande vient de l objectif (revision) ou d une precision
         // ajoutee en cours de route (vu : « et rapporte moi le bois » classe
         // en precision, objectif inchange, bois jamais rapporte).
@@ -5953,7 +6314,8 @@ function createMissionRunner (host, injected = {}) {
 
       // C est le modele qui decide quand la mission est finie : `terminer` la
       // clot, sauf quand un critere chiffre (quantite explicite, arbre
-      // demande) la contredit : refus reinjecte, 3 au plus, comme pour `fini`
+      // demande) la contredit : refus reinjecte, comme pour `fini` ; un arbre
+      // commence ne peut pas etre clos par le plafond de refus
       // (docs/journal.md, piege 17).
       if (outcome.fin) {
         const allowed = finishAllowed(buildState())
@@ -5961,7 +6323,7 @@ function createMissionRunner (host, injected = {}) {
         // fini : meme refus reinjecte que pour `fini` (3 au plus), au lieu de
         // clore la mission en echec (chat/replace-and-join 73b4876 : plan
         // « ramasser -> terminer » avec 2 buches encore sur l arbre).
-        if (!allowed.ok && (mission.quotaExplicite || mission.wholeTree) && mission.finishRefused < REFUSALS_BEFORE_YIELD) {
+        if (!allowed.ok && (arbreOuvert || ((mission.quotaExplicite || mission.wholeTree) && mission.finishRefused < REFUSALS_BEFORE_YIELD))) {
           mission.finishRefused += 1
           mission.refusalNote = allowed.why
           mission.queue = []
@@ -6332,6 +6694,8 @@ function createMissionRunner (host, injected = {}) {
       wholeTree: kind === 'recolte' && resource === 'bois' && !fabricationCible &&
         build.parseQuota(sansCoordonnees(text), { allowBlockUnits: true }) === null && WHOLE_TREE_TEXT.test(text),
       tree: null,
+      // A revision keeps the tree in progress (player rule, see arbreInacheve).
+      ...suiviArbre(opts.revisionOf),
       // Fabrication generique : cible validee registre + quantite codee,
       // persistee et servie dans buildState (consigne.fabrication_cible).
       // Legacy recolte sans cible : null, chemin inchange.
@@ -6694,6 +7058,7 @@ function createMissionRunner (host, injected = {}) {
       objectiveMode: obj.mode === 'permanent' ? 'permanent' : 'temporary',
       maintenance: null,
       rehydrated: true,
+      ...suiviArbre(desc),
       baseUnits: Math.max(0, Number(prog.unites_recoltees ?? prog.faits ?? 0) || 0),
       state: 'running',
       cancelled: false,
@@ -6850,6 +7215,7 @@ function createMissionRunner (host, injected = {}) {
       dirt_secondaire: mission.dirtSecondaire ?? 0,
       feuilles_degagees: mission.leavesCleared ?? 0,
       arbre_entier: mission.wholeTree ? (treeStatus() ?? { commence: false }) : null,
+      echafaudage_laisse: mission.echafaudageLaisse ?? 0,
       // Grand livre des dons (S6) : tente/retire/prouve/incertain par engagement.
       livraison: deliveryLedgersFor(mission).map(deliveryLedgerView),
       fabrication_cible: mission.fabricationCible ?? null,

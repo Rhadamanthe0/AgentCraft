@@ -31,6 +31,14 @@ jamais une cible a optimiser (pas de « benchmaxing ») :
   banc (`vary`, ci/trees.py). Un niveau qui ne passe qu avec un correctif
   dedie signale un manque de generalite a corriger ailleurs.
 
+### Arbre commence, arbre fini (2026-09-29)
+
+Le bot ne laisse jamais un arbre partiellement coupe : des la premiere buche
+coupee, quelle que soit la mission (quantite, fabrication, chantier), cet
+arbre est la seule cible bois jusqu a sa derniere buche, et aucune cloture ne
+passe avant. Puis le bot retire les piliers montes pour lui. Interrupteur
+`arbre_fini` ; comportement detaille dans le [README](README.md#monter-en-pilier-piler-sans-tricher).
+
 ### Tout nouveau mode se mesure en A/B
 
 Interrupteur `featureOn('<mode>')` (mission.js, `POST /api/features`,
@@ -42,7 +50,7 @@ mode qui n apporte rien de mesurable n est pas garde** ; a resultats egaux, on
 garde la version la plus simple.
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
-`prompt_type`, `reflexes`, `relance_plan` (tous allumes par defaut).
+`prompt_type`, `reflexes`, `relance_plan`, `arbre_fini` (tous allumes par defaut).
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
@@ -142,7 +150,7 @@ Connaissances calculees par le code, servies au modele dans l etat :
   `harvestResource()` vise la premiere recolte du plan en vue ;
 - **besoins d un chantier** (`state.besoins`) : blocs restants, planches,
   porte, etabli, buches a recolter d un coup ;
-- **arbre entier** (`arbre_demande`), `objets_au_sol` (nom, nombre, hauteur
+- **arbre entier** (`arbre_demande`), arbre commence a finir (`arbre_en_cours`), `objets_au_sol` (nom, nombre, hauteur
   relative), `outil_necessaire` (outil minimal nomme), indices de navigation.
 
 Modeles (un par usage, `bot/model-chain.js`, banc : `ci/models.env`) :

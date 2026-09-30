@@ -117,7 +117,9 @@ buildState() ──► decideFromPlan() ──► action (slot physique) ──�
 - **Reflexes** (`reflexPass`, A/B `reflexes`) entre deux etapes, sans modele.
 - **Fin** : `terminer` ou `fini` du modele, honores seulement si
   `finishAllowed` (chiffres) l accepte ; clotures mesurees par le code
-  (quantite explicite atteinte, arbre entier fini, chantier complet).
+  (quantite explicite atteinte, arbre entier fini, chantier complet),
+  jamais tant qu un arbre commence a des buches debout ; ses piliers sont
+  defaits avant.
   Filets : `MISSION_MAX_STEPS`, `MISSION_MAX_DURATION_MS`, echecs d affilee.
 - **Blocage** (`detectStuck` : meme action et meme resultat 3 fois, 3 echecs,
   ou aucun progres depuis `MISSION_NO_PROGRESS_STEPS`) : dit une fois dans le

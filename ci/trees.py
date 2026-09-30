@@ -85,6 +85,8 @@ def base_levels():
             'logs': _logs(*trunk6),
             # Two blocks are required; a higher pillar is wasteful but reported, not failed.
             'rules': {'leaves_broken_max': 0, 'standing_y_min': 201.9},
+            # A/B: the pillar stays up once the tree is cut (dirt_above_floor).
+            'variants': [sans('arbre_fini')],
         },
         {
             'name': 'trees/bent',
@@ -515,6 +517,20 @@ def base_levels():
             'logs': _logs(*[(TX + dx, 200 + i, TZ + dz) for i in range(4) for dx in (0, 1) for dz in (0, 1)]),
             # Second A/B: plan calls without the relaunch after 10 s of silence.
             'rules': {}, 'variants': [sans('recolter'), sans('relance_plan')],
+        },
+        # Player report: a snowy spruce whose leaf skirts reach the ground,
+        # left half cut for other trees. Informative until three green runs.
+        {
+            'name': 'trees/skirted',
+            'about': 'Tronc de 9 buches dans des jupes de feuilles jusqu au sol (Y+1 a Y+7), neige dessus : tout couper, pilier retire.',
+            'informative': True,
+            'terrain': [(TX-3, 201, TZ-3, TX+3, 201, TZ+3, LEAVES), (TX-2, 203, TZ-2, TX+2, 203, TZ+2, LEAVES),
+                        (TX-1, 205, TZ-1, TX+1, 205, TZ+1, LEAVES), (TX-1, 207, TZ-1, TX+1, 207, TZ+1, LEAVES),
+                        (TX-3, 202, TZ-3, TX+3, 202, TZ+3, 'snow'), (TX-2, 204, TZ-2, TX+2, 204, TZ+2, 'snow')],
+            'leaves': [(TX, 209, TZ, TX, 209, TZ)],
+            'logs': _logs(*[(TX, 200 + i, TZ) for i in range(9)]),
+            'rules': {'dirt_placed_max': 0},
+            'variants': [sans('arbre_fini')],
         },
         {
             'name': 'terrain/moat',

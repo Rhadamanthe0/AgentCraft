@@ -563,23 +563,32 @@ function siteFits (bot, origin, width, depth, height) {
 }
 
 // Cherche un terrain autour du repere, du plus proche au plus eloigne.
-function findSite (bot, { near, width, depth, height }) {
+// `pied` : hauteur des pieds du bot. Un terrain a plus d un bloc au-dessus
+// ne se rejoint pas a pied : il ne passe qu en dernier recours, le rayon
+// restant le premier critere pour tous les autres. Un repere en hauteur
+// (rocher) placait le chantier sur son sommet, 3 blocs au-dessus du bot, et
+// aucun poste de la deuxieme rangee n etait joignable (stone-hut f331d6f :
+// 956 s, 9/24 blocs).
+function findSite (bot, { near, width, depth, height, pied = null }) {
   const base = groundLevel(bot, Math.floor(near.x), Math.floor(near.z), Math.floor(near.y)) ??
     Math.floor(near.y)
+  const passes = Number.isFinite(pied) ? [level => level <= pied + 1, () => true] : [() => true]
 
-  for (let radius = SITE_MIN_DISTANCE; radius <= SITE_MAX_DISTANCE; radius += 1) {
-    for (let angle = 0; angle < 16; angle += 1) {
-      const theta = (angle / 16) * Math.PI * 2
-      const cx = Math.floor(near.x + Math.cos(theta) * radius)
-      const cz = Math.floor(near.z + Math.sin(theta) * radius)
+  for (const admis of passes) {
+    for (let radius = SITE_MIN_DISTANCE; radius <= SITE_MAX_DISTANCE; radius += 1) {
+      for (let angle = 0; angle < 16; angle += 1) {
+        const theta = (angle / 16) * Math.PI * 2
+        const cx = Math.floor(near.x + Math.cos(theta) * radius)
+        const cz = Math.floor(near.z + Math.sin(theta) * radius)
 
-      // (cx, cz) est le coin, pas le centre : la maison s ecarte ainsi du tronc.
-      const level = groundLevel(bot, cx, cz, base)
-      if (level === null) continue
+        // (cx, cz) est le coin, pas le centre : la maison s ecarte ainsi du tronc.
+        const level = groundLevel(bot, cx, cz, base)
+        if (level === null || !admis(level)) continue
 
-      const candidate = new Vec3(cx, level, cz)
-      if (siteFits(bot, candidate, width, depth, height)) {
-        return { origin: candidate, distance: radius }
+        const candidate = new Vec3(cx, level, cz)
+        if (siteFits(bot, candidate, width, depth, height)) {
+          return { origin: candidate, distance: radius }
+        }
       }
     }
   }

@@ -39,7 +39,7 @@ async function finished (r) {
   return r.status()
 }
 
-function highTargetFixture ({ stock = 2, low = false, high = true, kind = 'recolte', navigationResult = null } = {}) {
+function highTargetFixture ({ stock = 2, low = false, high = true, kind = 'recolte', navigationResult = null, feetY = 65 } = {}) {
   planner.readBrief = async () => ({ ...brief, kind, resource: 'bois' })
   let plans = 0
   planner.plan = async () => ({ ms: 0, seconds: 1, rejected: [], done: 0, finished: false,
@@ -48,7 +48,7 @@ function highTargetFixture ({ stock = 2, low = false, high = true, kind = 'recol
   const controls = []
   const navigation = []
   let looks = 0
-  const bot = { entity: { position: new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
+  const bot = { entity: { position: new Vec3(0.5, feetY, 0.5), yaw: 0, pitch: 0, onGround: true },
     registry: { blocksByName: { oak_log: { id: 1 } }, itemsByName: {} },
     inventory: { items: () => stock ? [{ name: 'dirt', count: stock }] : [] }, players: {}, entities: {},
     findBlocks: ({ matching }) => matching.includes(1) ? positions : [], findBlock: () => null,
@@ -136,6 +136,111 @@ test('cible seulement en hauteur : pilier tente avec stock, sinon refus sans con
     assert.deepEqual(f.navigation, [])
     assert.deepEqual(f.bot.entity.position, new Vec3(0.5, 65, 0.5))
   }
+})
+
+// Stock vide mais terre a cote : piler va chercher la terre lui-meme au lieu
+// d un refus « stock court » qui coutait un tour de planificateur (trees/bent
+// 7b01683, trees/tall 122bb4b).
+test('cible seulement en hauteur, stock vide : piler va chercher la terre voisine', async () => {
+  const f = highTargetFixture({ stock: 0 })
+  const dirt = new Vec3(2, 65, 0)
+  f.bot.registry.blocksByName.dirt = { id: 2 }
+  const originalFind = f.bot.findBlocks
+  const originalAt = f.bot.blockAt
+  f.bot.findBlocks = options => options.matching.includes(2) ? [dirt] : originalFind(options)
+  f.bot.blockAt = position => position.equals(dirt)
+    ? { name: 'dirt', position, shapes: [[0, 0, 0, 1, 1, 1]] } : originalAt(position)
+  const digs = []
+  f.bot.lookAt = async () => {}
+  f.bot.dig = async block => { digs.push(block.name); dug = true }
+  let dug = false
+  f.bot.inventory.items = () => dug ? [{ name: 'dirt', count: 1 }] : []
+  await f.r.start('ramasse du bois', 'human')
+  // A successful dig adds piler's pickup wait: poll longer than finished().
+  for (let i = 0; i < 2000 && f.r.isRunning(); i++) await new Promise(resolve => setTimeout(resolve, 5))
+  const state = await finished(f.r)
+  assert.ok(digs.includes('dirt'), `terre voisine visee par piler (${digs.join(', ') || 'aucun coup'})`)
+  const step = state.historique.find(entry => entry.action === 'avancer')
+  assert.equal(step.code, 'cible_haute', 'pose impossible, le constat chiffre reste')
+  // Stock measured after the attempt, and piler's own failure kept.
+  assert.match(step.resultat, /1 blocs d echafaudage \(1 dirt\)/)
+  assert.match(step.resultat, /Pilier tente : /)
+})
+
+// Cible haute enfermee (aucune face visible) : ni pilier ni terre prise pour
+// elle, meme regle de vue que findTargetBlock.
+test('cible haute enfermee : aucun pilier automatique', async () => {
+  const f = highTargetFixture({ stock: 2 })
+  const log = new Vec3(0, 70, 0)
+  const originalAt = f.bot.blockAt
+  f.bot.blockAt = position => [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
+    .some(([x, y, z]) => position.equals(log.offset(x, y, z)))
+    ? { name: 'stone', position, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] } : originalAt(position)
+  let digs = 0
+  f.bot.dig = async () => { digs++; throw new Error('no automatic digging') }
+  await f.r.start('ramasse du bois', 'human')
+  const state = await finished(f.r)
+  const step = state.historique.find(entry => entry.action === 'avancer')
+  assert.notEqual(step.code, 'cible_haute')
+  assert.doesNotMatch(step.resultat, /cible haute|pilier/i)
+  assert.equal(digs, 0)
+})
+
+// 32 correspondances enfouies plus proches (pierre sous le sol) ne remplissent
+// pas le plafond de resultats : le filtre de vue s applique pendant la recherche.
+test('cible haute exposee trouvee malgre 32 correspondances enfouies plus proches', async () => {
+  const f = highTargetFixture({ stock: 2 })
+  const buried = Array.from({ length: 32 }, (_, i) => new Vec3(i % 8 - 4, 60, Math.floor(i / 8) - 2))
+  const isBuried = p => buried.some(b => b.equals(p))
+  const nearBuried = p => p.y >= 59 && p.y <= 61 && Math.abs(p.x) <= 5 && Math.abs(p.z) <= 5
+  const originalAt = f.bot.blockAt
+  f.bot.blockAt = position => isBuried(position) ? { name: 'oak_log', position, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
+    : nearBuried(position) ? { name: 'stone', position, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] } : originalAt(position)
+  f.bot.findBlocks = ({ matching, useExtraInfo, count }) => {
+    if (!matching.includes(1)) return []
+    const all = [...buried, new Vec3(0, 70, 0)]
+    return (typeof useExtraInfo === 'function' ? all.filter(p => useExtraInfo(f.bot.blockAt(p))) : all).slice(0, count)
+  }
+  await f.r.start('ramasse du bois', 'human')
+  const state = await finished(f.r)
+  const step = state.historique.find(entry => entry.action === 'avancer')
+  assert.equal(step.code, 'cible_haute')
+  assert.match(step.resultat, /\+5/)
+})
+
+// piler est reserve a recolte et construction (skills.js) : un deplacement ne
+// creuse ni ne monte de lui-meme vers une cible haute.
+test('deplacement avec cible haute : aucun pilier automatique', async () => {
+  const f = highTargetFixture({ stock: 2, kind: 'deplacement' })
+  let digs = 0
+  f.bot.dig = async () => { digs++; throw new Error('no automatic digging') }
+  await f.r.start('va a cote de cet arbre', 'human')
+  const state = await finished(f.r)
+  const step = state.historique.find(entry => entry.action === 'avancer')
+  assert.doesNotMatch(step.resultat, /Pilier tente/)
+  assert.equal(f.controls.some(c => c.control === 'jump'), false)
+  assert.equal(digs, 0)
+})
+
+// Pieds en y fractionnaire (atterrissage tolere, appui sur une feuille) : la
+// hauteur de pilier utile se mesure depuis l'ancrage floored. Depuis un y
+// brut, le poste virtuel tombe une cellule trop haut, son sol sur l'air, et le
+// constat claimait « aucune hauteur de pilier » pour une cible evidente
+// (banc composite 755b262 : cabane bouclee 45 min sur ce message).
+test('pieds y 65.15 : pilier automatique mesure depuis l ancrage', async t => {
+  const f = highTargetFixture({ stock: 2, feetY: 65.15 })
+  const originalFind = f.bot.findBlocks
+  const originalAt = f.bot.blockAt
+  f.bot.blockAt = position => position.equals(new Vec3(3, 69, 0))
+    ? { name: 'oak_log', position, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
+    : originalAt(position)
+  f.bot.findBlocks = options => options.matching?.includes?.(1) ? [new Vec3(3, 69, 0)] : originalFind(options)
+  await f.r.start('ramasse du bois', 'human')
+  const state = await finished(f.r)
+  const step = state.historique.find(entry => entry.action === 'avancer')
+  assert.equal(step.code, 'cible_haute')
+  assert.match(step.resultat, /\+4/)
+  assert.match(step.resultat, /Pilier tente/)
 })
 
 test('cible basse prioritaire sur cible haute : approche normale preservee', async () => {
