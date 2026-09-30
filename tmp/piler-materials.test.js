@@ -10,7 +10,7 @@ const craft = require('../bot/craft')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null }) {
+async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null }) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
@@ -62,6 +62,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
       }
     },
     dig: async block => {
+      if (digFailure?.(block)) throw new Error('temporary dig failure')
       blocks.delete(`${block.position.x},${block.position.y},${block.position.z}`)
       const owned = stock.find(item => item.name === block.name)
       if (owned) owned.count++
@@ -81,14 +82,16 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
       if (retryError) throw new Error('late server error')
     } }
   let stops = 0
+  const snapshots = []
   const runner = createMissionRunner({ getBot: () => bot, isReady: () => true, inLiquid: () => false,
-    stopPathfinding () { stops++ }, chat: text => messages.push(text) })
+    stopPathfinding () { stops++ }, chat: text => messages.push(text) },
+  { objectives: { recordProgress: value => snapshots.push(structuredClone(value)) } })
   t.after(() => runner.stop('test cleanup'))
   await runner.start(text, 'human')
   for (let i = 0; i < 600 && runner.isRunning(); i++) { t.mock.timers.tick(50); await flush() }
   assert.equal(runner.isRunning(), false)
   const status = runner.status()
-  return { status, blocks, step: status.historique.find(step => step.action === first), placements, commands, states, messages, staleAborted, stopsAtPlans }
+  return { status, snapshots, blocks, step: status.historique.find(step => step.action === first), placements, commands, states, messages, staleAborted, stopsAtPlans }
 }
 
 test('stock1 hauteur6 : refus integral avant equipement saut ou pose', async t => {
@@ -321,8 +324,9 @@ async function arbreCommence (t, arbreFini) {
 
 test('arbre commence : pas de fin ni d autre arbre tant qu il reste des buches', async t => {
   const f = await arbreCommence(t, true)
-  assert.equal(f.status.etat, 'failed')
-  assert.match(f.status.raison, /arbre commence : il reste 6 buche\(s\) debout/)
+  assert.equal(f.status.etat, 'stopped')
+  assert.match(f.status.raison, /limite de 60 etapes/, 'seule la limite globale arrete cette mission, pas les quatre demandes de fin')
+  assert.ok(f.states.length > 7)
   const apres = f.states[f.states.length - 1]
   assert.equal(JSON.stringify(apres).includes('"buches_debout":6'), true)
   assert.notEqual(apres.environnement.distance_du_bloc_cible, 4.5, 'l arbre voisin n est pas la cible')
@@ -352,4 +356,40 @@ test('arbre fini puis pilier pour le suivant : pilier garde', async t => {
   assert.equal(f.blocks.has('1,65,0'), false, 'premier arbre coupe')
   assert.deepEqual(f.placements, Array(6).fill('dirt'))
   assert.equal([65, 66, 67, 68, 69, 70].filter(y => f.blocks.has(`0,${y},0`)).length, 6, 'pilier garde')
+})
+
+
+test('arbre commence : une buche deconnectee dans la meme colonne reste intacte', async t => {
+  const f = await simulate(t, { inventory: [], first: 'casser', text: 'coupe 1 buche',
+    logY: 65, allLogs: true, extra: { '1,70,0': 'oak_log' } })
+  assert.equal(f.status.etat, 'done')
+  assert.equal(f.blocks.has('1,70,0'), true)
+  assert.equal(f.status.blocs_casses, 1)
+})
+
+test('fin arbre dans une rafale : le voisin attend le demontage', async t => {
+  const f = await simulate(t, { inventory: [], first: 'casser', text: 'coupe 1 buche',
+    logY: 65, allLogs: true, extra: { '3,65,0': 'oak_log' } })
+  assert.equal(f.status.blocs_casses, 1)
+  assert.equal(f.blocks.has('3,65,0'), true)
+})
+
+test('echafaudage : une panne de creusage temporaire est retentee', async t => {
+  let refusals = 0
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 6 }],
+    queue: [['piler'], ['casser'], ['dire']],
+    digFailure: block => block.name === 'dirt' && refusals++ < 2 })
+  assert.equal(f.status.etat, 'done')
+  assert.equal(f.status.echafaudage_laisse, 0)
+  assert.equal([65, 66, 67, 68, 69, 70].filter(y => f.blocks.has(`0,${y},0`)).length, 0)
+})
+
+
+test('echafaudage : un echec durable conserve les cellules dans le descripteur', async t => {
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 6 }],
+    queue: [['piler'], ['casser']], digFailure: block => block.name === 'dirt' })
+  assert.equal(f.status.echafaudage_laisse, 6)
+  assert.equal(f.snapshots.at(-1).descripteur.echafaudageEnAttente.length, 6)
+  assert.equal(f.snapshots.at(-1).descripteur.arbreEnCours, null)
+  assert.equal(f.snapshots.at(-1).descripteur.echafaudagePose.length, 0)
 })

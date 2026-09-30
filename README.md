@@ -460,8 +460,11 @@ coupee fixe l'arbre (buches reliees au tronc). Tant qu'il en reste une debout,
 au-dela de la quantite demandee, `finishAllowed()` refuse la fin et l'etat
 porte `arbre_en_cours` (buches debout). Une fois l'arbre fini, les piliers
 montes pour lui sont defaits : celui sous les pieds en redescendant, les
-autres depuis le sol ; un bloc hors de portee est laisse et compte
-(`echafaudage_laisse`).
+autres depuis le sol ; les blocs non retires restent memorises et sont retentes au plus trois fois
+par mission, puis comptes (`echafaudage_laisse`). Leurs coordonnees sont
+conservees pour une reprise apres redemarrage. Une demande de fin du modele
+reste refusee tant que l arbre est incomplet ; les limites globales de duree
+et l arret explicite du joueur restent applicables.
 
 ### Hache opportuniste, craft unitaire et alias
 
