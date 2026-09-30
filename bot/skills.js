@@ -634,7 +634,13 @@ const ACTIONS = {
     summary: 'marcher jusqu au joueur qui a parle',
     scale: 'sans effet',
     secondes: 2.5,
-    intent: "Aller jusqu au joueur qui a donne la consigne, quand la demande parle de « moi », de « me rejoindre » ou d un aller-retour vers lui. Le code mesure ou il est, tu ne donnes aucune coordonnee"
+    intent: "Aller jusqu au joueur qui a donne la consigne, quand la demande parle de « moi », de « me rejoindre » ou d un aller-retour vers lui. Pour une remise, indique objet sur ce trajet, meme si donner vient dans un autre plan. Le code mesure ou il est, tu ne donnes aucune coordonnee",
+    params: {
+      objet: {
+        json: { kind: 'text', max: 40 },
+        question: 'Quel objet remettre apres ce trajet (nom Minecraft, optionnel ; omettre pour simplement rejoindre) ?'
+      }
+    }
   },
 
   tourner_vers_demandeur: {

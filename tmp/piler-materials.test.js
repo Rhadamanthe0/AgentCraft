@@ -5,13 +5,14 @@ process.env.MISSION_QUEUE_TICK_MS = '1'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { Vec3 } = require('vec3')
+const { EventEmitter } = require('node:events')
 const planner = require('../bot/planner')
 const craft = require('../bot/craft')
 const delivery = require('../bot/delivery')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null }) {
+async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null, entities = {}, loaded = () => true, resume = null, reviseAfterCut = false, context = null, collectImmediately = true }) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
@@ -40,18 +41,18 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
   const placements = []
   const commands = []
   const messages = []
-  const bot = { entity: { position: start ?? new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
+  const bot = { entity: { id: 42, position: start ?? new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
     registry: { blocksByName: { oak_log: { id: 1 }, dirt: { id: 2, boundingBox: 'block' },
       coarse_dirt: { id: 3, boundingBox: 'block' }, oak_planks: { id: 4, boundingBox: 'block' },
       birch_planks: { id: 5, boundingBox: 'block' }, fake_planks: { id: 6, boundingBox: 'empty' } }, itemsByName: {} },
-    inventory: { items: () => stock.filter(item => item.count > 0) }, players: {}, entities: {},
+    inventory: { items: () => stock.filter(item => item.count > 0) }, players: {}, entities: { ...entities },
     // allLogs: every oak_log of the map, nearest first; else the main log only.
     findBlocks: ({ matching }) => !matching.includes(1) ? []
       : !allLogs ? (blocks.get(`${log.x},${log.y},${log.z}`) === 'oak_log' ? [log] : [])
       : [...blocks].filter(([, name]) => name === 'oak_log').map(([key]) => new Vec3(...key.split(',').map(Number)))
         .sort((a, b) => a.distanceTo(bot.entity.position) - b.distanceTo(bot.entity.position)),
     findBlock: () => null,
-    blockAt: p => { const position = p.floored(); const name = blocks.get(`${position.x},${position.y},${position.z}`) ?? 'air'
+    blockAt: p => { const position = p.floored(); if (!loaded(position)) return null; const name = blocks.get(`${position.x},${position.y},${position.z}`) ?? 'air'
       return { name, position, boundingBox: name === 'air' ? 'empty' : 'block', shapes: name === 'air' ? [] : [[0, 0, 0, 1, 1, 1]] } },
     clearControlStates () {},
     setControlState (control, value) {
@@ -67,8 +68,12 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
       if (digFailure?.(block)) throw new Error('temporary dig failure')
       blocks.delete(`${block.position.x},${block.position.y},${block.position.z}`)
       const owned = stock.find(item => item.name === block.name)
-      if (owned) owned.count++
-      else stock.push({ name: block.name, count: 1 })
+      if (collectImmediately) {
+        if (owned) owned.count++
+        else stock.push({ name: block.name, count: 1 })
+        bot.emit('playerCollect', bot.entity, { name: 'item', uuid: `pickup-${block.position}`,
+          position: block.position.offset(0.5, 0.5, 0.5), getDroppedItem: () => ({ name: block.name, count: 1 }) })
+      }
       // Digging under the feet drops the bot into the hole.
       if (block.position.y < bot.entity.position.y) bot.entity.position.y = block.position.y
       onDig?.(block, bot)
@@ -84,19 +89,33 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
       if (loseStock) stock.forEach(item => { item.count = 0 })
       if (retryError) throw new Error('late server error')
     } }
+  Object.assign(bot, new EventEmitter())
+  Object.setPrototypeOf(bot, EventEmitter.prototype)
   let stops = 0
   const snapshots = []
   const runner = createMissionRunner({ getBot: () => bot, isReady: () => true, inLiquid: () => false,
     stopPathfinding () { stops++ }, chat: text => messages.push(text),
     navigateToPosition: navigate ? (position, options) => navigate(position, options, bot) : undefined,
     navigateToPlayer: navigate ? (name, options) => navigate(name, options, bot) : undefined },
-  { objectives: { recordProgress: value => snapshots.push(structuredClone(value)) } })
+  { objectives: { recordProgress: value => snapshots.push(structuredClone(value)), resume () {} } })
   t.after(() => runner.stop('test cleanup'))
-  await runner.start(text, 'human')
-  for (let i = 0; i < 600 && runner.isRunning(); i++) { t.mock.timers.tick(50); await flush() }
+  if (resume) runner.rehydrate(resume)
+  else await runner.start(text, 'human', context ? { objectiveId: 'simulated-tree' } : {})
+  if (context) runner.addContext(context, 'human')
+  let revised = false
+  let revisionPending = false
+  for (let i = 0; i < 600 && (runner.isRunning() || revisionPending); i++) {
+    t.mock.timers.tick(50); await flush()
+    if (reviseAfterCut && !revised && runner.status().blocs_casses > 0) {
+      revised = true
+      revisionPending = true
+      runner.revise(text, 'human').finally(() => { revisionPending = false })
+    }
+  }
   assert.equal(runner.isRunning(), false)
   const status = runner.status()
-  return { status, snapshots, blocks, step: status.historique.find(step => step.action === first), placements, commands, states, messages, staleAborted, stopsAtPlans }
+  return { status, snapshots, blocks, step: status.historique.find(step => step.action === first), placements, commands, states, messages, staleAborted, stopsAtPlans,
+    collectionListeners: bot.listenerCount('playerCollect') }
 }
 
 test('stock1 hauteur6 : refus integral avant equipement saut ou pose', async t => {
@@ -462,6 +481,139 @@ test('construction : retour sans objet connu puis don de bois bloque par l arbre
   assert.notEqual(f.status.etat, 'done', 'la mission ne se clot pas avec cet arbre debout')
 })
 
+for (const split of [false, true]) {
+  test(`arbre entier et pommes : trajet avec objet explicite (${split ? 'plans separes' : 'meme plan'})`, async t => {
+    let joins = 0
+    const join = { action: 'rejoindre_demandeur', choices: { objet: 'apple' } }
+    const give = { action: 'donner', choices: { objet: 'apple', quantite: 2, destinataire: 'human' } }
+    const f = await simulate(t, { inventory: [{ name: 'apple', count: 2 }], first: 'casser', logY: 65,
+      text: 'coupe un arbre', context: 'donne aussi deux pommes a human', allLogs: true,
+      extra: { '1,66,0': 'oak_log', '1,67,0': 'oak_log', '1,68,0': 'oak_log', '1,69,0': 'oak_log' },
+      queue: split ? [['casser'], [join], [give]] : [['casser'], [join, give]],
+      navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 1 } } })
+    assert.ok(f.states.some(state => state.arbre_demande), 'obligation arbre entier active')
+    assert.equal(joins, 1)
+    const don = f.states.flatMap(state => state.dernieres_etapes ?? []).find(step => step.action === 'donner')
+    assert.equal(don.code, 'no_ceiling', 'la garde arbre autorise le don ; son quota reste a preciser sur l objectif')
+    assert.notEqual(f.status.etat, 'done', 'don independant ne clot pas la coupe')
+  })
+}
+
+for (const fini of ['1', '0']) {
+test(`arbre entier : voisin non connecte et buches deja au sol hors engagement (arbre_fini=${fini})`, async t => {
+  const previous = process.env.FEATURE_ARBRE_FINI
+  process.env.FEATURE_ARBRE_FINI = fini
+  t.after(() => { if (previous === undefined) delete process.env.FEATURE_ARBRE_FINI; else process.env.FEATURE_ARBRE_FINI = previous })
+  let joins = 0
+  const f = await simulate(t, { inventory: [], first: 'casser', logY: 65,
+    text: 'coupe un arbre et rapporte le bois', allLogs: true, extra: { '3,65,0': 'oak_log' },
+    entities: { foreign: { name: 'item', position: new Vec3(3.5, 65, 0.5), getDroppedItem: () => ({ name: 'oak_log', count: 3 }) } },
+    queue: [['casser'], ['rejoindre_demandeur']],
+    onDig: (_block, bot) => { bot.players.human = { entity: { position: new Vec3(5, 65, 0) } } },
+    navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 1 } } })
+  assert.equal(f.blocks.has('3,65,0'), true)
+  assert.equal(f.status.blocs_casses, 1)
+  assert.equal(joins, 1)
+  assert.equal(f.status.etat, 'done')
+  assert.deepEqual(f.snapshots.at(-1).descripteur.buchesArbreDemande, [{ x: 1, y: 65, z: 0 }])
+})
+}
+
+test('arbre entier : cellule de charge inconnue ne prouve pas la fin', async t => {
+  let known = true
+  let joins = 0
+  const f = await simulate(t, { inventory: [], first: 'casser', logY: 65,
+    text: 'coupe un arbre et rapporte le bois', queue: [['casser'], ['rejoindre_demandeur']],
+    loaded: pos => known || pos.x !== 1,
+    onDig: () => { known = false },
+    navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 1 } } })
+  assert.equal(joins, 0)
+  assert.notEqual(f.status.etat, 'done')
+  assert.equal(f.status.arbre_entier.buches_restantes, 1, 'cellule inconnue conserve une obligation non satisfaite')
+})
+
+for (const reprise of ['revision', 'rehydrate']) {
+  test(`arbre entier : cellules et drops conserves apres ${reprise}`, async t => {
+    let joins = 0
+    const drop = { name: 'item', uuid: 'stable-drop-uuid', position: new Vec3(4.5, 65, 0.5), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }
+    const desc = { kind: 'recolte', resource: 'bois', landmark: 'ici', quota: 16, wholeTree: true,
+      tree: { x: 1, y: 65, z: 0 }, buchesArbreDemande: [{ x: 1, y: 65, z: 0 }], dropsArbreDemande: ['stable-drop-uuid'],
+      arbreCoupes: 1, arbreCollectes: 0, arbreCollecteIds: [] }
+    const f = await simulate(t, { inventory: [], first: 'casser', logY: reprise === 'rehydrate' ? 75 : 65,
+      text: 'coupe un arbre et rapporte le bois', queue: [['casser'], ['rejoindre_demandeur']],
+      resume: reprise === 'rehydrate' ? { id: 'saved-tree', texte: 'coupe un arbre et rapporte le bois', auteur: 'human', progression: { descripteur: desc } } : null,
+      entities: reprise === 'rehydrate' ? { anotherEntityId: drop } : {}, reviseAfterCut: reprise === 'revision',
+      onDig: (_block, bot) => { bot.entities.drop = drop },
+      navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 1 } } })
+    assert.equal(joins, 0)
+    const saved = f.snapshots.at(-1).descripteur
+    assert.equal(saved.wholeTree, true)
+    assert.deepEqual(saved.tree, desc.tree)
+    assert.deepEqual(saved.buchesArbreDemande, desc.buchesArbreDemande)
+    assert.deepEqual(saved.dropsArbreDemande, ['stable-drop-uuid'])
+    assert.equal(saved.arbreCoupes, 1)
+    assert.equal(f.status.arbre_entier.buches_au_sol, 1)
+  })
+}
+
+test('arbre entier : collecte rapide avant capture, preuve conservée et listener retire', async t => {
+  const f = await simulate(t, { inventory: [], first: 'casser', logY: 65, text: 'coupe un arbre' })
+  assert.equal(f.status.etat, 'done')
+  assert.equal(f.snapshots.at(-1).descripteur.arbreCoupes, 1)
+  assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 1)
+  assert.equal(f.collectionListeners, 0)
+})
+
+for (const retard of ['apparition', 'metadata']) {
+  test(`arbre entier : derniere buche a ${retard} tardive ne permet pas de partir`, async t => {
+    let joins = 0
+    let metadataReady = retard !== 'metadata'
+    const drop = { name: 'item', uuid: 'last-log', position: new Vec3(1.5, 65, 0.5),
+      getDroppedItem: () => metadataReady ? { name: 'oak_log', count: 1 } : null }
+    const f = await simulate(t, { inventory: [], collectImmediately: false, first: 'casser', logY: 65,
+      text: 'coupe un arbre et rapporte le bois', queue: [['casser'], ['rejoindre_demandeur']],
+      onDig: (_block, bot) => {
+        if (retard === 'metadata') bot.entities.drop = drop
+        setTimeout(() => { metadataReady = true; bot.entities.drop = drop }, 650)
+      }, navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 1 } } })
+    assert.equal(joins, 0)
+    assert.notEqual(f.status.etat, 'done')
+    assert.equal(f.status.arbre_entier.buches_au_sol, 1)
+  })
+}
+
+test('arbre entier : collecte avant metadata prouve la fin quand son objet devient connu', async t => {
+  let ready = false
+  let joins = 0
+  const drop = { name: 'item', uuid: 'fast-unknown', position: new Vec3(1.5, 65, 0.5),
+    getDroppedItem: () => ready ? { name: 'oak_log', count: 1 } : null }
+  const f = await simulate(t, { inventory: [], collectImmediately: false, first: 'casser', logY: 65,
+    text: 'coupe un arbre et rapporte le bois', queue: [['casser'], ['rejoindre_demandeur']],
+    onDig: (_block, bot) => {
+      bot.players.human = { entity: { position: new Vec3(5, 65, 0) } }
+      bot.emit('playerCollect', bot.entity, drop)
+      setTimeout(() => { ready = true }, 650)
+    }, navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 1 } } })
+  assert.equal(joins, 1)
+  assert.equal(f.status.etat, 'done')
+  assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 1)
+  assert.equal(f.collectionListeners, 0)
+})
+
+test('arbre entier : collecte de bois preexistant ne couvre pas sa derniere buche', async t => {
+  let joins = 0
+  const foreign = { name: 'item', uuid: 'foreign-log', position: new Vec3(3.5, 65, 0.5),
+    getDroppedItem: () => ({ name: 'oak_log', count: 4 }) }
+  const f = await simulate(t, { inventory: [], collectImmediately: false, first: 'casser', logY: 65,
+    text: 'coupe un arbre et rapporte le bois', entities: { foreign }, queue: [['casser'], ['rejoindre_demandeur']],
+    onDig: (_block, bot) => { bot.emit('playerCollect', bot.entity, foreign); delete bot.entities.foreign },
+    navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 1 } } })
+  assert.equal(joins, 0)
+  assert.notEqual(f.status.etat, 'done')
+  assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 0)
+  assert.equal(f.status.arbre_entier.buches_au_sol, 1)
+})
+
 // Arbre fini depuis le pilier : le pilier monte pour lui est defait (regle
 // joueur : retirer ce qui a ete construit a cote de l arbre).
 test('arbre fini depuis le pilier : pilier retire avant la fin', async t => {
@@ -477,7 +629,7 @@ test('arbre fini depuis le pilier : pilier retire avant la fin', async t => {
 // d avoir servi (revue Codex 71cbbf4).
 test('arbre fini puis pilier pour le suivant : pilier garde', async t => {
   const f = await simulate(t, { inventory: [{ name: 'dirt', count: 6 }], logAt: new Vec3(3, 74, 0), allLogs: true,
-    extra: { '1,65,0': 'oak_log' }, queue: [['casser'], ['piler']] })
+    text: 'coupe du bois', extra: { '1,65,0': 'oak_log' }, queue: [['casser'], ['piler']] })
   assert.equal(f.blocks.has('1,65,0'), false, 'premier arbre coupe')
   assert.deepEqual(f.placements, Array(6).fill('dirt'))
   assert.equal([65, 66, 67, 68, 69, 70].filter(y => f.blocks.has(`0,${y},0`)).length, 6, 'pilier garde')

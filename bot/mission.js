@@ -95,6 +95,13 @@ function suiviArbre (source) {
   const cells = value => Array.isArray(value) ? value.map(celluleValide).filter(Boolean) : []
   const poses = cells(source?.echafaudagePose)
   return {
+    tree: celluleValide(source?.tree),
+    buchesArbreDemande: Array.isArray(source?.buchesArbreDemande) ? cells(source.buchesArbreDemande) : null,
+    dropsArbreDemande: Array.isArray(source?.dropsArbreDemande) ? source.dropsArbreDemande.filter(id => typeof id === 'string') : [],
+    arbreEntitiesInitial: Array.isArray(source?.arbreEntitiesInitial) ? source.arbreEntitiesInitial.filter(id => typeof id === 'string') : [],
+    arbreCoupes: Math.max(0, Number(source?.arbreCoupes) || 0),
+    arbreCollectes: Math.max(0, Number(source?.arbreCollectes) || 0),
+    arbreCollecteIds: Array.isArray(source?.arbreCollecteIds) ? source.arbreCollecteIds.filter(id => typeof id === 'string') : [],
     arbreEnCours: celluleValide(source?.arbreEnCours),
     buchesArbre: Array.isArray(source?.buchesArbre) ? source.buchesArbre.map(celluleValide).filter(Boolean) : null,
     echafaudageEnAttente: cells(source?.echafaudageEnAttente).map(c => new Vec3(c.x, c.y, c.z)),
@@ -811,6 +818,8 @@ function createMissionRunner (host, injected = {}) {
         resource: mission.resource,
         landmark: mission.landmark,
         quota: mission.quota,
+        quotaExplicite: mission.quotaExplicite,
+        wholeTree: mission.wholeTree,
         fabricationCible: mission.fabricationCible ?? null,
         fabricationQuantite: mission.fabricationQuantite ?? null,
         fabricationInitial: mission.fabricationInitial ?? 0,
@@ -819,6 +828,13 @@ function createMissionRunner (host, injected = {}) {
         dimensions: mission.dimensions ? { ...mission.dimensions } : null,
         arbreEnCours: celluleValide(mission.arbreEnCours),
         buchesArbre: mission.buchesArbre,
+        tree: celluleValide(mission.tree),
+        buchesArbreDemande: mission.buchesArbreDemande,
+        dropsArbreDemande: mission.dropsArbreDemande,
+        arbreEntitiesInitial: mission.arbreEntitiesInitial,
+        arbreCoupes: mission.arbreCoupes,
+        arbreCollectes: mission.arbreCollectes,
+        arbreCollecteIds: mission.arbreCollecteIds,
         echafaudageEnAttente: (mission.echafaudageEnAttente ?? []).map(celluleValide).filter(Boolean),
         echafaudagePose: (mission.echafaudagePose ?? []).map(celluleValide).filter(Boolean),
         route: mission.movementTask
@@ -1874,6 +1890,11 @@ function createMissionRunner (host, injected = {}) {
       const visibles = arbre.filter(exposed)
       positions = visibles.length > 0 ? visibles : arbre
     }
+    if (mission.wholeTree && mission.tree && (resource ?? harvestResource()) === 'bois') {
+      // Le contrat d un arbre entier reste precis meme sans arbre_fini.
+      positions = (mission.buchesArbreDemande ?? []).map(c => new Vec3(c.x, c.y, c.z))
+        .filter(p => TREE_LOG.test(bot.blockAt(p)?.name ?? ''))
+    }
 
     const here = bot.entity.position
     const feetY = Math.floor(here.y)
@@ -2037,25 +2058,89 @@ function createMissionRunner (host, injected = {}) {
     const bot = host.getBot()
     const t = mission?.tree
     if (!mission?.wholeTree || !t || !bot?.entity) return null
-    let standing = 0
-    for (let dx = -TREE_RADIUS; dx <= TREE_RADIUS; dx += 1) {
-      for (let dz = -TREE_RADIUS; dz <= TREE_RADIUS; dz += 1) {
-        for (let dy = -1; dy <= TREE_HEIGHT; dy += 1) {
-          const block = bot.blockAt(new Vec3(t.x + dx, t.y + dy, t.z + dz))
-          if (block && TREE_LOG.test(block.name)) standing += 1
-        }
-      }
-    }
-    const anchor = new Vec3(t.x + 0.5, t.y, t.z + 0.5)
-    const onGround = Object.values(bot.entities ?? {})
-      .filter(e => e && e.name === 'item' && e.position &&
-        e.position.distanceTo(anchor) <= TREE_RADIUS + TREE_HEIGHT)
-      .reduce((sum, e) => {
+    observerCollecteArbre()
+    const cells = mission.buchesArbreDemande
+    // Une ancienne reprise sans cellules mesurees ne prouve pas l arbre fini.
+    if (!cells?.length) return { buches_restantes: 1, buches_au_sol: 0, termine: false, incertain: true }
+    const measured = cells.map(c => bot.blockAt(new Vec3(c.x, c.y, c.z)))
+    const standing = measured.filter(b => !b || TREE_LOG.test(b.name)).length
+    // La mesure reste ouverte jusqu a la preuve de collecte : un spawn ou
+    // sa metadata peut arriver apres la fin de la rafale de casse.
+    const avant = new Set(mission.arbreEntitiesInitial ?? [])
+    for (const c of cells) noterDropsArbre(avant, c)
+    prouverCollectesArbre()
+    const owned = new Set(mission.dropsArbreDemande ?? [])
+    const onGround = Object.entries(bot.entities ?? {})
+      .filter(([id, e]) => e && owned.has(e.uuid || id) && e.name === 'item')
+      .reduce((sum, [, e]) => {
         let item = null
         try { item = e.getDroppedItem?.() } catch (_) {}
         return sum + (item && TREE_LOG.test(item.name) ? item.count : 0)
       }, 0)
-    return { buches_restantes: standing, buches_au_sol: onGround, termine: standing === 0 && onGround === 0 }
+    const sansPreuve = Math.max(0, (mission.arbreCoupes ?? 0) - (mission.arbreCollectes ?? 0))
+    const restant = Math.max(onGround, sansPreuve)
+    return { buches_restantes: standing, buches_au_sol: restant,
+      termine: standing === 0 && restant === 0, incertain: sansPreuve > onGround }
+  }
+
+  let botCollecteObserve = null
+  const collectesEnAttente = new Map()
+  function recevoirCollecteArbre (collector, entity) {
+    if (!mission?.wholeTree || collector?.id !== host.getBot()?.entity?.id || !entity) return
+    const id = entity.uuid || String(entity.id)
+    collectesEnAttente.set(id, entity)
+    const avant = mission.arbreCollectes
+    prouverCollectesArbre()
+    if (mission.arbreCollectes !== avant) reportProgressSafe()
+  }
+  function observerCollecteArbre () {
+    if (mission?.state !== 'running') return
+    const bot = host.getBot()
+    if (botCollecteObserve === bot) return
+    retirerObservateurArbre()
+    bot?.on?.('playerCollect', recevoirCollecteArbre)
+    bot?.once?.('end', retirerObservateurArbre)
+    botCollecteObserve = bot
+  }
+  function retirerObservateurArbre () {
+    botCollecteObserve?.removeListener?.('playerCollect', recevoirCollecteArbre)
+    botCollecteObserve?.removeListener?.('end', retirerObservateurArbre)
+    botCollecteObserve = null
+    collectesEnAttente.clear()
+  }
+  function prouverCollectesArbre () {
+    if (!mission?.tree || !mission.buchesArbreDemande?.length) return
+    const exclus = new Set(mission.arbreEntitiesInitial ?? [])
+    const deja = new Set(mission.arbreCollecteIds ?? [])
+    for (const [id, e] of collectesEnAttente) {
+      if (deja.has(id) || exclus.has(id)) { collectesEnAttente.delete(id); continue }
+      let item
+      try { item = e.getDroppedItem?.() } catch (_) {}
+      if (!item || !e.position) continue
+      const proche = mission.buchesArbreDemande.some(c => e.position.y <= c.y + 1 &&
+        Math.hypot(e.position.x - c.x - 0.5, e.position.z - c.z - 0.5) <= TREE_RADIUS)
+      if (TREE_LOG.test(item.name) && proche) {
+        mission.arbreCollectes = (mission.arbreCollectes ?? 0) + Math.max(0, Number(item.count) || 0)
+        deja.add(id)
+      }
+      collectesEnAttente.delete(id)
+    }
+    mission.arbreCollecteIds = [...deja]
+  }
+
+  // Seuls les objets apparus apres une coupe de cet arbre sont suivis.
+  // Les buches deja au sol et les arbres voisins restent hors engagement.
+  function noterDropsArbre (avant, coupe) {
+    if (!mission.wholeTree || !mission.tree) return
+    const ids = new Set(mission.dropsArbreDemande ?? [])
+    for (const [id, e] of Object.entries(host.getBot()?.entities ?? {})) {
+      if (avant.has(e?.uuid || id) || e?.name !== 'item' || !e.position) continue
+      let item
+      try { item = e.getDroppedItem?.() } catch (_) {}
+      if (item && TREE_LOG.test(item.name) && e.position.y <= coupe.y + 1 &&
+        Math.hypot(e.position.x - coupe.x - 0.5, e.position.z - coupe.z - 0.5) <= TREE_RADIUS) ids.add(e.uuid || id)
+    }
+    mission.dropsArbreDemande = [...ids]
   }
 
   // Tree started by any wood job: the first log cut fixes it. Its logs are
@@ -3458,14 +3543,13 @@ function createMissionRunner (host, injected = {}) {
 
     // Meme navigateur que !viens : A* pour le chemin, execution locale verifiee.
     // Le modele choisit la destination, jamais les touches du trajet.
-    async rejoindre_demandeur () {
-      // Le don suivant identifie ce retour dans un plan composite : aller
-      // remettre des pommes n est pas encore rapporter le bois de l arbre.
-      const donSuivant = mission.queue[0]
-      const objet = donSuivant?.action === 'donner' ? String(donSuivant.choices?.objet ?? '').trim().toLowerCase() || null : null
+    async rejoindre_demandeur (scale, params = {}) {
+      // Le modele identifie le don de ce trajet, meme si donner est servi
+      // dans un autre plan. Aucune intention ne depend de la file courante.
+      const objet = String(params.objet ?? '').trim().toLowerCase() || null
+      mission.pendingJoin = true
       const arbre = arbreAvantLivraison(objet)
       if (arbre) return arbre
-      mission.pendingJoin = true
       // Token proprietaire prive (objet opaque) : la sous-etape nav s execute
       // DANS le slot de l etape, sans reacquerir (busy permanent sinon).
       const result = await navWithDescent(() =>
@@ -3560,6 +3644,7 @@ function createMissionRunner (host, injected = {}) {
       let broken = 0
       let refusal = null
       const nomsCasses = new Map()
+      const coupesArbre = []
 
       // On enchaine sans relacher : relacher entre chaque bloc pour redemander
       // son avis au modele fait perdre du temps et donne en jeu l impression
@@ -3573,7 +3658,11 @@ function createMissionRunner (host, injected = {}) {
         if (bot.entity.position.distanceTo(block.position.offset(0.5, 0.5, 0.5)) > REACH) break
 
         const debutArbre = !secondaire && TREE_LOG.test(block.name) && featureOn('arbre_fini') && !mission.arbreEnCours
-        const initialLogs = debutArbre ? logsOfTree(block.position) : null
+        const debutArbreDemande = !secondaire && mission.wholeTree && !mission.tree && TREE_LOG.test(block.name)
+        const initialLogs = debutArbre || debutArbreDemande ? logsOfTree(block.position) : null
+        const dropsAvant = new Set(Object.entries(bot.entities ?? {}).map(([id, e]) => e.uuid || id))
+        if (debutArbreDemande) mission.arbreEntitiesInitial = Object.entries(bot.entities ?? {}).map(([id, e]) => e.uuid || id)
+        if (mission.wholeTree) observerCollecteArbre()
         try {
           // L outil peut changer en cours de rafale (une touffe d herbe, puis
           // la terre en dessous). equipForBlock rend la main tout de suite si
@@ -3618,14 +3707,23 @@ function createMissionRunner (host, injected = {}) {
         // fait avancer `blocs_casses`/`unites_recoltees` (voir `finishAllowed`).
         if (secondaire) mission.dirtSecondaire = (mission.dirtSecondaire ?? 0) + 1
         else mission.broken += 1
-        if (!secondaire && mission.wholeTree && !mission.tree) {
+        if (debutArbreDemande) {
           mission.tree = { x: block.position.x, y: block.position.y, z: block.position.z }
+          mission.buchesArbreDemande = initialLogs?.map(celluleValide) ?? null
+        }
+        if (!secondaire && mission.wholeTree && TREE_LOG.test(block.name)) {
+          mission.arbreCoupes = (mission.arbreCoupes ?? 0) + 1
+          prouverCollectesArbre()
         }
         if (debutArbre) {
           mission.arbreEnCours = { x: block.position.x, y: block.position.y, z: block.position.z }
           mission.buchesArbre = initialLogs?.map(celluleValide) ?? null
         }
         await sleep(120)
+        if (!secondaire && TREE_LOG.test(block.name)) {
+          coupesArbre.push({ avant: dropsAvant, coupe: block.position })
+          noterDropsArbre(dropsAvant, block.position)
+        }
         // The tree boundary also applies inside nested casser/recolter bursts.
         // Teardown runs in the same physical slot before another tree is anchored.
         if (mission.arbreEnCours && !arbreInacheve()) {
@@ -3640,6 +3738,7 @@ function createMissionRunner (host, injected = {}) {
 
       // Laisse les objets tomber et entrer dans l inventaire avant l etat suivant.
       await sleep(400)
+      for (const { avant, coupe } of coupesArbre) noterDropsArbre(avant, coupe)
       // Hors bois (dont le ramassage est deja pilote par l arbre) : l objet
       // casse a distance reste au sol ; le prendre aussitot (vu sur
       // gather/flowers : 4 fleurs cassees, 2 en inventaire, mission close).
@@ -5589,6 +5688,7 @@ function createMissionRunner (host, injected = {}) {
   // couche 3 du prompt. Une seule invalidation de cache par mission, quel que
   // soit le nombre d ecritures long terme en cours de mission.
   async function finish (state, reason) {
+    retirerObservateurArbre()
     if (!mission || mission.state !== 'running') return
     const completed = mission
     freezeActiveDuration(completed)
@@ -6333,9 +6433,13 @@ function createMissionRunner (host, injected = {}) {
           Boolean(host.getBot()?.players?.[mission.requester]?.entity)
         if (livrer && !mission.livraison) {
           mission.livraison = true
+          mission.pendingJoin = true
           abortPrefetch('arbre fini, bois a rapporter au demandeur')
           mission.queue = [{ action: 'rejoindre_demandeur', scale: 0.5, scaleLevel: null, choices: {} }]
           console.log(`[mission] arbre fini : bois a rapporter a ${mission.requester}`)
+          // Le geste precedent peut avoir demande la fin ou echoue avant
+          // la derniere mesure : il ne doit pas effacer ce retour requis.
+          continue
         } else if (!livrer || mission.pendingJoin === false) {
           finish('done', livrer ? 'arbre entier coupe, bois rapporte au demandeur' : 'arbre entier coupe et ramasse')
           return
@@ -6537,6 +6641,7 @@ function createMissionRunner (host, injected = {}) {
     }
 
     if (isRunning()) stop('remplacee par un nouvel objectif')
+    retirerObservateurArbre()
     cancelPendingStart()
     const generation = ++startGeneration
     const request = new AbortController()
@@ -6893,6 +6998,7 @@ function createMissionRunner (host, injected = {}) {
   }
 
   function stop (reason = 'arret demande') {
+    retirerObservateurArbre()
     cancelPendingStart()
     if (!isRunning()) return false
 
@@ -7049,6 +7155,7 @@ function createMissionRunner (host, injected = {}) {
     // Persistance d abord : leve l arret/pause AVANT toute boucle. Un echec
     // ici ne construit rien : pas de mission fantome, pas de faux actif.
     injectedObjectives.resume()
+    retirerObservateurArbre()
     const now = Date.now()
     const dims = desc.dimensions && typeof desc.dimensions === 'object'
       ? { width: desc.dimensions.width, depth: desc.dimensions.depth, height: desc.dimensions.height, source: desc.dimensions.source ?? 'rehydrate' }
@@ -7073,6 +7180,8 @@ function createMissionRunner (host, injected = {}) {
       doorProbability: 0,
       dimensions: dims,
       quota: Number.isFinite(Number(desc.quota)) ? Number(desc.quota) : DEFAULT_QUOTA,
+      quotaExplicite: desc.quotaExplicite === true,
+      wholeTree: desc.wholeTree === true,
       fabricationCible: typeof desc.fabricationCible === 'string' ? desc.fabricationCible : null,
       fabricationQuantite: Number.isFinite(Number(desc.fabricationQuantite))
         ? Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Math.round(Number(desc.fabricationQuantite))))
