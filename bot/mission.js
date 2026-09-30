@@ -3430,6 +3430,10 @@ function createMissionRunner (host, injected = {}) {
   // Le plan anticipe peut proposer de partir avant la derniere mesure.
   function arbreAvantLivraison (objet = null) {
     if (!livraisonDemandee(mission)) return null
+    // Un trajet sans objet connu peut servir une autre etape du chantier.
+    // L arbre entier explicitement demande reste une obligation mesuree ;
+    // les autres dons de bois sont controles quand leur objet est connu.
+    if (objet === null && !mission.wholeTree) return null
     if (objet !== null && !skills.RESOURCES.bois.raw.test(objet) && !skills.RESOURCES.bois.items.test(objet)) return null
     const ouvert = arbreInacheve()
     if (ouvert) return { resultat: `arbre commence : ${ouvert.length} buche(s) encore debout, finir la coupe avant de rapporter le bois`, echec: true, code: 'arbre_inacheve' }

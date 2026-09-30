@@ -421,24 +421,45 @@ for (const demande of ['remets-moi', 'file-moi', 'passe-moi', 'au joueur']) {
   })
 }
 
-test('arbre de cabane encore debout : le don independant de pommes reste permis', async t => {
-  const gifts = []
-  let joins = 0
-  t.mock.method(delivery, 'giveToPlayer', async (_bot, options) => {
-    gifts.push({ item: options.item, count: options.count })
-    return { status: 'succeeded', requested: options.count, deposited: options.count,
-      inventoryRemoved: options.count, evidence: { item: options.item }, reason: 'depot mesure' }
+for (const mode of ['meme plan', 'plans separes', 'action intermediaire']) {
+  test(`arbre de cabane encore debout : don de pommes permis (${mode})`, async t => {
+    const gifts = []
+    let joins = 0
+    t.mock.method(delivery, 'giveToPlayer', async (_bot, options) => {
+      gifts.push({ item: options.item, count: options.count })
+      return { status: 'succeeded', requested: options.count, deposited: options.count,
+        inventoryRemoved: options.count, evidence: { item: options.item }, reason: 'depot mesure' }
+    })
+    const f = await simulate(t, { inventory: [{ name: 'apple', count: 2 }], kind: 'construction', first: 'casser',
+      text: 'construis une cabane en bois et donne deux pommes a human', logY: 65,
+      extra: { '1,66,0': 'oak_log', '1,67,0': 'oak_log', '1,68,0': 'oak_log', '1,69,0': 'oak_log' }, allLogs: true,
+      queue: mode === 'plans separes'
+        ? [['casser'], ['rejoindre_demandeur'], [{ action: 'donner', choices: { objet: 'apple', quantite: 2, destinataire: 'human' } }]]
+        : [['casser'], ['rejoindre_demandeur', ...(mode === 'action intermediaire' ? ['tourner_vers_demandeur'] : []),
+          { action: 'donner', choices: { objet: 'apple', quantite: 2, destinataire: 'human' } }]],
+      onDig: (_block, bot) => { bot.players.human = { entity: { position: new Vec3(5, 65, 0) } } },
+      navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 1 } } })
+    assert.ok(f.blocks.has('1,69,0'), 'une partie du tronc reste debout')
+    assert.deepEqual(gifts, [{ item: 'apple', count: 2 }])
+    assert.equal(joins, 1)
+    const step = f.states.flatMap(state => state.dernieres_etapes ?? []).find(step => step.action === 'donner')
+    assert.equal(Boolean(step.echec), false)
   })
-  const f = await simulate(t, { inventory: [{ name: 'apple', count: 2 }], kind: 'construction', first: 'casser',
-    text: 'construis une cabane en bois et donne deux pommes a human', logY: 65,
+}
+
+test('construction : retour sans objet connu puis don de bois bloque par l arbre encore debout', async t => {
+  let joins = 0
+  const f = await simulate(t, { inventory: [], kind: 'construction', first: 'casser',
+    text: 'construis une cabane en bois et donne deux buches a human', logY: 65,
     extra: { '1,66,0': 'oak_log', '1,67,0': 'oak_log', '1,68,0': 'oak_log', '1,69,0': 'oak_log' }, allLogs: true,
-    queue: [['casser'], ['rejoindre_demandeur', { action: 'donner', choices: { objet: 'apple', quantite: 2, destinataire: 'human' } }]],
+    queue: [['casser'], ['rejoindre_demandeur'],
+      [{ action: 'donner', choices: { objet: 'oak_log', quantite: 2, destinataire: 'human' } }]],
     navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 1 } } })
-  assert.ok(f.blocks.has('1,69,0'), 'une partie du tronc reste debout')
-  assert.deepEqual(gifts, [{ item: 'apple', count: 2 }])
-  assert.equal(joins, 1)
-  const step = f.states.flatMap(state => state.dernieres_etapes ?? []).find(step => step.action === 'donner')
-  assert.equal(Boolean(step.echec), false)
+  assert.equal(joins, 1, 'le trajet sans objet connu est differe du controle du don')
+  const state = f.states.find(state => state.dernieres_etapes?.some(step => step.action === 'donner'))
+  assert.equal(state.dernieres_etapes.find(step => step.action === 'donner').code, 'arbre_inacheve')
+  assert.equal(state.arbre_en_cours?.buches_debout, 3, 'le trajet ne supprime pas l arbre actif des plans suivants')
+  assert.notEqual(f.status.etat, 'done', 'la mission ne se clot pas avec cet arbre debout')
 })
 
 // Arbre fini depuis le pilier : le pilier monte pour lui est defait (regle
