@@ -4298,7 +4298,12 @@ function createMissionRunner (host, injected = {}) {
           !empriseChantier() && !mission.cancelled) {
           const pile = await ACTIONS.piler(null, { hauteur: besoin })
           // Reach checked from the top: gathering dirt may have moved the post.
-          const atteinte = pile.echec ? null : findTargetBlock()
+          // En construction, findTargetBlock peut renvoyer la terre a creuser
+          // (build/tower 0b1d4a3) : une buche de l'arbre commence porte la
+          // decision, pas ce bloc-là (memes gardes que le plafond de piler).
+          const cibleVisee = pile.echec ? null : findTargetBlock()
+          const cibleBuche = cibleVisee && TREE_LOG.test(cibleVisee.name)
+          const atteinte = cibleVisee && (mission.kind !== 'construction' || cibleBuche) ? cibleVisee : null
           const live = host.getBot()
           if (atteinte && live?.entity && blockInReach(live, live.entity.position, atteinte.position.offset(0.5, 0.5, 0.5), REACH)) {
             return { resultat: `cible haute ${high.cible} : ${pile.resultat}`, code: 'pilier', reobserver: true }
@@ -4776,9 +4781,15 @@ function createMissionRunner (host, injected = {}) {
           // Often the trunk itself (trees/tall 9e079e5 : buche voisine au-dessus
           // de la tete, « saut trop bas » au niveau 5) : if the target is
           // breakable from here, the climb is done, same rule as the preflight.
-          const atteinte = poses > 0 && !params.interne && mission?.kind !== 'construction' ? findTargetBlock() : null
-          if (atteinte && blockInReach(live, live.entity.position, atteinte.position.offset(0.5, 0.5, 0.5), REACH)) {
-            cibleAtteinte = atteinte.name
+          // En construction aussi : findTargetBlock peut y renvoyer la terre a
+          // creuser (build/tower 0b1d4a3), on n'accepte donc que la buche de
+          // l'arbre commence (banc composite bdda929 : plafond au tronc puis
+          // echafaudage demonte, la cible a +4 jamais rejoinie ni coupe).
+          const cibleVisee = poses > 0 && !params.interne ? findTargetBlock() : null
+          const cibleBuche = cibleVisee && TREE_LOG.test(cibleVisee.name)
+          if (cibleVisee && (mission?.kind !== 'construction' || cibleBuche) &&
+            blockInReach(live, live.entity.position, cibleVisee.position.offset(0.5, 0.5, 0.5), REACH)) {
+            cibleAtteinte = cibleVisee.name
           } else failure = 'plafond au-dessus : impossible de monter ici'
           break
         }
