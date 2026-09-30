@@ -264,6 +264,43 @@ describe('profil pilote : budget distinct et reessai troncature (D37 live)', () 
   })
 })
 
+describe('brief de geste : contrat complet ou geste libre explicite', () => {
+  function brief (extra = {}) {
+    return { content: JSON.stringify({ type: 'geste', matiere: 'aucune', repere: 'ici',
+      parcours: null, ...extra }), usage: null, ms: 1 }
+  }
+  it('un geste sans parcours ni distinction explicite est refuse', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => brief())
+    await assert.rejects(planner.readBrief('accompagne le joueur'), /brief de geste incomplet/)
+    assert.equal(seen.length, 1, 'le seul rejeu appartient a mission.start')
+  })
+  it('un parcours continu reste continu, sans geste libre requis', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => brief({ parcours: [{ type: 'suivre' }] }))
+    const result = await planner.readBrief('accompagne le joueur')
+    assert.deepEqual(result.route, [{ type: 'suivre' }])
+    assert.equal(seen.length, 1)
+  })
+  it('un geste non represente reste valide sur distinction explicite', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => brief({ geste_libre: true }))
+    const result = await planner.readBrief('saute trois fois')
+    assert.equal(result.route, null)
+    assert.equal(result.kind, 'geste')
+    assert.equal(seen.length, 1)
+  })
+  it('le type normalise impose aussi le contrat', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => brief({ type: ' GESTE ' }))
+    await assert.rejects(planner.readBrief('accompagne le joueur'), /brief de geste incomplet/)
+  })
+  it('une valeur non booleenne ne contourne pas le contrat', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => brief({ geste_libre: 'true' }))
+    await assert.rejects(planner.readBrief('tourne sur toi-meme'), /brief de geste incomplet/)
+  })
+})
 describe('reaiguillage de session sur refus du fournisseur', () => {
   function upstream400 () {
     const err = new Error('HTTP 400 : {"error":{"type":"server_error","message":"Upstream request failed: Invalid request parameters. Please check your input and try again."}}')

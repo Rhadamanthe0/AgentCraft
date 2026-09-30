@@ -88,7 +88,10 @@ message du joueur est remis au message d origine (`UNASKED`).
 
 `mission.start` appelle `planner.readBrief` une fois : type (`recolte`,
 `construction`, `deplacement`, `geste`), matiere, repere, porte, parcours,
-cible de fabrication. Le code complete : dimensions (`build.parseDimensions` :
+cible de fabrication. Un geste sans parcours exige `geste_libre: true` dans
+le brief pour confirmer que le contrat de parcours ne couvre pas la demande.
+Une lecture incomplete est refusee et beneficie du rejeu unique deja prevu
+par `mission.start`. Le code complete : dimensions (`build.parseDimensions` :
 « 5 par 5 par 5 », « 5 de large et 4 de haut »), quantite
 (`build.parseQuota`), cible de fabrication normalisee
 (`skills.normalizeFabricationTarget`, « pioche en pierre » -> `stone_pickaxe`),
