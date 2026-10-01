@@ -50,7 +50,8 @@ mode qui n apporte rien de mesurable n est pas garde** ; a resultats egaux, on
 garde la version la plus simple.
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
-`prompt_type`, `reflexes`, `relance_plan`, `arbre_fini` (tous allumes par defaut).
+`prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte` (tous allumes par
+defaut).
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
@@ -142,9 +143,9 @@ Flux d une demande (details : ARCHITECTURE.md) :
    (appel anticipe) ; `reflexPass` entre deux etapes ; `finishAllowed`
    refuse un arret que les chiffres contredisent ; blocages detectes
    (`detectStuck`) dits dans le chat et journalises `[blocage] {json}`.
-4. **Actions** (`skills.ACTIONS`, 25) : `casser`, `recolter`, `ramasser`,
+4. **Actions** (`skills.ACTIONS`, 26) : `casser`, `recolter`, `ramasser`,
    `donner`, `cuire`, `fabriquer`, `avancer`, `explorer`, `choisir_terrain`,
-   `piler`, `construire`, `poser_porte`, `sortir`, `attendre`, `terminer`,
+   `piler`, `construire`, `poser_porte`, `ouvrir_porte`, `sortir`, `attendre`, `terminer`,
    `dire`, `regarder`, `sauter`, `appuyer`, `regarder_autour`, `pivoter`,
    `memoriser`, `oublier`, `rejoindre_demandeur`, `tourner_vers_demandeur`.
    Chacune est parametree (duree, distance, quantite, objet...) ; le modele
@@ -348,7 +349,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | --- | --- |
 | `compose.yaml` | les deux services (pieges 1 a 3) |
 | `bot/index.js` | bot Mineflayer, API HTTP, chien de garde, commandes `!`, `digToward` |
-| `bot/mission.js` | boucle de mission, etat servi au modele, les 25 actions, garde-fous |
+| `bot/mission.js` | boucle de mission, etat servi au modele, les 26 actions, garde-fous |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |
 | `bot/skills.js` | table unique : commandes, actions, documentation native, matieres, audit |

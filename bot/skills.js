@@ -464,6 +464,18 @@ const ACTIONS = {
     intent: 'Le bot est dans un liquide ou coince : se degager avant de reprendre le travail'
   },
 
+  // Porte en bois : l ouvrir et passer de l autre cote, comme un joueur (bot
+  // ferme dans la cabane qu il vient de batir, composite/cabin-from-scratch
+  // 7d76b18). Interrupteur A/B `ouvrir_porte`.
+  ouvrir_porte: {
+    kinds: ['recolte', 'deplacement', 'construction', 'geste'],
+    feature: 'ouvrir_porte',
+    summary: 'ouvrir la porte en bois la plus proche et la franchir',
+    scale: 'sans effet',
+    secondes: 3,
+    intent: "Le bot est dans une piece fermee par une porte en bois (par exemple la cabane qu il vient de construire) ou une porte barre son chemin : la rejoindre, l ouvrir et passer de l autre cote (porte a 8 blocs au plus). Une porte de fer ne s ouvre pas a la main"
+  },
+
   attendre: {
     kinds: ['recolte', 'deplacement', 'construction', 'geste'],
     summary: 'laisser finir',
@@ -1060,6 +1072,7 @@ const ACTION_EXEMPLES = {
   construire: ['chantier.materiau_en_inventaire > 0 -> {"action":"construire","quantite":30,"objet":"oak_planks"} (rafales longues : la borne de rafale coupe, pas la quantite)'],
   poser_porte: ['murs montes et porte en inventaire -> poser_porte'],
   sortir: ['bot.dans_liquide vrai -> sortir avant tout le reste'],
+  ouvrir_porte: ['avancer ou recolter -> no_path et bot dans un batiment a porte en bois -> ouvrir_porte, puis reprendre le trajet'],
   attendre: ['une action longue est deja en cours -> attendre, mais preferer regarder_autour si on ne sait pas quoi faire'],
   terminer: ['objectif atteint et rien d utile ne reste -> terminer'],
   dire: ['signal de blocage -> {"action":"dire","texte":"coince : plus de bois"}'],

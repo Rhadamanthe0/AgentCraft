@@ -703,8 +703,8 @@ liste ci-dessous lui demande. Tu decides toi-meme de ces valeurs. Exemples :
   ramasser) : le premier echec annule le reste du plan et tu es rappele avec
   l etat a jour.
 - Les actions sans valeur numerique (choisir_terrain, poser_porte,
-  sortir, terminer, regarder_autour) n en prennent pas : ne leur invente aucun
-  parametre.
+  ouvrir_porte, sortir, terminer, regarder_autour) n en prennent pas : ne leur
+  invente aucun parametre.
 
 Tu ne donnes JAMAIS de coordonnees absolues (x, y, z) : le code les mesure ou les
 lit dans la consigne. Tu donnes un nom d action et ses valeurs numeriques, rien
