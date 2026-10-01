@@ -563,20 +563,61 @@ function siteFits (bot, origin, width, depth, height) {
 }
 
 // Cherche un terrain autour du repere, du plus proche au plus eloigne.
-// `pied` : hauteur des pieds du bot. Un terrain a plus d un bloc au-dessus
-// ne se rejoint pas a pied : il ne passe qu en dernier recours, le rayon
-// restant le premier critere pour tous les autres. Un repere en hauteur
-// (rocher) placait le chantier sur son sommet, 3 blocs au-dessus du bot, et
-// aucun poste de la deuxieme rangee n etait joignable (stone-hut f331d6f :
-// 956 s, 9/24 blocs).
-function findSite (bot, { near, width, depth, height, pied = null }) {
+// Le vrai trajet prime sur la hauteur : un escalier peut rendre un plateau
+// accessible, un ravin isoler un sol au meme niveau. Sans planificateur,
+// `pied` conserve le repli prudent pour les reperes situes sur un rocher.
+// Les tranches de recherche rendent la main a la physique; `signal` arrete
+// le choix du terrain sans retourner un chantier apres l annulation.
+async function findSite (bot, { near, width, depth, height, pied = null, signal = null }) {
+  if (signal?.aborted) return null
   const base = groundLevel(bot, Math.floor(near.x), Math.floor(near.z), Math.floor(near.y)) ??
     Math.floor(near.y)
-  const passes = Number.isFinite(pied) ? [level => level <= pied + 1, () => true] : [() => true]
+  const canPlan = bot.entity?.position && bot.registry && typeof bot.pathfinder?.getPathFromTo === 'function'
+  let reachable = null
+  let searchDeadline = Infinity
+  if (canPlan) {
+    const { WalkingMovements } = require('./navigation')
+    const { goals } = require('mineflayer-pathfinder')
+    const movements = new WalkingMovements(bot)
+    movements.canDig = false
+    movements.allow1by1towers = false
+    movements.allowParkour = false
+    movements.scafoldingBlocks = []
+    movements.maxDropDown = 3
+    for (const name of ['water', 'lava', 'bubble_column']) {
+      const block = bot.registry.blocksByName[name]
+      if (block) movements.blocksToAvoid.add(block.id)
+    }
+    // Un budget pour TOUS les candidats, identique a une recherche du
+    // navigateur. Une recherche difficile ne doit pas monopoliser ce budget :
+    // chaque essai recoit au plus un dixieme du temps total, laissant du
+    // temps aux suivants meme lorsqu il atteint sa limite.
+    // Aucun repli sur un chantier dont l acces reste inconnu.
+    const deadline = Date.now() + 1000
+    searchDeadline = deadline
+    reachable = async candidate => {
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) return false
+      const candidateBudget = Math.min(100, remaining)
+      const goal = new goals.GoalBlock(candidate.x, candidate.y, candidate.z)
+      for (const { result } of bot.pathfinder.getPathFromTo(movements, bot.entity.position, goal,
+        { timeout: candidateBudget, tickTimeout: Math.min(20, candidateBudget), searchRadius: 64, optimizePath: false })) {
+        if (signal?.aborted || Date.now() >= deadline) return false
+        if (result.status === 'success') return true
+        if (result.status !== 'partial' || Date.now() >= deadline) return false
+        await sleep(0)
+        if (signal?.aborted) return false
+      }
+      return false
+    }
+  }
+  const passes = !canPlan && Number.isFinite(pied) ? [level => level <= pied + 1, () => true] : [() => true]
+  const seen = new Set()
 
   for (const admis of passes) {
     for (let radius = SITE_MIN_DISTANCE; radius <= SITE_MAX_DISTANCE; radius += 1) {
       for (let angle = 0; angle < 16; angle += 1) {
+        if (signal?.aborted || Date.now() >= searchDeadline) return null
         const theta = (angle / 16) * Math.PI * 2
         const cx = Math.floor(near.x + Math.cos(theta) * radius)
         const cz = Math.floor(near.z + Math.sin(theta) * radius)
@@ -584,10 +625,16 @@ function findSite (bot, { near, width, depth, height, pied = null }) {
         // (cx, cz) est le coin, pas le centre : la maison s ecarte ainsi du tronc.
         const level = groundLevel(bot, cx, cz, base)
         if (level === null || !admis(level)) continue
+        const key = `${cx},${level},${cz}`
+        if (seen.has(key)) continue
+        seen.add(key)
 
         const candidate = new Vec3(cx, level, cz)
         if (siteFits(bot, candidate, width, depth, height)) {
-          return { origin: candidate, distance: radius }
+          if (!reachable || await reachable(candidate)) return { origin: candidate, distance: radius }
+          // Les petits trajets refuses peuvent s enchainer sans partial :
+          // laisser aussi passer la physique et les arrets entre candidats.
+          await sleep(0)
         }
       }
     }

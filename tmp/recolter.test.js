@@ -5,6 +5,7 @@ process.env.MISSION_QUEUE_TICK_MS = '1'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { Vec3 } = require('vec3')
+const { EventEmitter } = require('node:events')
 const planner = require('../bot/planner')
 const craft = require('../bot/craft')
 const skills = require('../bot/skills')
@@ -28,7 +29,7 @@ function fixture ({ logs, quantite }) {
   }
   const standing = logs.map(p => p.clone())
   let held = 0
-  const bot = { entity: { position: new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
+  const bot = { entity: { id: 42, position: new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
     registry: { blocksByName: { oak_log: { id: 1 } }, itemsByName: {} },
     inventory: { items: () => held ? [{ name: 'oak_log', count: held }] : [] }, players: {}, entities: {},
     findBlocks: ({ matching }) => matching.includes(1) ? standing.slice() : [], findBlock: () => null,
@@ -41,9 +42,17 @@ function fixture ({ logs, quantite }) {
     setControlState () {},
     dig: async block => {
       const i = standing.findIndex(p => p.equals(block.position))
-      if (i >= 0) { standing.splice(i, 1); held += 1 }
+      if (i >= 0) {
+        standing.splice(i, 1); held += 1
+        const pickup = { name: 'item', uuid: `pickup-${block.position}`,
+          position: block.position.offset(0.5, 0.5, 0.5), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }
+        bot.emit('entitySpawn', pickup)
+        bot.emit('playerCollect', bot.entity, pickup)
+      }
     }
   }
+  Object.assign(bot, new EventEmitter())
+  Object.setPrototypeOf(bot, EventEmitter.prototype)
   const r = createMissionRunner({ getBot: () => bot, isReady: () => true, inLiquid: () => false,
     stopPathfinding () {}, chat () {},
     navigateToPosition: async () => ({ reached: true, code: 'arrived', travelled: 1 }) })

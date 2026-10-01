@@ -4,6 +4,11 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const build = require('../bot/build')
+const { EventEmitter } = require('node:events')
+const { Vec3 } = require('vec3')
+const { pathfinder, Movements, goals } = require('mineflayer-pathfinder')
+const registry = require('prismarine-registry')('26.1')
+const Block = require('prismarine-block')(registry)
 
 const key = c => `${c.x},${c.y},${c.z}`
 function assertBuildable (cells) {
@@ -102,21 +107,21 @@ function siteWorld ({ water = [], rock = null } = {}) {
   return { blockAt: v => at(v.x, v.y, v.z), Vec3 }
 }
 
-test('findSite : jamais un chantier colle a l eau (postes de tir au sec)', () => {
+test('findSite : jamais un chantier colle a l eau (postes de tir au sec)', async () => {
   const build = require('../bot/build')
   const bot = siteWorld({ water: [16, 17] })
-  const site = build.findSite(bot, { near: { x: 10.5, y: 200, z: 18.5 }, width: 4, depth: 4, height: 4 })
+  const site = await build.findSite(bot, { near: { x: 10.5, y: 200, z: 18.5 }, width: 4, depth: 4, height: 4 })
   assert.ok(site, 'un terrain existe')
   const { x } = site.origin
   // Emprise [x, x+3] et anneau [x-1, x+4] hors de l eau (16-17).
   assert.ok(x + 4 < 16 || x - 1 > 17, `emprise ${x}..${x + 3} trop pres de l eau`)
 })
 
-test('findSite : pas au bord d un rocher (le toit y perdait ses postes)', () => {
+test('findSite : pas au bord d un rocher (le toit y perdait ses postes)', async () => {
   const build = require('../bot/build')
   // Rocher 9x7, bot debout dessus : un 3x3 + anneau tient au milieu, pas au bord.
   const bot = siteWorld({ rock: { x1: 6, x2: 14, z1: 28, z2: 34, top: 202 } })
-  const site = build.findSite(bot, { near: { x: 12.5, y: 203, z: 31.5 }, width: 3, depth: 3, height: 3 })
+  const site = await build.findSite(bot, { near: { x: 12.5, y: 203, z: 31.5 }, width: 3, depth: 3, height: 3 })
   assert.ok(site)
   const { x, y, z } = site.origin
   if (y === 203) {
@@ -124,18 +129,203 @@ test('findSite : pas au bord d un rocher (le toit y perdait ses postes)', () => 
   }
 })
 
-test('findSite : repere sur un rocher, bot au sol : chantier au niveau de ses pieds', () => {
+test('findSite : repere sur un rocher, bot au sol : chantier au niveau de ses pieds', async () => {
   const build = require('../bot/build')
   // Rocher de 3 de haut (sommet a 203), bot au sol (pieds a 200) : le sommet
   // tiendrait le chantier, mais aucun poste de la deuxieme rangee n y est joignable.
   const bot = siteWorld({ rock: { x1: 6, x2: 14, z1: 28, z2: 34, top: 202 } })
-  const site = build.findSite(bot, { near: { x: 12.5, y: 202, z: 31.5 }, width: 3, depth: 3, height: 3, pied: 200 })
+  const site = await build.findSite(bot, { near: { x: 12.5, y: 202, z: 31.5 }, width: 3, depth: 3, height: 3, pied: 200 })
   assert.ok(site)
   assert.equal(site.origin.y, 200)
   // Plus bas que les pieds, le rayon decide encore : bot sur le rocher, sommet choisi.
-  const dessus = build.findSite(bot, { near: { x: 12.5, y: 203, z: 31.5 }, width: 3, depth: 3, height: 3, pied: 203 })
+  const dessus = await build.findSite(bot, { near: { x: 12.5, y: 203, z: 31.5 }, width: 3, depth: 3, height: 3, pied: 203 })
   assert.equal(dessus.origin.y, 203)
   // Sans hauteur de pieds connue, le choix d avant reste (sommet admis).
-  const libre = build.findSite(bot, { near: { x: 12.5, y: 202, z: 31.5 }, width: 3, depth: 3, height: 3 })
+  const libre = await build.findSite(bot, { near: { x: 12.5, y: 202, z: 31.5 }, width: 3, depth: 3, height: 3 })
   assert.equal(libre.origin.y, 203)
+})
+
+// Blocs et A* reels : plateforme proche a +2 avec escalier, et terrain bas
+// au-dela d un ravin sans appui. Aucun trajet ne casse ni ne pose de bloc.
+function reachableSiteWorld ({ stairs = true, ravine = true } = {}) {
+  const bot = new EventEmitter()
+  Object.assign(bot, { version: '26.1', registry, game: { minY: -64 }, entities: {},
+    entity: { position: new Vec3(0.5, 65, 0.5), velocity: new Vec3(0, 0, 0),
+      yaw: 0, pitch: 0, onGround: true, effects: {}, attributes: {}, height: 1.8, width: 0.6 },
+    inventory: { items: () => [], slots: [] },
+    blockAt: pos => {
+      const p = pos.floored()
+      if (Math.abs(p.x) > 20 || Math.abs(p.z) > 20) return null
+      let top = ravine ? (p.x <= -9 || (p.x >= -2 && p.x <= 0 && Math.abs(p.z) <= 1) ? 64 : 55) : 64
+      if (p.x >= 2 && p.x <= 8 && p.z >= -3 && p.z <= 3) top = 66
+      if (stairs && p.x === 1 && p.z >= -1 && p.z <= 1) top = 65
+      const b = Block.fromStateId(registry.blocksByName[p.y <= top ? 'stone' : 'air'].defaultState, 0)
+      b.position = p
+      return b
+    }, clearControlStates: () => {}, setControlState: () => {},
+    dig: async () => { throw new Error('casse interdite') },
+    placeBlock: async () => { throw new Error('pose interdite') }
+  })
+  pathfinder(bot)
+  return bot
+}
+
+function sitePath (bot, origin) {
+  const movements = new Movements(bot)
+  movements.getMoveDiagonal = () => {}
+  movements.canDig = false
+  movements.allow1by1towers = false
+  movements.allowParkour = false
+  movements.scafoldingBlocks = []
+  movements.maxDropDown = 3
+  let result
+  for (const step of bot.pathfinder.getPathFromTo(movements, bot.entity.position,
+    new goals.GoalBlock(origin.x, origin.y, origin.z), { optimizePath: false, timeout: 1000, tickTimeout: 20 })) result = step.result
+  return result
+}
+
+test('findSite : plateau proche a +2 accessible par escalier avant sol bas derriere ravin', async () => {
+  const bot = reachableSiteWorld()
+  const proche = sitePath(bot, new Vec3(3, 67, 0))
+  assert.equal(proche.status, 'success')
+  assert.ok(proche.path.some(p => p.y === 66), 'escalier intermediaire dans le vrai chemin')
+  const options = { near: { x: 0.5, y: 65, z: 0.5 }, width: 3, depth: 3, height: 3, pied: 65 }
+  const site = await build.findSite(bot, options)
+  assert.ok(site)
+  const chemin = sitePath(bot, site.origin)
+  assert.equal(chemin.status, 'success', `chantier choisi inaccessible ${JSON.stringify(site)}`)
+  assert.equal(site.origin.y, 67)
+  assert.equal(site.distance, 3)
+  assert.ok(chemin.path.every(p => p.toBreak.length === 0 && p.toPlace.length === 0))
+})
+
+test('findSite : vrai A* refuse le rocher isole et choisit le sol accessible', async () => {
+  const bot = reachableSiteWorld({ stairs: false, ravine: false })
+  assert.equal(sitePath(bot, new Vec3(3, 67, 0)).status, 'noPath')
+  const site = await build.findSite(bot, { near: { x: 4.5, y: 67, z: 0.5 }, width: 3, depth: 3, height: 3, pied: 65 })
+  assert.ok(site)
+  assert.equal(site.origin.y, 65)
+  assert.equal(sitePath(bot, site.origin).status, 'success')
+})
+
+test('findSite : aucun chemin sans construction, aucun terrain annonce', async () => {
+  const bot = reachableSiteWorld({ stairs: false })
+  bot.inventory.items = () => [{ name: 'dirt', type: registry.itemsByName.dirt.id, count: 64 }]
+  assert.equal(await build.findSite(bot, { near: { x: 0.5, y: 65, z: 0.5 }, width: 3, depth: 3, height: 3, pied: 65 }), null)
+})
+
+test('findSite : budget A* partage entre les candidats, pas de repli sans preuve', async () => {
+  const bot = reachableSiteWorld({ stairs: false, ravine: false })
+  const realNow = Date.now
+  let now = realNow()
+  const budgets = []
+  const realSearch = bot.pathfinder.getPathFromTo
+  bot.pathfinder.getPathFromTo = function * (movements, start, goal, options) {
+    budgets.push(options.timeout)
+    for (const step of realSearch(movements, start, goal, options)) {
+      now += options.timeout
+      yield { result: { ...step.result, status: 'timeout' } }
+    }
+  }
+  Date.now = () => now
+  try {
+    assert.equal(await build.findSite(bot, { near: { x: 0.5, y: 65, z: 0.5 }, width: 3, depth: 3, height: 3, pied: 65 }), null)
+    assert.equal(budgets.length, 10, 'dix candidats peuvent etre recherches dans le budget global')
+    assert.ok(budgets.every(ms => ms > 0 && ms <= 100))
+    assert.equal(budgets.reduce((sum, ms) => sum + ms, 0), 1000, 'budget total toujours une seconde')
+  } finally {
+    Date.now = realNow
+  }
+})
+
+test('findSite : premier trajet lent ne prive pas le terrain suivant de recherche', async () => {
+  const bot = reachableSiteWorld({ stairs: false, ravine: false })
+  const realNow = Date.now
+  let now = realNow()
+  const searches = []
+  const realSearch = bot.pathfinder.getPathFromTo
+  bot.pathfinder.getPathFromTo = function * (movements, start, goal, options) {
+    searches.push({ timeout: options.timeout, goal })
+    if (searches.length === 1) {
+      // Le premier sommet est reellement isole; une recherche complexe
+      // peut epuiser tout le temps qui lui est accorde avant de conclure.
+      // Verification du decor seulement : delai large, independant de la
+      // charge de la machine (100 ms de CPU ne suffisaient pas au banc).
+      let result
+      for (const step of realSearch(movements, start, goal, { ...options, timeout: 60000, tickTimeout: 60000 })) result = step.result
+      assert.equal(result.status, 'noPath')
+      now += options.timeout
+      yield { result: { ...result, status: 'timeout' } }
+      return
+    }
+    yield * realSearch(movements, start, goal, options)
+  }
+  Date.now = () => now
+  try {
+    const site = await build.findSite(bot, { near: { x: 0.5, y: 65, z: 0.5 }, width: 3, depth: 3, height: 3, pied: 65 })
+    assert.ok(site, 'un premier trajet lent doit laisser une chance au sol accessible')
+    assert.equal(site.origin.y, 65)
+    assert.ok(searches.length > 1)
+    assert.equal(sitePath(bot, site.origin).status, 'success')
+  } finally {
+    Date.now = realNow
+  }
+})
+
+test('findSite : rend la main entre partial et traite une annulation pendant la recherche', async () => {
+  for (const cancel of [false, true]) {
+    const bot = reachableSiteWorld()
+    const controller = new AbortController()
+    let handled = false
+    let observedBetweenSlices = false
+    const realSearch = bot.pathfinder.getPathFromTo
+    bot.pathfinder.getPathFromTo = function * (movements, start, goal, options) {
+      let result
+      for (const step of realSearch(movements, start, goal, options)) result = step.result
+      assert.equal(result.status, 'success')
+      yield { result: { ...result, status: 'partial' } }
+      observedBetweenSlices = handled
+      yield { result }
+    }
+    const timer = setTimeout(() => {
+      handled = true
+      if (cancel) controller.abort()
+    }, 0)
+    try {
+      const site = await build.findSite(bot, { near: { x: 0.5, y: 65, z: 0.5 }, width: 3, depth: 3, height: 3, pied: 65, signal: controller.signal })
+      assert.equal(handled, true, 'les evenements doivent etre traites avant la fin du calcul')
+      if (cancel) assert.equal(site, null, 'aucun chantier retourne apres annulation')
+      else {
+        assert.ok(site)
+        assert.equal(observedBetweenSlices, true)
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+})
+
+test('findSite : evenements traites entre refus courts, signal deja annule sans recherche', async () => {
+  const bot = reachableSiteWorld({ stairs: false, ravine: false })
+  let handled = false
+  let searches = 0
+  const realSearch = bot.pathfinder.getPathFromTo
+  bot.pathfinder.getPathFromTo = function * (movements, start, goal, options) {
+    searches++
+    if (searches > 1) assert.equal(handled, true, 'evenement traite avant le candidat suivant')
+    yield * realSearch(movements, start, goal, options)
+  }
+  const timer = setTimeout(() => { handled = true }, 0)
+  try {
+    const options = { near: { x: 0.5, y: 65, z: 0.5 }, width: 3, depth: 3, height: 3, pied: 65 }
+    assert.ok(await build.findSite(bot, options))
+    assert.ok(searches > 1)
+    const before = searches
+    const controller = new AbortController()
+    controller.abort()
+    assert.equal(await build.findSite(bot, { ...options, signal: controller.signal }), null)
+    assert.equal(searches, before)
+  } finally {
+    clearTimeout(timer)
+  }
 })

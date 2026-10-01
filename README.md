@@ -458,7 +458,21 @@ Un arbre commence est fini (interrupteur `arbre_fini`) : la premiere buche
 coupee fixe l'arbre (buches reliees au tronc). Tant qu'il en reste une debout,
 `findTargetBlock` et `cible_haute` ne visent que lui, `recolter` continue
 au-dela de la quantite demandee, `finishAllowed()` refuse la fin et l'etat
-porte `arbre_en_cours` (buches debout). Une fois l'arbre fini, les piliers
+porte `arbre_en_cours` (buches debout). `avancer` vise aussi ses buches hors
+des bornes verticales de casse, y compris pendant une construction.
+Pour un arbre entier demande, le retour ou don du bois attend la coupe et
+le ramassage complets, meme sans `arbre_fini`. Ses cellules connectees et les
+objets apparus apres ses coupes sont conserves pour la reprise ; les arbres
+voisins et le bois deja au sol restent hors de cette mesure. Une cellule non
+chargee ne prouve jamais la fin. Chaque coupe attend une preuve de collecte
+par `playerCollect`, meme si l'objet ou sa metadata apparait tardivement.
+La preuve associe l'UUID a la position initiale d'apparition et au type de
+la coupe mesuree. Une pile fusionnee ne prouve qu'une unite par origine ;
+une origine inconnue ne permet pas de conclure. Ces mesures sont conservees
+pour la reprise. Pour un trajet de remise independant,
+`rejoindre_demandeur.objet` identifie l'objet, meme si le don vient dans un autre
+plan. Sans cet objet, un retour apres demande d'arbre entier attend son bois.
+Une fois l'arbre fini, les piliers
 montes pour lui sont defaits : celui sous les pieds en redescendant, les
 autres depuis le sol ; les blocs non retires restent memorises et sont retentes au plus trois fois
 par mission, puis comptes (`echafaudage_laisse`). Leurs coordonnees sont

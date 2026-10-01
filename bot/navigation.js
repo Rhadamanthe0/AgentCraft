@@ -474,4 +474,4 @@ function createNavigator (getBot, options = {}) {
     status: () => active ? { username: active.username, code: 'running' } : last }
 }
 
-module.exports = { createNavigator, arrived, clearSegment, blockInReach, itemInPickupRange, isWoodDoor, doorClosed }
+module.exports = { createNavigator, arrived, clearSegment, blockInReach, itemInPickupRange, WalkingMovements, isWoodDoor, doorClosed }

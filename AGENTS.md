@@ -35,9 +35,16 @@ jamais une cible a optimiser (pas de « benchmaxing ») :
 
 Le bot ne laisse jamais un arbre partiellement coupe : des la premiere buche
 coupee, quelle que soit la mission (quantite, fabrication, chantier), cet
-arbre est la seule cible bois jusqu a sa derniere buche, et aucune cloture ne
-passe avant. Puis le bot retire les piliers montes pour lui. Interrupteur
+arbre est la seule cible bois jusqu a sa derniere buche, et ni cloture ni
+bloc de chantier (`construire`, `poser_porte`) ne passe avant. Puis le bot retire les piliers montes pour lui. Interrupteur
 `arbre_fini` ; comportement detaille dans le [README](README.md#monter-en-pilier-piler-sans-tricher).
+
+Limite acceptee (proprietaire, 2026-10-01) : la provenance d une buche tombee
+se deduit du type et de la position (Mineflayer ne relie pas un objet a la
+coupe qui l a fait tomber). Une buche du meme bois jetee par un autre joueur
+sur la case coupee, et ramassee avant la vraie, peut donc etre comptee pour
+l arbre. Il faut un joueur qui le fasse expres ; une preuve serveur (plugin)
+serait le seul remede.
 
 ### Tout nouveau mode se mesure en A/B
 
