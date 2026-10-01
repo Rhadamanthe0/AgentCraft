@@ -993,3 +993,58 @@ test('arbre entier : observation passive pause refuse2000spawns et conserve coll
   assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 1)
   assert.equal(f.collectionListeners, 0)
 })
+
+for (const preuve of ['partielle', 'incertaine']) {
+  test(`construction revisee sans livraison apres don ${preuve} : chantier finit et historique reste`, async t => {
+    let gifts = 0
+    t.mock.method(delivery, 'giveToPlayer', async (bot, options) => {
+      gifts++
+      bot.inventory.items().find(item => item.name === 'oak_log').count--
+      const old = bot.blockAt
+      bot.blockAt = p => p.x === 10 ? { name: 'oak_planks', position: p, boundingBox: 'block' } : old(p)
+      return { status: 'partial', deposited: preuve === 'partielle' ? 1 : 0, inventoryRemoved: 1,
+        requested: options.count, evidence: { item: options.item }, reason: 'observed_partial' }
+    })
+    const f = await simulate(t, { inventory: [{ name: 'oak_log', count: 2 }], kind: 'construction',
+      text: 'construis une cabane et donne-moi 2 buches', completedStructure: true,
+      revisionOnPendingJoin: true, revisionText: 'construis seulement une cabane',
+      queue: [['choisir_terrain'], [{ action: 'donner', choices: { objet: 'oak_log', quantite: 2, destinataire: 'human' } }],
+        [{ action: 'rejoindre_demandeur', choices: { objet: 'oak_log' } }], ['choisir_terrain']],
+      navigate: async () => ({ reached: false, code: 'player_unknown', remaining: null }) })
+    assert.equal(gifts, 1)
+    assert.equal(f.status.etat, 'done')
+    assert.equal(f.status.objectif, 'construis seulement une cabane')
+    assert.equal(f.snapshots.at(-1).descripteur.pendingJoin, false)
+    const ledger = f.snapshots.at(-1).descripteur.livraison[0]
+    assert.equal(ledger.tente, 2)
+    assert.equal(ledger.retire, 1)
+    assert.equal(ledger.prouve, preuve === 'partielle' ? 1 : 0)
+    assert.equal(ledger.incertain, preuve === 'partielle' ? 0 : 1)
+    assert.equal(ledger.annule, true)
+    assert.equal(ledger.invocations.length, 1)
+  })
+}
+
+for (const livraisonDemandee of [false, true]) {
+  test(`don historique annule reprend puis livraisonDemandee=${livraisonDemandee} garde budget incertain`, async t => {
+    let gifts = 0
+    t.mock.method(delivery, 'giveToPlayer', async () => { gifts++; throw new Error('aucun retoss autorise') })
+    const desc = { kind: 'construction', resource: 'bois', landmark: 'ici', quota: 16, wholeTree: false,
+      livraison: [{ destinataire: 'human', objet: 'oak_log', plafond: 2, tente: 2, retire: 1,
+        prouve: 0, incertain: 1, invocations: ['old#don-1'], termine: false, annule: true }] }
+    const f = await simulate(t, { inventory: [{ name: 'oak_log', count: 2 }], kind: 'construction', completedStructure: true,
+      resume: { id: 'cancelled-delivery', texte: livraisonDemandee ? 'construis une cabane et donne-moi 2 buches' : 'construis seulement une cabane', auteur: 'human', progression: { descripteur: desc } },
+      queue: [livraisonDemandee ? [{ action: 'donner', choices: { objet: 'oak_log', quantite: 2, destinataire: 'human' } }] : ['choisir_terrain']],
+      setup: bot => { const old = bot.blockAt; bot.blockAt = p => p.x === 10 ? { name: 'oak_planks', position: p, boundingBox: 'block' } : old(p) } })
+    assert.equal(gifts, 0)
+    assert.equal(f.status.etat === 'done', !livraisonDemandee)
+    const ledger = f.snapshots.at(-1).descripteur.livraison[0]
+    assert.equal(ledger.tente, 2)
+    assert.equal(ledger.retire, 1)
+    assert.equal(ledger.prouve, 0)
+    assert.equal(ledger.incertain, 1)
+    assert.equal(Boolean(ledger.annule), !livraisonDemandee)
+    assert.deepEqual(ledger.invocations, ['old#don-1'])
+    if (livraisonDemandee) assert.ok(f.states.some(state => state.dernieres_etapes?.some(step => step.code === 'uncertain_blocked')))
+  })
+}

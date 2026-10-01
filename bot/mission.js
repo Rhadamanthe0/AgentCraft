@@ -766,7 +766,8 @@ function createMissionRunner (host, injected = {}) {
       prouve: l.proven,
       incertain: l.uncertain,
       invocations: [...l.invocations],
-      termine: l.done
+      termine: l.done,
+      ...(l.cancelled ? { annule: true } : {})
     }
   }
   // Conserve aussi un don choisi dans le plan du trajet qui le precede.
@@ -787,6 +788,8 @@ function createMissionRunner (host, injected = {}) {
         ceiling, attempted: 0, removed: 0, proven: 0, uncertain: 0, invocations: [], done: false }
       deliveryLedgers.set(key, ledger)
     } else ledger.ceiling = ceiling
+    // Reprendre un don explicite reactive son obligation, jamais son budget.
+    ledger.cancelled = false
     return ledger
   }
   // Plafond d engagement : la demande chiffree du texte courant, lue par le
@@ -813,13 +816,14 @@ function createMissionRunner (host, injected = {}) {
   }
   function deliveryProvenFor (m) {
     let n = 0
-    for (const l of deliveryLedgersFor(m)) n += l.proven
+    for (const l of deliveryLedgersFor(m)) if (!l.cancelled) n += l.proven
     return n
   }
   // Premier blocage don a servir dans l etat (l incertain prime : il interdit
   // tout nouvel essai du meme engagement).
   function deliveryBlockReason (m) {
     for (const l of deliveryLedgersFor(m)) {
+      if (l.cancelled) continue
       if (l.uncertain > 0) {
         return `don ${l.item} vers ${l.recipient} incertain : ${l.uncertain} sorti(s) sans preuve`
       }
@@ -6227,7 +6231,7 @@ function createMissionRunner (host, injected = {}) {
     // compteurs broken/collected ni le quota ressource. L incertain, l absence
     // de plafond et le manque de prouve refusent terminer/fini ; satisfaits,
     // l arret est autorise sans passer par le quota. Aucun retoss auto.
-    const dons = deliveryLedgersFor(mission)
+    const dons = deliveryLedgersFor(mission).filter(l => !l.cancelled)
     if (dons.length > 0) {
       for (const l of dons) {
         if (l.uncertain > 0) {
@@ -6953,6 +6957,7 @@ function createMissionRunner (host, injected = {}) {
       // de sorties deja tentees/incertaines restent dans le grand livre.
       for (const ledger of deliveryLedgersFor(opts.revisionOf)) {
         if (ledger.attempted === 0 && ledger.removed === 0 && ledger.proven === 0 && ledger.uncertain === 0) deliveryLedgers.delete(ledger.key)
+        else ledger.cancelled = true
       }
     }
     const objectiveMode = opts.mode === 'permanent' ? 'permanent' : 'temporary'
@@ -7463,7 +7468,8 @@ function createMissionRunner (host, injected = {}) {
           proven,
           uncertain: Math.max(0, removed - proven),
           invocations: Array.isArray(e.invocations) ? e.invocations.map(String).slice(0, 64) : [],
-          done: ceiling !== null && proven >= ceiling
+          done: ceiling !== null && proven >= ceiling,
+          cancelled: e.annule === true
         })
       }
     } catch (_) { /* restauration best-effort : l engagement reste decrit */ }
