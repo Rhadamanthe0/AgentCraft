@@ -79,8 +79,10 @@ Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
   `TestBot` absent de `ops.json` **et** `playerGameType = 0` (piege 3).
 - Ports lies a `127.0.0.1` uniquement.
 - Jamais de secret committe, journalise, mis dans un artefact ou une image.
-- Banc CI : **cle secondaire seule** (`OPENCODE_SECONDARY_API_KEY`), sans
-  repli silencieux ; `report.keyCheck` le verifie. Ne jamais contourner un 403
+- Banc CI : **une seule cle**, sans repli silencieux ; `report.keyCheck` le
+  verifie. Secondaire (`OPENCODE_SECONDARY_API_KEY`) d ordinaire ; principale
+  (`PLANNER_API_KEY`, `CI_EXPECT_KEY: primary`) depuis le 2026-10-01, quota
+  hebdomadaire secondaire epuise (decision et commit du proprietaire). Ne jamais contourner un 403
   `FreeTierError` d OpenCode.
 - Runner MINIPC-CLEM : pas de Docker Engine, pas de DinD, pas de privilege en
   plus ; ne supprimer que les ressources du job (`mc-ci-*`, `minebot-ci:*`) ;

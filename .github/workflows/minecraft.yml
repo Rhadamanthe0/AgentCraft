@@ -147,6 +147,10 @@ jobs:
           LEVELS: ${{ needs.minecraft.outputs.levels }}
           RESULT: ${{ needs.minecraft.result }}
         run: |
+          if [ "$RESULT" = skipped ] || [ -z "$LEVELS" ]; then
+            echo "Banc saute ($RESULT) : aucun niveau joue, pas de fusion." >&2
+            exit 1
+          fi
           if [ "$LEVELS" != tout ]; then
             echo "Banc partiel ($LEVELS) : la fusion exige un banc complet reussi (commit sans ligne Banc:, ou Banc: tout)." >&2
             exit 1
