@@ -222,6 +222,8 @@ def base_levels():
             'leaves': [(TX-2, 208, TZ-2, TX+2, 209, TZ+2)],
             'logs': _logs(*[(TX, 205 + i, TZ) for i in range(3)]),
             'rules': {},
+            # A/B: digging path by the shared navigator (index.digTowardNavigateur).
+            'variants': [avec('nav_creuse')],
         },
         {
             'name': 'terrain/hedge-pit',
@@ -330,6 +332,8 @@ def base_levels():
             'terrain': [(TX-3, 200, TZ-3, TX+3, 202, TZ+3, 'dirt'), (TX-2, 200, TZ-2, TX+2, 202, TZ+2, 'air'),
                         (TX-1, 199, TZ-1, TX+1, 199, TZ+1, 'sand')],
             'target': 4, 'leaves': [], 'logs': [], 'rules': {},
+            # A/B: digging path by the shared navigator (index.digTowardNavigateur).
+            'variants': [avec('nav_creuse')],
         },
         # Craft levels: same runner as gather/* ; `give` stocks the bot by RCON
         # before the order (fixture only, like the arena itself).
@@ -1715,7 +1719,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 EXPECTED_S = {
     'composite/cabin-from-scratch': 900, 'composite/stone-hut-from-scratch': 1200,
     'composite/cabin-change-of-mind': 1000, 'composite/cabin-across-water': 1000, 'craft/iron-pickaxe': 400, 'craft/iron-pickaxe~sans-solveur': 480,
-    'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/bent~sans-anti_boucle': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'trees/double~sans-relance_plan': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
+    'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/bent~sans-anti_boucle': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'trees/double~sans-relance_plan': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82, 'terrain/plateau~avec-nav_creuse': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
     'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,
     'chat/question-keeps-mission': 27, 'chat/stop-tree': 27, 'join/tall-cliff': 26, 'terrain/dirt-wall': 25,
@@ -1724,7 +1728,7 @@ EXPECTED_S = {
     # follow/*: run 36109916130 (712eb71).
     'follow/corner': 26, 'follow/stop': 19, 'follow/stairs': 12, 'follow/straight': 11,
     # gather/*: run 36140713444 (e8290a0) ; flowers ran to the 180 s cap then.
-    'gather/sand-walled': 75, 'gather/flowers': 70, 'gather/dirt': 44, 'gather/sand': 34,
+    'gather/sand-walled': 75, 'gather/sand-walled~avec-nav_creuse': 75, 'gather/flowers': 70, 'gather/dirt': 44, 'gather/sand': 34,
 }
 NEW_LEVEL_S = 90
 

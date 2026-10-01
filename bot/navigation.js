@@ -122,7 +122,8 @@ function createNavigator (getBot, options = {}) {
   }
 
   async function navigate (resolveTarget, { signal, follow = false, durationMs = null, radius = 2, username = null,
-    interaction = false, allowHighApproach = false, pickup = false, distanceBudget = Infinity, timeoutMs: journeyTimeoutMs = timeoutMs } = {}) {
+    interaction = false, allowHighApproach = false, pickup = false, distanceBudget = Infinity, timeoutMs: journeyTimeoutMs = timeoutMs,
+    dig = null } = {}) {
     if (signal?.aborted) return { code: 'cancelled', reached: false }
     cancel()
     const bot = getBot()
@@ -138,7 +139,14 @@ function createNavigator (getBot, options = {}) {
     signal?.addEventListener('abort', abort, { once: true })
     const stopped = () => job.cancelled || signal?.aborted || getBot() !== bot || !bot.entity
     const movements = new WalkingMovements(bot)
-    movements.canDig = false
+    // Mode creuser (`dig`, interrupteur nav_creuse) : A* peut traverser des
+    // blocs a casser, et l execution les casse elle-meme avant d avancer. Le
+    // pathfinder ne possede toujours pas les touches. `dig` fournit :
+    //   cantBreak : ids de blocs a ne jamais casser (construits par le bot) ;
+    //   canBreak(block) : casse permise et utile (outil, pas de puits) ;
+    //   digBlock(block) : casse mesuree, rend vrai si le bloc a disparu.
+    movements.canDig = Boolean(dig)
+    if (dig?.cantBreak) for (const id of dig.cantBreak) movements.blocksCantBreak.add(id)
     movements.allow1by1towers = false
     movements.allowParkour = false
     // Ce navigateur ne pose rien : sans cela, un bot porteur de terre recevait
@@ -219,7 +227,7 @@ function createNavigator (getBot, options = {}) {
           break
         }
       }
-      return { ...node, x: Math.floor(node.x) + 0.5, y, z: Math.floor(node.z) + 0.5 }
+      return { ...node, x: Math.floor(node.x) + 0.5, y, z: Math.floor(node.z) + 0.5, noeudY: node.y }
     }
 
     // Borner chaque tranche A* et rendre la main a la physique entre tranches.
@@ -366,6 +374,34 @@ function createNavigator (getBot, options = {}) {
         emptyReplans = 0
         const point = route[0]
         recording.target(point)
+        if (dig && point.toBreak?.length && !point.toPlace?.length && !point.parkour) {
+          // Casser d abord ce qui barre ce pas (pieds, tete, plafond d une
+          // marche), puis avancer. Un bloc refuse exclut la case du graphe :
+          // le calcul suivant passe ailleurs, jamais le meme refus en boucle.
+          bot.clearControlStates()
+          let refuse = false
+          for (const cell of point.toBreak) {
+            if (stopped()) break
+            const V = bot.entity.position.constructor
+            const block = bot.blockAt(new V(cell.x, cell.y, cell.z))
+            if (!block || block.boundingBox !== 'block') continue
+            if (!dig.canBreak(block) || !(await dig.digBlock(block))) {
+              refuse = true
+              blockedNodes.add(`${Math.floor(point.x)},${Math.floor(point.y)},${Math.floor(point.z)}`)
+              report({ event: 'dig_refused', at: { x: cell.x, y: cell.y, z: cell.z }, block: block.name })
+              break
+            }
+            report({ event: 'dug', at: { x: cell.x, y: cell.y, z: cell.z }, block: block.name })
+          }
+          if (stopped()) break
+          progressAt = Date.now()
+          if (refuse) route = []
+          else {
+            // La hauteur du point se lisait sur le bloc casse : la relire.
+            Object.assign(point, waypoint({ x: Math.floor(point.x), y: point.noeudY ?? Math.floor(point.y), z: Math.floor(point.z) }), { toBreak: [] })
+          }
+          continue
+        }
         if (point.toBreak?.length || point.toPlace?.length || point.parkour) {
           code = 'unsupported_move'; break
         }

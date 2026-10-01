@@ -477,6 +477,7 @@ function buildMovements () {
 // debout a cote (pieds a 200) comptait un bloc d ecart de trop, et le trajet
 // creusait un trou au pied du mur (gather/sand-walled cabbdfcd).
 async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_NAV_TIMEOUT_MS, protectBuilt = false, block = null } = {}) {
+  if (missionRunner.featureOn('nav_creuse', false)) return digTowardNavigateur(position, { signal, range, timeoutMs, protectBuilt, block })
   const movements = protectBuilt ? joinDigMovements : safeDigMovements
   if (!bot?.pathfinder || !movements || !bot.entity) return { reached: false, code: 'unavailable' }
   const start = bot.entity.position.clone()
@@ -533,6 +534,41 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     setNavigation('strict')
     try { bot.clearControlStates() } catch (_) {}
   }
+}
+
+// Meme contrat que digToward, par le navigateur partage en mode creuser
+// (interrupteur nav_creuse, eteint par defaut, mesure en A/B par
+// avec('nav_creuse')) : A* du pathfinder pour le calcul seulement, casse et
+// pas executes et mesures localement. Si l A/B le confirme, le pathfinder ne
+// sert plus qu aux commandes !va/!viens et au sauvetage.
+async function digTowardNavigateur (position, { signal, range, timeoutMs, protectBuilt, block }) {
+  if (!bot?.entity) return { reached: false, code: 'unavailable' }
+  const start = bot.entity.position.clone()
+  const cantBreak = protectBuilt
+    ? Object.values(bot.registry.blocksByName).filter(b => BUILT_BLOCK.test(b.name)).map(b => b.id)
+    : []
+  const V = bot.entity.position.constructor
+  const target = block ? new V(block.x + 0.5, block.y + 0.5, block.z + 0.5) : position
+  const result = await navigator.toPosition(target, {
+    signal, timeoutMs, radius: range, interaction: Boolean(block),
+    dig: {
+      cantBreak,
+      canBreak: b => !(protectBuilt && BUILT_BLOCK.test(b.name)) && b.diggable !== false &&
+        Number.isFinite(b.hardness) && b.hardness >= 0,
+      digBlock: async b => {
+        try {
+          await craft.equipForBlock(bot, b)
+          await bot.dig(b, true)
+        } catch (_) {
+          return false
+        }
+        return bot.blockAt(b.position)?.boundingBox !== 'block'
+      }
+    }
+  })
+  const distance = bot.entity.position.distanceTo(position)
+  return { reached: Boolean(result.reached), code: result.reached ? 'dug' : result.code,
+    travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), distance }
 }
 
 // Choisit le jeu de regles courant. `strict` par defaut : tout ce qui n est pas
