@@ -12,11 +12,12 @@ const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolv
 // ouvrir_porte : le bot ferme dans une piece a porte en bois l ouvre et passe
 // de l autre cote (composite/cabin-from-scratch 7d76b18 : enferme dans sa
 // cabane). Une porte de fer reste fermee.
-async function ouvrir (t, { porte = 'oak_door', plancher = false } = {}) {
+async function ouvrir (t, { porte = 'oak_door', plancher = false, contre = false } = {}) {
   // plancher : la piece (x <= 3, porte comprise) a un plancher en y=65, une
   // marche au-dessus du sol du dehors (cabane du banc 5a0fe24).
   const sol = plancher ? 66 : 65
-  const depart = new Vec3(1.5, sol, 0.5)
+  // contre : le bot est tout contre la porte, du cote de sa tranche fermee.
+  const depart = new Vec3(contre ? 2.5 : 1.5, sol, 0.5)
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(planner, 'readBrief', async () => ({ kind: 'geste', kindConfidence: 1, resource: null,
     resourceConfidence: 0, landmark: 'ici', door: false, doorProbability: 0 }))
@@ -52,6 +53,10 @@ async function ouvrir (t, { porte = 'oak_door', plancher = false } = {}) {
     stopPathfinding () {}, chat () {},
     navigateToPosition: async target => {
       moves.push(target.clone())
+      // On ne tient pas debout dans une porte fermee.
+      if (isDoor(new Vec3(Math.floor(target.x), Math.floor(target.y), Math.floor(target.z))) && !state.open) {
+        return { reached: false, code: 'no_path' }
+      }
       // Comme navigation.arrived : une case en l air n est jamais atteinte.
       if (!solid(new Vec3(Math.floor(target.x), Math.floor(target.y) - 1, Math.floor(target.z)))) {
         return { reached: false, code: 'no_path' }
@@ -84,6 +89,15 @@ test('piece a plancher : la porte franchie, le bot descend sur le sol du dehors'
   assert.ok(f.step, 'ouvrir_porte jouee')
   assert.equal(f.state.open, true)
   assert.deepEqual(f.activated.map(p => [p.x, p.y, p.z]), [[3, 66, 0]], 'moitie basse actionnee')
+  assert.match(f.step.resultat, /porte ouverte et franchie/)
+  assert.ok(f.bot.entity.position.x > 3 && f.bot.entity.position.y === 65, 'dehors, au sol')
+})
+
+test('tout contre la porte fermee : la moitie haute a portee suffit', async t => {
+  const f = await ouvrir(t, { plancher: true, contre: true })
+  assert.ok(f.step, 'ouvrir_porte jouee')
+  assert.equal(f.state.open, true)
+  assert.equal(f.activated.length, 1, 'une seule action sur la porte')
   assert.match(f.step.resultat, /porte ouverte et franchie/)
   assert.ok(f.bot.entity.position.x > 3 && f.bot.entity.position.y === 65, 'dehors, au sol')
 })

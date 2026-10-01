@@ -5505,19 +5505,27 @@ function createMissionRunner (host, injected = {}) {
       const below = bot.blockAt(door.position.offset(0, -1, 0))
       if (below && isWoodDoor(below.name)) door = below
       const centre = door.position.offset(0.5, 0.5, 0.5)
-      if (!blockInReach(bot, bot.entity.position, centre, REACH)) {
+      // Chaque moitie ouvre la porte, comme en jeu. Depuis l interieur, tout
+      // contre elle, le regard vers le centre de la moitie basse traverse la
+      // moitie haute (fermee, pleine sur sa tranche) : la basse seule etait
+      // « hors de portee » (banc 8090c3b, composite/cabin-from-scratch).
+      const haut = bot.blockAt(door.position.offset(0, 1, 0))
+      const moities = [door.position, ...(haut && isWoodDoor(haut.name) ? [haut.position] : [])]
+      const prise = b => b?.entity && moities.find(p => blockInReach(b, b.entity.position, p.offset(0.5, 0.5, 0.5), REACH))
+      let saisie = prise(bot)
+      if (!saisie) {
         const r = await host.navigateToPosition(centre, {
           signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, timeoutMs: 10000, distanceBudget: 16
         })
-        const live = host.getBot()
-        if (!live?.entity || !blockInReach(live, live.entity.position, centre, REACH)) {
+        saisie = prise(host.getBot())
+        if (!saisie) {
           return { resultat: `porte en ${door.position.x} ${door.position.y} ${door.position.z} hors de portee (${r?.code ?? 'trajet impossible'})`, echec: true }
         }
       }
       const live = host.getBot()
       if (doorClosed(live.blockAt(door.position))) {
         try {
-          await withTimeout(live.activateBlock(live.blockAt(door.position)), 4000, 'ouverture trop longue')
+          await withTimeout(live.activateBlock(live.blockAt(saisie)), 4000, 'ouverture trop longue')
         } catch (err) {
           return { resultat: `porte refusee : ${err.message}`, echec: true }
         }
