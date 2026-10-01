@@ -2947,6 +2947,109 @@ function createMissionRunner (host, injected = {}) {
     return hint
   }
 
+  // Lowest pillar height (from `depuis` to PILER_MAX) that puts `centre` in
+  // reach from feet `pose` anchored on row `piedY`, measured like piler would
+  // climb: real cells the head crosses in every column under the hitbox
+  // (solid or liquid stops the climb, leaves are cleared), the pillar's own
+  // blocks standing, real sight line. Returns { hauteur } or the obstacle.
+  function hauteurDePilier (bot, pose, piedY, centre, depuis) {
+    const colonnes = colonnesSousHitbox(pose, piedY)
+    const sousHitbox = p => colonnes.some(c => c.x === p.x && c.z === p.z)
+    const ax = Math.floor(pose.x)
+    const az = Math.floor(pose.z)
+    for (let h = depuis; h <= PILER_MAX; h += 1) {
+      if (h >= 1) {
+        const tete = colonnes.map(c => bot.blockAt(c.offset(0, h + 1, 0)))
+          .find(b => !b || estLiquide(b.name) || (estSolide(b) && !/_leaves$/.test(b.name)))
+        if (tete !== undefined) return { obstacle: tete?.name ?? 'bloc inconnu', niveau: h + 1 }
+      }
+      const vue = { entity: bot.entity,
+        blockAt: p => {
+          if (p.x === ax && p.z === az && p.y >= piedY && p.y < piedY + h) {
+            return { name: 'dirt', position: p, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
+          }
+          const reel = bot.blockAt(p)
+          return reel && /_leaves$/.test(reel.name) && sousHitbox(p) && p.y > piedY && p.y <= piedY + h + 1
+            ? { name: 'air', position: p, boundingBox: 'empty', shapes: [] } : reel
+        } }
+      // Measured from the anchor (floored feet, whole cell), the one piler
+      // really builds on: a fractional y (landing tolerated at +0.25, standing
+      // on a leaf) put the virtual post one cell too high, its floor on air,
+      // and the check said « aucune hauteur » from a post where piler works
+      // (banc composite 755b262, cabane 45 min).
+      if (blockInReach(vue, new Vec3(pose.x, piedY + h, pose.z), centre, REACH)) return { hauteur: h }
+    }
+    return {}
+  }
+
+  // Ground posts around a high target from which a pillar of 1..PILER_MAX
+  // reaches it, lowest climb first then nearest. Real chunks only: a standable
+  // cell (two free, solid floor that is not part of a tree), outside the
+  // chantier footprint, not the bot's current cell, not already tried for this
+  // target. The code finds the post; the planner is no longer asked to.
+  function postesDePilier (bot, cible, centre, essayes) {
+    const here = bot.entity.position
+    const courant = here.floored()
+    const emprise = empriseChantier()
+    const postes = []
+    for (let dx = -REACH; dx <= REACH; dx += 1) {
+      for (let dz = -REACH; dz <= REACH; dz += 1) {
+        if ((dx === 0 && dz === 0) || Math.hypot(dx, dz) > REACH) continue
+        const x = cible.x + dx
+        const z = cible.z + dz
+        // The topmost floor below the target in this column.
+        for (let y = cible.y - 1; y >= cible.y - PILER_MAX - REACH; y -= 1) {
+          const sol = bot.blockAt(new Vec3(x, y - 1, z))
+          if (!build.standable(bot, x, y, z)) {
+            if (sol === null) break
+            continue
+          }
+          // On the crown: the ground may lie further down, under the leaves.
+          if (/_(leaves|log|stem|wood|hyphae)$/.test(sol?.name ?? '')) continue
+          const cle = `${x},${y},${z}`
+          if (essayes.has(cle) || (x === courant.x && z === courant.z) || dansEmprise(emprise, { x, z })) break
+          const pose = new Vec3(x + 0.5, y, z + 0.5)
+          const mesure = hauteurDePilier(bot, pose, y, centre, 1)
+          if (mesure.hauteur !== undefined) {
+            postes.push({ cle, pose, hauteur: mesure.hauteur, distance: here.distanceTo(pose) })
+          }
+          break
+        }
+      }
+    }
+    return postes.sort((a, b) => a.hauteur - b.hauteur || a.distance - b.distance)
+  }
+
+  // Walks to the best untried pillar post for this target (own pillar undone
+  // first: walking off its top is a fall). Each post is tried once per
+  // mission and target, so the search ends instead of looping.
+  async function rejoindrePosteDePilier (high, centre) {
+    const bot = host.getBot()
+    if (!bot?.entity || !['recolte', 'construction'].includes(mission.kind)) return {}
+    const cleCible = `${high.position.x},${high.position.y},${high.position.z}`
+    mission.postesPilier ??= {}
+    const essayes = new Set(mission.postesPilier[cleCible] ?? [])
+    const postes = postesDePilier(bot, high.position, centre, essayes)
+    if (!postes.length) {
+      return { resultat: `aucun poste de pilier libre autour de ${high.cible}` +
+        (essayes.size ? ` (${essayes.size} deja essaye(s))` : '') + ' : viser une autre cible ou degager l acces' }
+    }
+    const porteur = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+    if (porteur && isPillarBlock(bot, porteur)) await descendScaffold(-Infinity, { pillarOnly: true })
+    for (const poste of postes.slice(0, 3)) {
+      if (mission.cancelled) break
+      essayes.add(poste.cle)
+      mission.postesPilier[cleCible] = [...essayes]
+      const walk = await host.navigateToPosition(poste.pose, {
+        signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.3, distanceBudget: 32, timeoutMs: 15000
+      })
+      if (walk?.reached) {
+        return { atteint: true, resultat: `poste de pilier rejoint en ${poste.cle} (pilier de ${poste.hauteur} mesure)` }
+      }
+    }
+    return { resultat: 'postes de pilier mesures autour de la cible injoignables a pied : viser une autre cible ou degager l acces' }
+  }
+
   // Measure access from supported virtual posts without changing the world or permissions.
   function climbAccessHint (target) {
     const bot = host.getBot()
@@ -4620,40 +4723,26 @@ function createMissionRunner (host, injected = {}) {
         const poste = host.getBot()
         const pied = poste.entity.position.floored()
         const centre = high.position.offset(0.5, 0.5, 0.5)
-        let besoin = 0
+        const ici = hauteurDePilier(poste, poste.entity.position, pied.y, centre, 1)
+        const besoin = ici.hauteur ?? 0
         let montee = null
-        const colonnes = colonnesSousHitbox(poste.entity.position, pied.y)
-        const sousHitbox = p => colonnes.some(c => c.x === p.x && c.z === p.z)
-        for (let h = 1; h <= PILER_MAX && !besoin; h += 1) {
-          // Real cells the head crosses at this level, in every column under
-          // the hitbox as piler checks them: solid or liquid stops the climb.
-          // Leaves are admitted, piler clears them.
-          const obstacle = colonnes.map(c => poste.blockAt(c.offset(0, h + 1, 0)))
-            .find(tete => !tete || estLiquide(tete.name) || (estSolide(tete) && !/_leaves$/.test(tete.name)))
-          if (obstacle !== undefined) {
-            montee = `montee bloquee ici : ${obstacle?.name ?? 'bloc inconnu'} a +${h + 1} au-dessus des pieds, ` +
-              'piler ne passerait pas : changer de poste (autre cote de la cible)'
-            break
+        if (!besoin) {
+          const constat = ici.obstacle
+            ? `montee bloquee ici : ${ici.obstacle} a +${ici.niveau} au-dessus des pieds, piler ne passerait pas`
+            : `aucune hauteur de pilier (1 a ${PILER_MAX}) ne met la cible a portee d ici`
+          montee = `${constat} : changer de poste (${ici.obstacle ? 'autre cote de la cible' : 'se rapprocher horizontalement'})`
+          // The code looks for the post itself and walks there, instead of
+          // handing « changer de poste » back to the planner, which repeated
+          // avancer/recolter from the same spot (maison en pierre ~aleatoire 858ba92 :
+          // perche a 2.4 blocs d une buche a +4, dix tours sans bouger).
+          if (!params.__posteCherche && !mission.cancelled) {
+            const deplace = await rejoindrePosteDePilier(high, centre)
+            if (deplace.atteint) {
+              const suite = await ACTIONS.avancer(scale, { ...params, __posteCherche: true })
+              return { ...suite, resultat: `${deplace.resultat} ; ${suite.resultat}` }
+            }
+            if (deplace.resultat) montee = `${constat} ; ${deplace.resultat}`
           }
-          // The pillar's own blocks as they would stand, and the leaves piler
-          // would have cleared along the climb, like climbAccessHint.
-          const vue = { entity: poste.entity,
-            blockAt: p => {
-              if (p.x === pied.x && p.z === pied.z && p.y >= pied.y && p.y < pied.y + h) {
-                return { name: 'dirt', position: p, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
-              }
-              const reel = poste.blockAt(p)
-              return reel && /_leaves$/.test(reel.name) && sousHitbox(p) && p.y > pied.y && p.y <= pied.y + h + 1
-                ? { name: 'air', position: p, boundingBox: 'empty', shapes: [] } : reel
-            } }
-          // Mesure depuis l'ancrage (pieds floores : case entiere), celui du
-          // pilier que piler pose reellement : un y fractionnaire (atterissage
-          // tolere a +0.25, appui sur une feuille) mettait le poste virtuel
-          // une cellule trop haut, son sol tombait sur l'air et le constat
-          // disait « aucune hauteur ne met la cible a portee » d'un poste ou
-          // piler marcherait (banc composite 755b262, cabane 45 min).
-          const posteFictif = new Vec3(poste.entity.position.x, pied.y + h, poste.entity.position.z)
-          if (blockInReach(vue, posteFictif, centre, REACH)) besoin = h
         }
         let tentative = ''
         // Same mission kinds as the planner's piler (skills.js): a movement goal
@@ -4680,10 +4769,6 @@ function createMissionRunner (host, injected = {}) {
         // Measured after the attempt: piler may have gathered dirt or left a partial pillar.
         const stock = scaffoldingStock(host.getBot()).total
         const dirt = craft.countOf(host.getBot(), PILER_DIRT)
-        if (!besoin && !montee) {
-          montee = `aucune hauteur de pilier (1 a ${PILER_MAX}) ne met la cible a portee d ici : ` +
-            'changer de poste (se rapprocher horizontalement)'
-        }
         const next = montee && !besoin ? montee : stock > 0
           ? 'piler peut aider si l appui et l espace au-dessus sont libres ; la pose reste a verifier'
           : 'stock court : piler recupere lui-meme la terre manquante (pilier defait puis refait, terre prise a cote)'

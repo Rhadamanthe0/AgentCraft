@@ -339,12 +339,17 @@ test('avancer : plafond reel a mi-hauteur, aucun pilier automatique', async t =>
 })
 
 // Decentre (z 0.18) : la tete touche aussi la colonne z = -1, comme piler la
-// verifie. Un plafond mi-hauteur y annule le pilier automatique.
-test('avancer : plafond dans la colonne voisine sous la hitbox, aucun pilier automatique', async t => {
+// verifie. Un plafond mi-hauteur y annule le pilier sur place ; le code
+// cherche alors un autre poste (ici, le seul : sur ce bloc, injoignable).
+test('avancer : plafond dans la colonne voisine sous la hitbox, aucun pilier sur place', async t => {
+  const trajets = []
   const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], first: 'avancer', logAt: new Vec3(3, 70, 0),
-    start: new Vec3(0.5, 65, 0.18), extra: { '0,68,-1': 'stone' } })
+    start: new Vec3(0.5, 65, 0.18), extra: { '0,68,-1': 'stone' },
+    navigate: async position => { trajets.push(position); return { reached: false, code: 'no_path' } } })
   assert.deepEqual(f.placements, [])
   assert.equal(f.step.code, 'cible_haute')
+  assert.match(f.step.resultat, /montee bloquee ici : stone a \+3 .*injoignables a pied/)
+  assert.deepEqual(trajets, [new Vec3(0.5, 69, -0.5)])
 })
 
 // Feuilles sur la montee : piler les casse, la hauteur reste mesurable.
@@ -354,14 +359,40 @@ test('avancer : feuilles sur la montee comptees comme degagees', async t => {
   assert.equal(f.placements.length, 3, f.step.resultat)
 })
 
-// A +9 et 4 blocs de cote, aucune hauteur de 1 a 6 ne met la buche a portee :
-// ni pilier ni conseil de piler, changer de poste.
-test('avancer : aucune hauteur de pilier ne suffit, changer de poste', async t => {
-  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], first: 'avancer', logAt: new Vec3(4, 74, 0) })
+// A +9 et 4 blocs de cote, aucune hauteur de 1 a 6 ne met la buche a portee,
+// et aucun sol autour d elle : ni pilier ni conseil de piler, le constat le dit.
+test('avancer : aucune hauteur de pilier ne suffit, aucun poste autour', async t => {
+  const trajets = []
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], first: 'avancer', logAt: new Vec3(4, 74, 0),
+    navigate: async position => { trajets.push(position); return { reached: true, code: 'arrived' } } })
   assert.deepEqual(f.placements, [])
   assert.equal(f.step.code, 'cible_haute')
-  assert.match(f.step.resultat, /aucune hauteur de pilier \(1 a 6\)/)
+  assert.match(f.step.resultat, /aucune hauteur de pilier \(1 a 6\) .*aucun poste de pilier libre autour de oak_log/)
   assert.doesNotMatch(f.step.resultat, /piler peut aider/)
+  assert.deepEqual(trajets, [])
+})
+
+// Meme buche, sol tout autour : le code mesure les postes au sol, rejoint le
+// plus bas (pilier le plus court) puis le plus proche, et reprend la mesure
+// depuis la. Avant, « changer de poste » revenait au modele, qui relancait
+// avancer depuis le meme endroit (cabane ~aleatoire 858ba92, dix tours).
+test('avancer : aucune hauteur ne suffit ici, le code rejoint un poste mesure', async t => {
+  const sol = {}
+  for (let x = -2; x <= 8; x++) for (let z = -4; z <= 4; z++) sol[`${x},64,${z}`] = 'stone'
+  const trajets = []
+  const f = await simulate(t, { inventory: [{ name: 'dirt', count: 8 }], first: 'avancer', logAt: new Vec3(4, 74, 0),
+    extra: sol,
+    navigate: async (position, _options, bot) => {
+      trajets.push(position)
+      bot.entity.position = position.clone()
+      return { reached: true, code: 'arrived' }
+    } })
+  assert.equal(trajets.length, 1)
+  const poste = trajets[0]
+  assert.equal(poste.y, 65)
+  // Next to the trunk column, never in it: a 6-block pillar reaches +9 only from there.
+  assert.ok(Math.hypot(poste.x - 4.5, poste.z - 0.5) <= 1.01, `poste ${poste}`)
+  assert.match(f.step.resultat, /^poste de pilier rejoint en \d+,65,-?\d+ \(pilier de 6 mesure\) ; /)
 })
 
 // Arbre commence avec une quantite dite : ni la quantite atteinte ni terminer
