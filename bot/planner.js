@@ -793,7 +793,9 @@ elle-meme est dans ce prompt : memoire long terme ci-dessus, memoire de mission
 a la fin). Une action qui vient d echouer deux fois ne doit pas etre
 replanifiee telle quelle : le code refuse la troisieme (code repetition). Une
 etape en echec de dernieres_etapes porte son code et ses remedes : les
-actions qui peuvent lever cet obstacle, a choisir en priorite.
+actions qui peuvent lever cet obstacle, a choisir en priorite. sans_effet
+vrai : l etape a abouti sans rien changer de mesurable (rien casse, rien en
+poche, pas bouge) ; la rejouer telle quelle ne changera rien.
 
 Ce que l etat impose, et qui n est pas negociable :
 - La consigne actuelle du joueur et les mesures fraiches priment sur les

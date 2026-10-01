@@ -4668,10 +4668,7 @@ function createMissionRunner (host, injected = {}) {
         ? Math.max(PILER_MIN, Math.min(PILER_MAX, Math.round(Number(params.hauteur))))
         : scaled(scale, PILER_MIN, PILER_MAX)
       let ajuste = ''
-
-      if (host.inLiquid()) {
-        return { resultat: 'dans un liquide : sortir d abord, un pilier ne tient pas dans l eau', echec: true }
-      }
+      // Precondition (hors liquide) : CONTRATS.piler.
 
       // Un pilier sous une cible deja cassable gaspille de la dirt : le dire au
       // lieu de monter pour rien. Recolte seulement : en construction la cible
@@ -5075,10 +5072,8 @@ function createMissionRunner (host, injected = {}) {
       }
     },
 
+    // Preconditions (chantier place, arbre fini) : CONTRATS.construire.
     async construire (scale, params = {}) {
-      if (!mission.plan) return { resultat: 'aucun emplacement choisi', echec: true }
-      const arbre = arbreAvantChantier()
-      if (arbre) return arbre
       await quitterPilier('construire')
 
       const bot = host.getBot()
@@ -5190,10 +5185,8 @@ function createMissionRunner (host, injected = {}) {
       }
     },
 
+    // Preconditions (chantier place, arbre fini) : CONTRATS.poser_porte.
     async poser_porte () {
-      if (!mission.plan) return { resultat: 'aucun emplacement choisi', echec: true }
-      const arbre = arbreAvantChantier()
-      if (arbre) return arbre
       if (!mission.plan.door) return { resultat: 'ce plan n a pas de porte', echec: true }
       if (doorPlaced()) return { resultat: 'la porte est deja posee' }
       await quitterPilier('poser_porte')
@@ -5649,6 +5642,74 @@ function createMissionRunner (host, injected = {}) {
           ? 'memoire entierement effacee'
           : `memoire ${result.portee} effacee`
       }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Contrats des actions : preconditions verifiees avant CHAQUE appel (y
+  // compris les appels internes d une action a une autre) et effet mesure
+  // apres une etape. Une precondition fausse rend un echec code dont les
+  // remedes sont les actions qui la rendent vraie (sous-but). Un effet absent
+  // sur une etape « reussie » est un geste sans effet : la garde anti-boucle
+  // le compte comme un echec (« aucun bloc cible sain a casser » rejoue).
+  // -------------------------------------------------------------------------
+
+  const PRE = {
+    chantierPlace: {
+      vrai: () => Boolean(mission.plan),
+      echec: () => ({ resultat: 'aucun emplacement choisi', echec: true, code: 'chantier_absent' })
+    },
+    arbreFini: { vrai: () => !arbreAvantChantier(), echec: () => arbreAvantChantier() },
+    horsLiquide: {
+      vrai: () => !host.inLiquid(),
+      echec: () => ({ resultat: 'dans un liquide : sortir d abord, un pilier ne tient pas dans l eau', echec: true, code: 'dans_liquide' })
+    }
+  }
+
+  // Mesures avant/apres une etape, pour juger son effet.
+  function mesuresEffet () {
+    const bot = host.getBot()
+    const items = bot?.inventory?.items?.() ?? []
+    return {
+      position: bot?.entity?.position?.clone?.() ?? null,
+      inventaire: items.map(i => `${i.name}:${i.count}`).sort().join(','),
+      objets: items.reduce((n, i) => n + (i.count ?? 0), 0),
+      casses: mission?.broken ?? 0,
+      poses: mission?.plan ? buildProgress().done : 0
+    }
+  }
+  const deplace = (a, b) => Boolean(a.position && b.position && a.position.distanceTo(b.position) >= 0.5)
+  const EFFETS = {
+    casser: (a, b) => b.casses > a.casses || b.inventaire !== a.inventaire,
+    recolter: (a, b) => b.casses > a.casses || b.inventaire !== a.inventaire,
+    ramasser: (a, b) => b.objets > a.objets,
+    fabriquer: (a, b) => b.inventaire !== a.inventaire,
+    cuire: (a, b) => b.inventaire !== a.inventaire,
+    piler: (a, b) => Boolean(a.position && b.position && b.position.y - a.position.y >= 0.5),
+    construire: (a, b) => b.poses > a.poses || deplace(a, b),
+    avancer: deplace,
+    explorer: deplace
+  }
+
+  const CONTRATS = {
+    construire: { pre: [PRE.chantierPlace, PRE.arbreFini], effet: EFFETS.construire },
+    poser_porte: { pre: [PRE.chantierPlace, PRE.arbreFini] },
+    piler: { pre: [PRE.horsLiquide], effet: EFFETS.piler },
+    casser: { effet: EFFETS.casser },
+    recolter: { effet: EFFETS.recolter },
+    ramasser: { effet: EFFETS.ramasser },
+    fabriquer: { effet: EFFETS.fabriquer },
+    cuire: { effet: EFFETS.cuire },
+    avancer: { effet: EFFETS.avancer },
+    explorer: { effet: EFFETS.explorer }
+  }
+
+  for (const [nom, contrat] of Object.entries(CONTRATS)) {
+    const corps = ACTIONS[nom]
+    if (!contrat.pre?.length || typeof corps !== 'function') continue
+    ACTIONS[nom] = async function (scale, params) {
+      const manque = contrat.pre.find(pre => !pre.vrai())
+      return manque ? manque.echec() : corps(scale, params)
     }
   }
 
@@ -6333,6 +6394,8 @@ function createMissionRunner (host, injected = {}) {
         host.getBot()?.entity?.position?.floored?.(), inventaireTotal())
       const dejaVu = featureOn('anti_boucle') ? garde.refuse(signatureEtape) : null
       if (dejaVu) outcome = outcomes.refusRepetition(decision.step, dejaVu, ACTIONS)
+      const effetAttendu = CONTRATS[decision.step]?.effet ?? null
+      const avantEffet = effetAttendu && !outcome ? mesuresEffet() : null
 
       if (!outcome) try {
         const message = activity.ACTIONS[decision.step] ?? activity.SUBGOALS[decision.step === 'rejoindre_demandeur' ? 'rejoindre' : '']
@@ -6394,7 +6457,12 @@ function createMissionRunner (host, injected = {}) {
       if (!isRunning() || mission.cancelled || mission !== myMission || myMission.navigationAbort !== controller) return
 
       outcome = outcomes.normaliser(decision.step, outcome, ACTIONS)
-      if (outcome?.code !== 'repetition') garde.note(signatureEtape, outcome)
+      // Etape « reussie » sans son effet mesure (rien casse, rien en poche,
+      // pas bouge) : dite au modele, et comptee comme un echec par la garde.
+      if (avantEffet && !outcome.echec && !effetAttendu(avantEffet, mesuresEffet())) outcome = { ...outcome, sansEffet: true }
+      if (outcome?.code !== 'repetition') {
+        garde.note(signatureEtape, outcome.sansEffet ? outcomes.normaliser(decision.step, { ...outcome, echec: true }, ACTIONS) : outcome)
+      }
 
       mission.steps += 1
       if (outcome.echec) {
@@ -6408,7 +6476,8 @@ function createMissionRunner (host, injected = {}) {
         }
       }
       mission.history.push({ action: decision.step, resultat: outcome.resultat, code: outcome.code ?? null, echec: Boolean(outcome.echec),
-        ...(outcome.echec && outcome.remedes?.length ? { remedes: outcome.remedes } : {}) })
+        ...(outcome.echec && outcome.remedes?.length ? { remedes: outcome.remedes } : {}),
+        ...(outcome.sansEffet ? { sans_effet: true } : {}) })
       if (mission.history.length > 8) mission.history.shift()
       reportProgressSafe()
 

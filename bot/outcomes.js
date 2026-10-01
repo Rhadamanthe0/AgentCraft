@@ -26,6 +26,9 @@ const REMEDES = {
   arbre_inacheve: ['recolter', 'piler', 'casser'],
   arbre_a_ramasser: ['ramasser'],
   aucune_cible: ['explorer', 'regarder_autour'],
+  // Preconditions declarees (CONTRATS, mission.js)
+  chantier_absent: ['choisir_terrain'],
+  dans_liquide: ['sortir'],
   plan: [],
   // Dons
   invalid_item: ['donner'],
@@ -127,7 +130,8 @@ function createLoopGuard ({ repetitions = 2, memoire = 12 } = {}) {
 }
 
 function refusRepetition (action, precedent, actions) {
-  const autres = (precedent.remedes ?? []).filter(nom => nom !== action)
+  const connus = precedent.remedes?.length ? precedent.remedes : (REMEDES_PAR_ACTION[action] ?? [])
+  const autres = connus.filter(nom => nom !== action)
   return normaliser(action, {
     resultat: `repetition refusee : ${action} a deja rendu deux fois « ${precedent.resultat.slice(0, 140)} » ` +
       'depuis cette case, avec les memes parametres et le meme inventaire' +

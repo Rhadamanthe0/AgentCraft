@@ -95,3 +95,43 @@ test('mission : la meme etape en echec n est jouee que deux fois, la troisieme e
   assert.ok(Array.isArray(casses[0].remedes) && casses[0].remedes.length > 0)
   assert.ok(!casses[2].remedes?.includes('fabriquer'))
 })
+
+async function jouer (actions, { kind = 'recolte', choices = {} } = {}) {
+  planner.isEnabled = () => true
+  craft.targetCriteria = () => ({})
+  planner.readBrief = async () => ({ kind, kindConfidence: 1, resource: 'bois', resourceConfidence: 1,
+    landmark: 'ici', door: false, doorProbability: 0 })
+  let plans = 0
+  planner.plan = async () => ({ ms: 0, seconds: 1, rejected: [], done: 0, finished: false,
+    steps: [{ action: actions[Math.min(plans++, actions.length - 1)], scale: 0, scaleLevel: null, choices }] })
+  const bot = { entity: { position: new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
+    registry: { blocksByName: { oak_log: { id: 1 } }, itemsByName: {} }, inventory: { items: () => [] },
+    players: {}, entities: {}, findBlocks: () => [], findBlock: () => null,
+    blockAt: position => ({ name: 'air', position, boundingBox: 'empty', shapes: [] }),
+    clearControlStates () {}, setControlState () {}, look: async () => {} }
+  const r = createMissionRunner({ getBot: () => bot, isReady: () => true, inLiquid: () => false,
+    stopPathfinding () {}, chat () {}, navigateToPosition: async () => ({ reached: false, code: 'no_path' }) })
+  await r.start(kind === 'construction' ? 'construis une cabane' : 'coupe du bois', 'human')
+  for (let i = 0; i < 400 && r.isRunning(); i++) await new Promise(resolve => setTimeout(resolve, 5))
+  r.stop('test')
+  return r.status().historique
+}
+
+// Precondition declaree : echec code, son remede est le sous-but.
+test('contrat : construire sans chantier rend chantier_absent, remede choisir_terrain', async () => {
+  const h = await jouer(['construire', 'terminer'], { kind: 'construction' })
+  const step = h.find(e => e.action === 'construire')
+  assert.equal(step.code, 'chantier_absent')
+  assert.deepEqual(step.remedes, ['choisir_terrain'])
+})
+
+// Etape « reussie » sans effet mesure : dite, puis refusee a la troisieme.
+test('contrat : casser sans rien casser est sans effet, la troisieme est refusee', async () => {
+  const h = await jouer(['casser', 'casser', 'casser', 'terminer'], { choices: { duree: 4 } })
+  const casses = h.filter(e => e.action === 'casser')
+  assert.equal(casses.length, 3)
+  assert.equal(casses[0].echec, false)
+  assert.equal(casses[0].sans_effet, true)
+  assert.equal(casses[2].code, 'repetition')
+  assert.ok(casses[2].remedes.length > 0 && !casses[2].remedes.includes('casser'))
+})
