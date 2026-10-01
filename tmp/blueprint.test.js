@@ -249,8 +249,10 @@ test('findSite : premier trajet lent ne prive pas le terrain suivant de recherch
     if (searches.length === 1) {
       // Le premier sommet est reellement isole; une recherche complexe
       // peut epuiser tout le temps qui lui est accorde avant de conclure.
+      // Verification du decor seulement : delai large, independant de la
+      // charge de la machine (100 ms de CPU ne suffisaient pas au banc).
       let result
-      for (const step of realSearch(movements, start, goal, options)) result = step.result
+      for (const step of realSearch(movements, start, goal, { ...options, timeout: 60000, tickTimeout: 60000 })) result = step.result
       assert.equal(result.status, 'noPath')
       now += options.timeout
       yield { result: { ...result, status: 'timeout' } }

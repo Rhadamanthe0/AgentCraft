@@ -780,7 +780,7 @@ function createMissionRunner (host, injected = {}) {
     if (!livraisonDemandee(mission) || !/^[a-z0-9_]+$/.test(objet) ||
       !Number.isInteger(quantite) || quantite < 1 || quantite > 64 ||
       !/^[A-Za-z0-9_]{3,16}$/.test(destinataire)) return null
-    const ceiling = deliveryCeiling(mission)
+    const ceiling = deliveryCeiling(mission, objet)
     const key = deliveryLedgerKey(deliveryScope(mission), destinataire, objet)
     let ledger = deliveryLedgers.get(key)
     if (!ledger) {
@@ -795,14 +795,19 @@ function createMissionRunner (host, injected = {}) {
   // Plafond d engagement : la demande chiffree du texte courant, lue par le
   // code (meme expression que mission.quota), jamais inventee. null = budget
   // indeterminable (clarification au lieu de sur-don).
-  function deliveryCeiling (m) {
+  function deliveryCeiling (m, objet = null) {
+    let q = null
     try {
-      const q = build.parseQuota(String(m?.objective ?? ''),
+      q = build.parseQuota(String(m?.objective ?? ''),
         { allowBlockUnits: m?.kind === 'recolte' && !m?.fabricationCible })
-      return Number.isInteger(q) && q >= 1 ? q : null
-    } catch (_) {
-      return null
-    }
+    } catch (_) {}
+    if (Number.isInteger(q) && q >= 1) return q
+    // « Coupe un arbre et rapporte-moi le bois » : sans chiffre, le bois de
+    // CET arbre, mesure par le code (buches de l arbre prouvees ramassees).
+    // Ni le modele ni le reste de l inventaire n en fixent la quantite.
+    const arbre = Number(m?.arbreCollectes)
+    if (m?.wholeTree && TREE_LOG.test(String(objet ?? '')) && Number.isInteger(arbre) && arbre >= 1) return arbre
+    return null
   }
   // Le joueur a-t-il demande qu on lui remette quelque chose ? Objectif et
   // precisions DU DEMANDEUR seulement (jamais le plan du modele).
@@ -3841,6 +3846,7 @@ function createMissionRunner (host, injected = {}) {
         }
         if (mission.wholeTree) observerCollecteArbre()
         let coupeMesuree = null
+        let creusageInterrompu = null
         try {
           // L outil peut changer en cours de rafale (une touffe d herbe, puis
           // la terre en dessous). equipForBlock rend la main tout de suite si
@@ -3873,10 +3879,18 @@ function createMissionRunner (host, injected = {}) {
           }
           await withTimeout(bot.dig(block), 6000, 'creusage trop long')
         } catch (err) {
-          if (coupeMesuree) coupeMesuree.ouverte = false
-          coupeArbreActive = null
-          refusal = err.message
-          break
+          // Le serveur a le dernier mot dans les deux sens : un creusage coupe
+          // par une pause ou un arret (stopDigging) peut avoir deja casse le
+          // bloc. Ignorer cette coupe perdait l arbre et sa buche ramassee
+          // (chat/stop-resume 6d5e479 : arbre fini, mission sans fin).
+          const apres = bot.blockAt(block.position)
+          if (!apres || apres.name === block.name) {
+            if (coupeMesuree) coupeMesuree.ouverte = false
+            coupeArbreActive = null
+            refusal = err.message
+            break
+          }
+          creusageInterrompu = err.message
         }
 
         // Le serveur a le dernier mot : si le bloc est toujours la, le creusage
@@ -3914,6 +3928,10 @@ function createMissionRunner (host, injected = {}) {
         prouverCollectesArbre()
         if (!secondaire && TREE_LOG.test(block.name)) {
           noterDropsArbre()
+        }
+        if (creusageInterrompu) {
+          refusal = creusageInterrompu
+          break
         }
         // The tree boundary also applies inside nested casser/recolter bursts.
         // Teardown runs in the same physical slot before another tree is anchored.
@@ -4477,7 +4495,7 @@ function createMissionRunner (host, injected = {}) {
       if (!livraisonDemandee(mission)) {
         return { resultat: 'don refuse : le joueur n a rien demande a recevoir ; garder les objets en inventaire', echec: true, code: 'not_requested' }
       }
-      const ceiling = deliveryCeiling(mission)
+      const ceiling = deliveryCeiling(mission, objet)
       const ledger = engagementDon(params)
       const arbre = arbreAvantLivraison(objet)
       if (arbre) return arbre

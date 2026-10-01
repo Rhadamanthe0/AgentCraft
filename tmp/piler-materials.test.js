@@ -13,7 +13,7 @@ const build = require('../bot/build')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null, entities = {}, loaded = () => true, resume = null, reviseAfterCut = false, revisionText = null, context = null, collectImmediately = true, completedStructure = false, pauseAfterCut = false, revisionOnPendingJoin = false, setup = null, pauseLifecycle = null, duringRevisionBrief = null, reviseWhen = null }) {
+async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null, entities = {}, loaded = () => true, resume = null, reviseAfterCut = false, revisionText = null, context = null, collectImmediately = true, completedStructure = false, pauseAfterCut = false, revisionOnPendingJoin = false, setup = null, pauseLifecycle = null, duringRevisionBrief = null, reviseWhen = null, abortAfterDig = null }) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
@@ -88,6 +88,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
       // Digging under the feet drops the bot into the hole.
       if (block.position.y < bot.entity.position.y) bot.entity.position.y = block.position.y
       onDig?.(block, bot)
+      if (abortAfterDig?.(block)) throw new Error('Digging aborted')
     },
     equip: async item => { commands.push({ equip: item.name }); bot.heldItem = item }, lookAt: async () => {},
     placeBlock: async support => {
@@ -1079,6 +1080,36 @@ test('don remplace par la revision : l ancien objet ne bloque plus, son historiq
   assert.equal(logs.prouve, 1)
   assert.equal(logs.annule, true)
   assert.equal(ledgers.find(l => l.objet === 'apple').prouve, 2)
+})
+
+test('arbre entier : creusage interrompu mais bloc casse par le serveur compte la coupe', async t => {
+  let aborted = 0
+  const f = await simulate(t, { inventory: [], first: 'casser', logY: 65, text: 'coupe un arbre', extra: { '1,66,0': 'oak_log' },
+    abortAfterDig: () => aborted++ === 0,
+    queue: [['casser'], ['casser'], ['casser'], [{ action: 'attendre', choices: { duree: 1 } }]] })
+  assert.equal(aborted > 0, true)
+  assert.equal(f.status.etat, 'done')
+  const d = f.snapshots.at(-1).descripteur
+  assert.equal(d.arbreCoupes, 2)
+  assert.equal(d.arbreCollectes, 2)
+})
+
+test('arbre entier puis « rapporte-moi le bois » sans chiffre : le bois mesure de cet arbre est donne', async t => {
+  const gifts = []
+  t.mock.method(delivery, 'giveToPlayer', async (_bot, options) => {
+    gifts.push(options.count)
+    return { status: 'succeeded', deposited: options.count, inventoryRemoved: options.count, requested: options.count,
+      evidence: { item: options.item }, reason: 'inventory_decrease' }
+  })
+  const f = await simulate(t, { inventory: [], first: 'casser', logY: 65, text: 'coupe un arbre', context: 'et rapporte moi le bois quand tu as fini',
+    extra: { '1,66,0': 'oak_log' },
+    queue: [['casser'], [{ action: 'donner', choices: { objet: 'oak_log', quantite: 5, destinataire: 'human' } }], ['rejoindre_demandeur']],
+    setup: bot => { bot.players.human = { entity: { position: new Vec3(2, 65, 0) } } },
+    // Premier retour manque : le modele donne avant d etre revenu (bench 6d5e479).
+    navigate: (() => { let n = 0; return async () => n++ === 0 ? { reached: false, code: 'no_path', remaining: 5 } : { reached: true, code: 'arrived', remaining: 1 } })() })
+  assert.deepEqual(gifts, [2], 'plafond = 2 buches de cet arbre, pas les 5 du modele')
+  assert.equal(f.status.etat, 'done')
+  assert.equal(f.snapshots.at(-1).descripteur.livraison[0].prouve, 2)
 })
 
 test('construction et don demande : don prouve ne prouve pas chantier incomplet', async t => {
