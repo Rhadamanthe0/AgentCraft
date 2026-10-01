@@ -95,8 +95,8 @@ jobs:
         # Elle ne va qu au conteneur jetable des bots, jamais dans une image,
         # un artefact ou un journal. report.keyCheck verifie la cle servie.
         env:
-          OPENCODE_SECONDARY_API_KEY: ${{ secrets.OPENCODE_SECONDARY_API_KEY }}
-          CI_EXPECT_KEY: secondary
+          PLANNER_API_KEY: ${{ secrets.PLANNER_API_KEY }}
+          CI_EXPECT_KEY: primary
           CI_ENDPOINT_MODE: ip
           # Pool adaptatif (ci/capacity.py) : admissions sous 75 % de l enveloppe
           # (450 % sur 600 %) et 4 Gio de reserve CI + hote ; sans mesures
