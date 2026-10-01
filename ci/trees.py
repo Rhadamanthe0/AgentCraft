@@ -1319,7 +1319,11 @@ def run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, pr
         checks['premiere_buche_coupee'] = wait(lambda s: logs_left() < expected, 90)
         say('bring', 'Et rapporte moi le bois quand tu as fini')
         checks['arbre_entier_coupe'] = wait(lambda s: logs_left() == 0, 150)
-        checks['revenu_pres_du_joueur'] = wait(near_probe, 60)
+        # Mission finie ET bot pres du joueur (comme tree_done) : mesure sur
+        # l etat final, pas pendant la mission. Arbre pres du joueur, l
+        # inventaire etait lu 2 s apres la derniere coupe, buche encore au sol
+        # et livraison en file (4cc94bf, e1b2256 : 2/3) ; meme borne de 60 s.
+        checks['revenu_pres_du_joueur'] = wait(lambda s: not s.get('missionRunning') and near_probe(s), 60)
     else:
         raise RuntimeError('Unknown chat script: ' + script)
     final = bot_api(bot, '/api/status')
