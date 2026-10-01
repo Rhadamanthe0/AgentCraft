@@ -1378,7 +1378,8 @@ async function readBrief (objective, opts = {}) {
   // sinon etre clot apres une simple approche. Le modele choisit le contrat,
   // le code exige une distinction explicite. mission.start rejoue deja une
   // lecture refusee une fois, sans ajouter de nouvel appel ou delai ici.
-  if (kind === 'geste' && !route && parsed.geste_libre !== true) {
+  const incompleteGesture = kind === 'geste' && !route && parsed.geste_libre !== true
+  if (incompleteGesture && !opts.deferGestureValidation) {
     throw new Error('brief de geste incomplet : parcours ou geste_libre requis')
   }
   const resources = skills.resourceCriteria()
@@ -1409,6 +1410,7 @@ async function readBrief (objective, opts = {}) {
 
   return {
     route,
+    incompleteGesture,
     clearanceLimit: parsed?.degagement === 1 ? 1 : 0,
     needsTransfer: parsed?.livraison === true,
     needsWeb: parsed?.recherche_web === true,

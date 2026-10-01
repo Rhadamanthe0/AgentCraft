@@ -90,8 +90,9 @@ message du joueur est remis au message d origine (`UNASKED`).
 `construction`, `deplacement`, `geste`), matiere, repere, porte, parcours,
 cible de fabrication. Un geste sans parcours exige `geste_libre: true` dans
 le brief pour confirmer que le contrat de parcours ne couvre pas la demande.
-Une lecture incomplete est refusee et beneficie du rejeu unique deja prevu
-par `mission.start`. Le code complete : dimensions (`build.parseDimensions` :
+La validation de `mission.start` conserve d abord les recuperations existantes
+(fabrication valide, placement sous arbre), puis refuse le geste encore incomplet
+dans le rejeu unique du brief. Le code complete : dimensions (`build.parseDimensions` :
 « 5 par 5 par 5 », « 5 de large et 4 de haut »), quantite
 (`build.parseQuota`), cible de fabrication normalisee
 (`skills.normalizeFabricationTarget`, « pioche en pierre » -> `stone_pickaxe`),

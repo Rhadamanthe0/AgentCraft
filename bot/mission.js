@@ -6536,17 +6536,41 @@ function createMissionRunner (host, injected = {}) {
       return { ok: false, error: 'objectif annule' }
     }
 
+    // Recuperations existantes avant de juger un geste incomplet. Elles restent
+    // dans le rejeu unique du BRIEF : un vrai contrat manquant est relu une fois,
+    // sans bloquer une fabrication valide ni un placement deja recuperable.
+    const normalizeBrief = value => {
+      if (!value.route && value.kind !== 'recolte' && !value.fabrication &&
+        /\bsous\s+(?:l['’ ]\s*|un\s+|cet\s+|le\s+)?arbre\b/i.test(text)) {
+        console.log('[mission] « sous l arbre » sans parcours : parcours [sous_arbre] retenu')
+        value = { ...value, route: [{ type: 'sous_arbre' }] }
+      }
+      const rawTarget = value.fabrication ?? value.fabrication_cible ?? null
+      let target = null
+      try { target = resolveFabricationCible(host.getBot(), rawTarget) } catch (_) {}
+      if (!target) {
+        try { target = resolveFabricationCible(host.getBot(), opts.revisionOf?.fabricationCible ?? opts.revisionOf?.fabrication_cible ?? null) } catch (_) {}
+      }
+      if (target && value.kind === 'geste' && !value.route) {
+        console.log(`[mission] fabrication "${target}" detectee, type geste -> recolte (pas de cloture en un plan)`)
+        value = { ...value, kind: 'recolte' }
+      }
+      if (value.incompleteGesture && value.kind === 'geste' && !value.route) {
+        throw new Error('brief de geste incomplet : parcours ou geste_libre requis')
+      }
+      return value
+    }
     let brief
     try {
       try {
-        brief = await brain().readBrief(text, { signal: request.signal })
+        brief = normalizeBrief(await brain().readBrief(text, { signal: request.signal, deferGestureValidation: true }))
       } catch (first) {
         // Un echec isole (reponse tronquee deux fois, panne passagere) laissait
         // le bot immobile sans rien dire, surtout apres un arbitrage : un
         // nouvel essai, sauf annulation.
         if (request.signal.aborted) throw first
         console.log(`[mission] lecture de l objectif echouee (${first.message}), nouvel essai`)
-        brief = await brain().readBrief(text, { signal: request.signal })
+        brief = normalizeBrief(await brain().readBrief(text, { signal: request.signal, deferGestureValidation: true }))
       }
     } catch (err) {
       return { ok: false, error: `lecture de l objectif impossible : ${err.message}` }
@@ -6592,14 +6616,6 @@ function createMissionRunner (host, injected = {}) {
     // valide au registre (craft.TARGETS ou itemsByName). Quantite lue par le
     // code (brief indicatif, sinon parseQuota, sinon 1). Revision : un amend
     // qui ne restate pas la cible la conserve.
-    // « Va sous l arbre » lu en simple deplacement vers un repere arbre (vu sur
-    // route/under-tree : le bot cherchait l arbre sans jamais s y placer) :
-    // c est le parcours sous_arbre, que le code sait verifier.
-    if (!brief.route && brief.kind !== 'recolte' && !brief.fabrication &&
-      /\bsous\s+(?:l['’ ]\s*|un\s+|cet\s+|le\s+)?arbre\b/i.test(text)) {
-      console.log('[mission] « sous l arbre » sans parcours : parcours [sous_arbre] retenu')
-      brief = { ...brief, route: [{ type: 'sous_arbre' }] }
-    }
     let kind = brief.route ? 'geste' : (skills.KINDS[brief.kind] ? brief.kind : 'recolte')
     const landmark = skills.LANDMARKS[brief.landmark] ? brief.landmark : 'ici'
     const dimensions = build.parseDimensions(text)
@@ -6637,14 +6653,6 @@ function createMissionRunner (host, injected = {}) {
           : fabricationWanted(text, briefFabQty)
       }
     }
-    // Une fabrication valide n est jamais un geste a clore en un plan : le
-    // type compatible existant est `recolte` (fabriquer + casser/ramasser).
-    // Requalification explicite (journalisee), pas de nouveau type en silence.
-    if (fabricationCible && kind === 'geste' && !brief.route) {
-      console.log(`[mission] fabrication "${fabricationCible}" detectee, type geste -> recolte (pas de cloture en un plan)`)
-      kind = 'recolte'
-    }
-
     const objectiveMode = opts.mode === 'permanent' ? 'permanent' : 'temporary'
     mission = {
       id: opts.revisionOf?.id ?? `${Date.now()}-${generation}`,

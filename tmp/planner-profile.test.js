@@ -295,6 +295,55 @@ describe('brief de geste : contrat complet ou geste libre explicite', () => {
     mockLlm(async () => brief({ type: ' GESTE ' }))
     await assert.rejects(planner.readBrief('accompagne le joueur'), /brief de geste incomplet/)
   })
+  async function admission (objective, extra = {}, answers = null) {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    let reads = 0
+    mockLlm(async () => { reads++; return brief(answers?.[Math.min(reads - 1, answers.length - 1)] ?? extra) })
+    const missionPath = require.resolve('../bot/mission')
+    delete require.cache[missionPath]
+    const { createMissionRunner } = require('../bot/mission')
+    const { Vec3 } = require('vec3')
+    const bot = { entity: { position: new Vec3(0, 65, 0), yaw: 0, pitch: 0, onGround: true },
+      registry: { blocksByName: {}, itemsByName: { wooden_axe: { id: 1, name: 'wooden_axe' } } },
+      inventory: { items: () => [] }, players: {}, entities: {},
+      findBlocks: () => [], findBlock: () => null, blockAt: () => null,
+      clearControlStates () {}, setControlState () {} }
+    const runner = createMissionRunner({ getBot: () => bot, isReady: () => true, inLiquid: () => false,
+      stopPathfinding () {}, chat () {}, recentChat: () => [] })
+    let plans = 0
+    planner.plan = async () => { plans++; return { steps: [], rejected: [], finished: false, done: 0, ms: 0 } }
+    try {
+      const result = await runner.start(objective, 'human')
+      return { result, status: runner.status(), reads, plans }
+    } finally { runner.stop(); delete require.cache[missionPath] }
+  }
+  it('vrai brief mal type : fabrication valide atteint la recuperation mission', async () => {
+    const f = await admission('fabrique une hache', { fabrication: 'hache' })
+    assert.equal(f.result.ok, true)
+    assert.equal(f.status.type, 'recolte')
+    assert.equal(f.status.fabrication_cible, 'hache')
+    assert.equal(f.reads, 1, 'une lecture recuperable ne consomme pas le rejeu')
+  })
+  it('vrai brief sans parcours : le placement sous arbre reste recuperable', async () => {
+    const f = await admission('va sous un arbre')
+    assert.equal(f.result.ok, true)
+    assert.equal(f.status.parcours.steps[0].type, 'sous_arbre')
+    assert.equal(f.reads, 1)
+  })
+  it('suivi sans contrat : deux lectures refusees, aucun plan execute', async () => {
+    const f = await admission('suis-moi')
+    assert.equal(f.result.ok, false)
+    assert.match(f.result.error, /brief de geste incomplet/)
+    assert.equal(f.reads, 2, 'le rejeu BRIEF unique est conserve')
+    assert.equal(f.plans, 0)
+  })
+  it('le rejeu d un suivi incomplet peut recuperer son vrai contrat', async () => {
+    const f = await admission('suis-moi', {}, [{}, { parcours: [{ type: 'suivre' }] }])
+    assert.equal(f.result.ok, true)
+    assert.equal(f.status.parcours.steps[0].type, 'suivre')
+    assert.equal(f.reads, 2)
+    assert.equal(f.plans, 0, 'un suivi utilise le contrat, jamais un micro-plan')
+  })
   it('une valeur non booleenne ne contourne pas le contrat', async () => {
     const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
     mockLlm(async () => brief({ geste_libre: 'true' }))
