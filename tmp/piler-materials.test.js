@@ -13,7 +13,7 @@ const build = require('../bot/build')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null, entities = {}, loaded = () => true, resume = null, reviseAfterCut = false, revisionText = null, context = null, collectImmediately = true, completedStructure = false, pauseAfterCut = false, revisionOnPendingJoin = false, setup = null }) {
+async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null, entities = {}, loaded = () => true, resume = null, reviseAfterCut = false, revisionText = null, context = null, collectImmediately = true, completedStructure = false, pauseAfterCut = false, revisionOnPendingJoin = false, setup = null, pauseLifecycle = null }) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
@@ -116,12 +116,23 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
   let revised = false
   let revisionPending = false
   let paused = false
+  let lifecycleListeners = null
   for (let i = 0; i < 600 && (runner.isRunning() || runner.isPaused() || revisionPending); i++) {
     t.mock.timers.tick(50); await flush()
     if (pauseAfterCut && !paused && runner.status().blocs_casses > 0) {
       paused = true
       runner.pauseWork('pause apres coupe')
-      setTimeout(() => runner.resumeWork(), 1000)
+      setTimeout(async () => {
+        if (!pauseLifecycle) return runner.resumeWork()
+        if (pauseLifecycle === 'stop') runner.stop('stop pendant pause')
+        if (pauseLifecycle === 'end') bot.emit('end')
+        if (pauseLifecycle === 'new') {
+          revisionPending = true
+          try { await runner.start('coupe du bois', 'human') } finally { revisionPending = false }
+        }
+        lifecycleListeners = ['entitySpawn', 'entityGone', 'entityUpdate', 'itemDrop', 'playerCollect', 'end'].reduce((n, event) => n + bot.listenerCount(event), 0)
+        if (pauseLifecycle === 'end') runner.stop('cleanup apres deconnexion mesuree')
+      }, 1000)
     }
     if (((reviseAfterCut && runner.status().blocs_casses > 0) || (revisionOnPendingJoin && snapshots.at(-1)?.descripteur.pendingJoin)) && !revised) {
       revised = true
@@ -131,7 +142,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
   }
   assert.equal(runner.isRunning(), false)
   const status = runner.status()
-  return { status, snapshots, blocks, step: status.historique.find(step => step.action === first), placements, commands, states, messages, staleAborted, stopsAtPlans,
+  return { status, snapshots, blocks, step: status.historique.find(step => step.action === first), placements, commands, states, messages, staleAborted, stopsAtPlans, lifecycleListeners,
     collectionListeners: bot.listenerCount('playerCollect'), spawnListeners: ['entitySpawn', 'entityGone', 'entityUpdate', 'itemDrop', 'end'].reduce((n, event) => n + bot.listenerCount(event), 0) }
 }
 
@@ -958,3 +969,27 @@ for (const boundary of ['ambigu', 'etranger']) {
     assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 0)
   })
 }
+
+for (const lifecycle of ['stop', 'new', 'end']) {
+  test(`arbre entier : observation passive pause nettoyee par ${lifecycle}`, async t => {
+    const f = await simulate(t, { inventory: [], collectImmediately: false, first: 'casser', logY: 65, text: 'coupe un arbre', pauseAfterCut: true, pauseLifecycle: lifecycle,
+      queue: [['casser'], [{ action: 'attendre', choices: { duree: 1 } }]] })
+    assert.equal(f.lifecycleListeners, 0)
+    assert.equal(f.spawnListeners, 0)
+    assert.equal(f.collectionListeners, 0)
+  })
+}
+
+test('arbre entier : observation passive pause refuse2000spawns et conserve collecte tardive', async t => {
+  const drop = { name: 'item', uuid: 'paused-real-drop', position: new Vec3(1.5, 65.5, 0.5), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }
+  const f = await simulate(t, { inventory: [], collectImmediately: false, first: 'casser', logY: 65, text: 'coupe un arbre', pauseAfterCut: true,
+    queue: [['casser'], [{ action: 'attendre', choices: { duree: 1 } }]],
+    onDig: (_block, bot) => {
+      setTimeout(() => { for (let i = 0; i < 2000; i++) bot.emit('entitySpawn', { name: 'item', uuid: `paused-foreign-${i}`, position: new Vec3(30, 65, 30), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }) }, 600)
+      setTimeout(() => { bot.emit('entitySpawn', drop); bot.emit('playerCollect', bot.entity, drop) }, 650)
+    } })
+  assert.equal(f.status.etat, 'done')
+  assert.equal(f.snapshots.at(-1).descripteur.arbreSpawns.length, 1)
+  assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 1)
+  assert.equal(f.collectionListeners, 0)
+})
