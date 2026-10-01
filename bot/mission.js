@@ -6227,6 +6227,14 @@ function createMissionRunner (host, injected = {}) {
     if (mission.pendingJoin) return { ok: false, why: 'le demandeur n a pas ete rejoint : retente rejoindre_demandeur ou signale l echec' }
     const arbre = arbreInacheve()
     if (arbre) return { ok: false, why: `arbre commence : il reste ${arbre.length} buche(s) debout, les couper toutes avant de finir (piler si trop haut)` }
+    // Les obligations du but se cumulent : un don prouve ne termine ni
+    // l arbre demande, ni la fabrication, ni le chantier encore incomplet.
+    if (mission.wholeTree) {
+      const tree = treeStatus()
+      if (!tree) return { ok: false, why: 'aucune buche de l arbre n a encore ete coupee' }
+      if (tree.buches_restantes > 0) return { ok: false, why: `il reste ${tree.buches_restantes} buche(s) sur l arbre` }
+      if (tree.buches_au_sol > 0) return { ok: false, why: `${tree.buches_au_sol} buche(s) au sol a ramasser` }
+    }
     // Livraison (S6) : jugee sur le prouve et les obligations, jamais sur les
     // compteurs broken/collected ni le quota ressource. L incertain, l absence
     // de plafond et le manque de prouve refusent terminer/fini ; satisfaits,
@@ -6244,7 +6252,6 @@ function createMissionRunner (host, injected = {}) {
           return { ok: false, why: `don ${l.item} vers ${l.recipient} : ${l.proven}/${l.ceiling} prouve(s)` }
         }
       }
-      return { ok: true }
     }
     // Fabrication generique : la preuve est l objet cible mesure
     // (produits vs visee), jamais le quota recolte ni un plan execute. Un
@@ -6254,13 +6261,14 @@ function createMissionRunner (host, injected = {}) {
     if (mission.fabricationCible) {
       const visee = mission.fabricationQuantite ?? 1
       const produits = state.progression?.fabrication_produits ?? fabricationProduced()
-      if (produits >= visee) return { ok: true }
-      const manque = mission.fabricationLastError
-        ? ` (${mission.fabricationLastError})`
-        : ''
-      return {
-        ok: false,
-        why: `${produits} ${mission.fabricationCible} fabrique(s) sur ${visee} demande(s) : fabriquer la cible ou recolter ce qui manque (recettes du jeu font foi)${manque}`
+      if (produits < visee) {
+        const manque = mission.fabricationLastError
+          ? ` (${mission.fabricationLastError})`
+          : ''
+        return {
+          ok: false,
+          why: `${produits} ${mission.fabricationCible} fabrique(s) sur ${visee} demande(s) : fabriquer la cible ou recolter ce qui manque (recettes du jeu font foi)${manque}`
+        }
       }
     }
     // Un geste n a ni quota ni chantier a verifier : le planificateur decide seul
@@ -6287,13 +6295,7 @@ function createMissionRunner (host, injected = {}) {
         : { ok: false, why: 'le bot n est pas encore arrive aupres de sa cible' }
     }
 
-    if (mission.wholeTree) {
-      const tree = treeStatus()
-      if (!tree) return { ok: false, why: 'aucune buche de l arbre n a encore ete coupee' }
-      if (tree.buches_restantes > 0) return { ok: false, why: `il reste ${tree.buches_restantes} buche(s) sur l arbre` }
-      if (tree.buches_au_sol > 0) return { ok: false, why: `${tree.buches_au_sol} buche(s) au sol a ramasser` }
-      return { ok: true }
-    }
+    if (mission.wholeTree || mission.fabricationCible || dons.length > 0) return { ok: true }
 
     // Quantite dite par le joueur : jugee sur l inventaire, pas sur les blocs
     // casses (des fleurs cassees mais laissees au sol ne sont pas cueillies).
@@ -6609,7 +6611,7 @@ function createMissionRunner (host, injected = {}) {
           // Le geste precedent peut avoir demande la fin ou echoue avant
           // la derniere mesure : il ne doit pas effacer ce retour requis.
           continue
-        } else if (!livrer || mission.pendingJoin === false) {
+        } else if ((!livrer || mission.pendingJoin === false) && finishAllowed(buildState()).ok) {
           finish('done', livrer ? 'arbre entier coupe, bois rapporte au demandeur' : 'arbre entier coupe et ramasse')
           return
         }

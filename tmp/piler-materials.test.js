@@ -1048,3 +1048,59 @@ for (const livraisonDemandee of [false, true]) {
     if (livraisonDemandee) assert.ok(f.states.some(state => state.dernieres_etapes?.some(step => step.code === 'uncertain_blocked')))
   })
 }
+
+test('construction et don demande : don prouve ne prouve pas chantier incomplet', async t => {
+  t.mock.method(delivery, 'giveToPlayer', async (bot, options) => {
+    bot.inventory.items().find(item => item.name === 'oak_log').count -= options.count
+    return { status: 'succeeded', deposited: options.count, inventoryRemoved: options.count, requested: options.count,
+      evidence: { item: options.item }, reason: 'inventory_decrease' }
+  })
+  const f = await simulate(t, { inventory: [{ name: 'oak_log', count: 2 }], kind: 'construction', text: 'construis une cabane et donne-moi 2 buches', completedStructure: true,
+    queue: [['choisir_terrain'], [{ action: 'donner', choices: { objet: 'oak_log', quantite: 2, destinataire: 'human' } }], ['terminer']] })
+  assert.notEqual(f.status.etat, 'done')
+  assert.equal(f.status.chantier.blocs_poses, 0)
+  assert.equal(f.status.chantier.blocs_prevus, 1)
+  assert.equal(f.snapshots.at(-1).descripteur.livraison[0].prouve, 2)
+})
+
+test('arbre entier et don independant : don prouve ne dispense pas collecte finale', async t => {
+  let gifts = 0
+  t.mock.method(delivery, 'giveToPlayer', async (bot, options) => {
+    gifts++
+    bot.inventory.items().find(item => item.name === 'apple').count -= options.count
+    return { status: 'succeeded', deposited: options.count, inventoryRemoved: options.count, requested: options.count,
+      evidence: { item: options.item }, reason: 'inventory_decrease' }
+  })
+  const f = await simulate(t, { inventory: [{ name: 'apple', count: 2 }], collectImmediately: false, first: 'casser', logY: 65,
+    resume: { id: 'tree-apple-delivery', texte: 'coupe un arbre et donne-moi 2 pommes', auteur: 'human',
+      progression: { descripteur: { kind: 'recolte', resource: 'bois', landmark: 'ici', quota: 16, wholeTree: true } } },
+    queue: [['casser'], [{ action: 'donner', choices: { objet: 'apple', quantite: 2, destinataire: 'human' } }], ['terminer']] })
+  assert.equal(gifts, 1)
+  assert.notEqual(f.status.etat, 'done')
+  assert.equal(f.status.arbre_entier.buches_au_sol, 1)
+  assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 0)
+  assert.equal(f.snapshots.at(-1).descripteur.livraison[0].prouve, 2)
+})
+
+test('fabrication et don : don historique prouve ne dispense pas production cible', async t => {
+  const desc = { kind: 'recolte', resource: 'bois', landmark: 'ici', quota: 16, wholeTree: false,
+    fabricationCible: 'oak_planks', fabricationQuantite: 2, fabricationInitial: 0,
+    livraison: [{ destinataire: 'human', objet: 'apple', plafond: 2, tente: 2, retire: 2, prouve: 2, incertain: 0, invocations: ['old#don-1'], termine: true }] }
+  const f = await simulate(t, { inventory: [], first: 'terminer',
+    resume: { id: 'fabrication-delivery', texte: 'fabrique 2 planches et donne-moi 2 pommes', auteur: 'human', progression: { descripteur: desc } } })
+  assert.notEqual(f.status.etat, 'done')
+  assert.equal(f.snapshots.at(-1).descripteur.fabricationCible, 'oak_planks')
+  assert.equal(f.snapshots.at(-1).descripteur.fabricationQuantite, 2)
+  assert.equal(f.snapshots.at(-1).descripteur.livraison[0].prouve, 2)
+})
+
+test('arbre entier fini : cloture automatique attend aussi fabrication demandee', async t => {
+  const desc = { kind: 'recolte', resource: 'bois', landmark: 'ici', quota: 16, wholeTree: true,
+    fabricationCible: 'oak_planks', fabricationQuantite: 2, fabricationInitial: 0 }
+  const f = await simulate(t, { inventory: [], first: 'casser', logY: 65,
+    resume: { id: 'tree-fabrication', texte: 'coupe un arbre et fabrique 2 planches', auteur: 'human', progression: { descripteur: desc } } })
+  assert.notEqual(f.status.etat, 'done')
+  assert.equal(f.status.arbre_entier.termine, true)
+  assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 1)
+  assert.equal(f.snapshots.at(-1).descripteur.fabricationQuantite, 2)
+})
