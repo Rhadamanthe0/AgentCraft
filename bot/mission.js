@@ -3684,6 +3684,17 @@ function createMissionRunner (host, injected = {}) {
     return r.reached || gagne >= 1 ? gagne : 0
   }
 
+  // Arbre commence, arbre fini : aucun bloc du chantier avant sa derniere
+  // buche. Sinon le bot fermait sa cabane (murs, porte) avec l arbre encore
+  // debout dehors et restait dedans, fin refusee jusqu au plafond
+  // (composite/cabin-from-scratch, bancs 5a0fe24, 8090c3b, 41565cc).
+  function arbreAvantChantier () {
+    const ouvert = arbreInacheve()
+    return ouvert
+      ? { resultat: `arbre commence : ${ouvert.length} buche(s) encore debout, finir la coupe avant de construire`, echec: true, code: 'arbre_inacheve' }
+      : null
+  }
+
   // Un retour ou don demande apres la coupe attend aussi le bois tombe.
   // Le plan anticipe peut proposer de partir avant la derniere mesure.
   function arbreAvantLivraison (objet = null) {
@@ -5329,6 +5340,8 @@ function createMissionRunner (host, injected = {}) {
 
     async construire (scale, params = {}) {
       if (!mission.plan) return { resultat: 'aucun emplacement choisi', echec: true }
+      const arbre = arbreAvantChantier()
+      if (arbre) return arbre
       await quitterPilier('construire')
 
       const bot = host.getBot()
@@ -5442,6 +5455,8 @@ function createMissionRunner (host, injected = {}) {
 
     async poser_porte () {
       if (!mission.plan) return { resultat: 'aucun emplacement choisi', echec: true }
+      const arbre = arbreAvantChantier()
+      if (arbre) return arbre
       if (!mission.plan.door) return { resultat: 'ce plan n a pas de porte', echec: true }
       if (doorPlaced()) return { resultat: 'la porte est deja posee' }
       await quitterPilier('poser_porte')

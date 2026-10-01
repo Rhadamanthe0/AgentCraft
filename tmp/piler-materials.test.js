@@ -514,6 +514,21 @@ test('construction : retour sans objet connu puis don de bois bloque par l arbre
   assert.notEqual(f.status.etat, 'done', 'la mission ne se clot pas avec cet arbre debout')
 })
 
+for (const action of ['construire', 'poser_porte']) {
+  test(`chantier : ${action} refuse tant que l arbre commence est debout`, async t => {
+    const f = await simulate(t, { inventory: [{ name: 'oak_planks', count: 8 }], kind: 'construction', first: 'casser',
+      text: 'construis une cabane en bois', logY: 65, completedStructure: true,
+      extra: { '1,66,0': 'oak_log', '1,67,0': 'oak_log', '1,68,0': 'oak_log', '1,69,0': 'oak_log' }, allLogs: true,
+      queue: [['choisir_terrain'], ['casser'], [action]],
+      navigate: async () => ({ reached: true, code: 'arrived', remaining: 1 }) })
+    assert.ok(f.blocks.has('1,69,0'), 'une partie du tronc reste debout')
+    const step = f.states.flatMap(state => state.dernieres_etapes ?? []).find(step => step.action === action)
+    assert.ok(step, `${action} joue`)
+    assert.equal(step.code, 'arbre_inacheve')
+    assert.match(step.resultat, /finir la coupe avant de construire/)
+  })
+}
+
 for (const split of [false, true]) {
   test(`arbre entier et pommes : trajet avec objet explicite (${split ? 'plans separes' : 'meme plan'})`, async t => {
     let joins = 0
