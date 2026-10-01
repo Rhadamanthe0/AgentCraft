@@ -14,6 +14,10 @@ on:
         description: 'Graine des arenes (vide = SHA du commit) : meme graine pour comparer deux modes'
         type: string
         default: ''
+      levels:
+        description: 'Niveaux a jouer : tout, unitaires, ou motifs (composite/*, trees/pillar*) ; vide = tout'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -45,7 +49,37 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Pool and admission controller on simulated metrics
-        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py
+        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py
+      # Tests a jouer (demande du proprietaire, 2026-10-01) : tout le banc sur
+      # main ; sur une branche, ce que le commit demande par sa ligne finale
+      # `Banc: <motifs>` (`Banc: tout` pour tout, rien = tests unitaires
+      # seuls) ; au lancement manuel, l entree `levels`. Le message passe par
+      # l environnement, jamais interpole dans le script, et seuls des noms de
+      # niveaux et des jokers sont acceptes.
+      - name: Choose the levels for this commit
+        id: levels
+        env:
+          REF: ${{ github.ref }}
+          EVENT: ${{ github.event_name }}
+          INPUT_LEVELS: ${{ inputs.levels }}
+        run: |
+          if [ "$REF" = refs/heads/main ]; then
+            levels=tout
+          elif [ "$EVENT" = workflow_dispatch ]; then
+            levels=${INPUT_LEVELS:-tout}
+          else
+            levels=$(git log -1 --format='%(trailers:key=Banc,valueonly,separator=%x20)' HEAD | tr -s ' \n' ' ' | sed 's/^ //; s/ $//')
+            levels=${levels:-unitaires}
+          fi
+          if ! printf '%s' "$levels" | grep -Eq '^[A-Za-z0-9_./*?~, -]+$'; then
+            echo "Ligne Banc illisible : $levels" >&2
+            exit 1
+          fi
+          suite=all
+          [ "$levels" = unitaires ] && suite=unit
+          echo "Niveaux : $levels (suite $suite)"
+          echo "levels=$levels" >> "$GITHUB_OUTPUT"
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
       - name: Run unit regressions and real Minecraft tests
         # Le banc n a QUE la cle secondaire (espace OpenCode de test) : aucune
         # bascule possible vers la cle principale, qui n est pas transmise.
@@ -72,7 +106,8 @@ jobs:
           CI_ENVELOPE_CPU_PCT: '600'
           CI_POOL_SIZE: '16'
           CI_VARIATION_SEED: ${{ inputs.variation_seed }}
-        run: python3 ci/run.py --suite all
+          CI_LEVELS: ${{ steps.levels.outputs.levels }}
+        run: python3 ci/run.py --suite "${{ steps.levels.outputs.suite }}"
       - name: Remove any remaining disposable test containers
         if: always()
         run: python3 ci/cleanup.py

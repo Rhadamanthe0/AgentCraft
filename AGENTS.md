@@ -61,6 +61,12 @@ Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
   d avis, stop/reprise, question), terrain hostile, missions ouvertes. Les plus
   simples BLOQUENT la fusion ; un composite commence informatif et devient
   bloquant apres 3 passages d affilee. Les plus durs restent informatifs.
+- Chaque composite se joue deux fois (2026-10-01) : arene stable (graine
+  commitee, comparable d un banc a l autre) et jumeau `~aleatoire` (graine
+  tiree a chaque banc, dans `variation.graine` ; `CI_RANDOM_SEED` la rejoue).
+  Le jumeau est informatif, mais un passage ne compte pour la promotion en
+  bloquant que si les DEUX passent : un correctif qui ne marche que dans
+  l arene stable est du benchmaxing.
 - Composites lances en premier ; plafond 45 min par scenario ; la duree
   (`elapsedS`) est suivie d un banc a l autre et doit baisser.
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
@@ -84,7 +90,8 @@ Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
   machine) ; ne pas la relever sans son accord.
 - Ne pas allonger un delai ni relacher une assertion du banc sans preuve.
 - Fusion seulement si tous les niveaux non informatifs passent et
-  `keyCheck` est ok.
+  `keyCheck` est ok, sur un banc COMPLET de la tete de la PR (`Banc: tout`,
+  voir §5) ; un banc partiel ne suffit jamais.
 
 ### Decisions de retrait (ne pas remettre sans A/B favorable)
 
@@ -240,6 +247,14 @@ dans `docs/journal.md` (section « Les pieges »).
 - Declenche par tout push sur `main` ou `claude/**` (workflow
   `.github/workflows/minecraft.yml`), runner self-hosted MINIPC-CLEM (Podman
   rootless), un seul job a la fois, 75 min max.
+- Ce qui se joue (2026-10-01, demande du proprietaire) : **tout** sur `main` ;
+  sur une branche, ce que demande la ligne finale du message de commit
+  (trailer, dans le dernier paragraphe avec `Co-Authored-By`) :
+  `Banc: composite/cabin-from-scratch* trees/pillar*` (motifs sur le nom
+  complet, variantes comprises), `Banc: tout` pour le banc complet ; sans
+  ligne `Banc:`, tests unitaires seuls (ni serveur ni modele). Lancement
+  manuel : entree `levels`. Choisir les niveaux que le changement peut
+  toucher ; `Banc: tout` sur le dernier commit avant fusion.
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
@@ -247,8 +262,10 @@ dans `docs/journal.md` (section « Les pieges »).
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, plus scenarios de navigation et ~340 tests unitaires (`UNIT`,
   ci/run.py).
-- Arenes variees par la graine (SHA du commit ; `CI_VARIATION_SEED`) :
-  rotation, miroir, essence d arbre. Chaque resultat porte `variation`.
+- Arenes variees par la graine (`ci/variation-seed.txt`, sinon SHA du
+  commit ; `CI_VARIATION_SEED` prime) : rotation, miroir, essence d arbre.
+  Composites rejoues aussi en arene aleatoire (`~aleatoire`, voir §1).
+  Chaque resultat porte `variation` (graine comprise).
 - Rapport (`report.json`, `summary.md`) : resultats, `comparisons` A/B, KPI
   (taux d actions en echec, blocages, par famille : a faire baisser),
   `blocages` par niveau (a analyser a chaque banc), `plannerSummary`

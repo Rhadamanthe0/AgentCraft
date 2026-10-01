@@ -16,12 +16,14 @@ A level ends as soon as the outcome is known: the mission ends by itself
 to announce it), nothing productive changed for NO_PROGRESS_S, no mission
 started, or the hard cap LEVEL_CAP_S is reached.
 """
+import fnmatch
 import json
 from pathlib import Path
 import math
 import os
 import random
 import re
+import secrets
 import threading
 import time
 
@@ -704,6 +706,17 @@ def variation_seed():
     return None if seed.lower() == 'off' else (seed or str(random.random()))
 
 
+_RANDOM_SEED = []
+
+
+def random_seed():
+    # One draw per run (CI_RANDOM_SEED replays a run), shared by every
+    # random twin of the run.
+    if not _RANDOM_SEED:
+        _RANDOM_SEED.append(os.environ.get('CI_RANDOM_SEED') or 'alea-' + secrets.token_hex(6))
+    return _RANDOM_SEED[0]
+
+
 def _cell(x, z, turns, mirror):
     if mirror:
         x = SIZE - x
@@ -746,7 +759,7 @@ def vary(level, seed):
     rng = random.Random(f"{seed}:{level.get('variantOf') or level['name']}")
     turns, mirror, species = rng.randrange(4), rng.random() < .5, rng.choice(SPECIES)
     out = dict(level)
-    out['variation'] = {'rotation': turns * 90, 'miroir': mirror, 'essence': species}
+    out['variation'] = {'rotation': turns * 90, 'miroir': mirror, 'essence': species, 'graine': seed}
     out['terrain'] = [_box(t[:6], turns, mirror) + (_block(t[6], turns, species),) for t in level.get('terrain', [])]
     out['leaves'] = [_box(t, turns, mirror) for t in level['leaves']]
     out['leavesBlock'] = _block(LEAVES, turns, species)
@@ -1402,6 +1415,14 @@ def avec(mode):
     return (f'avec-{mode}', {mode: True})
 
 
+# Complex levels (composites) run twice (owner's request, 2026-10-01): once
+# in the stable arena (committed seed, comparable from one run to the next)
+# and once in an arena drawn at random for this run (`~aleatoire`, seed
+# random_seed()), so that a fix tuned to the stable layout shows up. The
+# random twin is informative; its seed is in the result (`variation`).
+RANDOM_TWIN_FAMILIES = ('composite',)
+
+
 def levels():
     out = []
     for level in base_levels():
@@ -1411,7 +1432,30 @@ def levels():
                             features={**level.get('features', {}), **features},
                             informative=True, variantOf=level['name'],
                             about=f"[{suffix}] {level['about']}"))
-    return out
+        if level['name'].split('/')[0] in RANDOM_TWIN_FAMILIES:
+            out.append(dict(level, name=f"{level['name']}~aleatoire", variants=(), randomArena=True,
+                            informative=True, variantOf=level['name'],
+                            about=f"[arene aleatoire] {level['about']}"))
+    return [level for level in out if selected(level['name'])]
+
+
+# Levels to play (CI_LEVELS, chosen per commit by the workflow): empty or
+# `tout` = every level; otherwise patterns separated by commas or spaces
+# (`composite/*`, `trees/pillar*`), matched on the full name, so
+# `trees/pillar*` also takes its variants. `unitaires` = no level.
+ALL_LEVELS = ('', 'tout', 'all')
+
+
+def level_patterns():
+    raw = os.environ.get('CI_LEVELS', '').strip()
+    if raw.lower() in ALL_LEVELS:
+        return None
+    return [p for p in re.split(r'[\s,]+', raw) if p and p.lower() != 'unitaires']
+
+
+def selected(name):
+    patterns = level_patterns()
+    return patterns is None or any(fnmatch.fnmatchcase(name, p) for p in patterns)
 
 
 def mission_type(name):
@@ -1636,7 +1680,9 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
     """Every level once, on the workers of `pool_factory(queue, run_one)` (ci/pool.py)."""
     seed = variation_seed()
     print(f'Arenes variees : graine {seed!r}', flush=True)
-    all_levels = [vary(level, seed) for level in levels()]
+    all_levels = [vary(level, random_seed() if level.get('randomArena') else seed) for level in levels()]
+    if any(level.get('randomArena') for level in all_levels):
+        print(f'Arenes aleatoires : graine {random_seed()!r}', flush=True)
     results = [None] * len(all_levels)
     origins = arena_origins()
     rcon('scoreboard objectives add degats minecraft.custom:minecraft.damage_taken')
@@ -1644,7 +1690,10 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
     # to hand the long tour-2 levels (trees/tall, trees/double) to whoever
     # finished a short join first, ~25 s after the start. Order only: every
     # level still runs, with the same checks, and results keep levels() order.
-    queue = sorted(range(len(all_levels)), key=lambda i: -EXPECTED_S.get(all_levels[i]['name'], NEW_LEVEL_S))
+    # A variant without its own measure lasts like its level (a random twin
+    # of a composite starts with the composites).
+    queue = sorted(range(len(all_levels)), key=lambda i: -EXPECTED_S.get(
+        all_levels[i]['name'], EXPECTED_S.get(all_levels[i].get('variantOf'), NEW_LEVEL_S)))
 
     def reset(bot):
         # Previous level's mission and working notes must not leak into the next one.

@@ -19,7 +19,7 @@ import uuid
 from cleanup import compose_files, paper_image
 import capacity
 from pool import LauncherControl, Pool
-from trees import API_BASE_PORT, BOTS_SERVICE, POOL_MAX, POOL_SIZE, PROBES_SERVICE, arena_origins, levels, run_levels
+from trees import API_BASE_PORT, BOTS_SERVICE, POOL_MAX, POOL_SIZE, PROBES_SERVICE, arena_origins, level_patterns, levels, run_levels, selected
 
 ROOT = Path(__file__).resolve().parents[1]
 # Acces aux ports publies : `direct` (TCP/HTTP sur 127.0.0.1, poste Windows +
@@ -237,7 +237,9 @@ def main():
     report = {'schemaVersion': 1, 'project': project, 'image': image, 'suite': args.suite,
               'startedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
               'sha': None, 'dirty': None, 'success': False, 'tests': [], 'errors': [],
-              'phases': {}}
+              'phases': {},
+              # Levels chosen for this commit (CI_LEVELS): None = every level.
+              'selection': level_patterns()}
     run_started = time.monotonic()
     # CI envelope and host metrics, 10 Hz, from files only (ci/capacity.py):
     # measured in every mode, they gate the pool only in adaptive mode.
@@ -616,6 +618,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                  ['fill 18 200 3 22 203 7 bedrock', 'fill 19 200 4 21 202 6 air'], None),
             ]
             for name, start, target, blocks, abort in scenarios:
+                if not selected(name):
+                    continue
                 print(name, flush=True)
                 try:
                     fixture(start, blocks)
@@ -833,6 +837,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 + (f" <{t['failureKind']}>" if t.get('failureKind') else '') + detail(t)
         summary = '\n'.join([f"Commit: {report['sha'] or 'local export (no Git SHA)'}",
                              f"Result: {'PASS' if report['success'] else 'FAIL'}",
+                             f"Niveaux joues : {'tous' if report.get('selection') is None else (' '.join(report['selection']) or 'aucun (tests unitaires seuls)') + ' (banc partiel)'}",
                              *([f"BANC INVALIDE (infrastructure) : {report['benchInvalid']}"] if report.get('benchInvalid') else []),
                              *([f"Cle du planificateur : {report['keyCheck']}"] if report.get('keyCheck') else []), '',
                              *[line(t) for t in report['tests']],

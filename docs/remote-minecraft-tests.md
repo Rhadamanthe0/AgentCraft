@@ -141,6 +141,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ci/start-runner.ps1
 Les pushes sur `main` ou `claude/**` lancent le workflow. Son statut dans
 l'onglet Actions et le SHA du rapport sont la preuve d'execution.
 
+Niveaux joues (etape « Choose the levels for this commit ») :
+
+| Declencheur | Niveaux |
+| --- | --- |
+| push sur `main` | tous |
+| push sur une branche, commit avec `Banc: tout` | tous |
+| push sur une branche, commit avec `Banc: composite/* trees/pillar*` | ces motifs (nom complet, variantes comprises) |
+| push sur une branche sans ligne `Banc:` | tests unitaires seuls (`--suite unit`) |
+| lancement manuel | entree `levels` (vide = tous) |
+
+La ligne `Banc:` est un trailer Git : elle va dans le dernier paragraphe du
+message, avec `Co-Authored-By`. Le rapport la reprend (`selection`, et
+« Niveaux joues » en tete du resume) ; un banc partiel ne vaut jamais
+autorisation de fusion.
+
+Chaque composite a un jumeau `~aleatoire`, informatif, joue dans une arene
+tiree au hasard a chaque banc (graine dans `variation.graine`,
+`CI_RANDOM_SEED` pour rejouer), a cote de l arene stable de la graine
+commitee.
+
 Le banc est lance par `python ci/run.py`. Il fonctionne avec Python 3.10+,
 Docker Desktop en mode conteneurs Linux et Docker Compose v2. Ni Node ni Java
 ne sont necessaires sur Windows. Docker Desktop doit rester demarre et le PC
