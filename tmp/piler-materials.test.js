@@ -637,6 +637,39 @@ for (const retard of ['apparition', 'metadata']) {
   })
 }
 
+// Deux buches tombees ensemble fusionnent en une pile : la seconde disparait
+// hors tolerance de position, la pile est ramassee avec un compte lu avant la
+// fusion (chat/question-keeps-mission 41565cc, bb4212f : 3/3 en poche, mission
+// jamais close). Le gain d inventaire, sans buche au sol, prouve la collecte.
+for (const depense of [false, true]) {
+  test(`arbre entier : piles fusionnees ${depense ? 'puis bois depense : preuve ordinaire seule' : 'prouvees par le gain d inventaire'}`, async t => {
+    const logs = { name: 'oak_log', count: 0 }
+    let digs = 0
+    const a = { name: 'item', uuid: 'drop-a', position: new Vec3(1.5, 65.2, 0.5), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }
+    const b = { name: 'item', uuid: 'drop-b', position: new Vec3(1.5, 66.4, 0.5), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }
+    const f = await simulate(t, { inventory: [], collectImmediately: false, first: 'casser', logY: 65, allLogs: true,
+      text: 'coupe un arbre', extra: { '1,66,0': 'oak_log' }, queue: [['casser'], ['casser'], ['casser']],
+      setup: bot => { const items = bot.inventory.items; bot.inventory.items = () => [...items(), logs].filter(i => i.count > 0) },
+      onDig: (block, bot) => {
+        if (!digs++) { bot.entities.a = a; bot.emit('entitySpawn', a); return }
+        {
+          bot.emit('entitySpawn', b)
+          bot.emit('entityGone', b)
+          delete bot.entities.a
+          bot.emit('playerCollect', bot.entity, a)
+          logs.count = depense ? 1 : 2
+        }
+      } })
+    assert.equal(f.snapshots.at(-1).descripteur.arbreCoupes, 2)
+    if (depense) {
+      assert.notEqual(f.status.etat, 'done', 'gain trop court : pas de preuve par la mesure')
+    } else {
+      assert.equal(f.status.etat, 'done')
+      assert.match(f.status.raison ?? f.status.fin ?? JSON.stringify(f.status), /arbre entier coupe et ramasse/)
+    }
+  })
+}
+
 test('arbre entier : collecte avant metadata prouve la fin quand son objet devient connu', async t => {
   let ready = false
   let joins = 0

@@ -125,6 +125,7 @@ function suiviArbre (source) {
     arbreBaseline: Array.isArray(source?.arbreBaseline) ? source.arbreBaseline.filter(c => typeof c.id === 'string' && typeof c.objet === 'string' && Number.isFinite(c.count)).map(c => ({ ...c })) : [],
     arbreCoupes: Math.max(0, Number(source?.arbreCoupes) || 0),
     arbreCollectes: Math.max(0, Number(source?.arbreCollectes) || 0),
+    arbreInventaireDepart: Number.isFinite(source?.arbreInventaireDepart) ? source.arbreInventaireDepart : null,
     arbreCollecteIds: Array.isArray(source?.arbreCollecteIds) ? source.arbreCollecteIds.filter(id => typeof id === 'string') : [],
     arbreEnCours: celluleValide(source?.arbreEnCours),
     buchesArbre: Array.isArray(source?.buchesArbre) ? source.buchesArbre.map(celluleValide).filter(Boolean) : null,
@@ -891,6 +892,7 @@ function createMissionRunner (host, injected = {}) {
         arbreBaseline: mission.arbreBaseline,
         arbreCoupes: mission.arbreCoupes,
         arbreCollectes: mission.arbreCollectes,
+        arbreInventaireDepart: mission.arbreInventaireDepart ?? null,
         arbreCollecteIds: mission.arbreCollecteIds,
         echafaudageEnAttente: (mission.echafaudageEnAttente ?? []).map(celluleValide).filter(Boolean),
         echafaudagePose: (mission.echafaudagePose ?? []).map(celluleValide).filter(Boolean),
@@ -2147,10 +2149,32 @@ function createMissionRunner (host, injected = {}) {
         try { item = e.getDroppedItem?.() } catch (_) {}
         return sum + (item && TREE_LOG.test(item.name) ? item.count : 0)
       }, 0)
-    const sansPreuve = Math.max(0, (mission.arbreCoupes ?? 0) - (mission.arbreCollectes ?? 0))
+    let sansPreuve = Math.max(0, (mission.arbreCoupes ?? 0) - (mission.arbreCollectes ?? 0))
+    // Preuve par la mesure quand la provenance se perd : deux buches tombees
+    // ensemble fusionnent en une pile (compte lu avant la fusion, ou case de
+    // disparition hors tolerance). Plus une buche debout, plus une buche au
+    // sol pres de l arbre, et l inventaire a gagne au moins autant de buches
+    // que de coupes : tout est ramasse (chat/question-keeps-mission 41565cc,
+    // bb4212f : 3/3 en poche, mission jamais close). Bois depense entre-temps :
+    // gain trop court, la preuve ordinaire reste seule juge.
+    if (standing === 0 && onGround === 0 && sansPreuve > 0 && Number.isFinite(mission.arbreInventaireDepart) &&
+      !boisAuSolPres(t) && craft.countOf(bot, TREE_LOG) - mission.arbreInventaireDepart >= (mission.arbreCoupes ?? 0)) {
+      mission.arbreCollectes = mission.arbreCoupes
+      sansPreuve = 0
+    }
     const restant = Math.max(onGround, sansPreuve)
     return { buches_restantes: standing, buches_au_sol: restant,
       termine: standing === 0 && restant === 0, incertain: sansPreuve > onGround }
+  }
+
+  // Une buche au sol a moins de 8 blocs de l arbre, d ou qu elle vienne.
+  function boisAuSolPres (t) {
+    return Object.values(host.getBot()?.entities ?? {}).some(e => {
+      if (e?.name !== 'item' || !e.position) return false
+      let item = null
+      try { item = e.getDroppedItem?.() } catch (_) {}
+      return (!item || TREE_LOG.test(item.name)) && Math.hypot(e.position.x - t.x, e.position.z - t.z) <= 8
+    })
   }
 
   let botCollecteObserve = null
@@ -3847,6 +3871,7 @@ function createMissionRunner (host, injected = {}) {
         const debutArbreDemande = !secondaire && mission.wholeTree && !mission.tree && TREE_LOG.test(block.name)
         const initialLogs = debutArbre || debutArbreDemande ? logsOfTree(block.position) : null
         if (debutArbreDemande) {
+          mission.arbreInventaireDepart = craft.countOf(bot, TREE_LOG)
           mission.arbreEntitiesInitial = Object.entries(bot.entities ?? {}).map(([id, e]) => e.uuid || id)
           mission.arbreBaseline = Object.entries(bot.entities ?? {}).flatMap(([id, e]) => {
             let item
