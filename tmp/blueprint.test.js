@@ -215,7 +215,7 @@ test('findSite : aucun chemin sans construction, aucun terrain annonce', () => {
 })
 
 test('findSite : budget A* partage entre les candidats, pas de repli sans preuve', () => {
-  const bot = reachableSiteWorld({ stairs: false })
+  const bot = reachableSiteWorld({ stairs: false, ravine: false })
   const realNow = Date.now
   let now = realNow()
   const budgets = []
@@ -223,14 +223,48 @@ test('findSite : budget A* partage entre les candidats, pas de repli sans preuve
   bot.pathfinder.getPathFromTo = function * (movements, start, goal, options) {
     budgets.push(options.timeout)
     for (const step of realSearch(movements, start, goal, options)) {
-      now += 600
-      yield step
+      now += options.timeout
+      yield { result: { ...step.result, status: 'timeout' } }
     }
   }
   Date.now = () => now
   try {
     assert.equal(build.findSite(bot, { near: { x: 0.5, y: 65, z: 0.5 }, width: 3, depth: 3, height: 3, pied: 65 }), null)
-    assert.deepEqual(budgets, [1000, 400])
+    assert.equal(budgets.length, 10, 'dix candidats peuvent etre recherches dans le budget global')
+    assert.ok(budgets.every(ms => ms > 0 && ms <= 100))
+    assert.equal(budgets.reduce((sum, ms) => sum + ms, 0), 1000, 'budget total toujours une seconde')
+  } finally {
+    Date.now = realNow
+  }
+})
+
+test('findSite : premier trajet lent ne prive pas le terrain suivant de recherche', () => {
+  const bot = reachableSiteWorld({ stairs: false, ravine: false })
+  const realNow = Date.now
+  let now = realNow()
+  const searches = []
+  const realSearch = bot.pathfinder.getPathFromTo
+  bot.pathfinder.getPathFromTo = function * (movements, start, goal, options) {
+    searches.push({ timeout: options.timeout, goal })
+    if (searches.length === 1) {
+      // Le premier sommet est reellement isole; une recherche complexe
+      // peut epuiser tout le temps qui lui est accorde avant de conclure.
+      let result
+      for (const step of realSearch(movements, start, goal, options)) result = step.result
+      assert.equal(result.status, 'noPath')
+      now += options.timeout
+      yield { result: { ...result, status: 'timeout' } }
+      return
+    }
+    yield * realSearch(movements, start, goal, options)
+  }
+  Date.now = () => now
+  try {
+    const site = build.findSite(bot, { near: { x: 0.5, y: 65, z: 0.5 }, width: 3, depth: 3, height: 3, pied: 65 })
+    assert.ok(site, 'un premier trajet lent doit laisser une chance au sol accessible')
+    assert.equal(site.origin.y, 65)
+    assert.ok(searches.length > 1)
+    assert.equal(sitePath(bot, site.origin).status, 'success')
   } finally {
     Date.now = realNow
   }

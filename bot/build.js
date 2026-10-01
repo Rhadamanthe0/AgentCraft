@@ -585,14 +585,19 @@ function findSite (bot, { near, width, depth, height, pied = null }) {
       if (block) movements.blocksToAvoid.add(block.id)
     }
     // Un budget pour TOUS les candidats, identique a une recherche du
-    // navigateur. Aucun repli sur un chantier dont l acces reste inconnu.
+    // navigateur. Une recherche difficile ne doit pas monopoliser ce budget :
+    // chaque essai recoit au plus un dixieme du temps total, laissant du
+    // temps aux suivants meme lorsqu il atteint sa limite.
+    // Aucun repli sur un chantier dont l acces reste inconnu.
     const deadline = Date.now() + 1000
     reachable = candidate => {
       const remaining = deadline - Date.now()
       if (remaining <= 0) return false
+      const candidateBudget = Math.min(100, remaining)
       const goal = new goals.GoalBlock(candidate.x, candidate.y, candidate.z)
       for (const { result } of bot.pathfinder.getPathFromTo(movements, bot.entity.position, goal,
-        { timeout: remaining, tickTimeout: 20, searchRadius: 64, optimizePath: false })) {
+        { timeout: candidateBudget, tickTimeout: Math.min(20, candidateBudget), searchRadius: 64, optimizePath: false })) {
+        if (Date.now() >= deadline) return false
         if (result.status === 'success') return true
         if (result.status !== 'partial' || Date.now() >= deadline) return false
       }
