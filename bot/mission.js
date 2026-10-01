@@ -99,8 +99,8 @@ function suiviArbre (source) {
     buchesArbreDemande: Array.isArray(source?.buchesArbreDemande) ? cells(source.buchesArbreDemande) : null,
     dropsArbreDemande: Array.isArray(source?.dropsArbreDemande) ? source.dropsArbreDemande.filter(id => typeof id === 'string') : [],
     arbreEntitiesInitial: Array.isArray(source?.arbreEntitiesInitial) ? source.arbreEntitiesInitial.filter(id => typeof id === 'string') : [],
-    arbreSources: Array.isArray(source?.arbreSources) ? source.arbreSources.filter(c => celluleValide(c) && typeof c.objet === 'string').map(c => ({ ...celluleValide(c), objet: c.objet, drop: typeof c.drop === 'string' ? c.drop : null })) : [],
-    arbreSpawns: Array.isArray(source?.arbreSpawns) ? source.arbreSpawns.filter(c => typeof c.id === 'string' && [c.x, c.y, c.z].every(Number.isFinite)).map(c => ({ id: c.id, x: c.x, y: c.y, z: c.z, objet: typeof c.objet === 'string' ? c.objet : null, gone: c.gone === true, tiers: c.tiers === true, fin: c.fin && [c.fin.x, c.fin.y, c.fin.z].every(Number.isFinite) ? { ...c.fin } : null })) : [],
+    arbreSources: Array.isArray(source?.arbreSources) ? source.arbreSources.filter(c => celluleValide(c) && typeof c.objet === 'string').map(c => ({ ...celluleValide(c), objet: c.objet, id: typeof c.id === 'string' ? c.id : null, confirmee: c.confirmee === true, ouverte: false, ambigu: c.ambigu === true, drop: typeof c.drop === 'string' ? c.drop : null })) : [],
+    arbreSpawns: Array.isArray(source?.arbreSpawns) ? source.arbreSpawns.filter(c => typeof c.id === 'string' && [c.x, c.y, c.z].every(Number.isFinite)).map(c => ({ id: c.id, x: c.x, y: c.y, z: c.z, objet: typeof c.objet === 'string' ? c.objet : null, source: typeof c.source === 'string' ? c.source : null, collectedByBot: c.collectedByBot === true, collectCount: Number.isFinite(c.collectCount) ? c.collectCount : null, collectPosition: c.collectPosition ? { ...c.collectPosition } : null, gone: c.gone === true, tiers: c.tiers === true, fin: c.fin && [c.fin.x, c.fin.y, c.fin.z].every(Number.isFinite) ? { ...c.fin } : null })) : [],
     arbreBaseline: Array.isArray(source?.arbreBaseline) ? source.arbreBaseline.filter(c => typeof c.id === 'string' && typeof c.objet === 'string' && Number.isFinite(c.count)).map(c => ({ ...c })) : [],
     arbreCoupes: Math.max(0, Number(source?.arbreCoupes) || 0),
     arbreCollectes: Math.max(0, Number(source?.arbreCollectes) || 0),
@@ -748,6 +748,26 @@ function createMissionRunner (host, injected = {}) {
       termine: l.done
     }
   }
+  // Conserve aussi un don choisi dans le plan du trajet qui le precede.
+  // Une coupe encore ouverte peut faire abandonner cette file, sans effacer
+  // l engagement du modele ni inventer de quantite demandee par le joueur.
+  function engagementDon (params = {}) {
+    const objet = String(params.objet ?? '').trim().toLowerCase()
+    const quantite = Number(params.quantite)
+    const destinataire = String(params.destinataire ?? mission.requester ?? '').trim()
+    if (!livraisonDemandee(mission) || !/^[a-z0-9_]+$/.test(objet) ||
+      !Number.isInteger(quantite) || quantite < 1 || quantite > 64 ||
+      !/^[A-Za-z0-9_]{3,16}$/.test(destinataire)) return null
+    const ceiling = deliveryCeiling(mission)
+    const key = deliveryLedgerKey(deliveryScope(mission), destinataire, objet)
+    let ledger = deliveryLedgers.get(key)
+    if (!ledger) {
+      ledger = { key, scope: deliveryScope(mission), recipient: destinataire, item: objet,
+        ceiling, attempted: 0, removed: 0, proven: 0, uncertain: 0, invocations: [], done: false }
+      deliveryLedgers.set(key, ledger)
+    } else ledger.ceiling = ceiling
+    return ledger
+  }
   // Plafond d engagement : la demande chiffree du texte courant, lue par le
   // code (meme expression que mission.quota), jamais inventee. null = budget
   // indeterminable (clarification au lieu de sur-don).
@@ -823,6 +843,7 @@ function createMissionRunner (host, injected = {}) {
         quota: mission.quota,
         quotaExplicite: mission.quotaExplicite,
         wholeTree: mission.wholeTree,
+        pendingJoin: mission.pendingJoin,
         fabricationCible: mission.fabricationCible ?? null,
         fabricationQuantite: mission.fabricationQuantite ?? null,
         fabricationInitial: mission.fabricationInitial ?? 0,
@@ -1898,8 +1919,10 @@ function createMissionRunner (host, injected = {}) {
     }
     if (mission.wholeTree && mission.tree && (resource ?? harvestResource()) === 'bois') {
       // Le contrat d un arbre entier reste precis meme sans arbre_fini.
-      positions = (mission.buchesArbreDemande ?? []).map(c => new Vec3(c.x, c.y, c.z))
-        .filter(p => TREE_LOG.test(bot.blockAt(p)?.name ?? ''))
+      recapturerArbreDemande()
+      const cells = mission.buchesArbreDemande ?? [mission.tree]
+      positions = cells.map(c => new Vec3(c.x, c.y, c.z))
+        .filter(p => !bot.blockAt(p) || TREE_LOG.test(bot.blockAt(p)?.name ?? '') || !mission.buchesArbreDemande)
     }
 
     const here = bot.entity.position
@@ -1940,7 +1963,10 @@ function createMissionRunner (host, injected = {}) {
         if (Math.abs(ecart) > demiAngle) continue
       }
 
-      const block = bot.blockAt(position)
+      const measured = bot.blockAt(position)
+      const unknownTree = mission.wholeTree && mission.tree && (!measured || !mission.buchesArbreDemande)
+      if (unknownTree && !anyHeight) continue
+      const block = unknownTree ? { name: mission.arbreSources?.find(c => c.confirmee)?.objet ?? 'oak_log', position, boundingBox: 'block', inconnue: true } : measured
       if (!block) continue
 
       candidates.push({
@@ -2060,11 +2086,20 @@ function createMissionRunner (host, injected = {}) {
 
   // Arbre demande : buches encore en place et buches tombees non ramassees.
   // null tant qu aucune buche n a ete coupee (arbre pas encore choisi).
+  function recapturerArbreDemande () {
+    if (!mission?.tree || mission.buchesArbreDemande) return
+    const cells = logsOfTree(mission.tree)
+    if (cells === null) return
+    mission.buchesArbreDemande = [...cells, ...(!cells.some(c => c.x === mission.tree.x && c.y === mission.tree.y && c.z === mission.tree.z) ? [mission.tree] : [])].map(celluleValide)
+    if (mission.arbreEnCours && !mission.buchesArbre) mission.buchesArbre = mission.buchesArbreDemande
+    arbreMemo = null
+  }
   function treeStatus () {
     const bot = host.getBot()
     const t = mission?.tree
     if (!mission?.wholeTree || !t || !bot?.entity) return null
     observerCollecteArbre()
+    recapturerArbreDemande()
     const cells = mission.buchesArbreDemande
     // Une ancienne reprise sans cellules mesurees ne prouve pas l arbre fini.
     if (!cells?.length) return { buches_restantes: 1, buches_au_sol: 0, termine: false, incertain: true }
@@ -2089,18 +2124,29 @@ function createMissionRunner (host, injected = {}) {
   }
 
   let botCollecteObserve = null
+  let coupeArbreActive = null
   const collectesEnAttente = new Map()
   function recevoirSpawnArbre (entity) {
     if (!mission?.wholeTree || entity?.name !== 'item' || !entity.position) return
+    if (mission.state !== 'running') return
+    let item
+    try { item = entity.getDroppedItem?.() } catch (_) {}
+    const proche = c => Math.hypot(entity.position.x - c.x - 0.5, entity.position.y - c.y - 0.5, entity.position.z - c.z - 0.5) <= 0.9
+    const source = mission.arbreSources?.find(c => c.id === coupeArbreActive && c.ouverte && proche(c)) ??
+      mission.arbreSources?.find(c => c.confirmee && !c.drop && proche(c) && (!item || item.name === c.objet))
+    if (!source || (item && item.name !== source.objet)) return
     const id = entity.uuid || String(entity.id)
     mission.arbreSpawns ??= []
-    if (!mission.arbreSpawns.some(s => s.id === id)) mission.arbreSpawns.push({ id, x: entity.position.x, y: entity.position.y, z: entity.position.z, objet: null, gone: false, tiers: false })
+    if (mission.arbreSpawns.some(s => s.id === id)) return
+    if (mission.arbreSpawns.filter(s => s.source === source.id).length >= 2) { source.ambigu = true; return }
+    mission.arbreSpawns.push({ id, source: source.id, x: entity.position.x, y: entity.position.y, z: entity.position.z,
+      objet: null, gone: false, tiers: false, collectedByBot: false, collectCount: null, collectPosition: null })
     actualiserSpawnArbre(entity)
   }
   function actualiserSpawnArbre (entity) {
     const spawn = mission?.arbreSpawns?.find(s => s.id === (entity?.uuid || String(entity?.id)))
     if (!spawn) return
-    try { const item = entity.getDroppedItem?.(); if (item) spawn.objet = item.name } catch (_) {}
+    try { const item = entity.getDroppedItem?.(); if (item) { spawn.objet = item.name; if (spawn.collectedByBot) spawn.collectCount = item.count } } catch (_) {}
   }
   function recevoirDisparitionArbre (entity) {
     actualiserSpawnArbre(entity)
@@ -2115,16 +2161,24 @@ function createMissionRunner (host, injected = {}) {
       return
     }
     const id = entity.uuid || String(entity.id)
+    const spawn = mission.arbreSpawns?.find(s => s.id === id)
+    if (spawn) {
+      spawn.collectedByBot = true
+      spawn.collectPosition = entity.position ? { x: entity.position.x, y: entity.position.y, z: entity.position.z } : null
+      actualiserSpawnArbre(entity)
+    }
+    if (!spawn && !(mission.arbreEntitiesInitial ?? []).includes(id)) return
     collectesEnAttente.set(id, entity)
-    const avant = mission.arbreCollectes
     prouverCollectesArbre()
-    if (mission.arbreCollectes !== avant) reportProgressSafe()
+    reportProgressSafe()
   }
   function observerCollecteArbre () {
     if (mission?.state !== 'running') return
     const bot = host.getBot()
     if (botCollecteObserve === bot) return
+    const attente = new Map(collectesEnAttente)
     retirerObservateurArbre()
+    for (const [id, entity] of attente) if (mission.arbreSpawns?.some(s => s.id === id)) collectesEnAttente.set(id, entity)
     bot?.on?.('entitySpawn', recevoirSpawnArbre)
     bot?.on?.('entityUpdate', actualiserSpawnArbre)
     bot?.on?.('itemDrop', actualiserSpawnArbre)
@@ -2134,6 +2188,8 @@ function createMissionRunner (host, injected = {}) {
     botCollecteObserve = bot
   }
   function retirerObservateurArbre () {
+    for (const entity of collectesEnAttente.values()) actualiserSpawnArbre(entity)
+    coupeArbreActive = null
     botCollecteObserve?.removeListener?.('entitySpawn', recevoirSpawnArbre)
     botCollecteObserve?.removeListener?.('entityUpdate', actualiserSpawnArbre)
     botCollecteObserve?.removeListener?.('itemDrop', actualiserSpawnArbre)
@@ -2145,7 +2201,9 @@ function createMissionRunner (host, injected = {}) {
   }
   function prouverCollectesArbre () {
     if (!mission?.tree || !mission.buchesArbreDemande?.length) return
+    const avant = mission.arbreCollectes
     for (const spawn of mission.arbreSpawns ?? []) {
+      if (spawn.collectedByBot && !collectesEnAttente.has(spawn.id)) collectesEnAttente.set(spawn.id, { position: spawn.collectPosition, getDroppedItem: () => spawn.objet && spawn.collectCount !== null ? { name: spawn.objet, count: spawn.collectCount } : null })
       if (spawn.objet) attribuerDropArbre(spawn.id, { getDroppedItem: () => ({ name: spawn.objet }) })
     }
     const exclus = new Set(mission.arbreEntitiesInitial ?? [])
@@ -2155,6 +2213,7 @@ function createMissionRunner (host, injected = {}) {
       let item
       try { item = e.getDroppedItem?.() } catch (_) {}
       if (!item || !e.position) continue
+      actualiserSpawnArbre({ ...e, uuid: id })
       if (exclus.has(id)) {
         const baseline = mission.arbreBaseline?.find(b => b.id === id && b.objet === item.name)
         const candidats = (mission.arbreSpawns ?? []).filter(spawn => spawn.gone && !spawn.tiers && !deja.has(spawn.id) &&
@@ -2183,6 +2242,7 @@ function createMissionRunner (host, injected = {}) {
       }
     }
     mission.arbreCollecteIds = [...deja]
+    if (mission.arbreCollectes !== avant) reportProgressSafe()
   }
 
   // La position initiale du paquet spawn reste immuable : un objet voisin
@@ -2194,9 +2254,11 @@ function createMissionRunner (host, injected = {}) {
     let item
     try { item = entity.getDroppedItem?.() } catch (_) {}
     if (!spawn || !item || !TREE_LOG.test(item.name)) return
-    const source = mission.arbreSources?.find(c => !c.drop && c.objet === item.name &&
+    const source = mission.arbreSources?.find(c => c.id === spawn.source && c.confirmee && !c.ouverte && !c.ambigu && !c.drop && c.objet === item.name &&
       Math.hypot(spawn.x - c.x - 0.5, spawn.y - c.y - 0.5, spawn.z - c.z - 0.5) <= 0.9)
     if (!source) return
+    const possibles = mission.arbreSpawns.filter(s => s.source === source.id && (!s.objet || s.objet === source.objet))
+    if (possibles.length !== 1) { source.ambigu = true; return }
     source.drop = id
     mission.dropsArbreDemande ??= []
     mission.dropsArbreDemande.push(id)
@@ -3610,9 +3672,12 @@ function createMissionRunner (host, injected = {}) {
     // Le modele choisit la destination, jamais les touches du trajet.
     async rejoindre_demandeur (scale, params = {}) {
       // Le modele identifie le don de ce trajet, meme si donner est servi
-      // dans un autre plan. Aucune intention ne depend de la file courante.
+      // dans un autre plan. Ce parametre definit la portee du trajet.
       const objet = String(params.objet ?? '').trim().toLowerCase() || null
       mission.pendingJoin = true
+      for (const step of mission.queue) {
+        if (step.action === 'donner') engagementDon(step.choices)
+      }
       const arbre = arbreAvantLivraison(objet)
       if (arbre) return arbre
       // Token proprietaire prive (objet opaque) : la sous-etape nav s execute
@@ -3734,6 +3799,7 @@ function createMissionRunner (host, injected = {}) {
           })
         }
         if (mission.wholeTree) observerCollecteArbre()
+        let coupeMesuree = null
         try {
           // L outil peut changer en cours de rafale (une touffe d herbe, puis
           // la terre en dessous). equipForBlock rend la main tout de suite si
@@ -3758,8 +3824,16 @@ function createMissionRunner (host, injected = {}) {
           // relue qu entre deux blocs (voir piege 12).
           await withTimeout(
             bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true), 4000, 'visee trop longue')
+          if (!secondaire && mission.wholeTree && TREE_LOG.test(block.name)) {
+            mission.arbreSources ??= []
+            coupeMesuree = { ...celluleValide(block.position), objet: block.name, id: `${mission.id}:${mission.arbreSources.length}`, ouverte: true, confirmee: false, ambigu: false, drop: null }
+            mission.arbreSources.push(coupeMesuree)
+            coupeArbreActive = coupeMesuree.id
+          }
           await withTimeout(bot.dig(block), 6000, 'creusage trop long')
         } catch (err) {
+          if (coupeMesuree) coupeMesuree.ouverte = false
+          coupeArbreActive = null
           refusal = err.message
           break
         }
@@ -3768,6 +3842,8 @@ function createMissionRunner (host, injected = {}) {
         // a ete refuse et compter une reussite masquerait la panne.
         const after = bot.blockAt(block.position)
         if (after && after.name === block.name) {
+          if (coupeMesuree) coupeMesuree.ouverte = false
+          coupeArbreActive = null
           refusal = `${block.name} toujours en place apres le creusage`
           break
         }
@@ -3783,8 +3859,7 @@ function createMissionRunner (host, injected = {}) {
           mission.buchesArbreDemande = initialLogs?.map(celluleValide) ?? null
         }
         if (!secondaire && mission.wholeTree && TREE_LOG.test(block.name)) {
-          mission.arbreSources ??= []
-          mission.arbreSources.push({ ...celluleValide(block.position), objet: block.name, drop: null })
+          if (coupeMesuree) coupeMesuree.confirmee = true
           mission.arbreCoupes = (mission.arbreCoupes ?? 0) + 1
           prouverCollectesArbre()
         }
@@ -3793,6 +3868,9 @@ function createMissionRunner (host, injected = {}) {
           mission.buchesArbre = initialLogs?.map(celluleValide) ?? null
         }
         await sleep(120)
+        if (coupeMesuree) coupeMesuree.ouverte = false
+        coupeArbreActive = null
+        prouverCollectesArbre()
         if (!secondaire && TREE_LOG.test(block.name)) {
           noterDropsArbre()
         }
@@ -4358,18 +4436,10 @@ function createMissionRunner (host, injected = {}) {
       if (!livraisonDemandee(mission)) {
         return { resultat: 'don refuse : le joueur n a rien demande a recevoir ; garder les objets en inventaire', echec: true, code: 'not_requested' }
       }
+      const ceiling = deliveryCeiling(mission)
+      const ledger = engagementDon(params)
       const arbre = arbreAvantLivraison(objet)
       if (arbre) return arbre
-      const ceiling = deliveryCeiling(mission)
-      const key = deliveryLedgerKey(deliveryScope(mission), destinataire, objet)
-      let ledger = deliveryLedgers.get(key)
-      if (!ledger) {
-        ledger = { key, scope: deliveryScope(mission), recipient: destinataire, item: objet,
-          ceiling, attempted: 0, removed: 0, proven: 0, uncertain: 0, invocations: [], done: false }
-        deliveryLedgers.set(key, ledger)
-      } else {
-        ledger.ceiling = ceiling
-      }
       if (ceiling === null) {
         return { resultat: `don impossible : quantite totale indeterminee pour ${objet} vers ${destinataire} — demande une precision au joueur (dire), n invente aucun quota`,
           echec: true, code: 'no_ceiling', livraison: deliveryLedgerView(ledger) }
@@ -5177,7 +5247,9 @@ function createMissionRunner (host, injected = {}) {
       const volume = forme.compiled
         ? { width: forme.compiled.width, depth: forme.compiled.depth, height: forme.compiled.height }
         : (forme.box ?? { width: dims.width, depth: dims.depth, height: dims.height })
-      const site = build.findSite(bot, { near, ...volume, pied: Math.floor(host.getBot().entity.position.y + 0.01) })
+      const selectionMission = mission
+      const site = await build.findSite(bot, { near, ...volume, pied: Math.floor(host.getBot().entity.position.y + 0.01), signal: mission.navigationAbort.signal })
+      if (mission !== selectionMission || mission.cancelled) return { resultat: 'choix du terrain interrompu', echec: true, code: 'cancelled' }
 
       if (!site) {
         return { resultat: 'aucun terrain plat et degage aux alentours', echec: true }
@@ -6491,7 +6563,7 @@ function createMissionRunner (host, injected = {}) {
       // compte pas les blocs (vu : arche 11/11, 74 appels jusqu au plafond).
       if (mission.kind === 'construction' && mission.plan) {
         const chantier = buildProgress()
-        if (chantier.total > 0 && chantier.left === 0 && !arbreOuvert && (!mission.wantsDoor || doorPlaced())) {
+        if (chantier.total > 0 && chantier.left === 0 && !arbreOuvert && (!mission.wantsDoor || doorPlaced()) && finishAllowed(buildState()).ok) {
           finish('done', `chantier complet (${chantier.done}/${chantier.total} blocs${mission.wantsDoor ? ', porte posee' : ''})`)
           return
         }
@@ -6712,6 +6784,7 @@ function createMissionRunner (host, injected = {}) {
       return { ok: false, error: 'revision corrompue refusee (contexte invalide, reformule l objectif)' }
     }
 
+    const collectesRevision = opts.revisionOf ? new Map(collectesEnAttente) : null
     if (isRunning()) stop('remplacee par un nouvel objectif')
     retirerObservateurArbre()
     cancelPendingStart()
@@ -6923,7 +6996,7 @@ function createMissionRunner (host, injected = {}) {
       state: 'running',
       cancelled: false,
       navigationAbort: new AbortController(),
-      pendingJoin: false,
+      pendingJoin: opts.revisionOf?.pendingJoin === true,
       startedAt: opts.revisionOf?.startedAt ?? Date.now(),
       startedAtIso: opts.revisionOf?.startedAtIso ?? new Date().toISOString(),
       activeElapsedMs: opts.revisionOf ? activeDurationMs(opts.revisionOf) : 0,
@@ -7023,6 +7096,7 @@ function createMissionRunner (host, injected = {}) {
     mission.activity.update('preparing', 'C est parti.')
     if (mission.movementTask) mission.movementTask.clearance = mission.clearance
     // Une revision conserve le prefixe deja prouve s il a le meme contrat.
+    if (collectesRevision) for (const [id, entity] of collectesRevision) collectesEnAttente.set(id, entity)
     const previousTask = opts.revisionOf?.movementTask
     if (previousTask && mission.movementTask) {
       for (let i = 0; i < previousTask.cursor && i < mission.movementTask.steps.length; i++) {
@@ -7102,6 +7176,7 @@ function createMissionRunner (host, injected = {}) {
     try { host.getBot()?.stopDigging() } catch (_) {}
     abortPrefetch('pause du travail')
     try { mission.navigationAbort.abort() } catch (_) {}
+    retirerObservateurArbre()
     mission.state = 'paused'
     mission.endedAt = null
     mission.reason = reason
@@ -7275,7 +7350,7 @@ function createMissionRunner (host, injected = {}) {
       state: 'running',
       cancelled: false,
       navigationAbort: new AbortController(),
-      pendingJoin: false,
+      pendingJoin: desc.pendingJoin === true,
       startedAt: now,
       startedAtIso: new Date().toISOString(),
       activeElapsedMs: 0,

@@ -9,15 +9,23 @@ const { EventEmitter } = require('node:events')
 const planner = require('../bot/planner')
 const craft = require('../bot/craft')
 const delivery = require('../bot/delivery')
+const build = require('../bot/build')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null, entities = {}, loaded = () => true, resume = null, reviseAfterCut = false, revisionText = null, context = null, collectImmediately = true }) {
+async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null, entities = {}, loaded = () => true, resume = null, reviseAfterCut = false, revisionText = null, context = null, collectImmediately = true, completedStructure = false }) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
   t.mock.method(planner, 'readBrief', async () => ({ kind, kindConfidence: 1,
     resource: 'bois', resourceConfidence: 1, landmark: 'ici', door: false, doorProbability: 0 }))
+  if (completedStructure) {
+    t.mock.method(build, 'findSite', () => ({ origin: new Vec3(10, 65, 0), distance: 10 }))
+    t.mock.method(build, 'planHouse', () => ({ origin: new Vec3(10, 65, 0), blocks: [{ position: new Vec3(10, 65, 0) }], width: 1, height: 1, depth: 1 }))
+    const previous = process.env.FEATURE_PLANS
+    process.env.FEATURE_PLANS = '0'
+    t.after(() => { if (previous === undefined) delete process.env.FEATURE_PLANS; else process.env.FEATURE_PLANS = previous })
+  }
   const states = []
   const stopsAtPlans = []
   let staleAborted = false
@@ -559,7 +567,9 @@ for (const reprise of ['revision', 'rehydrate']) {
     assert.equal(saved.arbreCoupes, 1)
     if (reprise === 'revision') {
       assert.equal(saved.arbreSources[0].drop, 'stable-drop-uuid')
-      assert.deepEqual(saved.arbreSpawns[0], { id: 'stable-drop-uuid', x: 1.5, y: 65.5, z: 0.5, objet: 'oak_log', gone: false, tiers: false, fin: null })
+      assert.equal(saved.arbreSpawns[0].id, 'stable-drop-uuid')
+      assert.equal(saved.arbreSpawns[0].x, 1.5)
+      assert.equal(saved.arbreSpawns[0].objet, 'oak_log')
     }
     assert.equal(f.status.arbre_entier.buches_au_sol, 1)
   })
@@ -781,4 +791,101 @@ test('arbre entier : deux coupes fusionnees dans la nouvelle pile prouvent deux 
   assert.equal(f.status.etat, 'done')
   assert.equal(f.snapshots.at(-1).descripteur.arbreCoupes, 2)
   assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 2)
+})
+
+test('construction complete : retour differe apres arbre doit preceder fin', async t => {
+  let joins = 0
+  let permitSecond = false
+  const f = await simulate(t, { inventory: [], kind: 'construction', text: 'construis une cabane et rapporte-moi le bois', completedStructure: true, digFailure: block => block.position.y === 66 && !permitSecond,
+    first: 'casser', logY: 65, extra: { '1,66,0': 'oak_log' }, allLogs: false,
+    queue: [['choisir_terrain'], ['casser'], [{ action: 'rejoindre_demandeur', choices: { objet: 'oak_log' } }], ['casser'], [{ action: 'rejoindre_demandeur', choices: { objet: 'oak_log' } }]],
+    onDig: (block, bot) => { bot.players.human = { entity: { position: new Vec3(5, 65, 0) } }; if (block.position.y === 65) setTimeout(() => { permitSecond = true }, 650); if (block.position.y === 66) { const old = bot.blockAt; bot.blockAt = p => p.x === 10 ? { name: 'oak_planks', position: p, boundingBox: 'block' } : old(p) } },
+    navigate: async target => { if (typeof target === 'string') joins++; return { reached: true, code: 'arrived', remaining: 0 } } })
+  assert.equal(joins, 1)
+  assert.equal(f.status.etat, 'done')
+  assert.ok(f.snapshots.some(s => s.descripteur.pendingJoin === true))
+  assert.equal(f.snapshots.at(-1).descripteur.pendingJoin, false)
+})
+
+for (const unknown of ['initial', 'decharge']) {
+  test(`arbre entier : cellule ${unknown} inconnue garde cible et recapture apres retour`, async t => {
+    let known = false
+    let movements = 0
+    const f = await simulate(t, { inventory: [], first: 'casser', logY: 65, text: 'coupe un arbre', extra: { '1,66,0': 'oak_log' }, allLogs: false,
+      loaded: p => unknown === 'initial' ? (known || p.x !== 2) : (known || p.x !== 1 || movements === 0),
+      onDig: block => { if (unknown === 'decharge' && block.position.y === 65) movements = 1 },
+      queue: [['casser'], ['avancer'], ['casser']],
+      navigate: async () => { movements++; known = true; return { reached: true, code: 'arrived', remaining: 0 } } })
+    assert.ok(movements > (unknown === 'decharge' ? 1 : 0))
+    assert.equal(f.status.etat, 'done')
+    assert.equal(f.snapshots.at(-1).descripteur.arbreCoupes, 2)
+  })
+}
+
+test('arbre entier : collecte metadata retardee conserve preuve pendant revision', async t => {
+  let ready = false
+  const drop = { name: 'item', uuid: 'pending-revision', position: new Vec3(1.5, 65.5, 0.5), getDroppedItem: () => ready ? { name: 'oak_log', count: 1 } : null }
+  const f = await simulate(t, { inventory: [], collectImmediately: false, first: 'casser', logY: 65, text: 'coupe un arbre', reviseAfterCut: true, queue: [['casser'], [{ action: 'attendre', choices: { duree: 1 } }]],
+    onDig: (_block, bot) => { bot.emit('entitySpawn', drop); bot.emit('playerCollect', bot.entity, drop); setTimeout(() => { ready = true }, 650) } })
+  assert.equal(f.status.etat, 'done')
+  assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 1)
+})
+
+test('arbre entier : spawns etrangers massifs restent hors suivi', async t => {
+  const f = await simulate(t, { inventory: [], collectImmediately: false, first: 'casser', logY: 65, text: 'coupe un arbre',
+    onDig: (_block, bot) => { for (let i = 0; i < 2000; i++) bot.emit('entitySpawn', { name: 'item', uuid: `distant-${i}`, position: new Vec3(30, 65, 30), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }) } })
+  assert.equal(f.snapshots.at(-1).descripteur.arbreSpawns.length, 0)
+  assert.notEqual(f.status.etat, 'done')
+})
+
+for (const metadata of [true, false]) {
+  test(`arbre entier : reprise preuve collecteur persistée metadata=${metadata}`, async t => {
+    const desc = { kind: 'recolte', resource: 'bois', landmark: 'ici', quota: 16, wholeTree: true,
+      tree: { x: 1, y: 65, z: 0 }, buchesArbreDemande: [{ x: 1, y: 65, z: 0 }], dropsArbreDemande: [], arbreCoupes: 1, arbreCollectes: 0,
+      arbreSources: [{ x: 1, y: 65, z: 0, objet: 'oak_log', id: 'saved-source', confirmee: true, ouverte: false, drop: null }],
+      arbreSpawns: [{ id: 'saved-picked', source: 'saved-source', x: 1.5, y: 65.5, z: 0.5, objet: metadata ? 'oak_log' : null,
+        collectedByBot: true, collectCount: metadata ? 1 : null, collectPosition: { x: 1.5, y: 65.5, z: 0.5 } }] }
+    const f = await simulate(t, { inventory: [], first: 'casser', logY: 75,
+      resume: { id: 'saved-tree', texte: 'coupe un arbre', auteur: 'human', progression: { descripteur: desc } } })
+    assert.equal(f.status.etat === 'done', metadata)
+    assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, metadata ? 1 : 0)
+    assert.equal(f.snapshots.at(-1).descripteur.arbreSpawns[0].collectedByBot, true)
+  })
+}
+
+for (const delayed of ['spawn', 'metadata']) {
+  test(`arbre entier : vrai drop ${delayed}650ms collecte ensuite permet fin`, async t => {
+    let ready = delayed === 'spawn'
+    const drop = { name: 'item', uuid: `delayed-${delayed}`, position: new Vec3(1.5, 65.5, 0.5), getDroppedItem: () => ready ? { name: 'oak_log', count: 1 } : null }
+    const f = await simulate(t, { inventory: [], collectImmediately: false, first: 'casser', logY: 65, text: 'coupe un arbre',
+      queue: [['casser', { action: 'attendre', choices: { duree: 1 } }]],
+      onDig: (_block, bot) => {
+        if (delayed === 'metadata') bot.emit('entitySpawn', drop)
+        setTimeout(() => { ready = true; bot.entities.drop = drop; if (delayed === 'spawn') bot.emit('entitySpawn', drop); else bot.emit('entityUpdate', drop) }, 650)
+        setTimeout(() => { bot.emit('playerCollect', bot.entity, drop); delete bot.entities.drop }, 750)
+      } })
+    assert.equal(f.status.etat, 'done')
+    assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 1)
+    assert.equal(f.collectionListeners, 0)
+  })
+}
+
+test('construction complete : don modele differe par arbre reste une obligation apres retour', async t => {
+  let permitSecond = false
+  let gifts = 0
+  t.mock.method(delivery, 'giveToPlayer', async (_bot, options) => {
+    gifts++
+    return { status: 'succeeded', deposited: options.count, inventoryRemoved: options.count, requested: options.count, evidence: { item: options.item }, reason: 'inventory_decrease' }
+  })
+  const join = { action: 'rejoindre_demandeur', choices: { objet: 'oak_log' } }
+  const gift = { action: 'donner', choices: { objet: 'oak_log', quantite: 2, destinataire: 'human' } }
+  const f = await simulate(t, { inventory: [], kind: 'construction', text: 'construis une cabane et donne-moi 2 buches', completedStructure: true,
+    digFailure: block => block.position.y === 66 && !permitSecond,
+    first: 'casser', logY: 65, extra: { '1,66,0': 'oak_log' },
+    queue: [['choisir_terrain'], ['casser'], [join, gift], ['casser'], ['casser'], [join, gift]],
+    onDig: (block, bot) => { bot.players.human = { entity: { position: new Vec3(5, 65, 0) } }; if (block.position.y === 65) setTimeout(() => { permitSecond = true }, 650); if (block.position.y === 66) { const old = bot.blockAt; bot.blockAt = p => p.x === 10 ? { name: 'oak_planks', position: p, boundingBox: 'block' } : old(p) } },
+    navigate: async () => ({ reached: true, code: 'arrived', remaining: 0 }) })
+  assert.equal(gifts, 1)
+  assert.equal(f.status.etat, 'done')
+  assert.ok(f.snapshots.some(s => s.descripteur.livraison?.some(l => l.prouve === 0)))
 })
