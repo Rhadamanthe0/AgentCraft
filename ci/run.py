@@ -19,7 +19,7 @@ import uuid
 from cleanup import compose_files, paper_image
 import capacity
 from pool import LauncherControl, Pool
-from trees import API_BASE_PORT, BOTS_SERVICE, POOL_MAX, POOL_SIZE, PROBES_SERVICE, arena_origins, level_patterns, levels, run_levels, selected
+from trees import API_BASE_PORT, BOTS_SERVICE, POOL_MAX, POOL_SIZE, PROBES_SERVICE, arena_origins, level_patterns, levels, run_levels, selected, unmatched_patterns
 
 ROOT = Path(__file__).resolve().parents[1]
 # Acces aux ports publies : `direct` (TCP/HTTP sur 127.0.0.1, poste Windows +
@@ -215,6 +215,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--suite', choices=['unit', 'minecraft', 'trees', 'all'], default='all')
     args = parser.parse_args()
+    unmatched = unmatched_patterns()
+    if unmatched:
+        print(f"Motifs de niveaux sans aucun niveau : {' '.join(unmatched)}", file=sys.stderr, flush=True)
+        return 2
+    # Levels with the planner (mission levels): none chosen = no bots, no
+    # model probe, no key check (navigation scenarios alone need none).
+    trees_wanted = args.suite in ('trees', 'all') and bool(levels())
     # Un nom par job : deux executions en parallele (branches, depots du
     # runner mutualise) ne partagent ni conteneur, ni reseau, ni volume.
     run_id = os.environ.get('GITHUB_RUN_ID', '')
@@ -544,7 +551,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             phase('modelProbe', started)
 
         probe_thread = None
-        if args.suite in ('trees', 'all') and planner_key_present():
+        if trees_wanted and planner_key_present():
             probe_thread = threading.Thread(target=run_model_probe, daemon=True)
             probe_thread.start()
 
@@ -581,9 +588,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 phase('forceloadArenas', arena_started)
             arena_errors = []
             arena_thread = threading.Thread(target=forceload_arenas, daemon=True)
-            if args.suite in ('trees', 'all') and planner_key_present():
+            if trees_wanted and planner_key_present():
                 arena_thread.start()
-            bots_wanted = args.suite in ('trees', 'all') and bool(planner_key_present())
+            bots_wanted = trees_wanted and bool(planner_key_present())
             # Two containers host all pool bots and all probe players.
             extra = [BOTS_SERVICE, PROBES_SERVICE] if bots_wanted else []
             up = ('up', '-d', '--wait', '--wait-timeout', '240', 'harness', *extra)
@@ -645,7 +652,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         if args.suite in ('minecraft', 'all'):
             nav_thread = threading.Thread(target=run_navigation, daemon=True)
             nav_thread.start()
-        if args.suite in ('trees', 'all'):
+        if trees_wanted:
             if planner_key_present():
                 ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
                 if ops:

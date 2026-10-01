@@ -63,10 +63,10 @@ jobs:
           EVENT: ${{ github.event_name }}
           INPUT_LEVELS: ${{ inputs.levels }}
         run: |
-          if [ "$REF" = refs/heads/main ]; then
-            levels=tout
-          elif [ "$EVENT" = workflow_dispatch ]; then
+          if [ "$EVENT" = workflow_dispatch ]; then
             levels=${INPUT_LEVELS:-tout}
+          elif [ "$REF" = refs/heads/main ]; then
+            levels=tout
           else
             levels=$(git log -1 --format='%(trailers:key=Banc,valueonly,separator=%x20)' HEAD | tr -s ' \n' ' ' | sed 's/^ //; s/ $//')
             levels=${levels:-unitaires}
@@ -74,6 +74,9 @@ jobs:
           if ! printf '%s' "$levels" | grep -Eq '^[A-Za-z0-9_./*?~, -]+$'; then
             echo "Ligne Banc illisible : $levels" >&2
             exit 1
+          fi
+          if [ "$levels" != unitaires ]; then
+            CI_LEVELS="$levels" python3 -c 'import sys; sys.path.insert(0, "ci"); import trees; bad = trees.unmatched_patterns(); bad and sys.exit("Motifs sans aucun niveau : " + " ".join(bad))'
           fi
           suite=all
           [ "$levels" = unitaires ] && suite=unit

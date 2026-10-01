@@ -752,12 +752,29 @@ def _block(name, turns, species):
     return name
 
 
-def vary(level, seed):
+IDENTITY = (0, False, 'oak')
+
+
+def transform(level, seed, avoid=None):
+    """(quarter turns, mirror, species) of a level's arena; None seed = as written.
+
+    `avoid`: a transform this one must differ from (a random twin is never
+    its stable arena again); the draw goes on in the same sequence, so the
+    seed still replays it."""
     if seed is None:
-        return level
+        return IDENTITY
     # An A/B variant plays its base level's scene: only the switched mode differs.
     rng = random.Random(f"{seed}:{level.get('variantOf') or level['name']}")
-    turns, mirror, species = rng.randrange(4), rng.random() < .5, rng.choice(SPECIES)
+    while True:
+        drawn = rng.randrange(4), rng.random() < .5, rng.choice(SPECIES)
+        if drawn != avoid:
+            return drawn
+
+
+def vary(level, seed, avoid=None):
+    if seed is None and avoid is None:
+        return level
+    turns, mirror, species = transform(level, seed, avoid)
     out = dict(level)
     out['variation'] = {'rotation': turns * 90, 'miroir': mirror, 'essence': species, 'graine': seed}
     out['terrain'] = [_box(t[:6], turns, mirror) + (_block(t[6], turns, species),) for t in level.get('terrain', [])]
@@ -1424,6 +1441,10 @@ RANDOM_TWIN_FAMILIES = ('composite',)
 
 
 def levels():
+    return [level for level in all_levels_unfiltered() if selected(level['name'])]
+
+
+def all_levels_unfiltered():
     out = []
     for level in base_levels():
         out.append(level)
@@ -1436,7 +1457,7 @@ def levels():
             out.append(dict(level, name=f"{level['name']}~aleatoire", variants=(), randomArena=True,
                             informative=True, variantOf=level['name'],
                             about=f"[arene aleatoire] {level['about']}"))
-    return [level for level in out if selected(level['name'])]
+    return out
 
 
 # Levels to play (CI_LEVELS, chosen per commit by the workflow): empty or
@@ -1456,6 +1477,17 @@ def level_patterns():
 def selected(name):
     patterns = level_patterns()
     return patterns is None or any(fnmatch.fnmatchcase(name, p) for p in patterns)
+
+
+# Navigation scenarios of ci/run.py (played beside the levels, no planner).
+NAVIGATION_NAMES = ('navigation/simple-obstacle', 'navigation/stairs', 'navigation/abort', 'navigation/unreachable')
+
+
+def unmatched_patterns():
+    """Patterns of CI_LEVELS that name no level nor navigation scenario (a typo
+    must fail the run, never pass as a bench that played nothing)."""
+    names = [level['name'] for level in all_levels_unfiltered()] + list(NAVIGATION_NAMES)
+    return [p for p in level_patterns() or [] if not any(fnmatch.fnmatchcase(n, p) for n in names)]
 
 
 def mission_type(name):
@@ -1680,7 +1712,8 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
     """Every level once, on the workers of `pool_factory(queue, run_one)` (ci/pool.py)."""
     seed = variation_seed()
     print(f'Arenes variees : graine {seed!r}', flush=True)
-    all_levels = [vary(level, random_seed() if level.get('randomArena') else seed) for level in levels()]
+    all_levels = [vary(level, random_seed(), avoid=transform(level, seed)) if level.get('randomArena')
+                  else vary(level, seed) for level in levels()]
     if any(level.get('randomArena') for level in all_levels):
         print(f'Arenes aleatoires : graine {random_seed()!r}', flush=True)
     results = [None] * len(all_levels)

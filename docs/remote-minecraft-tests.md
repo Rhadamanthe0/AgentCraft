@@ -154,12 +154,15 @@ Niveaux joues (etape « Choose the levels for this commit ») :
 La ligne `Banc:` est un trailer Git : elle va dans le dernier paragraphe du
 message, avec `Co-Authored-By`. Le rapport la reprend (`selection`, et
 « Niveaux joues » en tete du resume) ; un banc partiel ne vaut jamais
-autorisation de fusion.
+autorisation de fusion. Un motif qui ne designe aucun niveau (faute de
+frappe) fait echouer le banc avant tout lancement. Sans niveau de mission
+choisi (`Banc: navigation/*`), ni bots, ni modele, ni controle de cle.
 
 Chaque composite a un jumeau `~aleatoire`, informatif, joue dans une arene
 tiree au hasard a chaque banc (graine dans `variation.graine`,
 `CI_RANDOM_SEED` pour rejouer), a cote de l arene stable de la graine
-commitee.
+commitee. Le tirage ecarte la disposition de l arene stable : le jumeau ne
+la rejoue jamais.
 
 Le banc est lance par `python ci/run.py`. Il fonctionne avec Python 3.10+,
 Docker Desktop en mode conteneurs Linux et Docker Compose v2. Ni Node ni Java

@@ -1,5 +1,6 @@
 """Levels chosen per commit and random twins (python3 -m unittest ci/test_selection.py)."""
 import os
+import re
 import sys
 import unittest
 from unittest import mock
@@ -31,6 +32,19 @@ class Selection(unittest.TestCase):
         with mock.patch.dict(os.environ, {'CI_LEVELS': 'navigation/*'}):
             self.assertTrue(trees.selected('navigation/stairs'))
 
+    def test_typo_is_reported(self):
+        with mock.patch.dict(os.environ, {'CI_LEVELS': 'trees/pilar*, composite/*'}):
+            self.assertEqual(trees.unmatched_patterns(), ['trees/pilar*'])
+        with mock.patch.dict(os.environ, {'CI_LEVELS': 'navigation/stairs'}):
+            self.assertEqual(trees.unmatched_patterns(), [])
+            self.assertEqual(trees.levels(), [])
+        with mock.patch.dict(os.environ, {'CI_LEVELS': 'tout'}):
+            self.assertEqual(trees.unmatched_patterns(), [])
+
+    def test_navigation_names_match_run_py(self):
+        source = open(os.path.join(os.path.dirname(__file__), 'run.py'), encoding='utf-8').read()
+        self.assertEqual(sorted(set(re.findall(r"'(navigation/[\w-]+)'", source))), sorted(trees.NAVIGATION_NAMES))
+
 
 class RandomTwin(unittest.TestCase):
     def test_each_composite_has_an_informative_random_twin(self):
@@ -50,6 +64,16 @@ class RandomTwin(unittest.TestCase):
         self.assertEqual(a['variation']['graine'], 'graine-a')
         self.assertEqual(len(a['logs']), len(b['logs']))
         self.assertEqual(trees.vary(twin, 'graine-a')['logs'], a['logs'])
+
+    def test_twin_never_replays_its_stable_arena(self):
+        twin = next(level for level in trees.levels() if level.get('randomArena'))
+        stable = trees.transform(twin, 'stable')
+        draws = [trees.transform(twin, f'seed-{i}', avoid=stable) for i in range(200)]
+        self.assertNotIn(stable, draws)
+        self.assertEqual(draws[7], trees.transform(twin, 'seed-7', avoid=stable))
+        self.assertGreater(len(set(draws)), 10)
+        # Fixed layout ('off'): the twin still leaves the arena as written.
+        self.assertNotIn(trees.IDENTITY, [trees.transform(twin, f's{i}', avoid=trees.IDENTITY) for i in range(100)])
 
     def test_random_seed_once_per_run(self):
         trees._RANDOM_SEED.clear()
