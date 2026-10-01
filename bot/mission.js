@@ -94,13 +94,34 @@ function celluleValide (c) {
 function suiviArbre (source) {
   const cells = value => Array.isArray(value) ? value.map(celluleValide).filter(Boolean) : []
   const poses = cells(source?.echafaudagePose)
+  // Les anciens descripteurs ajoutaient une source seulement apres une coupe
+  // mesuree. Leur identifiant stable permet de reprendre sans inventer un spawn.
+  const sources = Array.isArray(source?.arbreSources) ? source.arbreSources
+    .filter(c => celluleValide(c) && typeof c.objet === 'string')
+    .map((c, index) => ({ ...celluleValide(c), objet: c.objet,
+      id: typeof c.id === 'string' ? c.id : `legacy-cut:${index}`,
+      confirmee: c.confirmee === true || (c.confirmee === undefined && c.id === undefined && index < Number(source.arbreCoupes)),
+      ouverte: false, ambigu: c.ambigu === true, drop: typeof c.drop === 'string' ? c.drop : null })) : []
+  const spawns = Array.isArray(source?.arbreSpawns) ? source.arbreSpawns
+    .filter(c => typeof c.id === 'string' && [c.x, c.y, c.z].every(Number.isFinite))
+    .map(c => {
+      const legacy = sources.filter(cut => cut.confirmee &&
+        (cut.drop === c.id || (!cut.drop && (!c.objet || c.objet === cut.objet) &&
+          Math.hypot(c.x - cut.x - 0.5, c.y - cut.y - 0.5, c.z - cut.z - 0.5) <= 0.9)))
+      return { id: c.id, x: c.x, y: c.y, z: c.z, objet: typeof c.objet === 'string' ? c.objet : null,
+        source: typeof c.source === 'string' ? c.source : (legacy.length === 1 ? legacy[0].id : null),
+        collectedByBot: c.collectedByBot === true, collectCount: Number.isFinite(c.collectCount) ? c.collectCount : null,
+        collectPosition: c.collectPosition ? { ...c.collectPosition } : null,
+        gone: c.gone === true, tiers: c.tiers === true,
+        fin: c.fin && [c.fin.x, c.fin.y, c.fin.z].every(Number.isFinite) ? { ...c.fin } : null }
+    }) : []
   return {
     tree: celluleValide(source?.tree),
     buchesArbreDemande: Array.isArray(source?.buchesArbreDemande) ? cells(source.buchesArbreDemande) : null,
     dropsArbreDemande: Array.isArray(source?.dropsArbreDemande) ? source.dropsArbreDemande.filter(id => typeof id === 'string') : [],
     arbreEntitiesInitial: Array.isArray(source?.arbreEntitiesInitial) ? source.arbreEntitiesInitial.filter(id => typeof id === 'string') : [],
-    arbreSources: Array.isArray(source?.arbreSources) ? source.arbreSources.filter(c => celluleValide(c) && typeof c.objet === 'string').map(c => ({ ...celluleValide(c), objet: c.objet, id: typeof c.id === 'string' ? c.id : null, confirmee: c.confirmee === true, ouverte: false, ambigu: c.ambigu === true, drop: typeof c.drop === 'string' ? c.drop : null })) : [],
-    arbreSpawns: Array.isArray(source?.arbreSpawns) ? source.arbreSpawns.filter(c => typeof c.id === 'string' && [c.x, c.y, c.z].every(Number.isFinite)).map(c => ({ id: c.id, x: c.x, y: c.y, z: c.z, objet: typeof c.objet === 'string' ? c.objet : null, source: typeof c.source === 'string' ? c.source : null, collectedByBot: c.collectedByBot === true, collectCount: Number.isFinite(c.collectCount) ? c.collectCount : null, collectPosition: c.collectPosition ? { ...c.collectPosition } : null, gone: c.gone === true, tiers: c.tiers === true, fin: c.fin && [c.fin.x, c.fin.y, c.fin.z].every(Number.isFinite) ? { ...c.fin } : null })) : [],
+    arbreSources: sources,
+    arbreSpawns: spawns,
     arbreBaseline: Array.isArray(source?.arbreBaseline) ? source.arbreBaseline.filter(c => typeof c.id === 'string' && typeof c.objet === 'string' && Number.isFinite(c.count)).map(c => ({ ...c })) : [],
     arbreCoupes: Math.max(0, Number(source?.arbreCoupes) || 0),
     arbreCollectes: Math.max(0, Number(source?.arbreCollectes) || 0),
@@ -2128,7 +2149,7 @@ function createMissionRunner (host, injected = {}) {
   const collectesEnAttente = new Map()
   function recevoirSpawnArbre (entity) {
     if (!mission?.wholeTree || entity?.name !== 'item' || !entity.position) return
-    if (mission.state !== 'running') return
+    if (!['running', 'paused'].includes(mission.state)) return
     let item
     try { item = entity.getDroppedItem?.() } catch (_) {}
     const proche = c => Math.hypot(entity.position.x - c.x - 0.5, entity.position.y - c.y - 0.5, entity.position.z - c.z - 0.5) <= 0.9
@@ -6925,6 +6946,15 @@ function createMissionRunner (host, injected = {}) {
       kind = 'recolte'
     }
 
+    const livraisonAnnulee = opts.revisionOf && livraisonDemandee(opts.revisionOf) &&
+      !livraisonDemandee({ objective: text, requester })
+    if (livraisonAnnulee) {
+      // Un don non tente peut etre annule par le nouvel objectif. Les preuves
+      // de sorties deja tentees/incertaines restent dans le grand livre.
+      for (const ledger of deliveryLedgersFor(opts.revisionOf)) {
+        if (ledger.attempted === 0 && ledger.removed === 0 && ledger.proven === 0 && ledger.uncertain === 0) deliveryLedgers.delete(ledger.key)
+      }
+    }
     const objectiveMode = opts.mode === 'permanent' ? 'permanent' : 'temporary'
     mission = {
       id: opts.revisionOf?.id ?? `${Date.now()}-${generation}`,
@@ -6996,7 +7026,7 @@ function createMissionRunner (host, injected = {}) {
       state: 'running',
       cancelled: false,
       navigationAbort: new AbortController(),
-      pendingJoin: opts.revisionOf?.pendingJoin === true,
+      pendingJoin: opts.revisionOf?.pendingJoin === true && !livraisonAnnulee,
       startedAt: opts.revisionOf?.startedAt ?? Date.now(),
       startedAtIso: opts.revisionOf?.startedAtIso ?? new Date().toISOString(),
       activeElapsedMs: opts.revisionOf ? activeDurationMs(opts.revisionOf) : 0,
@@ -7176,7 +7206,8 @@ function createMissionRunner (host, injected = {}) {
     try { host.getBot()?.stopDigging() } catch (_) {}
     abortPrefetch('pause du travail')
     try { mission.navigationAbort.abort() } catch (_) {}
-    retirerObservateurArbre()
+    // Observation passive et bornee des coupes deja mesurees : leurs objets
+    // peuvent arriver apres la pause. Aucun controle physique n est relance.
     mission.state = 'paused'
     mission.endedAt = null
     mission.reason = reason

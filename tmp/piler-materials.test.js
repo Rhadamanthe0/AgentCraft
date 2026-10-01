@@ -13,7 +13,7 @@ const build = require('../bot/build')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null, entities = {}, loaded = () => true, resume = null, reviseAfterCut = false, revisionText = null, context = null, collectImmediately = true, completedStructure = false }) {
+async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null, entities = {}, loaded = () => true, resume = null, reviseAfterCut = false, revisionText = null, context = null, collectImmediately = true, completedStructure = false, pauseAfterCut = false, revisionOnPendingJoin = false, setup = null }) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
@@ -101,6 +101,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
     } }
   Object.assign(bot, new EventEmitter())
   Object.setPrototypeOf(bot, EventEmitter.prototype)
+  setup?.(bot)
   let stops = 0
   const snapshots = []
   const runner = createMissionRunner({ getBot: () => bot, isReady: () => true, inLiquid: () => false,
@@ -114,9 +115,15 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
   if (context) runner.addContext(context, 'human')
   let revised = false
   let revisionPending = false
-  for (let i = 0; i < 600 && (runner.isRunning() || revisionPending); i++) {
+  let paused = false
+  for (let i = 0; i < 600 && (runner.isRunning() || runner.isPaused() || revisionPending); i++) {
     t.mock.timers.tick(50); await flush()
-    if (reviseAfterCut && !revised && runner.status().blocs_casses > 0) {
+    if (pauseAfterCut && !paused && runner.status().blocs_casses > 0) {
+      paused = true
+      runner.pauseWork('pause apres coupe')
+      setTimeout(() => runner.resumeWork(), 1000)
+    }
+    if (((reviseAfterCut && runner.status().blocs_casses > 0) || (revisionOnPendingJoin && snapshots.at(-1)?.descripteur.pendingJoin)) && !revised) {
       revised = true
       revisionPending = true
       runner.revise(revisionText ?? text, 'human').finally(() => { revisionPending = false })
@@ -889,3 +896,65 @@ test('construction complete : don modele differe par arbre reste une obligation 
   assert.equal(f.status.etat, 'done')
   assert.ok(f.snapshots.some(s => s.descripteur.livraison?.some(l => l.prouve === 0)))
 })
+
+for (const pickupPaused of [false, true]) {
+  test(`arbre entier : spawn retarde pendant pause puis collecte pause=${pickupPaused} garde preuve`, async t => {
+    const drop = { name: 'item', uuid: 'spawn-during-pause', position: new Vec3(1.5, 65.5, 0.5), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }
+    const f = await simulate(t, { inventory: [], collectImmediately: false, first: 'casser', logY: 65, text: 'coupe un arbre', pauseAfterCut: true,
+      queue: [['casser'], [{ action: 'attendre', choices: { duree: 1 } }]],
+      onDig: (_block, bot) => { setTimeout(() => { bot.entities.drop = drop; bot.emit('entitySpawn', drop) }, 650); setTimeout(() => { bot.emit('playerCollect', bot.entity, drop); delete bot.entities.drop }, pickupPaused ? 750 : 1500) } })
+    assert.equal(f.status.etat, 'done')
+    assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 1)
+    assert.equal(f.spawnListeners, 0)
+    assert.equal(f.collectionListeners, 0)
+  })
+}
+
+for (const donEnFile of [false, true]) {
+ test(`construction revisee sans livraison : retour ancien donEnFile=${donEnFile} ne bloque plus chantier complet`, async t => {
+  let permitSecond = false
+  const f = await simulate(t, { inventory: [], kind: 'construction', text: 'construis une cabane et donne-moi 2 buches', completedStructure: true,
+    revisionOnPendingJoin: true, revisionText: 'construis seulement une cabane',
+    digFailure: block => block.position.y === 66 && !permitSecond,
+    first: 'casser', logY: 65, extra: { '1,66,0': 'oak_log' },
+    queue: [['choisir_terrain'], ['casser'], [{ action: 'rejoindre_demandeur', choices: { objet: 'oak_log' } }, ...(donEnFile ? [{ action: 'donner', choices: { objet: 'oak_log', quantite: 2, destinataire: 'human' } }] : [])], ['casser'], ...(donEnFile ? [['casser']] : []), ['choisir_terrain']],
+    onDig: (block, bot) => { if (block.position.y === 65) setTimeout(() => { permitSecond = true }, 650); if (block.position.y === 66) { const old = bot.blockAt; bot.blockAt = p => p.x === 10 ? { name: 'oak_planks', position: p, boundingBox: 'block' } : old(p) } } })
+  assert.equal(f.status.etat, 'done')
+  assert.equal(f.snapshots.at(-1).descripteur.pendingJoin, false)
+  assert.ok(f.snapshots.some(s => s.descripteur.pendingJoin === true))
+  assert.equal(f.snapshots.at(-1).descripteur.livraison.length, 0)
+  if (donEnFile) assert.ok(f.snapshots.some(s => s.descripteur.livraison.length === 1))
+ })
+}
+
+
+test('arbre entier : ancien descripteur source sans id reprend metadata retardee', async t => {
+  let ready = false
+  const drop = { name: 'item', uuid: 'legacy-drop', position: new Vec3(1.5, 65.5, 0.5), getDroppedItem: () => ready ? { name: 'oak_log', count: 1 } : null }
+  const desc = { kind: 'recolte', resource: 'bois', landmark: 'ici', quota: 16, wholeTree: true,
+    tree: { x: 1, y: 65, z: 0 }, buchesArbreDemande: [{ x: 1, y: 65, z: 0 }], arbreCoupes: 1,
+    arbreSources: [{ x: 1, y: 65, z: 0, objet: 'oak_log', drop: null }],
+    arbreSpawns: [{ id: 'legacy-drop', x: 1.5, y: 65.5, z: 0.5, objet: null }] }
+  const f = await simulate(t, { inventory: [], first: 'attendre', logY: 75, entities: { drop },
+    resume: { id: 'legacy-tree', texte: 'coupe un arbre', auteur: 'human', progression: { descripteur: desc } },
+    setup: bot => { setTimeout(() => { ready = true; bot.emit('entityUpdate', drop) }, 650); setTimeout(() => { bot.emit('playerCollect', bot.entity, drop); delete bot.entities.drop }, 750) },
+    navigate: async () => ({ reached: true }) })
+  assert.equal(f.status.etat, 'done')
+  assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 1)
+})
+
+for (const boundary of ['ambigu', 'etranger']) {
+  test(`arbre entier : migration legacy ${boundary} ne fabrique pas de provenance`, async t => {
+    const drop = { name: 'item', uuid: 'legacy-unowned', position: new Vec3(1.5, 65.5, 0.5), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }
+    const sources = [{ x: 1, y: 65, z: 0, objet: 'oak_log' }]
+    if (boundary === 'ambigu') sources.push({ ...sources[0] })
+    const desc = { kind: 'recolte', resource: 'bois', landmark: 'ici', quota: 16, wholeTree: true,
+      tree: { x: 1, y: 65, z: 0 }, buchesArbreDemande: [{ x: 1, y: 65, z: 0 }], arbreCoupes: sources.length,
+      arbreSources: sources, arbreSpawns: [{ id: 'legacy-unowned', x: boundary === 'etranger' ? 10 : 1.5, y: 65.5, z: 0.5, objet: null }] }
+    const f = await simulate(t, { inventory: [], first: 'attendre', logY: 75, entities: { drop },
+      resume: { id: 'legacy-unowned-tree', texte: 'coupe un arbre', auteur: 'human', progression: { descripteur: desc } },
+      setup: bot => setTimeout(() => { bot.emit('playerCollect', bot.entity, drop); delete bot.entities.drop }, 650) })
+    assert.notEqual(f.status.etat, 'done')
+    assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 0)
+  })
+}
