@@ -1245,7 +1245,7 @@ function briefPrompt () {
     prompts.set(key, `Tu lis l objectif qu un joueur confie a un bot Minecraft et tu en extrais ce qu il faut en retenir.
 
 Tu recois {"objectif": "<la phrase du joueur>"} et tu rends du JSON, rien d autre :
-{"type": "<...>", "matiere": "<...>", "repere": "<...>", "porte": 0.0, "confiance": 0.0, "parcours": null, "degagement": 0, "livraison": false, "recherche_web": false, "fabrication": null, "fabrication_quantite": null}
+{"type": "<...>", "matiere": "<...>", "repere": "<...>", "porte": 0.0, "confiance": 0.0, "parcours": null, "geste_libre": false, "degagement": 0, "livraison": false, "recherche_web": false, "fabrication": null, "fabrication_quantite": null}
 
 "fabrication" nomme l OBJET a fabriquer quand le joueur demande un craft
 ("fabrique une hache", "fais-moi des planches", "craft une torche") : nom
@@ -1291,6 +1291,10 @@ limitation de 5 actions ou de 2 secondes ici. Type geste pour ces parcours.
 "suis-moi" -> [{"type":"suivre"}], PAS un simple rejoindre.
 Pour une question, une recolte, une construction ou un geste non represente,
 parcours reste null ; ne supprimer aucune partie de la demande pour le remplir.
+Pour un type geste, parcours est obligatoire si toute la mission est representee
+par les objectifs autorises. Sinon geste_libre est true (sauter, pivoter, touches,
+saluer, etc.). Un suivi ne peut jamais etre un geste_libre : il dure jusqu au stop
+ou jusqu a la duree demandee, meme si le joueur est deja proche.
 "degagement" = 1 SEULEMENT si le joueur autorise explicitement a casser un bloc
 pour se placer. Sinon 0. Cette autorisation ne devient jamais une recolte.
 
@@ -1366,8 +1370,18 @@ async function readBrief (objective, opts = {}) {
 
   const response = await call(briefPrompt(), JSON.stringify({ objectif: objective }), null, { ...opts, task: 'readBrief' })
   const parsed = parseJson(response.content)
-
+  const movementTask = require('./movement-task')
+  const route = movementTask.validateRoute(parsed?.parcours)
   const kinds = skills.kindCriteria()
+  const kind = pick(parsed?.type, kinds, 'recolte')
+  // Un contrat absent ne prouve pas un geste ponctuel : un suivi pourrait
+  // sinon etre clot apres une simple approche. Le modele choisit le contrat,
+  // le code exige une distinction explicite. mission.start rejoue deja une
+  // lecture refusee une fois, sans ajouter de nouvel appel ou delai ici.
+  const incompleteGesture = kind === 'geste' && !route && parsed.geste_libre !== true
+  if (incompleteGesture && !opts.deferGestureValidation) {
+    throw new Error('brief de geste incomplet : parcours ou geste_libre requis')
+  }
   const resources = skills.resourceCriteria()
   const landmarks = skills.landmarkCriteria()
 
@@ -1395,13 +1409,14 @@ async function readBrief (objective, opts = {}) {
       : null)
 
   return {
-    route: require('./movement-task').validateRoute(parsed?.parcours),
+    route,
+    incompleteGesture,
     clearanceLimit: parsed?.degagement === 1 ? 1 : 0,
     needsTransfer: parsed?.livraison === true,
     needsWeb: parsed?.recherche_web === true,
     fabrication: fabRaw,
     fabricationQuantite: fabQty,
-    kind: pick(parsed?.type, kinds, 'recolte'),
+    kind,
     kindConfidence: confidence,
     resource: pick(parsed?.matiere, resources, 'aucune'),
     resourceConfidence: confidence,

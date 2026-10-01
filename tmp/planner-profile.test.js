@@ -264,6 +264,92 @@ describe('profil pilote : budget distinct et reessai troncature (D37 live)', () 
   })
 })
 
+describe('brief de geste : contrat complet ou geste libre explicite', () => {
+  function brief (extra = {}) {
+    return { content: JSON.stringify({ type: 'geste', matiere: 'aucune', repere: 'ici',
+      parcours: null, ...extra }), usage: null, ms: 1 }
+  }
+  it('un geste sans parcours ni distinction explicite est refuse', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => brief())
+    await assert.rejects(planner.readBrief('accompagne le joueur'), /brief de geste incomplet/)
+    assert.equal(seen.length, 1, 'le seul rejeu appartient a mission.start')
+  })
+  it('un parcours continu reste continu, sans geste libre requis', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => brief({ parcours: [{ type: 'suivre' }] }))
+    const result = await planner.readBrief('accompagne le joueur')
+    assert.deepEqual(result.route, [{ type: 'suivre' }])
+    assert.equal(seen.length, 1)
+  })
+  it('un geste non represente reste valide sur distinction explicite', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => brief({ geste_libre: true }))
+    const result = await planner.readBrief('saute trois fois')
+    assert.equal(result.route, null)
+    assert.equal(result.kind, 'geste')
+    assert.equal(seen.length, 1)
+  })
+  it('le type normalise impose aussi le contrat', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => brief({ type: ' GESTE ' }))
+    await assert.rejects(planner.readBrief('accompagne le joueur'), /brief de geste incomplet/)
+  })
+  async function admission (objective, extra = {}, answers = null) {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    let reads = 0
+    mockLlm(async () => { reads++; return brief(answers?.[Math.min(reads - 1, answers.length - 1)] ?? extra) })
+    const missionPath = require.resolve('../bot/mission')
+    delete require.cache[missionPath]
+    const { createMissionRunner } = require('../bot/mission')
+    const { Vec3 } = require('vec3')
+    const bot = { entity: { position: new Vec3(0, 65, 0), yaw: 0, pitch: 0, onGround: true },
+      registry: { blocksByName: {}, itemsByName: { wooden_axe: { id: 1, name: 'wooden_axe' } } },
+      inventory: { items: () => [] }, players: {}, entities: {},
+      findBlocks: () => [], findBlock: () => null, blockAt: () => null,
+      clearControlStates () {}, setControlState () {} }
+    const runner = createMissionRunner({ getBot: () => bot, isReady: () => true, inLiquid: () => false,
+      stopPathfinding () {}, chat () {}, recentChat: () => [] })
+    let plans = 0
+    planner.plan = async () => { plans++; return { steps: [], rejected: [], finished: false, done: 0, ms: 0 } }
+    try {
+      const result = await runner.start(objective, 'human')
+      return { result, status: runner.status(), reads, plans }
+    } finally { runner.stop(); delete require.cache[missionPath] }
+  }
+  it('vrai brief mal type : fabrication valide atteint la recuperation mission', async () => {
+    const f = await admission('fabrique une hache', { fabrication: 'hache' })
+    assert.equal(f.result.ok, true)
+    assert.equal(f.status.type, 'recolte')
+    assert.equal(f.status.fabrication_cible, 'hache')
+    assert.equal(f.reads, 1, 'une lecture recuperable ne consomme pas le rejeu')
+  })
+  it('vrai brief sans parcours : le placement sous arbre reste recuperable', async () => {
+    const f = await admission('va sous un arbre')
+    assert.equal(f.result.ok, true)
+    assert.equal(f.status.parcours.steps[0].type, 'sous_arbre')
+    assert.equal(f.reads, 1)
+  })
+  it('suivi sans contrat : deux lectures refusees, aucun plan execute', async () => {
+    const f = await admission('suis-moi')
+    assert.equal(f.result.ok, false)
+    assert.match(f.result.error, /brief de geste incomplet/)
+    assert.equal(f.reads, 2, 'le rejeu BRIEF unique est conserve')
+    assert.equal(f.plans, 0)
+  })
+  it('le rejeu d un suivi incomplet peut recuperer son vrai contrat', async () => {
+    const f = await admission('suis-moi', {}, [{}, { parcours: [{ type: 'suivre' }] }])
+    assert.equal(f.result.ok, true)
+    assert.equal(f.status.parcours.steps[0].type, 'suivre')
+    assert.equal(f.reads, 2)
+    assert.equal(f.plans, 0, 'un suivi utilise le contrat, jamais un micro-plan')
+  })
+  it('une valeur non booleenne ne contourne pas le contrat', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    mockLlm(async () => brief({ geste_libre: 'true' }))
+    await assert.rejects(planner.readBrief('tourne sur toi-meme'), /brief de geste incomplet/)
+  })
+})
 describe('reaiguillage de session sur refus du fournisseur', () => {
   function upstream400 () {
     const err = new Error('HTTP 400 : {"error":{"type":"server_error","message":"Upstream request failed: Invalid request parameters. Please check your input and try again."}}')
