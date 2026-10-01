@@ -5529,8 +5529,15 @@ function createMissionRunner (host, injected = {}) {
       const facing = String(live.blockAt(door.position)?.getProperties?.()?.facing ?? 'north')
       const axe = facing === 'east' || facing === 'west' ? [new Vec3(1, 0, 0), new Vec3(-1, 0, 0)] : [new Vec3(0, 0, 1), new Vec3(0, 0, -1)]
       const here = live.entity.position
-      const cote = axe.map(d => door.position.plus(d).offset(0.5, 0, 0.5))
+      let cote = axe.map(d => door.position.plus(d).offset(0.5, 0, 0.5))
         .sort((a, b) => b.distanceTo(here) - a.distanceTo(here))[0]
+      // A la hauteur de la porte, cette case peut etre en l air (piece a
+      // plancher : porte une marche au-dessus du sol du dehors). Le
+      // navigateur n y arrive jamais (ecart vertical) : on vise la case ou
+      // l on tient debout, trois blocs de chute au plus (maxDropDown).
+      for (let chute = 0; chute < 3 && !estSolide(live.blockAt(cote.offset(0, -1, 0))); chute++) {
+        cote = cote.offset(0, -1, 0)
+      }
       const r = await host.navigateToPosition(cote, {
         signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.6, timeoutMs: 8000, distanceBudget: 12
       })

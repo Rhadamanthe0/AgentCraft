@@ -1238,6 +1238,11 @@ def run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, pr
     timeline, answers = [], {}
     expected = len(level['logs'])
 
+    def probe_logs():
+        match = re.search(r'Found (\d+)', rcon(f'clear {probe_name} #minecraft:logs 0'))
+        return int(match.group(1)) if match else 0
+    probe_logs_before = probe_logs()
+
     def say(key, text):
         answers[key] = bot_api(bot, '/api/instruction', {'message': text, 'requester': probe_name})
 
@@ -1327,8 +1332,17 @@ def run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, pr
     else:
         raise RuntimeError('Unknown chat script: ' + script)
     final = bot_api(bot, '/api/status')
+    given = 0
     if expected and script != 'stop_tree':
-        checks['tout_le_bois_ramasse'] = wood(final.get('inventory'), measure().get('planks', 0)) >= expected
+        # Bois tenu par le bot OU donne au joueur (« rapporte-moi le bois » :
+        # le bot depose les buches a ses pieds, ramassees apres le delai de
+        # ramassage du jeu, 2 s) ; compte dans l inventaire du joueur par RCON.
+        def collected(s):
+            nonlocal given
+            given = max(0, probe_logs() - probe_logs_before)
+            return wood(s.get('inventory'), measure().get('planks', 0)) + given >= expected
+        checks['tout_le_bois_ramasse'] = collected(final) or wait(collected, 5)
+        final = bot_api(bot, '/api/status')
     damage_answer = rcon(f'scoreboard players get {username} degats')
     match = re.search(r'has (\d+)', damage_answer)
     damage = int(match.group(1)) if match else None
@@ -1341,7 +1355,7 @@ def run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, pr
     return {
         'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
         'checks': checks, 'endReason': 'script termine' if not failed else 'echec : ' + ', '.join(failed),
-        'expectedLogs': expected, 'logsInInventory': wood(final.get('inventory')),
+        'expectedLogs': expected, 'logsInInventory': wood(final.get('inventory')) + given, 'logsGiven': given,
         'elapsedS': round(time.monotonic() - started, 1), 'arbitration': arbitration_seen,
         'answers': {k: {kk: v.get(kk) for kk in ('relation', 'kind', 'choice', 'arbitration', 'queued', 'error')}
                     for k, v in answers.items()},
