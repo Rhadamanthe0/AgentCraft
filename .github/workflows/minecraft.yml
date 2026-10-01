@@ -55,7 +55,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Pool and admission controller on simulated metrics
-        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py ci/test_keyprobe.py
+        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py ci/test_keyprobe.py ci/test_promotion.py
       # Tests a jouer (demande du proprietaire, 2026-10-01) : tout le banc sur
       # main ; sur une branche, ce que le commit demande par sa ligne finale
       # `Banc: <motifs>` (`Banc: unitaires` = tests unitaires seuls ; sans

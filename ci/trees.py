@@ -1818,6 +1818,20 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
                 result['kpi']['detail'] = m['echecs_detail'][:10]
             if blocages:
                 result['blocages'] = [{k: b.get(k) for k in ('secondes', 'raison', 'derniere_action')} for b in blocages[-5:]]
+                # World around the bot at each blockage, replayable offline
+                # (tmp/replay-snapshot.js), next to report.json.
+                snaps = (bot_api(worker.bot, '/api/mission/instantanes') or {}).get('instantanes') or []
+                snaps = [s for s in snaps if s.get('mission') == m.get('id')] or snaps
+                if snaps:
+                    folder = Path(output) / 'instantanes'
+                    folder.mkdir(parents=True, exist_ok=True)
+                    stem = re.sub(r'[^A-Za-z0-9_.-]+', '_', level['name'])
+                    names = []
+                    for i, snap in enumerate(snaps):
+                        name = f'{stem}-{i + 1}.json'
+                        (folder / name).write_text(json.dumps(snap), encoding='utf-8')
+                        names.append(f'instantanes/{name}')
+                    result['instantanes'] = names
         except Exception:
             pass
         if level.get('features'):
