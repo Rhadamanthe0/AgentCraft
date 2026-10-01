@@ -200,7 +200,10 @@ dans `docs/journal.md` (section « Les pieges »).
    « reparer la nage » sans patcher prismarine-physics.
 5. **Le serveur refuse un bloc pose dans le corps du bot** (« the block is
    still air ») : `build.findVantage` choisit un poste de tir hors de la case ;
-   `clearOfTarget` recule avant la pose.
+   `clearOfTarget` recule avant la pose. **Jamais s enfermer** (decision du
+   proprietaire, 2026-10-01) : avant chaque pose, `build.enclosureBy` cherche
+   une sortie a pied ; si le bloc fermerait la derniere, le bot sort d abord
+   et pose depuis un poste hors de l enceinte (sinon echec dit).
 6. **mineflayer-pathfinder 2.4.5** : `optimizePath:false` indispensable (son
    post-traitement mutait les noeuds partages) ; `maxDropDown=3` = deux blocs
    de chute seche ; `GoalNear` peut annoncer `goal_reached` loin du but. Le
