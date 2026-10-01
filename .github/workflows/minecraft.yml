@@ -132,12 +132,14 @@ jobs:
 
   # Porte de fusion (decision du proprietaire, 2026-10-01) : vert seulement si
   # le banc COMPLET (`tout`) de ce commit a reussi. Un banc partiel le laisse
-  # rouge : choisir des niveaux accelere le travail, jamais la fusion. A
-  # declarer comme check requis de la protection de `main`.
+  # rouge : choisir des niveaux accelere le travail, jamais la fusion. Check
+  # requis de la protection de `main`. Toujours execute (un check requis
+  # SAUTE compte comme reussi) : banc saute = porte rouge. Runner heberge par
+  # GitHub, sans checkout ni secret : il ne lit que deux sorties du banc.
   banc-complet:
     needs: minecraft
-    if: always() && github.event.repository.private == true
-    runs-on: [self-hosted, linux, x64, minipc, podman]
+    if: always()
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Full bench passed on this commit
