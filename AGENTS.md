@@ -81,9 +81,11 @@ defaut).
 - Ports lies a `127.0.0.1` uniquement.
 - Jamais de secret committe, journalise, mis dans un artefact ou une image.
 - Banc CI : **une seule cle**, sans repli silencieux ; `report.keyCheck` le
-  verifie. Secondaire (`OPENCODE_SECONDARY_API_KEY`) d ordinaire ; principale
-  (`PLANNER_API_KEY`, `CI_EXPECT_KEY: primary`) depuis le 2026-10-01, quota
-  hebdomadaire secondaire epuise (decision et commit du proprietaire). Ne jamais contourner un 403
+  verifie. Choisie au demarrage (`ci/keyprobe.py`, 2026-10-01) : mini prompt
+  sans raisonnement (deepseek-v4.1-flash) sur `OPENCODE_PRIMARY_API_KEY` et
+  `OPENCODE_SECONDARY_API_KEY` ; primary si les deux repondent, sinon celle
+  qui repond, sinon le banc echoue (`report.keyProbe`). Seule la cle retenue
+  va aux bots. Ne jamais contourner un 403
   `FreeTierError` d OpenCode.
 - Runner MINIPC-CLEM : pas de Docker Engine, pas de DinD, pas de privilege en
   plus ; ne supprimer que les ressources du job (`mc-ci-*`, `minebot-ci:*`) ;

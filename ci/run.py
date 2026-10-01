@@ -18,6 +18,7 @@ import uuid
 
 from cleanup import compose_files, paper_image
 import capacity
+import keyprobe
 from pool import LauncherControl, Pool
 from trees import API_BASE_PORT, BOTS_SERVICE, POOL_MAX, POOL_SIZE, PROBES_SERVICE, arena_origins, level_patterns, levels, run_levels, selected, unmatched_patterns
 
@@ -120,10 +121,12 @@ def classify_failures(report):
         report['benchInvalid'] = ' ; '.join(reasons)
 
 
+# Cle du banc, choisie au demarrage par ci/keyprobe.py (une seule, aucune bascule).
+PLANNER_KEY = {}
+
+
 def planner_key_present():
-    # Le banc tourne avec la seule cle secondaire (secret OPENCODE_SECONDARY_API_KEY) ;
-    # PLANNER_API_KEY reste admise pour un poste local.
-    return bool(os.environ.get('OPENCODE_SECONDARY_API_KEY') or os.environ.get('PLANNER_API_KEY'))
+    return bool(PLANNER_KEY.get('chosen'))
 # Delai des appels HTTP aux bots : /api/instruction attend la lecture de
 # l objectif (PLANNER_TIMEOUT_MS_BRIEF, 60 s, rejouee une fois si tronquee).
 HTTP_TIMEOUT_S = 150
@@ -269,6 +272,20 @@ def main():
     except (OSError, subprocess.CalledProcessError):
         pass  # An exported source directory is supported, but never claims a tested SHA.
     report['providerModels'] = provider_models()
+    if trees_wanted:
+        # Une cle par banc (2026-10-01) : mini prompt sans raisonnement sur
+        # chaque cle ; primary si les deux repondent, sinon celle qui repond,
+        # sinon aucune et le banc echoue. Seule la cle retenue va aux bots.
+        PLANNER_KEY.update(keyprobe.select())
+        report['keyProbe'] = dict(PLANNER_KEY)
+        keyprobe.bot_env(env, PLANNER_KEY['chosen'])
+        for name, result in PLANNER_KEY['probes'].items():
+            print(f"Cle {name} : {'repond' if result.get('ok') else 'ne repond pas'} "
+                  f"(HTTP {result.get('status')}, {result.get('ms')} ms, {result.get('answer') or result.get('error') or ''})", flush=True)
+        if PLANNER_KEY['chosen']:
+            print(f"Cle du banc : {PLANNER_KEY['chosen']}", flush=True)
+        else:
+            report['errors'].append('Aucune cle OpenCode ne repond au test de demarrage : niveaux non joues')
 
     log_lock = threading.Lock()
 
@@ -760,9 +777,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 }
                 for v in stats.values():
                     v.pop('latences', None)
-                # Cle attendue (CI_EXPECT_KEY, `secondary` au banc) : toute autre cle
+                # Cle attendue (celle du test de demarrage) : toute autre cle
                 # servie, ou une bascule, rend le banc non conforme.
-                expected = os.environ.get('CI_EXPECT_KEY')
+                expected = PLANNER_KEY.get('chosen') or os.environ.get('CI_EXPECT_KEY')
                 if expected:
                     served = report['plannerSummary']['cles_servies']
                     switches = report['plannerSummary']['bascules_cle']
@@ -773,7 +790,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                         report['errors'].append(f'Cle du planificateur non conforme : attendue {expected}, servie {served}, {switches} bascule(s)')
             else:
                 level_results = [{'test': level, 'success': False,
-                                  'error': 'aucune cle du planificateur (OPENCODE_SECONDARY_API_KEY ou PLANNER_API_KEY) : secret GitHub non configure'}
+                                  'error': 'aucune cle OpenCode ne repond (OPENCODE_PRIMARY_API_KEY, OPENCODE_SECONDARY_API_KEY) : voir report.keyProbe'}
                                  for level in [level['name'] for level in levels()]]
         else:
             level_results = []
@@ -846,6 +863,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                              f"Result: {'PASS' if report['success'] else 'FAIL'}",
                              f"Niveaux joues : {'tous' if report.get('selection') is None else (' '.join(report['selection']) or 'aucun (tests unitaires seuls)') + ' (banc partiel)'}",
                              *([f"BANC INVALIDE (infrastructure) : {report['benchInvalid']}"] if report.get('benchInvalid') else []),
+                             *([f"Test des cles au demarrage : retenue {report['keyProbe']['chosen']}, "
+                                + ', '.join(f"{n} {'repond' if r.get('ok') else 'muette'} (HTTP {r.get('status')})"
+                                            for n, r in report['keyProbe']['probes'].items())] if report.get('keyProbe') else []),
                              *([f"Cle du planificateur : {report['keyCheck']}"] if report.get('keyCheck') else []), '',
                              *[line(t) for t in report['tests']],
                              *(['', 'Comparaisons A/B (niveau tel quel -> variante) :'] + [

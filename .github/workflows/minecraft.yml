@@ -55,7 +55,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Pool and admission controller on simulated metrics
-        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py
+        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py ci/test_keyprobe.py
       # Tests a jouer (demande du proprietaire, 2026-10-01) : tout le banc sur
       # main ; sur une branche, ce que le commit demande par sa ligne finale
       # `Banc: <motifs>` (`Banc: unitaires` = tests unitaires seuls ; sans
@@ -90,13 +90,14 @@ jobs:
           echo "levels=$levels" >> "$GITHUB_OUTPUT"
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
       - name: Run unit regressions and real Minecraft tests
-        # Le banc n a QUE la cle secondaire (espace OpenCode de test) : aucune
-        # bascule possible vers la cle principale, qui n est pas transmise.
-        # Elle ne va qu au conteneur jetable des bots, jamais dans une image,
-        # un artefact ou un journal. report.keyCheck verifie la cle servie.
+        # Une seule cle par banc, choisie au demarrage (ci/keyprobe.py) : mini
+        # prompt sans raisonnement sur chaque cle ; primary si les deux
+        # repondent, sinon celle qui repond, sinon echec. Seule la cle retenue
+        # va au conteneur jetable des bots, jamais dans une image, un artefact
+        # ou un journal. report.keyCheck verifie qu aucune autre n a servi.
         env:
-          PLANNER_API_KEY: ${{ secrets.PLANNER_API_KEY }}
-          CI_EXPECT_KEY: primary
+          OPENCODE_PRIMARY_API_KEY: ${{ secrets.OPENCODE_PRIMARY_API_KEY }}
+          OPENCODE_SECONDARY_API_KEY: ${{ secrets.OPENCODE_SECONDARY_API_KEY }}
           CI_ENDPOINT_MODE: ip
           # Pool adaptatif (ci/capacity.py) : admissions sous 75 % de l enveloppe
           # (450 % sur 600 %) et 4 Gio de reserve CI + hote ; sans mesures

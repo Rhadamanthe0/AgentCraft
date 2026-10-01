@@ -22,9 +22,13 @@ utilisable en local avec les memes scripts.
   retire que les projets enregistres par ce checkout et les anciens tags de
   l image Paper. Le balayage de tous les `mc-ci-*` (`--sweep-stale`) est
   reserve a un poste local : le runner est mutualise.
-- Cle : seul le secret `OPENCODE_SECONDARY_API_KEY` est transmis ;
-  `CI_EXPECT_KEY=secondary` fait verifier (`report.keyCheck`) que seule la cle
-  secondaire a servi, sans bascule, et rend le banc non conforme sinon.
+- Cle : au demarrage, `ci/keyprobe.py` envoie un mini prompt sans
+  raisonnement (« Pas de réflexion, répond uniquement 'test validé' »,
+  deepseek-v4.1-flash) avec chacun des secrets `OPENCODE_PRIMARY_API_KEY` et
+  `OPENCODE_SECONDARY_API_KEY`. Primary si les deux repondent, sinon celle qui
+  repond, sinon le banc echoue sans jouer les niveaux (`report.keyProbe`).
+  Seule la cle retenue est transmise aux bots ; `report.keyCheck` verifie
+  qu elle seule a servi, sans bascule, et rend le banc non conforme sinon.
 - Chaque echec porte `failureKind` (`infrastructure`, `api`, `garde-fou`,
   `bot`) ; `report.benchInvalid` est pose si des services sont arretes en fin
   de banc ou si 3 niveaux ou plus echouent sur l infrastructure : un tel banc
@@ -204,9 +208,9 @@ son processus. La liste des operateurs et le mode sont verifies.
 Le vrai bot (`bot/index.js`, conteneur `bot` jetable) recoit par
 `/api/instruction` la phrase `coupe moi un arbre`, comme un message de chat,
 et la traite avec son vrai planificateur distant (OpenCode Go,
-`deepseek-v4.1-flash`). Il faut donc le secret GitHub `PLANNER_API_KEY`
-(Settings > Secrets and variables > Actions) ; sans lui, ces quatre tests
-echouent avec `PLANNER_API_KEY absent`. La cle n'est passee qu'au conteneur
+`deepseek-v4.1-flash`). Il faut donc au moins un des secrets GitHub `OPENCODE_PRIMARY_API_KEY`
+ou `OPENCODE_SECONDARY_API_KEY` (Settings > Secrets and variables > Actions)
+qui reponde au test de demarrage ; sinon ces tests echouent (`report.keyProbe`). La cle n'est passee qu'au conteneur
 `bots`. Les niveaux tournent **en parallele**, chacun dans sa propre arene, a
 100 blocs des autres (au-dela du rayon de recherche de 32), sur un groupe de
 vrais bots (`TreeBot1..16`, voir « Conteneurs et images » plus bas). L'inventaire est vide
