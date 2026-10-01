@@ -57,8 +57,9 @@ mode qui n apporte rien de mesurable n est pas garde** ; a resultats egaux, on
 garde la version la plus simple.
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
-`prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte` (tous allumes par
-defaut).
+`prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte`,
+`anti_boucle` (allumes par defaut) ; `nav_creuse` (eteint, `avec(...)` sur
+gather/sand-walled et terrain/plateau).
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
@@ -151,7 +152,13 @@ Flux d une demande (details : ARCHITECTURE.md) :
    echec vide la file ; l appel suivant part pendant la derniere etape
    (appel anticipe) ; `reflexPass` entre deux etapes ; `finishAllowed`
    refuse un arret que les chiffres contredisent ; blocages detectes
-   (`detectStuck`) dits dans le chat et journalises `[blocage] {json}`.
+   (`detectStuck`) dits dans le chat et journalises `[blocage] {json}`,
+   avec un instantane du monde (`/api/mission/instantanes`). Tout echec porte
+   un code et des remedes (`outcomes.js`) ; un echec nouveau sans remede
+   declare casse `tmp/outcomes.test.js`. La meme etape echouee (ou sans effet)
+   deux fois a l identique n est pas rejouee (`anti_boucle`). Preconditions
+   et effets des actions : `CONTRATS` (mission.js). Un champ persiste se
+   declare dans `mission-state.js`, nulle part ailleurs.
 4. **Actions** (`skills.ACTIONS`, 26) : `casser`, `recolter`, `ramasser`,
    `donner`, `cuire`, `fabriquer`, `avancer`, `explorer`, `choisir_terrain`,
    `piler`, `construire`, `poser_porte`, `ouvrir_porte`, `sortir`, `attendre`, `terminer`,
@@ -360,8 +367,14 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | Fichier | Role |
 | --- | --- |
 | `compose.yaml` | les deux services (pieges 1 a 3) |
-| `bot/index.js` | bot Mineflayer, API HTTP, chien de garde, commandes `!`, `digToward` |
-| `bot/mission.js` | boucle de mission, etat servi au modele, les 26 actions, garde-fous |
+| `bot/index.js` | bot Mineflayer, chien de garde, commandes `!`, `digToward` |
+| `bot/api.js` | API HTTP et interface web (etat vivant par accesseurs) |
+| `bot/mission.js` | boucle de mission, etat servi au modele, actions, contrats, garde-fous |
+| `bot/perception.js` | geometrie pure : portee, hitbox, relief, pilier, postes, instantane |
+| `bot/outcomes.js` | codes d echec, remedes, garde anti-repetition |
+| `bot/mission-state.js` | etat persiste declare une fois (lecture = ecriture) |
+| `bot/trace.js` | trace structuree de mission |
+| `bot/action-gestes.js` | gestes, attente, fin, memoire (premier module d actions) |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |
 | `bot/skills.js` | table unique : commandes, actions, documentation native, matieres, audit |
@@ -376,5 +389,6 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/objective-controller.js`, `executor.js`, `state-store.js`, `activity.js`, `delivery.js` | objectifs durables, slot physique, persistance, activite, dons |
 | `bot/logger.js`, `bot/screenshot.js` | journal ; mini-carte PNG (`MISSION_SCREENSHOT`, eteinte) |
 | `ci/` | banc (run.py, trees.py, pool.py, capacity.py, harness, sondes) |
-| `tmp/*.test.js` | tests unitaires ; `tmp/probe-bot.js` harness multi-bots |
+| `tmp/*.test.js` | tests unitaires ; `tmp/sim-world.js` monde simule partage ; `tmp/replay-snapshot.js` rejeu d un instantane de blocage ; `tmp/probe-bot.js` harness multi-bots |
+| `ci/promotion.py` | taux de reussite des niveaux informatifs sur N bancs, serie avec le jumeau |
 | `docs/journal.md` | historique des decisions et correctifs |

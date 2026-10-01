@@ -454,6 +454,16 @@ de la dirt au sol pour alimenter le pilier est autorise quand
 de la dirt) : elle est comptee a part (`progression.dirt_secondaire`) et ne
 fausse ni le quota bois ni l'arret (`finishAllowed()` l'ignore).
 
+Le poste se choisit par le code, pas par le modele. Si aucune hauteur de 1 a 6
+ne met la cible a portee depuis l'endroit ou se tient le bot (vue masquee,
+plafond dans la colonne), `avancer` mesure les postes au sol autour de la
+cible avec la meme regle que `piler` (cases traversees par la tete, feuilles
+degagees, ligne de vue reelle). Il retient le pilier le plus court, puis le
+poste le plus proche. Le bot defait d'abord son propre pilier, rejoint ce poste
+a pied, puis reprend la mesure. Chaque poste n'est essaye qu'une fois par cible
+et par mission : quand il n'en reste plus, le constat le dit (« aucun poste de
+pilier libre ») au lieu de tourner en rond.
+
 Un arbre commence est fini (interrupteur `arbre_fini`) : la premiere buche
 coupee fixe l'arbre (buches reliees au tronc). Tant qu'il en reste une debout,
 `findTargetBlock` et `cible_haute` ne visent que lui, `recolter` continue

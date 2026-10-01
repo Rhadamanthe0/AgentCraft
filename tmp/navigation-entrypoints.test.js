@@ -6,6 +6,8 @@ const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
 const source = fs.readFileSync(path.join(__dirname, '../bot/index.js'), 'utf8')
+// Les routes HTTP vivent dans bot/api.js depuis le decoupage d index.js.
+const apiSource = fs.readFileSync(path.join(__dirname, '../bot/api.js'), 'utf8')
 
 // Execute les vrais handlers, avec un trajet volontairement non resolu :
 // l admission HTTP ne doit jamais etre confondue avec la fin du deplacement.
@@ -16,7 +18,7 @@ function fixture ({ refused = false, aborted = false } = {}) {
   let resolveNavigation
   const navigation = new Promise(resolve => { resolveNavigation = resolve })
   const context = {
-    Date, console, CMD_PREFIX: '!', requireBot: () => {}, lastPathStatus: 'old',
+    Date, console, CMD_PREFIX: '!', requireBot: () => {}, rt: { lastPathStatus: 'old' },
     say: text => state.messages.push(text),
     requireAdmissionOrThrow: () => { if (refused) throw Object.assign(new Error('occupe'), { code: 'busy' }) },
     stopPathfinding: () => { state.stops++ },
@@ -35,7 +37,7 @@ function fixture ({ refused = false, aborted = false } = {}) {
   vm.createContext(context)
   const command = source.slice(source.indexOf('  va (username, args) {'), source.indexOf('  async viens (username) {'))
   vm.runInContext(`handlers = ({${command}})`, context)
-  const endpoint = source.slice(source.indexOf("app.post('/api/goto',"), source.indexOf('// Vrais flux /api/instruction'))
+  const endpoint = apiSource.slice(apiSource.indexOf("app.post('/api/goto',"), apiSource.indexOf('// Vrais flux /api/instruction'))
   vm.runInContext(endpoint, context)
   state.va = context.handlers.va
   state.signal = controller.signal

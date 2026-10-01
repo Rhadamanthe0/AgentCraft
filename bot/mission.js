@@ -19,6 +19,15 @@
 
 const skills = require('./skills')
 const build = require('./build')
+const outcomes = require('./outcomes')
+const perception = require('./perception')
+const missionState = require('./mission-state')
+const missionTrace = require('./trace')
+const { createGestes } = require('./action-gestes')
+const {
+  PILER_DIRT, scaffoldingStock, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
+  marcheDevant, videDevant, sondeAlentours, capDepuisVecteur, choisirCoteContournement, dansEmprise
+} = perception
 const craft = require('./craft')
 const acquirePlan = require('./acquire-plan')
 const { planCraft } = require('./recipe-plan')
@@ -44,7 +53,6 @@ const QUEUE_TICK_MS = Number(process.env.MISSION_QUEUE_TICK_MS || 250)
 
 // Delai minimal entre deux phrases du bot dans le chat. Sans lui, le modele
 // boucle sur « dire -> attendre » et inonde le chat.
-const DIRE_COOLDOWN_MS = Number(process.env.MISSION_DIRE_COOLDOWN_MS || 20000)
 
 // Delai minimal entre deux messages SYSTEME du bot (impasse, apprentissage d une
 // action). Ils ne passent pas par l action `dire`, donc echappent a sa limite de
@@ -86,54 +94,10 @@ const SCREENSHOT_ON = process.env.MISSION_SCREENSHOT === '1'
 // allumee) pour mesurer ce qu il apporte, sans redemarrer le bot. Priorite :
 // /api/features, puis la variable FEATURE_<NOM> ('0'/'1'), puis le defaut du
 // mode. Un processus = un bot, donc un etat par bot.
-// Tree in progress and its scaffold, carried across a revision or a restart
-// (plain integer coordinates only; anything else is dropped).
-function celluleValide (c) {
-  return c && [c.x, c.y, c.z].every(Number.isInteger) ? { x: c.x, y: c.y, z: c.z } : null
-}
-function suiviArbre (source) {
-  const cells = value => Array.isArray(value) ? value.map(celluleValide).filter(Boolean) : []
-  const poses = cells(source?.echafaudagePose)
-  // Les anciens descripteurs ajoutaient une source seulement apres une coupe
-  // mesuree. Leur identifiant stable permet de reprendre sans inventer un spawn.
-  const sources = Array.isArray(source?.arbreSources) ? source.arbreSources
-    .filter(c => celluleValide(c) && typeof c.objet === 'string')
-    .map((c, index) => ({ ...celluleValide(c), objet: c.objet,
-      id: typeof c.id === 'string' ? c.id : `legacy-cut:${index}`,
-      confirmee: c.confirmee === true || (c.confirmee === undefined && c.id === undefined && index < Number(source.arbreCoupes)),
-      ouverte: false, ambigu: c.ambigu === true, drop: typeof c.drop === 'string' ? c.drop : null })) : []
-  const spawns = Array.isArray(source?.arbreSpawns) ? source.arbreSpawns
-    .filter(c => typeof c.id === 'string' && [c.x, c.y, c.z].every(Number.isFinite))
-    .map(c => {
-      const legacy = sources.filter(cut => cut.confirmee &&
-        (cut.drop === c.id || (!cut.drop && (!c.objet || c.objet === cut.objet) &&
-          Math.hypot(c.x - cut.x - 0.5, c.y - cut.y - 0.5, c.z - cut.z - 0.5) <= 0.9)))
-      return { id: c.id, x: c.x, y: c.y, z: c.z, objet: typeof c.objet === 'string' ? c.objet : null,
-        source: typeof c.source === 'string' ? c.source : (legacy.length === 1 ? legacy[0].id : null),
-        collectedByBot: c.collectedByBot === true, collectCount: Number.isFinite(c.collectCount) ? c.collectCount : null,
-        collectPosition: c.collectPosition ? { ...c.collectPosition } : null,
-        gone: c.gone === true, tiers: c.tiers === true,
-        fin: c.fin && [c.fin.x, c.fin.y, c.fin.z].every(Number.isFinite) ? { ...c.fin } : null }
-    }) : []
-  return {
-    tree: celluleValide(source?.tree),
-    buchesArbreDemande: Array.isArray(source?.buchesArbreDemande) ? cells(source.buchesArbreDemande) : null,
-    dropsArbreDemande: Array.isArray(source?.dropsArbreDemande) ? source.dropsArbreDemande.filter(id => typeof id === 'string') : [],
-    arbreEntitiesInitial: Array.isArray(source?.arbreEntitiesInitial) ? source.arbreEntitiesInitial.filter(id => typeof id === 'string') : [],
-    arbreSources: sources,
-    arbreSpawns: spawns,
-    arbreBaseline: Array.isArray(source?.arbreBaseline) ? source.arbreBaseline.filter(c => typeof c.id === 'string' && typeof c.objet === 'string' && Number.isFinite(c.count)).map(c => ({ ...c })) : [],
-    arbreCoupes: Math.max(0, Number(source?.arbreCoupes) || 0),
-    arbreCollectes: Math.max(0, Number(source?.arbreCollectes) || 0),
-    arbreInventaireDepart: Number.isFinite(source?.arbreInventaireDepart) ? source.arbreInventaireDepart : null,
-    arbreCollecteIds: Array.isArray(source?.arbreCollecteIds) ? source.arbreCollecteIds.filter(id => typeof id === 'string') : [],
-    arbreEnCours: celluleValide(source?.arbreEnCours),
-    buchesArbre: Array.isArray(source?.buchesArbre) ? source.buchesArbre.map(celluleValide).filter(Boolean) : null,
-    echafaudageEnAttente: cells(source?.echafaudageEnAttente).map(c => new Vec3(c.x, c.y, c.z)),
-    echafaudageEssais: {},
-    echafaudagePose: poses.map(c => new Vec3(c.x, c.y, c.z))
-  }
-}
+// Tree in progress and its scaffold, carried across a revision or a restart:
+// declared once in mission-state.js (read and written from the same schema).
+const { celluleValide } = missionState
+const suiviArbre = source => missionState.restaurer(missionState.SUIVI_ARBRE, source)
 
 const featureOverrides = {}
 function featureOn (name, fallback = true) {
@@ -164,7 +128,7 @@ syncActionFeatures()
 const SCREENSHOT_EVERY = Math.max(1, Number(process.env.MISSION_SCREENSHOT_EVERY || 5))
 const SCREENSHOT_RAYON = Math.max(1, Number(process.env.MISSION_SCREENSHOT_RAYON || 16))
 // Portee de casse cote serveur : ~4.5 blocs. On garde une marge.
-const REACH = 4
+const REACH = perception.REACH
 // Degagement de feuilles vers un tronc enferme (mission bois) : feuilles
 // cassees au plus par appel a `avancer`, hors quota, seulement dans le couloir
 // a hauteur du corps entre le bot et la buche visee, et seulement apres un
@@ -195,29 +159,14 @@ const MAX_DIG_DEPTH = Number(process.env.MISSION_MAX_DIG_DEPTH || 1)
 // deplacement de mission est fait de gestes, pas de pathfinder) : sans cette
 // borne, la navigation pointerait sans fin vers une buche a 5 blocs de haut
 // au lieu de passer a l arbre suivant.
-const MAX_REACH_UP = Number(process.env.MISSION_MAX_REACH_UP || 3)
+const MAX_REACH_UP = perception.MAX_REACH_UP
 const MAX_PLANNER_ERRORS = 3
 const MAX_REPEATED_FAILURES = 5
 // Pilier : bornes de la montee en blocs. Un pilier coute sa dirt (inventaire
 // reel, jamais de creatif) et expose a la chute a la descente : 6 blocs
 // suffisent a rendre cassable un tronc dont le pied est hors de portee.
 const PILER_MIN = 1
-const PILER_MAX = Number(process.env.MISSION_PILER_MAX || 6)
-// Dirt de pilier : les blocs meubles du sol, cassables a la main et reposables
-// sous les pieds. Meme motif que la matiere brute `terre`.
-const PILER_DIRT = /^(dirt|coarse_dirt)$/
-
-function scaffoldingStock (bot) {
-  const totals = new Map()
-  for (const item of bot?.inventory?.items?.() ?? []) {
-    const plank = /_planks$/.test(item.name) && bot.registry?.blocksByName?.[item.name]?.boundingBox === 'block'
-    if ((!PILER_DIRT.test(item.name) && !plank) || !Number.isFinite(item.count) || item.count <= 0) continue
-    totals.set(item.name, (totals.get(item.name) ?? 0) + item.count)
-  }
-  const materiaux = [...totals].map(([nom, quantite]) => ({ nom, quantite }))
-    .sort((a, b) => Number(PILER_DIRT.test(b.nom)) - Number(PILER_DIRT.test(a.nom)) || b.quantite - a.quantite || a.nom.localeCompare(b.nom))
-  return { total: materiaux.reduce((sum, material) => sum + material.quantite, 0), materiaux }
-}
+const PILER_MAX = perception.PILER_MAX
 // Dirt SECONDAIRE en mission bois : le carburant du pilier. `grass_block`
 // casse lache de la dirt et se repose en dirt : on l accepte comme source de
 // secours quand un pilier est utile, sans jamais compter dans le quota bois.
@@ -395,10 +344,10 @@ const PLACE_BURST_MS = Number(process.env.MISSION_PLACE_BURST_MS || 25000)
 // poses lointaines (« pose trop longue » a 13 blocs du chantier) alors que
 // la marche fonctionnait. La borne de rafale reste le vrai garde-fou global.
 const PLACE_ONE_TIMEOUT_MS = Number(process.env.MISSION_PLACE_ONE_TIMEOUT_MS || 18000)
-const WAIT_MIN_MS = 1000
-const WAIT_MAX_MS = 5000
 const CRAFT_MIN = 1
 const CRAFT_MAX = Number(process.env.MISSION_CRAFT_MAX || 16)
+// Persisted resume fields (mission-state.js), with this module's bounds.
+const REPRISE = missionState.schemaReprise({ landmarks: skills.LANDMARKS, defaultQuota: DEFAULT_QUOTA, craftMin: CRAFT_MIN, craftMax: CRAFT_MAX })
 
 // Deplacement en gestes : reglage de la primitive `walkForward` (utilisee par
 // `avancer`, `rejoindre_demandeur` et `ramasser`).
@@ -428,244 +377,6 @@ const NAV_STRAFE_MS = 1000
 const NAV_MAX_STRAFES = 2
 const NAV_GAIN_MIN = 0.5
 const NAV_STAGNANT_MAX = 3
-
-// Sonde locale des 8 cases autour (N = -Z, S = +Z, E = +X, O = -X), a 1 bloc.
-// Fonction pure (aucun acces au bot) : `lire(x, y, z)` rend un bloc
-// `{ name, boundingBox }` ou null si le chunk n est pas charge. Chaque case est
-// classee :
-//   - `libre`    : sol praticable, tete degagee (une marche d 1 bloc compte
-//                  comme libre : walkForward la franchit au saut auto) ;
-//   - `obstacle` : mur ou relief >= 2 blocs (la tete est bouchee) ;
-//   - `vide`     : trou (pas de sol) ou liquide (sol, pieds ou tete) ;
-//   - `null`     : chunk non charge, inconnu.
-// Jamais d exception : un lecteur manquant ou qui leve donne `null`.
-const SONDE_DIRS = [
-  ['N', 0, -1], ['NE', 1, -1], ['E', 1, 0], ['SE', 1, 1],
-  ['S', 0, 1], ['SO', -1, 1], ['O', -1, 0], ['NO', -1, -1]
-]
-
-function estAir (nom) {
-  return nom === 'air' || nom === 'cave_air' || nom === 'void_air'
-}
-
-function estLiquide (nom) {
-  return typeof nom === 'string' && /water|lava|bubble_column/.test(nom)
-}
-
-// At least one face open to sight (leaves, plants, glass and liquids let it
-// through). La face du dessous ne se voit que d en dessous : sous les pieds du
-// bot, elle ne compte pas (vu sur craft/stone-pickaxe : dessous de la couche de
-// pierre sous l arene, a l air libre, vise puis creuse vers le bas).
-function blocExpose (bot, pos, feetLevel) {
-  const see = p => {
-    const b = bot.blockAt(p)
-    return !b || b.boundingBox !== 'block' || /_leaves$|glass/.test(b.name)
-  }
-  return [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
-    .some(([x, y, z]) => !(y === -1 && pos.y < feetLevel) && see(pos.offset(x, y, z)))
-}
-
-// Columns under the bot's 0.6-wide hitbox at height y.
-function colonnesSousHitbox (position, y) {
-  const span = v => [...new Set([Math.floor(v - 0.3), Math.floor(v + 0.3 - 1e-6)])]
-  return span(position.x).flatMap(x => span(position.z).map(z => new Vec3(x, y, z)))
-}
-
-function estSolide (bloc) {
-  if (!bloc || !bloc.name) return false
-  if (bloc.boundingBox === 'empty') return false
-  if (bloc.boundingBox === 'block') return true
-  if (estAir(bloc.name) || estLiquide(bloc.name)) return false
-  return true
-}
-
-// Le bot peut-il sauter ? `entity.onGround` de mineflayer passe a FAUX quand le
-// bot pousse dans un obstacle (mesure en jeu : contre une marche, onGround est
-// faux alors que le bot est au sol et immobile). Le saut de denivele ne se
-// declenchait donc jamais une fois bloque. On retombe sur le bloc solide sous
-// les pieds, en excluant la montee (velocity.y > 0 = deja en l air). Meme regle
-// que `standsOnGround` de build.js, pour ne pas diverger.
-function peutSauter (bot) {
-  try {
-    if (bot.entity.onGround) return true
-    const p = bot.entity.position
-    const below = bot.blockAt(p.offset(0, -1, 0).floored())
-    const vy = bot.entity.velocity?.y ?? 0
-    return estSolide(below) && vy <= 0.02
-  } catch (_) {
-    return false
-  }
-}
-
-// Fenetre de saut mesuree en jeu : un `forward`+`jump` lance a plus d un bloc
-// du contact retombe avant la marche ; a 0,9 bloc ou moins, il passe. On sonde
-// donc court (0,9 puis 0,6) pour ne declarer la marche que quand on est deja
-// dans la fenetre. `sprint` etant plus tolerant (jusqu a ~1,9 bloc), il est
-// tenu en plus pendant le saut.
-const JUMP_LOOKAHEAD = [0.9, 0.6]
-
-// Detecte ce qui barre le chemin DROIT DEVANT, a hauteur des pieds, dans la
-// fenetre de saut. Rend :
-//   - 'step' : marche d un bloc (bloc solide aux pieds, case au-dessus libre),
-//              franchissable au saut preventif ;
-//   - 'wall' : obstacle de deux blocs ou plus (la tete est bouchee), a
-//              contourner, jamais a sauter droit ;
-//   - null   : rien devant (ou chunk inconnu).
-// La direction vient du regard (meme convention que choisirCoteContournement :
-// vecteur avant = (-sin yaw, -cos yaw)). Aucune exception ne remonte.
-function marcheDevant (bot) {
-  try {
-    if (!bot?.entity || typeof bot.blockAt !== 'function') return null
-    const p = bot.entity.position
-    const fx = -Math.sin(bot.entity.yaw)
-    const fz = -Math.cos(bot.entity.yaw)
-    for (const d of JUMP_LOOKAHEAD) {
-      const pieds = bot.blockAt(p.offset(fx * d, 0, fz * d).floored())
-      const tete = bot.blockAt(p.offset(fx * d, 1, fz * d).floored())
-      if (!pieds || !tete) continue
-      if (!estSolide(pieds)) continue
-      return estSolide(tete) ? 'wall' : 'step'
-    }
-    return null
-  } catch (_) {
-    return null
-  }
-}
-
-// Vide devant le bot (~0,8 bloc sur son cap) : chute seche de plus de deux
-// blocs, donc des degats (vu sur trees/bent, 0e5dee5 : `avancer` sans cible
-// depuis un pilier de 4, chute de 4). Rend la hauteur de chute, ou null si le
-// sol devant est a deux blocs au plus (marche, descente d un ou deux blocs).
-const CHUTE_MAX = 2
-// `dir` : direction horizontale {x, z} du mouvement (defaut : le cap du bot).
-function videDevant (bot, dir = null) {
-  try {
-    if (!bot?.entity || typeof bot.blockAt !== 'function' || !bot.entity.onGround) return null
-    const p = bot.entity.position
-    const n = dir ? Math.hypot(dir.x, dir.z) : 0
-    const devant = dir && n > 1e-6
-      ? p.offset(dir.x / n * 0.8, 0, dir.z / n * 0.8)
-      : p.offset(-Math.sin(bot.entity.yaw) * 0.8, 0, -Math.cos(bot.entity.yaw) * 0.8)
-    const pieds = bot.blockAt(devant.floored())
-    if (!pieds || estSolide(pieds)) return null
-    for (let d = 1; d <= CHUTE_MAX + 1; d += 1) {
-      const b = bot.blockAt(devant.offset(0, -d, 0).floored())
-      if (!b) return null
-      if (estSolide(b) || /water|lava/.test(b.name)) return d - 1 > CHUTE_MAX ? d - 1 : null
-    }
-    return CHUTE_MAX + 1
-  } catch (_) {
-    return null
-  }
-}
-
-function sondeAlentours (lire, baseX, piedsY, baseZ) {
-  const relief = {}
-  try {
-    if (typeof lire !== 'function' || !Number.isFinite(baseX) || !Number.isFinite(piedsY) || !Number.isFinite(baseZ)) {
-      return null
-    }
-    for (const [nom, dx, dz] of SONDE_DIRS) {
-      let sol = null
-      let pieds = null
-      let tete = null
-      try {
-        sol = lire(baseX + dx, piedsY - 1, baseZ + dz)
-        pieds = lire(baseX + dx, piedsY, baseZ + dz)
-        tete = lire(baseX + dx, piedsY + 1, baseZ + dz)
-      } catch (_) {
-        relief[nom] = null
-        continue
-      }
-      if (!sol || !pieds || !tete) {
-        relief[nom] = null
-        continue
-      }
-      if (estLiquide(sol.name) || estLiquide(pieds.name) || estLiquide(tete.name)) {
-        relief[nom] = 'vide'
-      } else if (!estSolide(sol)) {
-        relief[nom] = 'vide'
-      } else if (estSolide(tete)) {
-        relief[nom] = 'obstacle'
-      } else {
-        relief[nom] = 'libre'
-      }
-    }
-    return relief
-  } catch (_) {
-    return null
-  }
-}
-
-// Cap cardinal (8 vents, 0 deg = nord) pour un vecteur (dx, dz) en blocs.
-// Convention Minecraft : nord = -Z, sud = +Z, est = +X, ouest = -X.
-function capDepuisVecteur (dx, dz) {
-  const deg = (Math.atan2(dx, -dz) * 180) / Math.PI
-  const norm = ((deg + 360) % 360 + 360) % 360
-  const caps = ['nord', 'nord-est', 'est', 'sud-est', 'sud', 'sud-ouest', 'ouest', 'nord-ouest']
-  return caps[Math.round(norm / 45) % 8]
-}
-
-// Traduit un cap lisible (`capDepuisVecteur`) en cle de la sonde 8 cases
-// (SONDE_DIRS) : le relief local est indexe N, NE, E, SE, S, SO, O, NO.
-const CASE_PAR_CAP = {
-  nord: 'N',
-  'nord-est': 'NE',
-  est: 'E',
-  'sud-est': 'SE',
-  sud: 'S',
-  'sud-ouest': 'SO',
-  ouest: 'O',
-  'nord-ouest': 'NO'
-}
-
-// Decides ou strafer pour contourner un obstacle, a partir du regard et du
-// relief local. FONCTION PURE : ni acces au bot, ni horloge, ni etat global.
-//
-// Entrees :
-//   - `yaw`    : orientation du bot en radians (bot.entity.yaw ; 0 = nord,
-//                +90 deg = ouest, comme `capDepuisVecteur`) ;
-//   - `cible`  : vecteur horizontal { dx, dz } du bot vers la cible, ou null ;
-//   - `relief` : les 8 cases de `sondeAlentours` ('libre' | 'obstacle' |
-//                'vide' | null), ou null si indisponible.
-// Sortie : 'left' | 'right' | null. `null` = pas de choix fonde (relief
-// illisible, aucun cote libre, ou les deux libres a egalite) : l appelant
-// garde alors son alternance de repli.
-//
-// Le cote gauche/droite, relatif au regard, est traduit en case cardinale via
-// le yaw, puis lu dans le relief. Vecteur avant du bot : (-sin yaw, -cos yaw).
-// Lateral gauche = (-cos yaw, sin yaw), lateral droit = son oppose.
-function choisirCoteContournement (yaw, cible, relief) {
-  try {
-    if (!relief || typeof relief !== 'object' || !Number.isFinite(yaw)) return null
-
-    const fx = -Math.sin(yaw)
-    const fz = -Math.cos(yaw)
-    const gauche = { x: fz, z: -fx }
-    const droite = { x: -fz, z: fx }
-
-    const libreGauche = relief[CASE_PAR_CAP[capDepuisVecteur(gauche.x, gauche.z)]] === 'libre'
-    const libreDroite = relief[CASE_PAR_CAP[capDepuisVecteur(droite.x, droite.z)]] === 'libre'
-
-    if (!libreGauche && !libreDroite) return null
-    if (libreGauche && !libreDroite) return 'left'
-    if (libreDroite && !libreGauche) return 'right'
-
-    // Les deux cotes sont libres : celui qui rapproche de la cible. Le bot
-    // etant souvent deja pivote vers elle, les deux projections sont egales
-    // (produit scalaire nul) : on rend null pour laisser l alternance jouer.
-    if (cible && Number.isFinite(cible.dx) && Number.isFinite(cible.dz) &&
-        (cible.dx !== 0 || cible.dz !== 0)) {
-      const versGauche = gauche.x * cible.dx + gauche.z * cible.dz
-      const versDroite = droite.x * cible.dx + droite.z * cible.dz
-      if (versGauche > versDroite) return 'left'
-      if (versDroite > versGauche) return 'right'
-    }
-    return null
-  } catch (_) {
-    return null
-  }
-}
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const movementTask = require('./movement-task')
@@ -868,34 +579,13 @@ function createMissionRunner (host, injected = {}) {
       // Descripteur de reprise : sans lui, aucune rehydratation apres
       // restart (l objectif seul ne dit ni kind ni quota ni route).
       descripteur: {
-        kind: mission.kind,
-        resource: mission.resource,
-        landmark: mission.landmark,
-        quota: mission.quota,
-        quotaExplicite: mission.quotaExplicite,
-        wholeTree: mission.wholeTree,
-        pendingJoin: mission.pendingJoin,
-        fabricationCible: mission.fabricationCible ?? null,
-        fabricationQuantite: mission.fabricationQuantite ?? null,
-        fabricationInitial: mission.fabricationInitial ?? 0,
+        // Type, matiere, quotas, fabrication : le schema de reprise.
+        ...missionState.serialiser(REPRISE, mission),
         // Grand livre des dons (S6) : preuves persistantes pour rehydrate.
         livraison: deliveryLedgersFor(mission).map(deliveryLedgerView),
         dimensions: mission.dimensions ? { ...mission.dimensions } : null,
-        arbreEnCours: celluleValide(mission.arbreEnCours),
-        buchesArbre: mission.buchesArbre,
-        tree: celluleValide(mission.tree),
-        buchesArbreDemande: mission.buchesArbreDemande,
-        dropsArbreDemande: mission.dropsArbreDemande,
-        arbreEntitiesInitial: mission.arbreEntitiesInitial,
-        arbreSources: mission.arbreSources,
-        arbreSpawns: mission.arbreSpawns,
-        arbreBaseline: mission.arbreBaseline,
-        arbreCoupes: mission.arbreCoupes,
-        arbreCollectes: mission.arbreCollectes,
-        arbreInventaireDepart: mission.arbreInventaireDepart ?? null,
-        arbreCollecteIds: mission.arbreCollecteIds,
-        echafaudageEnAttente: (mission.echafaudageEnAttente ?? []).map(celluleValide).filter(Boolean),
-        echafaudagePose: (mission.echafaudagePose ?? []).map(celluleValide).filter(Boolean),
+        // Arbre commence et echafaudage : le schema declare (mission-state.js).
+        ...missionState.serialiser(missionState.SUIVI_ARBRE, mission),
         route: mission.movementTask
           ? { steps: JSON.parse(JSON.stringify(mission.movementTask.steps)), cursor: mission.movementTask.cursor, origin: mission.movementTask.origin ? { ...mission.movementTask.origin } : null }
           : null
@@ -1898,10 +1588,6 @@ function createMissionRunner (host, injected = {}) {
     const ys = mission.plan.blocks.map(b => b.position.y)
     return { x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, z0: Math.min(...zs) - 1, z1: Math.max(...zs) + 1, y: Math.min(...ys) }
   }
-  function dansEmprise (emprise, position) {
-    return Boolean(emprise) && position.x >= emprise.x0 && position.x <= emprise.x1 &&
-      position.z >= emprise.z0 && position.z <= emprise.z1
-  }
 
   function findTargetBlock (resource, opts = {}) {
     // Surcharge toleree : findTargetBlock({ yaw }) vaut secteur sur la matiere
@@ -2665,6 +2351,26 @@ function createMissionRunner (host, injected = {}) {
       (mission.dirtSecondaire ?? 0) + deliveryProvenFor(mission)
   }
 
+  const gardes = new WeakMap()
+  function gardeBoucle (m) {
+    if (!gardes.has(m)) gardes.set(m, outcomes.createLoopGuard())
+    return gardes.get(m)
+  }
+  const traces = new WeakMap()
+  function traceDe (m) {
+    if (!m) return null
+    if (!traces.has(m)) traces.set(m, missionTrace.createTrace())
+    return traces.get(m)
+  }
+
+  function inventaireTotal () {
+    try {
+      return (host.getBot()?.inventory?.items?.() ?? []).reduce((n, item) => n + (item.count ?? 0), 0)
+    } catch (_) {
+      return null
+    }
+  }
+
   // Trois signatures d une impasse, toutes mesurees ici :
   //   - la meme action rend exactement le meme resultat trois fois de suite ;
   //   - des actions en echec d affilee ;
@@ -2945,6 +2651,36 @@ function createMissionRunner (host, injected = {}) {
     // Code-side only: the planner state serializes the three fields above.
     Object.defineProperty(hint, 'position', { value: best.block.position, enumerable: false })
     return hint
+  }
+
+  // Walks to the best untried pillar post for this target (own pillar undone
+  // first: walking off its top is a fall). Each post is tried once per
+  // mission and target, so the search ends instead of looping.
+  async function rejoindrePosteDePilier (high, centre) {
+    const bot = host.getBot()
+    if (!bot?.entity || !['recolte', 'construction'].includes(mission.kind)) return {}
+    const cleCible = `${high.position.x},${high.position.y},${high.position.z}`
+    mission.postesPilier ??= {}
+    const essayes = new Set(mission.postesPilier[cleCible] ?? [])
+    const postes = perception.postesDePilier(bot, high.position, centre, essayes, { emprise: empriseChantier() })
+    if (!postes.length) {
+      return { resultat: `aucun poste de pilier libre autour de ${high.cible}` +
+        (essayes.size ? ` (${essayes.size} deja essaye(s))` : '') + ' : viser une autre cible ou degager l acces' }
+    }
+    const porteur = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
+    if (porteur && isPillarBlock(bot, porteur)) await descendScaffold(-Infinity, { pillarOnly: true })
+    for (const poste of postes.slice(0, 3)) {
+      if (mission.cancelled) break
+      essayes.add(poste.cle)
+      mission.postesPilier[cleCible] = [...essayes]
+      const walk = await host.navigateToPosition(poste.pose, {
+        signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.3, distanceBudget: 32, timeoutMs: 15000
+      })
+      if (walk?.reached) {
+        return { atteint: true, resultat: `poste de pilier rejoint en ${poste.cle} (pilier de ${poste.hauteur} mesure)` }
+      }
+    }
+    return { resultat: 'postes de pilier mesures autour de la cible injoignables a pied : viser une autre cible ou degager l acces' }
   }
 
   // Measure access from supported virtual posts without changing the world or permissions.
@@ -3740,6 +3476,8 @@ function createMissionRunner (host, injected = {}) {
     }
     return null
   }
+
+  const gestes = createGestes({ host, getMission: () => mission, findTargetBlock, scaled })
 
   const ACTIONS = {
     // Il y avait ici `approcher`, qui deleguait au pathfinder (GoalNearXZ). Le
@@ -4620,40 +4358,26 @@ function createMissionRunner (host, injected = {}) {
         const poste = host.getBot()
         const pied = poste.entity.position.floored()
         const centre = high.position.offset(0.5, 0.5, 0.5)
-        let besoin = 0
+        const ici = perception.hauteurDePilier(poste, poste.entity.position, pied.y, centre, 1)
+        const besoin = ici.hauteur ?? 0
         let montee = null
-        const colonnes = colonnesSousHitbox(poste.entity.position, pied.y)
-        const sousHitbox = p => colonnes.some(c => c.x === p.x && c.z === p.z)
-        for (let h = 1; h <= PILER_MAX && !besoin; h += 1) {
-          // Real cells the head crosses at this level, in every column under
-          // the hitbox as piler checks them: solid or liquid stops the climb.
-          // Leaves are admitted, piler clears them.
-          const obstacle = colonnes.map(c => poste.blockAt(c.offset(0, h + 1, 0)))
-            .find(tete => !tete || estLiquide(tete.name) || (estSolide(tete) && !/_leaves$/.test(tete.name)))
-          if (obstacle !== undefined) {
-            montee = `montee bloquee ici : ${obstacle?.name ?? 'bloc inconnu'} a +${h + 1} au-dessus des pieds, ` +
-              'piler ne passerait pas : changer de poste (autre cote de la cible)'
-            break
+        if (!besoin) {
+          const constat = ici.obstacle
+            ? `montee bloquee ici : ${ici.obstacle} a +${ici.niveau} au-dessus des pieds, piler ne passerait pas`
+            : `aucune hauteur de pilier (1 a ${PILER_MAX}) ne met la cible a portee d ici`
+          montee = `${constat} : changer de poste (${ici.obstacle ? 'autre cote de la cible' : 'se rapprocher horizontalement'})`
+          // The code looks for the post itself and walks there, instead of
+          // handing « changer de poste » back to the planner, which repeated
+          // avancer/recolter from the same spot (maison en pierre ~aleatoire 858ba92 :
+          // perche a 2.4 blocs d une buche a +4, dix tours sans bouger).
+          if (!params.__posteCherche && !mission.cancelled) {
+            const deplace = await rejoindrePosteDePilier(high, centre)
+            if (deplace.atteint) {
+              const suite = await ACTIONS.avancer(scale, { ...params, __posteCherche: true })
+              return { ...suite, resultat: `${deplace.resultat} ; ${suite.resultat}` }
+            }
+            if (deplace.resultat) montee = `${constat} ; ${deplace.resultat}`
           }
-          // The pillar's own blocks as they would stand, and the leaves piler
-          // would have cleared along the climb, like climbAccessHint.
-          const vue = { entity: poste.entity,
-            blockAt: p => {
-              if (p.x === pied.x && p.z === pied.z && p.y >= pied.y && p.y < pied.y + h) {
-                return { name: 'dirt', position: p, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
-              }
-              const reel = poste.blockAt(p)
-              return reel && /_leaves$/.test(reel.name) && sousHitbox(p) && p.y > pied.y && p.y <= pied.y + h + 1
-                ? { name: 'air', position: p, boundingBox: 'empty', shapes: [] } : reel
-            } }
-          // Mesure depuis l'ancrage (pieds floores : case entiere), celui du
-          // pilier que piler pose reellement : un y fractionnaire (atterissage
-          // tolere a +0.25, appui sur une feuille) mettait le poste virtuel
-          // une cellule trop haut, son sol tombait sur l'air et le constat
-          // disait « aucune hauteur ne met la cible a portee » d'un poste ou
-          // piler marcherait (banc composite 755b262, cabane 45 min).
-          const posteFictif = new Vec3(poste.entity.position.x, pied.y + h, poste.entity.position.z)
-          if (blockInReach(vue, posteFictif, centre, REACH)) besoin = h
         }
         let tentative = ''
         // Same mission kinds as the planner's piler (skills.js): a movement goal
@@ -4680,10 +4404,6 @@ function createMissionRunner (host, injected = {}) {
         // Measured after the attempt: piler may have gathered dirt or left a partial pillar.
         const stock = scaffoldingStock(host.getBot()).total
         const dirt = craft.countOf(host.getBot(), PILER_DIRT)
-        if (!besoin && !montee) {
-          montee = `aucune hauteur de pilier (1 a ${PILER_MAX}) ne met la cible a portee d ici : ` +
-            'changer de poste (se rapprocher horizontalement)'
-        }
         const next = montee && !besoin ? montee : stock > 0
           ? 'piler peut aider si l appui et l espace au-dessus sont libres ; la pose reste a verifier'
           : 'stock court : piler recupere lui-meme la terre manquante (pilier defait puis refait, terre prise a cote)'
@@ -4956,10 +4676,7 @@ function createMissionRunner (host, injected = {}) {
         ? Math.max(PILER_MIN, Math.min(PILER_MAX, Math.round(Number(params.hauteur))))
         : scaled(scale, PILER_MIN, PILER_MAX)
       let ajuste = ''
-
-      if (host.inLiquid()) {
-        return { resultat: 'dans un liquide : sortir d abord, un pilier ne tient pas dans l eau', echec: true }
-      }
+      // Precondition (hors liquide) : CONTRATS.piler.
 
       // Un pilier sous une cible deja cassable gaspille de la dirt : le dire au
       // lieu de monter pour rien. Recolte seulement : en construction la cible
@@ -5363,10 +5080,8 @@ function createMissionRunner (host, injected = {}) {
       }
     },
 
+    // Preconditions (chantier place, arbre fini) : CONTRATS.construire.
     async construire (scale, params = {}) {
-      if (!mission.plan) return { resultat: 'aucun emplacement choisi', echec: true }
-      const arbre = arbreAvantChantier()
-      if (arbre) return arbre
       await quitterPilier('construire')
 
       const bot = host.getBot()
@@ -5478,10 +5193,8 @@ function createMissionRunner (host, injected = {}) {
       }
     },
 
+    // Preconditions (chantier place, arbre fini) : CONTRATS.poser_porte.
     async poser_porte () {
-      if (!mission.plan) return { resultat: 'aucun emplacement choisi', echec: true }
-      const arbre = arbreAvantChantier()
-      if (arbre) return arbre
       if (!mission.plan.door) return { resultat: 'ce plan n a pas de porte', echec: true }
       if (doorPlaced()) return { resultat: 'la porte est deja posee' }
       await quitterPilier('poser_porte')
@@ -5596,188 +5309,9 @@ function createMissionRunner (host, injected = {}) {
         : { resultat: `porte ouverte, passage impossible (${r?.code ?? 'trajet'}), en ${ou}`, echec: true }
     },
 
-    async attendre (scale, params = {}) {
-      const duration = Number.isFinite(Number(params.duree))
-        ? Math.max(0.2, Math.min(WAIT_MAX_MS / 1000, Number(params.duree))) * 1000
-        : scaled(scale, WAIT_MIN_MS, WAIT_MAX_MS)
-      await sleep(duration)
-      return { resultat: `attente de ${Math.round(duration / 100) / 10} s` }
-    },
+    // Gestes de bas niveau, attente, fin et memoire : bot/action-gestes.js.
+    ...gestes,
 
-    async terminer () {
-      return { resultat: 'fin demandee par le planificateur', fin: true }
-    },
-
-    // -----------------------------------------------------------------------
-    // Gestes de bas niveau
-    //
-    // Elles ne savent rien de l objectif : elles rendent la main au
-    // planificateur avec ce qui s est reellement passe (le bot a-t-il bouge ?
-    // de combien ?), et c est lui qui en tire une conclusion au tour suivant.
-    // -----------------------------------------------------------------------
-
-    async dire (scale, params = {}) {
-      const texte = String(params.texte ?? '').trim()
-      if (!texte) return { resultat: 'aucun texte a dire', echec: true }
-
-      // Le chat est aussi la facon dont on tape une commande serveur. Sans ce
-      // garde-fou, `dire` serait un trou dans le retrait des pouvoirs
-      // d administration : il suffirait au modele d ecrire "/gamemode creative"
-      // pour recuperer ce qu on vient de lui enlever.
-      if (texte.startsWith('/')) {
-        return { resultat: 'les commandes serveur sont interdites au bot', echec: true }
-      }
-
-      // Le prompt demande de parler sobrement ; mesure en jeu, le modele s en
-      // moque et boucle sur « dire -> attendre », une fois toutes les deux
-      // secondes. Le code compte donc a sa place : jamais deux fois la meme
-      // phrase dans une mission, et pas plus d une phrase par DIRE_COOLDOWN_MS.
-      // Phrase tue : pas un echec (rien n a rate dans le monde) ; en echec,
-      // elle jetait la suite du plan (16 fois sur 5 bancs). Une boucle de
-      // `dire` reste vue par detectStuck (meme resultat 3 fois).
-      if (mission.saidTexts.includes(texte)) {
-        return { resultat: 'deja dit, non repete : continuer le travail' }
-      }
-      if (Date.now() - mission.lastSaidAt < DIRE_COOLDOWN_MS) {
-        const reste = Math.ceil((DIRE_COOLDOWN_MS - (Date.now() - mission.lastSaidAt)) / 1000)
-        return { resultat: `non dit : trop tot pour reparler (encore ${reste} s), continuer le travail` }
-      }
-
-      host.chat(texte)
-      mission.lastSaidAt = Date.now()
-      mission.saidTexts.push(texte)
-      if (mission.saidTexts.length > 12) mission.saidTexts.shift()
-
-      return { resultat: `dit dans le chat : "${texte}"` }
-    },
-
-    async regarder (scale, params = {}) {
-      const bot = host.getBot()
-      // Les angles arrivent deja bornes par planner.coerceParams ; on garde la
-      // valeur courante quand le planificateur n en donne qu un des deux.
-      const yaw = params.horizontal === undefined
-        ? bot.entity.yaw
-        : (params.horizontal * Math.PI) / 180
-      const pitch = params.vertical === undefined
-        ? bot.entity.pitch
-        : (params.vertical * Math.PI) / 180
-
-      await bot.look(yaw, pitch, true)
-
-      const block = findTargetBlock()
-      return {
-        resultat: `regarde vers ${Math.round((yaw * 180) / Math.PI)} deg / ` +
-          `${Math.round((pitch * 180) / Math.PI)} deg` +
-          (block ? `, ${block.name} toujours en vue` : ', aucun bloc cible en vue')
-      }
-    },
-
-    async sauter (scale, params = {}) {
-      const bot = host.getBot()
-      const duree = params.duree ?? 0.5
-      const before = bot.entity.position.clone()
-
-      // Un saut retombe a sa position de depart : mesure faite a l atterrissage,
-      // un saut reussi rendrait 0 et passerait pour un blocage. On echantillonne
-      // donc pendant le saut et on garde le PIC VERTICAL (y - y0), pas la
-      // distance 3D : un saut sur place ne derive presque pas en XZ, et la 3D
-      // melangeait un eventuel glissement horizontal au decollement reel.
-      // Mesure en jeu : pic vertical ~1,25 bloc en saut libre, ~0,2 sous un
-      // plafond a deux blocs au-dessus des pieds. Fenetre sprint (~1,9 bloc en
-      // elan) ne concerne que walkForward, pas ce saut vertical sur place.
-      bot.setControlState('jump', true)
-      let pic = 0
-      const y0 = before.y
-      const fin = Date.now() + Math.round(duree * 1000)
-      while (Date.now() < fin) {
-        await sleep(50)
-        const y = host.getBot()?.entity?.position?.y ?? y0
-        const dy = y - y0
-        if (dy > pic) pic = dy
-      }
-      bot.setControlState('jump', false)
-      await sleep(250)
-
-      // Meme convention que `appuyer` : un saut qui ne decolle pas est la
-      // signature d un bot bloque (plafond, encastre). On le remonte comme un
-      // echec pour vider la file et faire replanifier.
-      //
-      // Seuil 0,5 et non 0,1 comme `appuyer` : mesure en jeu, un plafond a deux
-      // blocs au-dessus des pieds laisse encore grimper de 0,2 bloc (et 0,2 est
-      // le plancher physique, un bot ne fait pas 1,8 de haut dans 2 blocs). Un
-      // seuil de 0,1 laisserait donc passer tout saut bloque. Un saut libre
-      // plafonne a ~1,25 bloc ; 0,5 separe proprement les deux.
-      const bloque = pic < 0.5
-
-      return {
-        resultat: `saut de ${duree.toFixed(1)} s, pic vertical de ${pic.toFixed(2)} bloc` +
-          (bloque ? ' (saut bloque : plafond ou bot coince)' : ''),
-        echec: bloque
-      }
-    },
-
-    async appuyer (scale, params = {}) {
-      const bot = host.getBot()
-      // Le modele omet parfois `touches` (observe en jeu : « aucune touche
-      // indiquee » en boucle). Avancer droit est le repli le plus utile : mieux
-      // vaut un pas en avant qu une action jetee sans rien tenter.
-      const touches = Array.isArray(params.touches) && params.touches.length > 0
-        ? params.touches
-        : ['forward']
-
-      const duree = params.duree ?? 1
-      const before = bot.entity.position.clone()
-
-      // Un objectif de pathfinder en cours se battrait avec les touches tenues.
-      host.stopPathfinding()
-
-      // Meme garde que `avancer` sans cible, a chaque tick, dans le sens du
-      // mouvement reel : vu sur composite/cabin-from-scratch (f1f762d),
-      // appuyer(forward, 1,5 s) sur le toit de la cabane, 10,7 blocs, chute
-      // de 4, degats.
-      const directions = touches.filter(t => ['forward', 'back', 'left', 'right'].includes(t))
-      let videVu = null
-      const surveilleBord = () => {
-        if (videVu !== null || directions.length === 0) return
-        const v = bot.entity?.velocity
-        const dir = v && Math.hypot(v.x, v.z) > 0.02 ? { x: v.x, z: v.z } : null
-        const chute = dir || directions.includes('forward') ? videDevant(bot, dir) : null
-        if (chute === null) return
-        videVu = chute
-        try { bot.clearControlStates() } catch (_) {}
-      }
-      if (typeof bot.on === 'function') bot.on('physicsTick', surveilleBord)
-      try {
-        for (const touche of touches) bot.setControlState(touche, true)
-        const fin = Date.now() + Math.round(duree * 1000)
-        while (Date.now() < fin && videVu === null) await sleep(Math.min(50, Math.max(0, fin - Date.now())))
-      } finally {
-        if (typeof bot.removeListener === 'function') bot.removeListener('physicsTick', surveilleBord)
-        for (const touche of touches) {
-          try { bot.setControlState(touche, false) } catch (_) {}
-        }
-      }
-
-      await sleep(150)
-      const moved = host.getBot()?.entity?.position?.distanceTo(before) ?? 0
-
-      // Un deplacement nul apres avoir tenu `forward` est un fait utile : c est
-      // la signature d un bot encastre (piege 6). On le remonte comme un echec
-      // pour que le plan soit jete et que le planificateur en tienne compte.
-      const bloque = moved < 0.1 && touches.some(t => ['forward', 'back', 'left', 'right'].includes(t))
-
-      return {
-        resultat: `${touches.join('+')} tenu ${duree.toFixed(1)} s, deplacement de ${moved.toFixed(2)} bloc` +
-          (bloque ? ' (immobile : probablement encastre)' : '') +
-          (videVu !== null ? `, arret au bord d une chute de ${videVu} blocs` : ''),
-        echec: bloque
-      }
-    },
-
-    // Le repli quand le planificateur ne sait pas quoi faire : balayer les quatre
-    // points cardinaux et rendre compte de ce qui est visible. Contrairement a
-    // `attendre`, il rend de l information, donc le tour suivant n est pas
-    // identique au precedent.
     // Chercher la matiere hors de vue sans marcher a l aveugle : le code
     // choisit, parmi huit caps, le point debout le plus lointain et le moins
     // deja visite, y va par le navigateur partage, puis regarde. S arrete des
@@ -5854,89 +5388,73 @@ function createMissionRunner (host, injected = {}) {
       }
     },
 
-    async regarder_autour () {
-      const bot = host.getBot()
-      // Meme convention que skills.regarder : 0 rad = nord, +PI/2 = ouest,
-      // PI = sud, -PI/2 = est. C est la convention reelle de mineflayer
-      // (vecteur avant = -sin yaw, -cos yaw) : yaw 0 regarde vers -Z.
-      const headings = [
-        ['nord', 0],
-        ['ouest', Math.PI * 0.5],
-        ['sud', Math.PI],
-        ['est', -Math.PI * 0.5]
-      ]
+  }
 
-      const vus = []
-      for (const [nom, yaw] of headings) {
-        try {
-          await bot.look(yaw, 0, true)
-        } catch (_) {}
-        await sleep(120)
-        // Secteur : chaque cap ne voit que son cone (demi-angle PI/4 par
-        // defaut). Sans bloc dans le cone, le cap rend « rien » — jamais le
-        // plus proche global, qui rendait les 4 caps identiques.
-        const block = findTargetBlock(undefined, { yaw }) ?? findTargetBlock(undefined, { yaw, anyHeight: true })
-        vus.push(block ? `${nom} : ${block.name}` : `${nom} : rien`)
-      }
+  // -------------------------------------------------------------------------
+  // Contrats des actions : preconditions verifiees avant CHAQUE appel (y
+  // compris les appels internes d une action a une autre) et effet mesure
+  // apres une etape. Une precondition fausse rend un echec code dont les
+  // remedes sont les actions qui la rendent vraie (sous-but). Un effet absent
+  // sur une etape « reussie » est un geste sans effet : la garde anti-boucle
+  // le compte comme un echec (« aucun bloc cible sain a casser » rejoue).
+  // -------------------------------------------------------------------------
 
-      return { resultat: `tour d horizon -> ${vus.join(' | ')}` }
+  const PRE = {
+    chantierPlace: {
+      vrai: () => Boolean(mission.plan),
+      echec: () => ({ resultat: 'aucun emplacement choisi', echec: true, code: 'chantier_absent' })
     },
+    arbreFini: { vrai: () => !arbreAvantChantier(), echec: () => arbreAvantChantier() },
+    horsLiquide: {
+      vrai: () => !host.inLiquid(),
+      echec: () => ({ resultat: 'dans un liquide : sortir d abord, un pilier ne tient pas dans l eau', echec: true, code: 'dans_liquide' })
+    }
+  }
 
-    // Angle relatif : le planificateur n a pas a savoir ou est le sud. Le signe
-    // suit /api/turn (yaw + angle), meme convention partout.
-    async pivoter (scale, params = {}) {
-      const bot = host.getBot()
-      const angle = Number.isFinite(Number(params.angle)) ? Number(params.angle) : 90
-      const yaw = bot.entity.yaw + (angle * Math.PI) / 180
+  // Mesures avant/apres une etape, pour juger son effet.
+  function mesuresEffet () {
+    const bot = host.getBot()
+    const items = bot?.inventory?.items?.() ?? []
+    return {
+      position: bot?.entity?.position?.clone?.() ?? null,
+      inventaire: items.map(i => `${i.name}:${i.count}`).sort().join(','),
+      objets: items.reduce((n, i) => n + (i.count ?? 0), 0),
+      casses: mission?.broken ?? 0,
+      poses: mission?.plan ? buildProgress().done : 0
+    }
+  }
+  const deplace = (a, b) => Boolean(a.position && b.position && a.position.distanceTo(b.position) >= 0.5)
+  const EFFETS = {
+    casser: (a, b) => b.casses > a.casses || b.inventaire !== a.inventaire,
+    recolter: (a, b) => b.casses > a.casses || b.inventaire !== a.inventaire,
+    ramasser: (a, b) => b.objets > a.objets,
+    fabriquer: (a, b) => b.inventaire !== a.inventaire,
+    cuire: (a, b) => b.inventaire !== a.inventaire,
+    piler: (a, b) => Boolean(a.position && b.position && b.position.y - a.position.y >= 0.5),
+    construire: (a, b) => b.poses > a.poses || deplace(a, b),
+    avancer: deplace,
+    explorer: deplace
+  }
 
-      await bot.look(yaw, bot.entity.pitch, true)
+  const CONTRATS = {
+    construire: { pre: [PRE.chantierPlace, PRE.arbreFini], effet: EFFETS.construire },
+    poser_porte: { pre: [PRE.chantierPlace, PRE.arbreFini] },
+    piler: { pre: [PRE.horsLiquide], effet: EFFETS.piler },
+    casser: { effet: EFFETS.casser },
+    recolter: { effet: EFFETS.recolter },
+    ramasser: { effet: EFFETS.ramasser },
+    fabriquer: { effet: EFFETS.fabriquer },
+    cuire: { effet: EFFETS.cuire },
+    avancer: { effet: EFFETS.avancer },
+    explorer: { effet: EFFETS.explorer }
+  }
 
-      const degres = Math.round((yaw * 180) / Math.PI)
-      const block = findTargetBlock()
-      return {
-        resultat: `pivot de ${Math.round(angle)} deg (cap ${degres} deg)` +
-          (block ? `, ${block.name} en vue` : ', rien de cible en vue')
-      }
-    },
-
-    // Memoire : le seul geste qui ne touche ni au jeu ni a la documentation. Le
-    // budget est tenu par memory.js, pas par le modele — il propose, le code
-    // dispose, comme partout ailleurs. L ecriture est async (la compaction du
-    // fil de travail peut appeler le modele), donc attendue.
-    async memoriser (scale, params = {}) {
-      const result = await memory.write({
-        texte: params.texte,
-        portee: Array.isArray(params.portee) ? params.portee[0] : params.portee
-      })
-
-      if (!result.ok) {
-        return { resultat: `memoire : ${result.error}`, echec: true }
-      }
-
-      // Le plafond affiche est celui de la portee ecrite, pas un total : les
-      // deux portees ont des budgets separes depuis le passage en couches.
-      const snap = result.snapshot ?? memory.snapshot()
-      const plafond = result.portee === 'long_terme'
-        ? snap.plafonds.long_terme
-        : snap.plafonds.travail
-
-      return {
-        resultat: `note enregistree en memoire ${result.portee} ` +
-          `(${result.jetons}/${plafond} jetons)` +
-          (result.en_attente ? ', en attente du commit de fin de mission' : '') +
-          (result.compacte ? ', fil de travail compacte' : '')
-      }
-    },
-
-    async oublier (scale, params = {}) {
-      const result = memory.clear(Array.isArray(params.portee) ? params.portee[0] : params.portee)
-      if (!result.ok) return { resultat: `memoire : ${result.error}`, echec: true }
-
-      return {
-        resultat: result.portee === 'tout'
-          ? 'memoire entierement effacee'
-          : `memoire ${result.portee} effacee`
-      }
+  for (const [nom, contrat] of Object.entries(CONTRATS)) {
+    const corps = ACTIONS[nom]
+    if (!contrat.pre?.length || typeof corps !== 'function') continue
+    ACTIONS[nom] = async function (scale, params) {
+      const manque = contrat.pre.find(pre => !pre.vrai())
+      return manque ? manque.echec() : corps(scale, params)
     }
   }
 
@@ -5962,7 +5480,16 @@ function createMissionRunner (host, injected = {}) {
       position: p ? { x: Number(p.x.toFixed(1)), y: Number(p.y.toFixed(1)), z: Number(p.z.toFixed(1)) } : null
     }
     mission.blocages = (mission.blocages ?? []).concat(entree).slice(-20)
+    traceDe(mission)?.push({ type: 'blocage', raison })
     console.log(`[blocage] ${JSON.stringify(entree)}`)
+    // Monde reel autour du bot a cet instant, pour rejouer la perception hors
+    // ligne (tmp/replay-snapshot.js). Servi a part (/api/mission/instantanes) :
+    // trop gros pour l etat de mission lu a chaque rafraichissement.
+    try {
+      if (p) {
+        mission.instantanes = (mission.instantanes ?? []).concat({ ...entree, monde: perception.instantane(host.getBot(), p) }).slice(-3)
+      }
+    } catch (_) {}
     const cause = derniere?.echec ? ` (${derniere.action} : ${String(derniere.resultat ?? '').slice(0, 70)})` : ''
     announce(`Bloqué : ${raison}${cause}`)
   }
@@ -6010,6 +5537,7 @@ function createMissionRunner (host, injected = {}) {
     mission.state = state
     mission.endedAt = new Date().toISOString()
     mission.reason = reason
+    traceDe(mission)?.push({ type: 'fin', etat: state, raison: reason })
     mission.summaryText = summary()
     let message
     if (state === 'done') {
@@ -6196,6 +5724,8 @@ function createMissionRunner (host, injected = {}) {
   function applyPlanResult (result, capture) {
     mission.plans += 1
     mission.planMs = result.ms
+    traceDe(mission)?.push({ type: 'plan', ms: result.ms, etapes: result.steps?.length ?? 0,
+      rejetees: result.rejected?.length ?? 0, fini: Boolean(result.finished) })
     mission.lastWhy = result.why || null
 
     if (result.rejected.length > 0) {
@@ -6606,7 +6136,19 @@ function createMissionRunner (host, injected = {}) {
         return
       }
 
-      try {
+      // Anti-boucle : la meme etape, depuis la meme case et avec le meme
+      // inventaire, qui a deja rendu deux fois le meme echec n est pas rejouee.
+      const garde = gardeBoucle(mission)
+      const signatureEtape = outcomes.signature(decision.step, decision.choices,
+        host.getBot()?.entity?.position?.floored?.(), inventaireTotal())
+      const dejaVu = featureOn('anti_boucle') ? garde.refuse(signatureEtape) : null
+      if (dejaVu) outcome = outcomes.refusRepetition(decision.step, dejaVu, ACTIONS)
+      const effetAttendu = CONTRATS[decision.step]?.effet ?? null
+      const avantEffet = effetAttendu && !outcome ? mesuresEffet() : null
+      const debutEtape = Date.now()
+      const departEtape = host.getBot()?.entity?.position?.clone?.() ?? null
+
+      if (!outcome) try {
         const message = activity.ACTIONS[decision.step] ?? activity.SUBGOALS[decision.step === 'rejoindre_demandeur' ? 'rejoindre' : '']
         mission.activity?.update('execution', message || 'Je continue…', Boolean(message))
         const exec = physicalExecutor()
@@ -6665,6 +6207,14 @@ function createMissionRunner (host, injected = {}) {
       // Idem si la mission a ete remplacee (suspend + nouvel objectif).
       if (!isRunning() || mission.cancelled || mission !== myMission || myMission.navigationAbort !== controller) return
 
+      outcome = outcomes.normaliser(decision.step, outcome, ACTIONS)
+      // Etape « reussie » sans son effet mesure (rien casse, rien en poche,
+      // pas bouge) : dite au modele, et comptee comme un echec par la garde.
+      if (avantEffet && !outcome.echec && !effetAttendu(avantEffet, mesuresEffet())) outcome = { ...outcome, sansEffet: true }
+      if (outcome?.code !== 'repetition') {
+        garde.note(signatureEtape, outcome.sansEffet ? outcomes.normaliser(decision.step, { ...outcome, echec: true }, ACTIONS) : outcome)
+      }
+
       mission.steps += 1
       if (outcome.echec) {
         mission.echecs = (mission.echecs ?? 0) + 1
@@ -6676,7 +6226,13 @@ function createMissionRunner (host, injected = {}) {
           mission.echecsDetail.push({ t: Math.round((Date.now() - mission.startedAt) / 1000), action: decision.step, resultat: String(outcome.resultat ?? '').slice(0, 160) })
         }
       }
-      mission.history.push({ action: decision.step, resultat: outcome.resultat, code: outcome.code ?? null, echec: Boolean(outcome.echec) })
+      mission.history.push({ action: decision.step, resultat: outcome.resultat, code: outcome.code ?? null, echec: Boolean(outcome.echec),
+        ...(outcome.echec && outcome.remedes?.length ? { remedes: outcome.remedes } : {}),
+        ...(outcome.sansEffet ? { sans_effet: true } : {}) })
+      traceDe(mission)?.push({ type: 'etape', action: decision.step, params: decision.choices, ms: Date.now() - debutEtape,
+        echec: Boolean(outcome.echec), code: outcome.code ?? null, sans_effet: Boolean(outcome.sansEffet),
+        remedes: outcome.remedes ?? [], de: missionTrace.arrondi(departEtape),
+        a: missionTrace.arrondi(host.getBot()?.entity?.position) })
       if (mission.history.length > 8) mission.history.shift()
       reportProgressSafe()
 
@@ -7517,25 +7073,15 @@ function createMissionRunner (host, injected = {}) {
       clearance: { limit: 0, used: 0 },
       objective: String(obj.texte ?? ''),
       requester: String(obj.auteur ?? 'inconnu'),
-      kind: desc.kind,
+      // kind, resource, landmark, quotas, fabrication, pendingJoin : le
+      // schema de reprise, le meme que celui du descripteur.
+      ...missionState.restaurer(REPRISE, desc),
       kindConfidence: 1,
-      resource: desc.resource,
       resourceConfidence: 1,
-      landmark: (desc.landmark && skills.LANDMARKS[desc.landmark]) ? desc.landmark : 'ici',
       landmarkResource: null,
       wantsDoor: false,
       doorProbability: 0,
       dimensions: dims,
-      quota: Number.isFinite(Number(desc.quota)) ? Number(desc.quota) : DEFAULT_QUOTA,
-      quotaExplicite: desc.quotaExplicite === true,
-      wholeTree: desc.wholeTree === true,
-      fabricationCible: typeof desc.fabricationCible === 'string' ? desc.fabricationCible : null,
-      fabricationQuantite: Number.isFinite(Number(desc.fabricationQuantite))
-        ? Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Math.round(Number(desc.fabricationQuantite))))
-        : 1,
-      fabricationInitial: Number.isFinite(Number(desc.fabricationInitial))
-        ? Math.max(0, Math.round(Number(desc.fabricationInitial)))
-        : 0,
       fabricationLastError: null,
       supply: SUPPLY,
       buildBlock: skills.RESOURCES[desc.resource]?.build ?? 'dirt',
@@ -7549,7 +7095,6 @@ function createMissionRunner (host, injected = {}) {
       state: 'running',
       cancelled: false,
       navigationAbort: new AbortController(),
-      pendingJoin: desc.pendingJoin === true,
       startedAt: now,
       startedAtIso: new Date().toISOString(),
       activeElapsedMs: 0,
@@ -7778,6 +7323,13 @@ function createMissionRunner (host, injected = {}) {
     },
     stop,
     status,
+    // Instantanes du monde pris aux derniers blocages (3 au plus).
+    instantanes: () => mission?.instantanes ?? [],
+    // Trace structuree de la mission courante (ou derniere) et son resume.
+    trace: () => {
+      const tr = traceDe(mission)
+      return tr ? { mission: mission.id, evenements: tr.evenements(), perdus: tr.perdus(), resume: tr.resume() } : null
+    },
     isRunning,
     SUPPLY,
     ACTION_NAMES: Object.keys(ACTIONS),
