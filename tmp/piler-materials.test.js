@@ -13,11 +13,12 @@ const build = require('../bot/build')
 const { createMissionRunner } = require('../bot/mission')
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve)) }
 
-async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null, entities = {}, loaded = () => true, resume = null, reviseAfterCut = false, revisionText = null, context = null, collectImmediately = true, completedStructure = false, pauseAfterCut = false, revisionOnPendingJoin = false, setup = null, pauseLifecycle = null }) {
+async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding = false, wrongBlock = false, retryError = false, loseStock = false, logY = 74, logAt = null, start = null, extra = {}, first = 'piler', onPlace = null, text = 'casse cet arbre', allLogs = false, queue = null, digFailure = null, kind = 'recolte', onDig = null, navigate = null, entities = {}, loaded = () => true, resume = null, reviseAfterCut = false, revisionText = null, context = null, collectImmediately = true, completedStructure = false, pauseAfterCut = false, revisionOnPendingJoin = false, setup = null, pauseLifecycle = null, duringRevisionBrief = null, reviseWhen = null }) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000000 })
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
-  t.mock.method(planner, 'readBrief', async () => ({ kind, kindConfidence: 1,
+  let briefs = 0
+  t.mock.method(planner, 'readBrief', async () => (++briefs > 1 && duringRevisionBrief?.(bot), { kind, kindConfidence: 1,
     resource: 'bois', resourceConfidence: 1, landmark: 'ici', door: false, doorProbability: 0 }))
   if (completedStructure) {
     t.mock.method(build, 'findSite', () => ({ origin: new Vec3(10, 65, 0), distance: 10 }))
@@ -134,7 +135,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
         if (pauseLifecycle === 'end') runner.stop('cleanup apres deconnexion mesuree')
       }, 1000)
     }
-    if (((reviseAfterCut && runner.status().blocs_casses > 0) || (revisionOnPendingJoin && snapshots.at(-1)?.descripteur.pendingJoin)) && !revised) {
+    if (((reviseAfterCut && runner.status().blocs_casses > 0) || (revisionOnPendingJoin && snapshots.at(-1)?.descripteur.pendingJoin) || reviseWhen?.(snapshots.at(-1))) && !revised) {
       revised = true
       revisionPending = true
       runner.revise(revisionText ?? text, 'human').finally(() => { revisionPending = false })
@@ -1048,6 +1049,37 @@ for (const livraisonDemandee of [false, true]) {
     if (livraisonDemandee) assert.ok(f.states.some(state => state.dernieres_etapes?.some(step => step.code === 'uncertain_blocked')))
   })
 }
+
+test('arbre entier : drop apparu et ramasse pendant la lecture d une revision garde sa preuve', async t => {
+  const drop = { name: 'item', uuid: 'spawn-during-revision', position: new Vec3(1.5, 65.5, 0.5), getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }
+  const f = await simulate(t, { inventory: [], collectImmediately: false, first: 'casser', logY: 65, text: 'coupe un arbre', reviseAfterCut: true,
+    queue: [['casser'], [{ action: 'attendre', choices: { duree: 1 } }]],
+    duringRevisionBrief: bot => { bot.emit('entitySpawn', drop); bot.emit('playerCollect', bot.entity, drop) } })
+  assert.equal(f.status.etat, 'done')
+  assert.equal(f.snapshots.at(-1).descripteur.arbreCollectes, 1)
+  assert.equal(f.collectionListeners, 0)
+})
+
+test('don remplace par la revision : l ancien objet ne bloque plus, son historique reste', async t => {
+  t.mock.method(delivery, 'giveToPlayer', async (_bot, options) => {
+    const deposited = options.item === 'oak_log' ? 1 : options.count
+    return { status: deposited < options.count ? 'partial' : 'succeeded', deposited, inventoryRemoved: deposited,
+      requested: options.count, evidence: { item: options.item }, reason: 'inventory_decrease' }
+  })
+  const f = await simulate(t, { inventory: [{ name: 'oak_log', count: 2 }, { name: 'apple', count: 2 }], kind: 'construction',
+    text: 'construis une cabane et donne-moi 2 buches', completedStructure: true,
+    reviseWhen: snap => snap?.descripteur.livraison?.some(l => l.objet === 'oak_log' && l.prouve === 1),
+    revisionText: 'construis une cabane et donne-moi 2 pommes',
+    queue: [[{ action: 'donner', choices: { objet: 'oak_log', quantite: 2, destinataire: 'human' } }],
+      [{ action: 'donner', choices: { objet: 'apple', quantite: 2, destinataire: 'human' } }], ['choisir_terrain']],
+    setup: bot => { bot.players.human = { entity: { position: new Vec3(2, 65, 0) } }; const old = bot.blockAt; bot.blockAt = p => p.x === 10 ? { name: 'oak_planks', position: p, boundingBox: 'block' } : old(p) } })
+  assert.equal(f.status.etat, 'done')
+  const ledgers = f.snapshots.at(-1).descripteur.livraison
+  const logs = ledgers.find(l => l.objet === 'oak_log')
+  assert.equal(logs.prouve, 1)
+  assert.equal(logs.annule, true)
+  assert.equal(ledgers.find(l => l.objet === 'apple').prouve, 2)
+})
 
 test('construction et don demande : don prouve ne prouve pas chantier incomplet', async t => {
   t.mock.method(delivery, 'giveToPlayer', async (bot, options) => {

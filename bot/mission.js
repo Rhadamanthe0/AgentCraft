@@ -2150,10 +2150,15 @@ function createMissionRunner (host, injected = {}) {
 
   let botCollecteObserve = null
   let coupeArbreActive = null
+  // Mission revisee pendant la lecture du nouvel objectif : ses coupes deja
+  // mesurees restent observees (spawn et collecte tardifs), puis la revision
+  // en recopie les preuves (suiviArbre). Jeton : seul l appel qui l a posee
+  // la retire s il echoue.
+  let revisionArbre = null
   const collectesEnAttente = new Map()
   function recevoirSpawnArbre (entity) {
     if (!mission?.wholeTree || entity?.name !== 'item' || !entity.position) return
-    if (!['running', 'paused'].includes(mission.state)) return
+    if (!['running', 'paused'].includes(mission.state) && mission !== revisionArbre?.mission) return
     let item
     try { item = entity.getDroppedItem?.() } catch (_) {}
     const proche = c => Math.hypot(entity.position.x - c.x - 0.5, entity.position.y - c.y - 0.5, entity.position.z - c.z - 0.5) <= 0.9
@@ -2197,13 +2202,23 @@ function createMissionRunner (host, injected = {}) {
     prouverCollectesArbre()
     reportProgressSafe()
   }
-  function observerCollecteArbre () {
-    if (mission?.state !== 'running') return
+  function observerCollecteArbre (revision = false) {
+    if (mission?.state !== 'running' && !revision) return
     const bot = host.getBot()
     if (botCollecteObserve === bot) return
     const attente = new Map(collectesEnAttente)
     retirerObservateurArbre()
     for (const [id, entity] of attente) if (mission.arbreSpawns?.some(s => s.id === id)) collectesEnAttente.set(id, entity)
+    installerObservateurArbre(bot)
+  }
+  function observerRevisionArbre (m, attente) {
+    if (!m?.wholeTree || m !== mission || !m.arbreSources?.some(c => c.confirmee && !c.drop)) return null
+    for (const [id, entity] of attente ?? []) collectesEnAttente.set(id, entity)
+    observerCollecteArbre(true)
+    revisionArbre = { mission: m }
+    return revisionArbre
+  }
+  function installerObservateurArbre (bot) {
     bot?.on?.('entitySpawn', recevoirSpawnArbre)
     bot?.on?.('entityUpdate', actualiserSpawnArbre)
     bot?.on?.('itemDrop', actualiserSpawnArbre)
@@ -2222,6 +2237,7 @@ function createMissionRunner (host, injected = {}) {
     botCollecteObserve?.removeListener?.('playerCollect', recevoirCollecteArbre)
     botCollecteObserve?.removeListener?.('end', retirerObservateurArbre)
     botCollecteObserve = null
+    revisionArbre = null
     collectesEnAttente.clear()
   }
   function prouverCollectesArbre () {
@@ -6797,6 +6813,13 @@ function createMissionRunner (host, injected = {}) {
   }
 
   async function start (objective, requester, opts = {}) {
+    const appel = {}
+    const result = await startMission(objective, requester, opts, appel)
+    if (!result?.ok && appel.revision && appel.revision === revisionArbre) retirerObservateurArbre()
+    return result
+  }
+
+  async function startMission (objective, requester, opts, appel) {
     if (!host.isReady()) return { ok: false, error: 'bot non connecte' }
     if (!brain().isEnabled()) {
       return { ok: false, error: 'aucun planificateur disponible, aucune mission possible' }
@@ -6814,6 +6837,7 @@ function createMissionRunner (host, injected = {}) {
     const collectesRevision = opts.revisionOf ? new Map(collectesEnAttente) : null
     if (isRunning()) stop('remplacee par un nouvel objectif')
     retirerObservateurArbre()
+    if (opts.revisionOf) appel.revision = observerRevisionArbre(opts.revisionOf, collectesRevision)
     cancelPendingStart()
     const generation = ++startGeneration
     const request = new AbortController()
@@ -6962,7 +6986,13 @@ function createMissionRunner (host, injected = {}) {
     }
     const livraisonAnnulee = opts.revisionOf && livraisonDemandee(opts.revisionOf) &&
       !livraisonDemandee({ objective: text, requester })
-    if (livraisonAnnulee) {
+    // Un objectif reformule remplace aussi ses dons : « donne-moi 2 buches »
+    // devenu « ... et donne-moi 2 pommes » garde le verbe de don, mais plus
+    // l ancien objet. Seul un `donner` du nouvel objectif reactive un
+    // engagement (engagementDon), avec son budget et son incertain d origine.
+    const objectifReformule = opts.revisionOf &&
+      String(opts.revisionOf.objective ?? '').trim() !== text
+    if (livraisonAnnulee || objectifReformule) {
       // Un don non tente peut etre annule par le nouvel objectif. Les preuves
       // de sorties deja tentees/incertaines restent dans le grand livre.
       for (const ledger of deliveryLedgersFor(opts.revisionOf)) {
