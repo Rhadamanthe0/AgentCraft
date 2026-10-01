@@ -21,6 +21,7 @@ const skills = require('./skills')
 const build = require('./build')
 const outcomes = require('./outcomes')
 const perception = require('./perception')
+const missionState = require('./mission-state')
 const {
   PILER_DIRT, scaffoldingStock, estAir, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
   marcheDevant, videDevant, sondeAlentours, capDepuisVecteur, choisirCoteContournement, dansEmprise
@@ -92,54 +93,10 @@ const SCREENSHOT_ON = process.env.MISSION_SCREENSHOT === '1'
 // allumee) pour mesurer ce qu il apporte, sans redemarrer le bot. Priorite :
 // /api/features, puis la variable FEATURE_<NOM> ('0'/'1'), puis le defaut du
 // mode. Un processus = un bot, donc un etat par bot.
-// Tree in progress and its scaffold, carried across a revision or a restart
-// (plain integer coordinates only; anything else is dropped).
-function celluleValide (c) {
-  return c && [c.x, c.y, c.z].every(Number.isInteger) ? { x: c.x, y: c.y, z: c.z } : null
-}
-function suiviArbre (source) {
-  const cells = value => Array.isArray(value) ? value.map(celluleValide).filter(Boolean) : []
-  const poses = cells(source?.echafaudagePose)
-  // Les anciens descripteurs ajoutaient une source seulement apres une coupe
-  // mesuree. Leur identifiant stable permet de reprendre sans inventer un spawn.
-  const sources = Array.isArray(source?.arbreSources) ? source.arbreSources
-    .filter(c => celluleValide(c) && typeof c.objet === 'string')
-    .map((c, index) => ({ ...celluleValide(c), objet: c.objet,
-      id: typeof c.id === 'string' ? c.id : `legacy-cut:${index}`,
-      confirmee: c.confirmee === true || (c.confirmee === undefined && c.id === undefined && index < Number(source.arbreCoupes)),
-      ouverte: false, ambigu: c.ambigu === true, drop: typeof c.drop === 'string' ? c.drop : null })) : []
-  const spawns = Array.isArray(source?.arbreSpawns) ? source.arbreSpawns
-    .filter(c => typeof c.id === 'string' && [c.x, c.y, c.z].every(Number.isFinite))
-    .map(c => {
-      const legacy = sources.filter(cut => cut.confirmee &&
-        (cut.drop === c.id || (!cut.drop && (!c.objet || c.objet === cut.objet) &&
-          Math.hypot(c.x - cut.x - 0.5, c.y - cut.y - 0.5, c.z - cut.z - 0.5) <= 0.9)))
-      return { id: c.id, x: c.x, y: c.y, z: c.z, objet: typeof c.objet === 'string' ? c.objet : null,
-        source: typeof c.source === 'string' ? c.source : (legacy.length === 1 ? legacy[0].id : null),
-        collectedByBot: c.collectedByBot === true, collectCount: Number.isFinite(c.collectCount) ? c.collectCount : null,
-        collectPosition: c.collectPosition ? { ...c.collectPosition } : null,
-        gone: c.gone === true, tiers: c.tiers === true,
-        fin: c.fin && [c.fin.x, c.fin.y, c.fin.z].every(Number.isFinite) ? { ...c.fin } : null }
-    }) : []
-  return {
-    tree: celluleValide(source?.tree),
-    buchesArbreDemande: Array.isArray(source?.buchesArbreDemande) ? cells(source.buchesArbreDemande) : null,
-    dropsArbreDemande: Array.isArray(source?.dropsArbreDemande) ? source.dropsArbreDemande.filter(id => typeof id === 'string') : [],
-    arbreEntitiesInitial: Array.isArray(source?.arbreEntitiesInitial) ? source.arbreEntitiesInitial.filter(id => typeof id === 'string') : [],
-    arbreSources: sources,
-    arbreSpawns: spawns,
-    arbreBaseline: Array.isArray(source?.arbreBaseline) ? source.arbreBaseline.filter(c => typeof c.id === 'string' && typeof c.objet === 'string' && Number.isFinite(c.count)).map(c => ({ ...c })) : [],
-    arbreCoupes: Math.max(0, Number(source?.arbreCoupes) || 0),
-    arbreCollectes: Math.max(0, Number(source?.arbreCollectes) || 0),
-    arbreInventaireDepart: Number.isFinite(source?.arbreInventaireDepart) ? source.arbreInventaireDepart : null,
-    arbreCollecteIds: Array.isArray(source?.arbreCollecteIds) ? source.arbreCollecteIds.filter(id => typeof id === 'string') : [],
-    arbreEnCours: celluleValide(source?.arbreEnCours),
-    buchesArbre: Array.isArray(source?.buchesArbre) ? source.buchesArbre.map(celluleValide).filter(Boolean) : null,
-    echafaudageEnAttente: cells(source?.echafaudageEnAttente).map(c => new Vec3(c.x, c.y, c.z)),
-    echafaudageEssais: {},
-    echafaudagePose: poses.map(c => new Vec3(c.x, c.y, c.z))
-  }
-}
+// Tree in progress and its scaffold, carried across a revision or a restart:
+// declared once in mission-state.js (read and written from the same schema).
+const { celluleValide } = missionState
+const suiviArbre = source => missionState.restaurer(missionState.SUIVI_ARBRE, source)
 
 const featureOverrides = {}
 function featureOn (name, fallback = true) {
@@ -390,6 +347,8 @@ const WAIT_MIN_MS = 1000
 const WAIT_MAX_MS = 5000
 const CRAFT_MIN = 1
 const CRAFT_MAX = Number(process.env.MISSION_CRAFT_MAX || 16)
+// Persisted resume fields (mission-state.js), with this module's bounds.
+const REPRISE = missionState.schemaReprise({ landmarks: skills.LANDMARKS, defaultQuota: DEFAULT_QUOTA, craftMin: CRAFT_MIN, craftMax: CRAFT_MAX })
 
 // Deplacement en gestes : reglage de la primitive `walkForward` (utilisee par
 // `avancer`, `rejoindre_demandeur` et `ramasser`).
@@ -621,34 +580,13 @@ function createMissionRunner (host, injected = {}) {
       // Descripteur de reprise : sans lui, aucune rehydratation apres
       // restart (l objectif seul ne dit ni kind ni quota ni route).
       descripteur: {
-        kind: mission.kind,
-        resource: mission.resource,
-        landmark: mission.landmark,
-        quota: mission.quota,
-        quotaExplicite: mission.quotaExplicite,
-        wholeTree: mission.wholeTree,
-        pendingJoin: mission.pendingJoin,
-        fabricationCible: mission.fabricationCible ?? null,
-        fabricationQuantite: mission.fabricationQuantite ?? null,
-        fabricationInitial: mission.fabricationInitial ?? 0,
+        // Type, matiere, quotas, fabrication : le schema de reprise.
+        ...missionState.serialiser(REPRISE, mission),
         // Grand livre des dons (S6) : preuves persistantes pour rehydrate.
         livraison: deliveryLedgersFor(mission).map(deliveryLedgerView),
         dimensions: mission.dimensions ? { ...mission.dimensions } : null,
-        arbreEnCours: celluleValide(mission.arbreEnCours),
-        buchesArbre: mission.buchesArbre,
-        tree: celluleValide(mission.tree),
-        buchesArbreDemande: mission.buchesArbreDemande,
-        dropsArbreDemande: mission.dropsArbreDemande,
-        arbreEntitiesInitial: mission.arbreEntitiesInitial,
-        arbreSources: mission.arbreSources,
-        arbreSpawns: mission.arbreSpawns,
-        arbreBaseline: mission.arbreBaseline,
-        arbreCoupes: mission.arbreCoupes,
-        arbreCollectes: mission.arbreCollectes,
-        arbreInventaireDepart: mission.arbreInventaireDepart ?? null,
-        arbreCollecteIds: mission.arbreCollecteIds,
-        echafaudageEnAttente: (mission.echafaudageEnAttente ?? []).map(celluleValide).filter(Boolean),
-        echafaudagePose: (mission.echafaudagePose ?? []).map(celluleValide).filter(Boolean),
+        // Arbre commence et echafaudage : le schema declare (mission-state.js).
+        ...missionState.serialiser(missionState.SUIVI_ARBRE, mission),
         route: mission.movementTask
           ? { steps: JSON.parse(JSON.stringify(mission.movementTask.steps)), cursor: mission.movementTask.cursor, origin: mission.movementTask.origin ? { ...mission.movementTask.origin } : null }
           : null
@@ -7311,25 +7249,15 @@ function createMissionRunner (host, injected = {}) {
       clearance: { limit: 0, used: 0 },
       objective: String(obj.texte ?? ''),
       requester: String(obj.auteur ?? 'inconnu'),
-      kind: desc.kind,
+      // kind, resource, landmark, quotas, fabrication, pendingJoin : le
+      // schema de reprise, le meme que celui du descripteur.
+      ...missionState.restaurer(REPRISE, desc),
       kindConfidence: 1,
-      resource: desc.resource,
       resourceConfidence: 1,
-      landmark: (desc.landmark && skills.LANDMARKS[desc.landmark]) ? desc.landmark : 'ici',
       landmarkResource: null,
       wantsDoor: false,
       doorProbability: 0,
       dimensions: dims,
-      quota: Number.isFinite(Number(desc.quota)) ? Number(desc.quota) : DEFAULT_QUOTA,
-      quotaExplicite: desc.quotaExplicite === true,
-      wholeTree: desc.wholeTree === true,
-      fabricationCible: typeof desc.fabricationCible === 'string' ? desc.fabricationCible : null,
-      fabricationQuantite: Number.isFinite(Number(desc.fabricationQuantite))
-        ? Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Math.round(Number(desc.fabricationQuantite))))
-        : 1,
-      fabricationInitial: Number.isFinite(Number(desc.fabricationInitial))
-        ? Math.max(0, Math.round(Number(desc.fabricationInitial)))
-        : 0,
       fabricationLastError: null,
       supply: SUPPLY,
       buildBlock: skills.RESOURCES[desc.resource]?.build ?? 'dirt',
@@ -7343,7 +7271,6 @@ function createMissionRunner (host, injected = {}) {
       state: 'running',
       cancelled: false,
       navigationAbort: new AbortController(),
-      pendingJoin: desc.pendingJoin === true,
       startedAt: now,
       startedAtIso: new Date().toISOString(),
       activeElapsedMs: 0,
