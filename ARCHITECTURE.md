@@ -45,10 +45,16 @@ Trois principes structurent le code :
 
 | Module | Role |
 | --- | --- |
-| `index.js` | connexion, API HTTP, chien de garde (liquide, immobilite), commandes `!`, `digToward` (pathfinder qui creuse) |
+| `index.js` | connexion, chien de garde (liquide, immobilite), commandes `!`, `digToward` (pathfinder qui creuse, ou navigateur en mode creuser sous `nav_creuse`) |
+| `api.js` | API HTTP et interface web (`createApi(rt, deps)` : etat vivant par accesseurs, dependances stables) |
 | `conversation.js` | interpretation du chat (`planner.interpretMessage`), arbitrage entre demandes, garde don/porte non demandes |
 | `objective-controller.js`, `state-store.js` | objectifs durables persistes (`/data/objectives.json`), reprise apres redemarrage |
-| `mission.js` | boucle de mission, etat servi au modele (`buildState`), les 26 actions, garde-fous, blocages, reflexes |
+| `mission.js` | boucle de mission, etat servi au modele (`buildState`), actions, contrats (`CONTRATS`), garde-fous, blocages, reflexes |
+| `perception.js` | ce que le bot sait du monde sans y toucher : nature d un bloc, hitbox, relief, portee d un pilier, postes au sol, instantane d une region ; fonctions pures |
+| `outcomes.js` | contrat des resultats : code d echec, remedes (actions qui levent l obstacle), garde anti-repetition |
+| `mission-state.js` | etat persiste declare une fois (suivi d arbre, reprise) : lecture et ecriture du meme schema |
+| `trace.js` | trace structuree de mission (plans, etapes, blocages, fin) et son resume |
+| `action-gestes.js` | premiere famille d actions a contexte explicite : gestes, attente, fin, memoire |
 | `executor.js` | slot physique unique : une action du monde a la fois, annulable |
 | `planner.js` | prompts, plan JSON, brief, chat, conception de plans libres (`designBlueprint`), coercition des parametres |
 | `model-chain.js`, `llm.js` | modele, effort et cle par usage ; transport OpenAI partage (chat/completions et responses) |
@@ -125,20 +131,34 @@ buildState() ──► decideFromPlan() ──► action (slot physique) ──�
   jamais tant qu un arbre commence a des buches debout ; ses piliers sont
   defaits avant.
   Filets : `MISSION_MAX_STEPS`, `MISSION_MAX_DURATION_MS`, echecs d affilee.
+- **Contrats** (`CONTRATS`) : preconditions verifiees avant chaque appel
+  d action, internes compris (chantier place, arbre fini, hors liquide) ; une
+  precondition fausse rend un echec code dont les remedes sont le sous-but.
+  L effet attendu d une etape (casse, inventaire, deplacement, montee, pose)
+  est mesure avant et apres ; une etape reussie sans effet porte `sans_effet`.
+- **Resultats structures** (`outcomes.js`) : tout echec porte un code (le sien
+  ou `<action>_echec`) et ses `remedes`, montres au modele dans
+  `dernieres_etapes`. **Anti-repetition** (A/B `anti_boucle`) : la meme etape
+  (action, parametres, case, inventaire) deja en echec ou sans effet deux fois
+  a l identique est refusee (code `repetition`) avec les autres remedes.
 - **Blocage** (`detectStuck` : meme action et meme resultat 3 fois, 3 echecs,
   ou aucun progres depuis `MISSION_NO_PROGRESS_STEPS`) : dit une fois dans le
-  chat, journalise `[blocage] {json}`, remonte au banc.
+  chat, journalise `[blocage] {json}`, remonte au banc avec un instantane du
+  monde autour du bot (`perception.instantane`), rejouable hors ligne
+  (`tmp/replay-snapshot.js`).
+- **Trace** (`trace.js`) : chaque plan, etape, blocage et fin est un
+  evenement mesure ; le banc l ecrit en JSONL et en agrege les codes.
 
 ### 3.5 Actions
 
-26 actions (`skills.ACTIONS`, handlers dans `mission.js`). Les plus
-structurantes :
+26 actions (`skills.ACTIONS`, handlers dans `mission.js`, gestes dans
+`action-gestes.js`). Les plus structurantes :
 
 | Action | Ce que fait le code |
 | --- | --- |
 | `recolter` | avancer / casser / ramasser enchaines jusqu a la quantite, matiere figee, 60 s max, rend la main au premier echec |
 | `casser` | rafale bornee en duree, outil verifie a chaque bloc, casse verifiee cote serveur |
-| `avancer` | navigateur partage vers un poste a portee de la cible ; sans cible : detour dans le cap, arret au bord d une chute ; feuilles, pont, `digToward` en recours |
+| `avancer` | navigateur partage vers un poste a portee de la cible ; cible trop haute : pilier mesure, et si aucune hauteur ne suffit d ici, le code rejoint lui-meme un poste au sol (`perception.postesDePilier`) ; sans cible : detour dans le cap, arret au bord d une chute ; feuilles, pont, `digToward` en recours |
 | `explorer` | spirale de caps autour du depart, arret des que la matiere est en vue |
 | `piler` | pilier de terre/planches, stock recupere lui-meme, hauteur jamais rabotee |
 | `fabriquer`, `cuire` | recette du registre, etabli ou four rejoints/poses, produit mesure en inventaire |
@@ -183,3 +203,5 @@ passagere, reaiguillage de session, champ refuse retire, changement de cle
 | `GET/DELETE /api/memory` | memoire du modele |
 | `POST /api/goto`, `/api/control`, `/api/jump`, `/api/look`, `/api/turn`, `/api/unstuck` | commandes directes et diagnostic |
 | `GET /api/navigation/trace` | traces physiques des derniers trajets |
+| `GET /api/mission/trace` | trace structuree de la mission courante et son resume |
+| `GET /api/mission/instantanes` | instantanes du monde pris aux derniers blocages |

@@ -439,7 +439,25 @@ Jamais de `prune`, jamais `itzg/minecraft-server` ni les sauvegardes
 
 Les resultats sont ecrits dans `test-results/mc-ci-.../` : `report.json`,
 `summary.md`, journaux et traces physiques. `test-results/latest.json` est une
-copie pratique locale. Le code de sortie vaut 0 uniquement si tous les tests
+copie pratique locale.
+
+Depuis le 2026-10-01, deux dossiers s y ajoutent :
+
+- `traces/<niveau>.jsonl` : la trace structuree de la mission (`bot/trace.js` :
+  plans, etapes avec duree, code, remedes, `sans_effet`, positions, blocages,
+  fin). Son resume va dans le resultat du niveau (`trace`) ; le KPI du rapport
+  agrege les echecs par code (`kpi.parCode`) et les gestes sans effet
+  (`kpi.sansEffet`).
+- `instantanes/<niveau>-N.json` : le monde autour du bot a chaque blocage
+  (palette et suite compacte, `perception.instantane`). Rejeu hors ligne de la
+  perception, en une seconde :
+  `NODE_PATH=$PWD/bot/node_modules node tmp/replay-snapshot.js <fichier>`.
+  Un blocage de perception devient ainsi un test unitaire sur le monde reel
+  du banc (`tmp/sim-world.js`, `worldFromSnapshot`).
+
+Promotion d un niveau informatif : `python3 ci/promotion.py <report.json...>`
+donne le taux de reussite sur N bancs (intervalle de Wilson 95 %) et la serie
+comptee avec le jumeau `~aleatoire` ; un seul passage est un signal bruite. Le code de sortie vaut 0 uniquement si tous les tests
 selectionnes et le nettoyage reussissent. Hors depot Git, `sha` vaut `null` ;
 dans un checkout, le SHA et l'indicateur `dirty` evitent de presenter des
 modifications locales comme un commit valide.
