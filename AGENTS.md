@@ -211,7 +211,10 @@ dans `docs/journal.md` (section « Les pieges »).
    arrondit le centre du bloc et creusait un trou au pied du mur. Le pathfinder
    planifie parfois une montee d un bloc sous un plafond de deux (impossible,
    la tete touche) et replanifie sans fin : trois `stuck` sur place arretent
-   le trajet (code `stuck`).
+   le trajet (code `stuck`). Il tient aussi toute porte pour un mur (il
+   n ouvre que les portillons) : le navigateur traverse les portes en bois et
+   les ouvre a la main (`openDoorAt`) ; sans cela, un bot ferme dans sa
+   cabane n en sortait plus. Une porte de fer reste un mur.
 7. **Chien de garde et pathfinder s entretuent** sans `RESCUE_COOLDOWN_MS`.
    Avant toute hypothese « il ne bouge plus » : `forward` maintenu via
    `/api/control` (le bot bouge-t-il ?) puis `/api/goto` (le pathfinder
