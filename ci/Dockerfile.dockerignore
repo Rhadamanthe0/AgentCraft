@@ -12,3 +12,6 @@
 !ci/probes.js
 !ci/model-probe.js
 !ci/package-lock.json
+!.github/
+!.github/workflows/
+!.github/workflows/codex-review-gate.yml
