@@ -14,6 +14,10 @@ on:
         description: 'Graine des arenes (vide = SHA du commit) : meme graine pour comparer deux modes'
         type: string
         default: ''
+      random_seed:
+        description: 'Graine des arenes aleatoires (vide = tiree au hasard) : rejoue un jumeau ~aleatoire (variation.graine)'
+        type: string
+        default: ''
       levels:
         description: 'Niveaux a jouer : tout, unitaires, ou motifs (composite/*, trees/pillar*) ; vide = tout'
         type: string
@@ -109,6 +113,7 @@ jobs:
           CI_ENVELOPE_CPU_PCT: '600'
           CI_POOL_SIZE: '16'
           CI_VARIATION_SEED: ${{ inputs.variation_seed }}
+          CI_RANDOM_SEED: ${{ inputs.random_seed }}
           CI_LEVELS: ${{ steps.levels.outputs.levels }}
         run: python3 ci/run.py --suite "${{ steps.levels.outputs.suite }}"
       - name: Remove any remaining disposable test containers

@@ -1441,7 +1441,9 @@ RANDOM_TWIN_FAMILIES = ('composite',)
 
 
 def levels():
-    return [level for level in all_levels_unfiltered() if selected(level['name'])]
+    # A chosen composite always brings its random twin (never a stable-only run).
+    return [level for level in all_levels_unfiltered()
+            if selected(level['name']) or (level.get('randomArena') and selected(level['variantOf']))]
 
 
 def all_levels_unfiltered():

@@ -160,8 +160,9 @@ choisi (`Banc: navigation/*`), ni bots, ni modele, ni controle de cle.
 
 Chaque composite a un jumeau `~aleatoire`, informatif, joue dans une arene
 tiree au hasard a chaque banc (graine dans `variation.graine`,
-`CI_RANDOM_SEED` pour rejouer), a cote de l arene stable de la graine
-commitee. Le tirage ecarte la disposition de l arene stable : le jumeau ne
+`CI_RANDOM_SEED`, ou l entree `random_seed` du lancement manuel, pour
+rejouer), a cote de l arene stable de la graine commitee. Choisir un
+composite, meme par son nom exact, joue toujours aussi son jumeau. Le tirage ecarte la disposition de l arene stable : le jumeau ne
 la rejoue jamais.
 
 Le banc est lance par `python ci/run.py`. Il fonctionne avec Python 3.10+,
