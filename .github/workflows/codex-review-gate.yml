@@ -63,9 +63,30 @@ jobs:
             const runUrl = `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}/actions/runs/${context.runId}`;
             const checks = new Map();
             const requestWatermarks = new Map();
-            function observeRequests(comments, dates) {
+            const invalidHeads = new Set();
+            const rejectedStates = new Map();
+            const requestPermissions = new Map();
+            async function authorizedRequester(comment) {
+              const user = comment.user;
+              if (!user?.login || !Number.isSafeInteger(user.id) || user.type !== 'User') return false;
+              if (!requestPermissions.has(user.id)) {
+                try {
+                  const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: user.login });
+                  requestPermissions.set(user.id, data.user?.id === user.id
+                    && ['write', 'maintain', 'admin'].includes(data.permission));
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                  requestPermissions.set(user.id, false);
+                }
+              }
+              return requestPermissions.get(user.id);
+            }
+            // Ignorer un declencheur non autorise avant toute invalidation.
+            if (context.eventName === 'issue_comment' && context.payload.comment?.user?.id !== BOT_ID
+                && !await authorizedRequester(context.payload.comment)) return;
+            async function observeRequests(comments, dates) {
               for (const comment of comments) {
-                if (comment.user?.id === BOT_ID) continue;
+                if (comment.user?.id === BOT_ID || !/@codex\s+(security\s+)?review\b/i.test(comment.body || '') || !await authorizedRequester(comment)) continue;
                 for (const command of (comment.body || '').matchAll(/@codex\s+(security\s+)?review\b/gi)) {
                   const name = command[1] ? 'Security Review' : 'Code Review';
                   const date = Date.parse(comment.updated_at || comment.created_at) + 1000;
@@ -82,28 +103,71 @@ jobs:
                 const matching = existing.filter(c => c.name === STATUS_CONTEXT && c.app?.id === 15368
                   && c.external_id === 'codex-review-gate:v1');
                 const previous = matching.sort((a, b) => b.id - a.id)[0];
-                const dates = new Map();
-                if (previous?.output?.text) {
-                  const saved = JSON.parse(previous.output.text);
-                  if (saved.schema !== 'codex-review-gate:v1' || !saved.review_requests
-                      || typeof saved.review_requests !== 'object') throw new Error('Invalid saved review requests.');
-                  for (const [name, date] of Object.entries(saved.review_requests)) {
-                    if (!['Code Review', 'Security Review'].includes(name) || !Number.isFinite(date) || date < 0) {
-                      throw new Error('Invalid saved review request date.');
+                const byPr = new Map();
+                let previousId = previous?.id;
+                let rejectedId = previous?.id;
+                try {
+                  if (previous && !previous.output?.text) throw new Error('Saved review state is missing.');
+                  if (previous?.output?.text) {
+                    const saved = JSON.parse(previous.output.text);
+                    if (Number.isSafeInteger(saved.rejected_check_run_id)) rejectedId = saved.rejected_check_run_id;
+                    const object = value => value && typeof value === 'object' && !Array.isArray(value);
+                    const readDates = value => {
+                      if (!object(value)) throw new Error('Invalid saved review requests.');
+                      const dates = new Map();
+                      for (const [name, date] of Object.entries(value)) {
+                        if (!['Code Review', 'Security Review'].includes(name) || !Number.isFinite(date) || date < 0) {
+                          throw new Error('Invalid saved review request date.');
+                        }
+                        dates.set(name, date);
+                      }
+                      return dates;
+                    };
+                    if (saved.schema === 'codex-review-gate:v1') {
+                      if (readDates(saved.review_requests).size) {
+                        throw new Error('Legacy review requests have no PR provenance; explicit recovery required.');
+                      }
+                    } else if (saved.schema === 'codex-review-gate:v2' && object(saved.review_requests_by_pr)) {
+                      for (const [number, dates] of Object.entries(saved.review_requests_by_pr)) {
+                        if (!/^[1-9][0-9]*$/.test(number) || !Number.isSafeInteger(Number(number))) {
+                          throw new Error('Invalid saved pull request number.');
+                        }
+                        byPr.set(Number(number), readDates(dates));
+                      }
+                    } else throw new Error('Invalid saved review request schema.');
+                    if (saved.invalid_state) {
+                      invalidHeads.add(head);
+                      rejectedStates.set(head, rejectedId);
                     }
-                    dates.set(name, date);
                   }
+                } catch (error) {
+                  core.warning(error.message);
+                  invalidHeads.add(head);
+                  rejectedStates.set(head, rejectedId);
+                  previousId = undefined;
+                  // Conserver le check original pour recuperation explicite, sans attribuer une demande inconnue a une PR.
+                  byPr.clear();
                 }
-                if (head === trigger.head.sha && context.payload.comment) observeRequests([context.payload.comment], dates);
-                requestWatermarks.set(head, dates);
-                checks.set(head, previous?.id);
+                if (head === trigger.head.sha && context.payload.comment) {
+                  const dates = byPr.get(triggerNumber) || new Map();
+                  await observeRequests([context.payload.comment], dates);
+                  byPr.set(triggerNumber, dates);
+                }
+                requestWatermarks.set(head, byPr);
+                checks.set(head, previousId);
+              }
+              if (invalidHeads.has(head)) {
+                state = 'error';
+                description = 'Saved review state has unknown PR provenance or is invalid; explicit recovery required.';
               }
               const body = { owner, repo, name: STATUS_CONTEXT, details_url: runUrl,
                 external_id: 'codex-review-gate:v1',
                 status: state === 'pending' ? 'in_progress' : 'completed',
                 output: { title: STATUS_CONTEXT, summary: description,
-                  text: JSON.stringify({ schema: 'codex-review-gate:v1',
-                    review_requests: Object.fromEntries(requestWatermarks.get(head) || []) }) } };
+                  text: JSON.stringify({ schema: 'codex-review-gate:v2',
+                    ...(invalidHeads.has(head) ? { invalid_state: true, rejected_check_run_id: rejectedStates.get(head) } : {}),
+                    review_requests_by_pr: Object.fromEntries([...(requestWatermarks.get(head) || [])]
+                      .map(([number, dates]) => [number, Object.fromEntries(dates)])) }) } };
               if (state !== 'pending') body.conclusion = state === 'success' ? 'success' : 'failure';
               const id = checks.get(head);
               let result;
@@ -181,10 +245,10 @@ jobs:
               });
               const requests = [...comments];
               if (pull_number === triggerNumber && context.payload.comment) requests.push(context.payload.comment);
-              const requestedAt = new Map(requestWatermarks.get(head) || []);
+              const requestedAt = new Map(requestWatermarks.get(head)?.get(pull_number) || []);
               const beforeRequests = JSON.stringify([...requestedAt]);
-              observeRequests(requests, requestedAt);
-              requestWatermarks.set(head, requestedAt);
+              await observeRequests(requests, requestedAt);
+              requestWatermarks.get(head).set(pull_number, requestedAt);
               if (JSON.stringify([...requestedAt]) !== beforeRequests) {
                 await update('pending', 'A newer review request is awaiting authenticated completion.');
               }
@@ -285,6 +349,16 @@ jobs:
               if (latestPeers.filter(p => p.head.sha === head).length !== 1
                   || JSON.stringify(latestTimeline.filter(e => e.event === 'base_ref_changed')) !== JSON.stringify(retargets)) {
                 core.info('Contexte de PR modifié pendant la lecture ; statut bloqué.');
+                return;
+              }
+              const finalRequests = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: pull_number, per_page: 100,
+              });
+              const finalDates = new Map(requestedAt);
+              await observeRequests(finalRequests, finalDates);
+              if (JSON.stringify([...finalDates]) !== JSON.stringify([...requestedAt])) {
+                requestWatermarks.get(head).set(pull_number, finalDates);
+                await update('pending', 'A review request arrived during evaluation.');
                 return;
               }
               // GitHub separately enforces review conversation resolution.
