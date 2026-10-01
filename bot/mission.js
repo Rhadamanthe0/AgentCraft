@@ -25,7 +25,7 @@ const missionState = require('./mission-state')
 const missionTrace = require('./trace')
 const { createGestes } = require('./action-gestes')
 const {
-  PILER_DIRT, scaffoldingStock, estAir, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
+  PILER_DIRT, scaffoldingStock, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
   marcheDevant, videDevant, sondeAlentours, capDepuisVecteur, choisirCoteContournement, dansEmprise
 } = perception
 const craft = require('./craft')

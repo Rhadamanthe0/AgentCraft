@@ -375,7 +375,7 @@ test('avancer : aucune hauteur de pilier ne suffit, aucun poste autour', async t
 // Meme buche, sol tout autour : le code mesure les postes au sol, rejoint le
 // plus bas (pilier le plus court) puis le plus proche, et reprend la mesure
 // depuis la. Avant, « changer de poste » revenait au modele, qui relancait
-// avancer depuis le meme endroit (cabane ~aleatoire 858ba92, dix tours).
+// avancer depuis le meme endroit (maison en pierre ~aleatoire 858ba92, dix tours).
 test('avancer : aucune hauteur ne suffit ici, le code rejoint un poste mesure', async t => {
   const sol = {}
   for (let x = -2; x <= 8; x++) for (let z = -4; z <= 4; z++) sol[`${x},64,${z}`] = 'stone'

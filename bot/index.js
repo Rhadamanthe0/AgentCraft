@@ -3,8 +3,6 @@
 const logger = require('./logger')
 logger.install()
 
-const express = require('express')
-const path = require('path')
 const mineflayer = require('mineflayer')
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder')
 const skills = require('./skills')
@@ -1604,7 +1602,6 @@ const app = createApi({
   activeControls,
   conversation,
   craft,
-  durable,
   durableCorrupted,
   durablePersistError,
   handleHardStop,

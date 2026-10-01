@@ -20,7 +20,6 @@ function createApi (rt, deps) {
     activeControls,
     conversation,
     craft,
-    durable,
     durableCorrupted,
     durablePersistError,
     handleHardStop,
