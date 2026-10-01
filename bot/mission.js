@@ -22,6 +22,7 @@ const build = require('./build')
 const outcomes = require('./outcomes')
 const perception = require('./perception')
 const missionState = require('./mission-state')
+const missionTrace = require('./trace')
 const {
   PILER_DIRT, scaffoldingStock, estAir, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
   marcheDevant, videDevant, sondeAlentours, capDepuisVecteur, choisirCoteContournement, dansEmprise
@@ -2357,6 +2358,13 @@ function createMissionRunner (host, injected = {}) {
     if (!gardes.has(m)) gardes.set(m, outcomes.createLoopGuard())
     return gardes.get(m)
   }
+  const traces = new WeakMap()
+  function traceDe (m) {
+    if (!m) return null
+    if (!traces.has(m)) traces.set(m, missionTrace.createTrace())
+    return traces.get(m)
+  }
+
   function inventaireTotal () {
     try {
       return (host.getBot()?.inventory?.items?.() ?? []).reduce((n, item) => n + (item.count ?? 0), 0)
@@ -5735,6 +5743,7 @@ function createMissionRunner (host, injected = {}) {
       position: p ? { x: Number(p.x.toFixed(1)), y: Number(p.y.toFixed(1)), z: Number(p.z.toFixed(1)) } : null
     }
     mission.blocages = (mission.blocages ?? []).concat(entree).slice(-20)
+    traceDe(mission)?.push({ type: 'blocage', raison })
     console.log(`[blocage] ${JSON.stringify(entree)}`)
     // Monde reel autour du bot a cet instant, pour rejouer la perception hors
     // ligne (tmp/replay-snapshot.js). Servi a part (/api/mission/instantanes) :
@@ -5791,6 +5800,7 @@ function createMissionRunner (host, injected = {}) {
     mission.state = state
     mission.endedAt = new Date().toISOString()
     mission.reason = reason
+    traceDe(mission)?.push({ type: 'fin', etat: state, raison: reason })
     mission.summaryText = summary()
     let message
     if (state === 'done') {
@@ -5977,6 +5987,8 @@ function createMissionRunner (host, injected = {}) {
   function applyPlanResult (result, capture) {
     mission.plans += 1
     mission.planMs = result.ms
+    traceDe(mission)?.push({ type: 'plan', ms: result.ms, etapes: result.steps?.length ?? 0,
+      rejetees: result.rejected?.length ?? 0, fini: Boolean(result.finished) })
     mission.lastWhy = result.why || null
 
     if (result.rejected.length > 0) {
@@ -6396,6 +6408,8 @@ function createMissionRunner (host, injected = {}) {
       if (dejaVu) outcome = outcomes.refusRepetition(decision.step, dejaVu, ACTIONS)
       const effetAttendu = CONTRATS[decision.step]?.effet ?? null
       const avantEffet = effetAttendu && !outcome ? mesuresEffet() : null
+      const debutEtape = Date.now()
+      const departEtape = host.getBot()?.entity?.position?.clone?.() ?? null
 
       if (!outcome) try {
         const message = activity.ACTIONS[decision.step] ?? activity.SUBGOALS[decision.step === 'rejoindre_demandeur' ? 'rejoindre' : '']
@@ -6478,6 +6492,10 @@ function createMissionRunner (host, injected = {}) {
       mission.history.push({ action: decision.step, resultat: outcome.resultat, code: outcome.code ?? null, echec: Boolean(outcome.echec),
         ...(outcome.echec && outcome.remedes?.length ? { remedes: outcome.remedes } : {}),
         ...(outcome.sansEffet ? { sans_effet: true } : {}) })
+      traceDe(mission)?.push({ type: 'etape', action: decision.step, params: decision.choices, ms: Date.now() - debutEtape,
+        echec: Boolean(outcome.echec), code: outcome.code ?? null, sans_effet: Boolean(outcome.sansEffet),
+        remedes: outcome.remedes ?? [], de: missionTrace.arrondi(departEtape),
+        a: missionTrace.arrondi(host.getBot()?.entity?.position) })
       if (mission.history.length > 8) mission.history.shift()
       reportProgressSafe()
 
@@ -7570,6 +7588,11 @@ function createMissionRunner (host, injected = {}) {
     status,
     // Instantanes du monde pris aux derniers blocages (3 au plus).
     instantanes: () => mission?.instantanes ?? [],
+    // Trace structuree de la mission courante (ou derniere) et son resume.
+    trace: () => {
+      const tr = traceDe(mission)
+      return tr ? { mission: mission.id, evenements: tr.evenements(), perdus: tr.perdus(), resume: tr.resume() } : null
+    },
     isRunning,
     SUPPLY,
     ACTION_NAMES: Object.keys(ACTIONS),

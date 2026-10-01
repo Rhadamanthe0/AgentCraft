@@ -1816,6 +1816,16 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
                              'blocages': len(blocages)}
             if m.get('echecs_detail'):
                 result['kpi']['detail'] = m['echecs_detail'][:10]
+            # Structured trace (bot/trace.js): the summary in the result, the
+            # events as JSONL next to report.json.
+            trace = (bot_api(worker.bot, '/api/mission/trace') or {}).get('trace') if m else None
+            if trace and trace.get('mission') == m.get('id'):
+                result['trace'] = trace.get('resume')
+                folder = Path(output) / 'traces'
+                folder.mkdir(parents=True, exist_ok=True)
+                stem = re.sub(r'[^A-Za-z0-9_.-]+', '_', level['name'])
+                (folder / f'{stem}.jsonl').write_text(
+                    ''.join(json.dumps(e) + '\n' for e in trace.get('evenements') or []), encoding='utf-8')
             if blocages:
                 result['blocages'] = [{k: b.get(k) for k in ('secondes', 'raison', 'derniere_action')} for b in blocages[-5:]]
                 # World around the bot at each blockage, replayable offline

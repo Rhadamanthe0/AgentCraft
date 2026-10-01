@@ -1916,6 +1916,10 @@ app.get('/api/mission/instantanes', (req, res) => {
   res.json({ ok: true, instantanes: missionRunner.instantanes?.() ?? [] })
 })
 
+app.get('/api/mission/trace', (req, res) => {
+  res.json({ ok: true, trace: missionRunner.trace?.() ?? null })
+})
+
 app.get('/api/navigation/trace', (req, res) => res.json(req.query.history === '1'
   ? { ok: true, traces: navigator.traces(), active: navigator.isActive() ? navigator.trace() : null }
   : { ok: true, trace: navigator.trace() }))

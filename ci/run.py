@@ -78,7 +78,19 @@ def kpi_summary(tests):
     total = {key: sum(f[key] for f in fam.values()) for key in ('etapes', 'echecs', 'blocages', 'niveaux')}
     for f in list(fam.values()) + [total]:
         f['tauxEchec'] = round(f['echecs'] / f['etapes'], 3) if f['etapes'] else None
-    return {'total': total, 'familles': fam}
+    # Structured mission traces (bot/trace.js): failures per code and gestures
+    # without effect per action, summed over blocking levels.
+    par_code, sans_effet = {}, {}
+    for t in tests:
+        trace = t.get('trace')
+        if not trace or t.get('informative'):
+            continue
+        for code, n in (trace.get('parCode') or {}).items():
+            par_code[code] = par_code.get(code, 0) + n
+        for action, a in (trace.get('parAction') or {}).items():
+            if a.get('sansEffet'):
+                sans_effet[action] = sans_effet.get(action, 0) + a['sansEffet']
+    return {'total': total, 'familles': fam, 'parCode': par_code, 'sansEffet': sans_effet}
 
 
 def kpi_lines(report):
@@ -91,6 +103,11 @@ def kpi_lines(report):
     for name, f in sorted(k['familles'].items()):
         lines.append(f"- {name} : {round(100 * (f['tauxEchec'] or 0), 1)} % d echecs ({f['echecs']}/{f['etapes']}), "
                      f"{f['blocages']} blocage(s)")
+    if k.get('parCode'):
+        codes = sorted(k['parCode'].items(), key=lambda kv: -kv[1])
+        lines.append('- echecs par code : ' + ', '.join(f'{c} {n}' for c, n in codes[:12]))
+    if k.get('sansEffet'):
+        lines.append('- gestes sans effet : ' + ', '.join(f'{a} {n}' for a, n in sorted(k['sansEffet'].items(), key=lambda kv: -kv[1])))
     echecs = [(t2['test'], e) for t2 in report['tests'] if not t2.get('informative')
               for e in ((t2.get('kpi') or {}).get('detail') or [])]
     if echecs:
@@ -136,7 +153,7 @@ UNIT = ['codex-review-gate.test.js', 'navigation.test.js', 'navigation-drop.test
         'place-direct.test.js', 'craft-table-reuse.test.js',
         # Ajoutes le 2026-09-27 (revue : 1 a 11 s chacun, regressions a bas cout).
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
-        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
+        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
         'delivery.test.js', 'planner-profile.test.js', 'planner-relaunch.test.js','llm.test.js', 'executor.test.js', 'objective-controller.test.js',
         'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js', 'ouvrir-porte.test.js', 'enclosure.test.js']
 
