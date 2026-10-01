@@ -29,7 +29,7 @@ const Vec3 = require('vec3').Vec3
 const planner = require('./planner')
 const memory = require('./memory')
 const screenshot = require('./screenshot')
-const { blockInReach, clearSegment, itemInPickupRange } = require('./navigation')
+const { blockInReach, clearSegment, itemInPickupRange, isWoodDoor, doorClosed } = require('./navigation')
 
 // Qui decide : le planificateur JSON distant (plan de plusieurs etapes par
 // appel).
@@ -5157,6 +5157,56 @@ function createMissionRunner (host, injected = {}) {
       // Un `sortir` qui n a pas sorti le bot est un echec : sinon la boucle le
       // compte comme un progres et le modele croit le probleme regle.
       return { resultat: encore ? 'toujours dans un liquide' : 'degage', echec: encore }
+    },
+
+    // La porte en bois la plus proche (8 blocs) : la rejoindre a portee de
+    // main, l ouvrir, puis passer de l autre cote (face opposee au bot).
+    // Le navigateur ouvre aussi les portes sur un trajet ; cette action le
+    // fait a la demande, quand le modele voit qu il est enferme.
+    async ouvrir_porte () {
+      const bot = host.getBot()
+      if (!bot?.entity) return { resultat: 'bot absent du monde', echec: true }
+      const ids = Object.values(bot.registry.blocksByName).filter(b => isWoodDoor(b.name)).map(b => b.id)
+      let door = ids.length ? bot.findBlock({ matching: ids, maxDistance: 8 }) : null
+      if (!door) return { resultat: 'aucune porte en bois a moins de 8 blocs', echec: true }
+      // Une porte = deux blocs : on agit sur la moitie basse.
+      const below = bot.blockAt(door.position.offset(0, -1, 0))
+      if (below && isWoodDoor(below.name)) door = below
+      const centre = door.position.offset(0.5, 0.5, 0.5)
+      if (!blockInReach(bot, bot.entity.position, centre, REACH)) {
+        const r = await host.navigateToPosition(centre, {
+          signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, timeoutMs: 10000, distanceBudget: 16
+        })
+        const live = host.getBot()
+        if (!live?.entity || !blockInReach(live, live.entity.position, centre, REACH)) {
+          return { resultat: `porte en ${door.position.x} ${door.position.y} ${door.position.z} hors de portee (${r?.code ?? 'trajet impossible'})`, echec: true }
+        }
+      }
+      const live = host.getBot()
+      if (doorClosed(live.blockAt(door.position))) {
+        try {
+          await withTimeout(live.activateBlock(live.blockAt(door.position)), 4000, 'ouverture trop longue')
+        } catch (err) {
+          return { resultat: `porte refusee : ${err.message}`, echec: true }
+        }
+        await sleep(200)
+        if (doorClosed(live.blockAt(door.position))) return { resultat: 'porte toujours fermee apres l avoir actionnee', echec: true }
+      }
+      // L autre cote : la case voisine de la porte, sur son axe, la plus
+      // eloignee du bot.
+      const facing = String(live.blockAt(door.position)?.getProperties?.()?.facing ?? 'north')
+      const axe = facing === 'east' || facing === 'west' ? [new Vec3(1, 0, 0), new Vec3(-1, 0, 0)] : [new Vec3(0, 0, 1), new Vec3(0, 0, -1)]
+      const here = live.entity.position
+      const cote = axe.map(d => door.position.plus(d).offset(0.5, 0, 0.5))
+        .sort((a, b) => b.distanceTo(here) - a.distanceTo(here))[0]
+      const r = await host.navigateToPosition(cote, {
+        signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.6, timeoutMs: 8000, distanceBudget: 12
+      })
+      const pos = host.getBot()?.entity?.position
+      const ou = pos ? `${pos.x.toFixed(1)} ${pos.y.toFixed(1)} ${pos.z.toFixed(1)}` : '?'
+      return r?.reached
+        ? { resultat: `porte ouverte et franchie, maintenant en ${ou}` }
+        : { resultat: `porte ouverte, passage impossible (${r?.code ?? 'trajet'}), en ${ou}`, echec: true }
     },
 
     async attendre (scale, params = {}) {

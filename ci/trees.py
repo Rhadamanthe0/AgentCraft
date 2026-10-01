@@ -16,12 +16,14 @@ A level ends as soon as the outcome is known: the mission ends by itself
 to announce it), nothing productive changed for NO_PROGRESS_S, no mission
 started, or the hard cap LEVEL_CAP_S is reached.
 """
+import fnmatch
 import json
 from pathlib import Path
 import math
 import os
 import random
 import re
+import secrets
 import threading
 import time
 
@@ -636,7 +638,7 @@ def base_levels():
             'leaves': [box for (x, z) in COMPOSITE_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [sans('ouvrir_porte')],
         },
         # Palier 2 (2026-09-28) : chaine plus longue, imprevu, terrain hostile.
         # Informatifs jusqu a trois bancs reussis d affilee.
@@ -704,6 +706,17 @@ def variation_seed():
     return None if seed.lower() == 'off' else (seed or str(random.random()))
 
 
+_RANDOM_SEED = []
+
+
+def random_seed():
+    # One draw per run (CI_RANDOM_SEED replays a run), shared by every
+    # random twin of the run.
+    if not _RANDOM_SEED:
+        _RANDOM_SEED.append(os.environ.get('CI_RANDOM_SEED') or 'alea-' + secrets.token_hex(6))
+    return _RANDOM_SEED[0]
+
+
 def _cell(x, z, turns, mirror):
     if mirror:
         x = SIZE - x
@@ -739,14 +752,31 @@ def _block(name, turns, species):
     return name
 
 
-def vary(level, seed):
+IDENTITY = (0, False, 'oak')
+
+
+def transform(level, seed, avoid=None):
+    """(quarter turns, mirror, species) of a level's arena; None seed = as written.
+
+    `avoid`: a transform this one must differ from (a random twin is never
+    its stable arena again); the draw goes on in the same sequence, so the
+    seed still replays it."""
     if seed is None:
-        return level
+        return IDENTITY
     # An A/B variant plays its base level's scene: only the switched mode differs.
     rng = random.Random(f"{seed}:{level.get('variantOf') or level['name']}")
-    turns, mirror, species = rng.randrange(4), rng.random() < .5, rng.choice(SPECIES)
+    while True:
+        drawn = rng.randrange(4), rng.random() < .5, rng.choice(SPECIES)
+        if drawn != avoid:
+            return drawn
+
+
+def vary(level, seed, avoid=None):
+    if seed is None and avoid is None:
+        return level
+    turns, mirror, species = transform(level, seed, avoid)
     out = dict(level)
-    out['variation'] = {'rotation': turns * 90, 'miroir': mirror, 'essence': species}
+    out['variation'] = {'rotation': turns * 90, 'miroir': mirror, 'essence': species, 'graine': seed}
     out['terrain'] = [_box(t[:6], turns, mirror) + (_block(t[6], turns, species),) for t in level.get('terrain', [])]
     out['leaves'] = [_box(t, turns, mirror) for t in level['leaves']]
     out['leavesBlock'] = _block(LEAVES, turns, species)
@@ -1289,7 +1319,11 @@ def run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, pr
         checks['premiere_buche_coupee'] = wait(lambda s: logs_left() < expected, 90)
         say('bring', 'Et rapporte moi le bois quand tu as fini')
         checks['arbre_entier_coupe'] = wait(lambda s: logs_left() == 0, 150)
-        checks['revenu_pres_du_joueur'] = wait(near_probe, 60)
+        # Mission finie ET bot pres du joueur (comme tree_done) : mesure sur
+        # l etat final, pas pendant la mission. Arbre pres du joueur, l
+        # inventaire etait lu 2 s apres la derniere coupe, buche encore au sol
+        # et livraison en file (4cc94bf, e1b2256 : 2/3) ; meme borne de 60 s.
+        checks['revenu_pres_du_joueur'] = wait(lambda s: not s.get('missionRunning') and near_probe(s), 60)
     else:
         raise RuntimeError('Unknown chat script: ' + script)
     final = bot_api(bot, '/api/status')
@@ -1402,7 +1436,21 @@ def avec(mode):
     return (f'avec-{mode}', {mode: True})
 
 
+# Complex levels (composites) run twice (owner's request, 2026-10-01): once
+# in the stable arena (committed seed, comparable from one run to the next)
+# and once in an arena drawn at random for this run (`~aleatoire`, seed
+# random_seed()), so that a fix tuned to the stable layout shows up. The
+# random twin is informative; its seed is in the result (`variation`).
+RANDOM_TWIN_FAMILIES = ('composite',)
+
+
 def levels():
+    # A chosen composite always brings its random twin (never a stable-only run).
+    return [level for level in all_levels_unfiltered()
+            if selected(level['name']) or (level.get('randomArena') and selected(level['variantOf']))]
+
+
+def all_levels_unfiltered():
     out = []
     for level in base_levels():
         out.append(level)
@@ -1411,7 +1459,41 @@ def levels():
                             features={**level.get('features', {}), **features},
                             informative=True, variantOf=level['name'],
                             about=f"[{suffix}] {level['about']}"))
+        if level['name'].split('/')[0] in RANDOM_TWIN_FAMILIES:
+            out.append(dict(level, name=f"{level['name']}~aleatoire", variants=(), randomArena=True,
+                            informative=True, variantOf=level['name'],
+                            about=f"[arene aleatoire] {level['about']}"))
     return out
+
+
+# Levels to play (CI_LEVELS, chosen per commit by the workflow): empty or
+# `tout` = every level; otherwise patterns separated by commas or spaces
+# (`composite/*`, `trees/pillar*`), matched on the full name, so
+# `trees/pillar*` also takes its variants. `unitaires` = no level.
+ALL_LEVELS = ('', 'tout', 'all')
+
+
+def level_patterns():
+    raw = os.environ.get('CI_LEVELS', '').strip()
+    if raw.lower() in ALL_LEVELS:
+        return None
+    return [p for p in re.split(r'[\s,]+', raw) if p and p.lower() != 'unitaires']
+
+
+def selected(name):
+    patterns = level_patterns()
+    return patterns is None or any(fnmatch.fnmatchcase(name, p) for p in patterns)
+
+
+# Navigation scenarios of ci/run.py (played beside the levels, no planner).
+NAVIGATION_NAMES = ('navigation/simple-obstacle', 'navigation/stairs', 'navigation/abort', 'navigation/unreachable')
+
+
+def unmatched_patterns():
+    """Patterns of CI_LEVELS that name no level nor navigation scenario (a typo
+    must fail the run, never pass as a bench that played nothing)."""
+    names = [level['name'] for level in all_levels_unfiltered()] + list(NAVIGATION_NAMES)
+    return [p for p in level_patterns() or [] if not any(fnmatch.fnmatchcase(n, p) for n in names)]
 
 
 def mission_type(name):
@@ -1636,7 +1718,10 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
     """Every level once, on the workers of `pool_factory(queue, run_one)` (ci/pool.py)."""
     seed = variation_seed()
     print(f'Arenes variees : graine {seed!r}', flush=True)
-    all_levels = [vary(level, seed) for level in levels()]
+    all_levels = [vary(level, random_seed(), avoid=transform(level, seed)) if level.get('randomArena')
+                  else vary(level, seed) for level in levels()]
+    if any(level.get('randomArena') for level in all_levels):
+        print(f'Arenes aleatoires : graine {random_seed()!r}', flush=True)
     results = [None] * len(all_levels)
     origins = arena_origins()
     rcon('scoreboard objectives add degats minecraft.custom:minecraft.damage_taken')
@@ -1644,7 +1729,10 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
     # to hand the long tour-2 levels (trees/tall, trees/double) to whoever
     # finished a short join first, ~25 s after the start. Order only: every
     # level still runs, with the same checks, and results keep levels() order.
-    queue = sorted(range(len(all_levels)), key=lambda i: -EXPECTED_S.get(all_levels[i]['name'], NEW_LEVEL_S))
+    # A variant without its own measure lasts like its level (a random twin
+    # of a composite starts with the composites).
+    queue = sorted(range(len(all_levels)), key=lambda i: -EXPECTED_S.get(
+        all_levels[i]['name'], EXPECTED_S.get(all_levels[i].get('variantOf'), NEW_LEVEL_S)))
 
     def reset(bot):
         # Previous level's mission and working notes must not leak into the next one.
