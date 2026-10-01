@@ -148,13 +148,16 @@ Niveaux joues (etape « Choose the levels for this commit ») :
 | push sur `main` | tous |
 | push sur une branche, commit avec `Banc: tout` | tous |
 | push sur une branche, commit avec `Banc: composite/* trees/pillar*` | ces motifs (nom complet, variantes comprises) |
-| push sur une branche sans ligne `Banc:` | tests unitaires seuls (`--suite unit`) |
+| push sur une branche, commit avec `Banc: unitaires` | tests unitaires seuls (`--suite unit`) |
+| push sur une branche sans ligne `Banc:` | tous |
 | lancement manuel | entree `levels` (vide = tous) |
 
 La ligne `Banc:` est un trailer Git : elle va dans le dernier paragraphe du
 message, avec `Co-Authored-By`. Le rapport la reprend (`selection`, et
 « Niveaux joues » en tete du resume) ; un banc partiel ne vaut jamais
-autorisation de fusion. Un motif qui ne designe aucun niveau (faute de
+autorisation de fusion : le check `banc-complet` (job du meme workflow)
+n est vert que si le banc complet de ce commit a reussi ; il est a declarer
+comme check requis dans la protection de `main`. Un motif qui ne designe aucun niveau (faute de
 frappe) fait echouer le banc avant tout lancement. Sans niveau de mission
 choisi (`Banc: navigation/*`), ni bots, ni modele, ni controle de cle.
 

@@ -90,8 +90,9 @@ Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
   machine) ; ne pas la relever sans son accord.
 - Ne pas allonger un delai ni relacher une assertion du banc sans preuve.
 - Fusion seulement si tous les niveaux non informatifs passent et
-  `keyCheck` est ok, sur un banc COMPLET de la tete de la PR (`Banc: tout`,
-  voir §5) ; un banc partiel ne suffit jamais.
+  `keyCheck` est ok, sur un banc COMPLET de la tete de la PR (voir §5) ; un
+  banc partiel ne suffit jamais. Le check `banc-complet` du workflow n est
+  vert que dans ce cas (prerequis de fusion sur `main`, 2026-10-01).
 
 ### Decisions de retrait (ne pas remettre sans A/B favorable)
 
@@ -251,10 +252,12 @@ dans `docs/journal.md` (section « Les pieges »).
   sur une branche, ce que demande la ligne finale du message de commit
   (trailer, dans le dernier paragraphe avec `Co-Authored-By`) :
   `Banc: composite/cabin-from-scratch* trees/pillar*` (motifs sur le nom
-  complet, variantes comprises), `Banc: tout` pour le banc complet ; sans
-  ligne `Banc:`, tests unitaires seuls (ni serveur ni modele). Lancement
-  manuel : entree `levels`. Choisir les niveaux que le changement peut
-  toucher ; `Banc: tout` sur le dernier commit avant fusion.
+  complet, variantes comprises ; un composite entraine son jumeau),
+  `Banc: unitaires` pour les tests unitaires seuls (ni serveur ni modele) ;
+  **sans ligne `Banc:`, banc complet**. Lancement manuel : entree `levels`.
+  Pendant le travail, choisir les niveaux que le changement peut toucher ; le
+  dernier commit avant fusion n a pas de ligne `Banc:` (banc complet, check
+  `banc-complet` vert exige).
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.

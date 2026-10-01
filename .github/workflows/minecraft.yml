@@ -42,6 +42,8 @@ jobs:
     # (clients docker et docker compose). Ports publies injoignables depuis le
     # conteneur du runner (localhost = le runner) : CI_ENDPOINT_MODE=ip, IP des conteneurs du projet.
     runs-on: [self-hosted, linux, x64, minipc, podman]
+    outputs:
+      levels: ${{ steps.levels.outputs.levels }}
     # Scenarios composites jusqu a 45 min, lances en premier (chemin critique).
     timeout-minutes: 75
     defaults:
@@ -56,8 +58,8 @@ jobs:
         run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py
       # Tests a jouer (demande du proprietaire, 2026-10-01) : tout le banc sur
       # main ; sur une branche, ce que le commit demande par sa ligne finale
-      # `Banc: <motifs>` (`Banc: tout` pour tout, rien = tests unitaires
-      # seuls) ; au lancement manuel, l entree `levels`. Le message passe par
+      # `Banc: <motifs>` (`Banc: unitaires` = tests unitaires seuls ; sans
+      # ligne, tout le banc) ; au lancement manuel, l entree `levels`. Le message passe par
       # l environnement, jamais interpole dans le script, et seuls des noms de
       # niveaux et des jokers sont acceptes.
       - name: Choose the levels for this commit
@@ -73,7 +75,7 @@ jobs:
             levels=tout
           else
             levels=$(git log -1 --format='%(trailers:key=Banc,valueonly,separator=%x20)' HEAD | tr -s ' \n' ' ' | sed 's/^ //; s/ $//')
-            levels=${levels:-unitaires}
+            levels=${levels:-tout}
           fi
           if ! printf '%s' "$levels" | grep -Eq '^[A-Za-z0-9_./*?~, -]+$'; then
             echo "Ligne Banc illisible : $levels" >&2
@@ -127,3 +129,28 @@ jobs:
           path: test-results/
           if-no-files-found: error
           retention-days: 14
+
+  # Porte de fusion (decision du proprietaire, 2026-10-01) : vert seulement si
+  # le banc COMPLET (`tout`) de ce commit a reussi. Un banc partiel le laisse
+  # rouge : choisir des niveaux accelere le travail, jamais la fusion. A
+  # declarer comme check requis de la protection de `main`.
+  banc-complet:
+    needs: minecraft
+    if: always() && github.event.repository.private == true
+    runs-on: [self-hosted, linux, x64, minipc, podman]
+    timeout-minutes: 5
+    steps:
+      - name: Full bench passed on this commit
+        env:
+          LEVELS: ${{ needs.minecraft.outputs.levels }}
+          RESULT: ${{ needs.minecraft.result }}
+        run: |
+          if [ "$LEVELS" != tout ]; then
+            echo "Banc partiel ($LEVELS) : la fusion exige un banc complet reussi (commit sans ligne Banc:, ou Banc: tout)." >&2
+            exit 1
+          fi
+          if [ "$RESULT" != success ]; then
+            echo "Banc complet en echec ($RESULT) : pas de fusion." >&2
+            exit 1
+          fi
+          echo "Banc complet reussi : fusion permise."
