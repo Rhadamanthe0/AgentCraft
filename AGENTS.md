@@ -288,7 +288,8 @@ dans `docs/journal.md` (section « Les pieges »).
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
 - Familles (`ci/trees.py`, ~84 niveaux avec variantes) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
-  `composite`, plus scenarios de navigation et ~340 tests unitaires (`UNIT`,
+  `composite`, `skill` (competences : missions scriptees sans modele, le code
+  seul est mesure ; un echec y est un bug du code, jamais du bruit), plus scenarios de navigation et ~340 tests unitaires (`UNIT`,
   ci/run.py).
 - Arenes variees par la graine (`ci/variation-seed.txt`, sinon SHA du
   commit ; `CI_VARIATION_SEED` prime) : rotation, miroir, essence d arbre.
@@ -376,6 +377,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/trace.js` | trace structuree de mission |
 | `bot/action-gestes.js` | gestes, attente, fin, memoire (premier module d actions) |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
+| `bot/script-brain.js` | cerveau scripte du banc de competences (`skill/*`, `MISSION_SCRIPT=1`) |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |
 | `bot/skills.js` | table unique : commandes, actions, documentation native, matieres, audit |
 | `bot/conversation.js` | interpretation du chat, arbitrage |

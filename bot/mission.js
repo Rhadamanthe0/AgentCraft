@@ -36,14 +36,17 @@ const { DELIVERY, DOOR } = require('./conversation')
 const reflexes = require('./reflexes')
 const Vec3 = require('vec3').Vec3
 const planner = require('./planner')
+const { createScriptBrain } = require('./script-brain')
 const memory = require('./memory')
 const screenshot = require('./screenshot')
 const { blockInReach, clearSegment, itemInPickupRange, isWoodDoor, doorClosed } = require('./navigation')
 
 // Qui decide : le planificateur JSON distant (plan de plusieurs etapes par
 // appel).
-function brain () {
-  return planner
+// Une mission scriptee (banc de competences, script-brain.js) porte son propre
+// cerveau ; toutes les autres passent par le planificateur.
+function brain (m = null) {
+  return m?.cerveau ?? planner
 }
 
 // Pause entre deux etapes **deja planifiees** : il n y a pas d appel reseau a
@@ -5761,7 +5764,7 @@ function createMissionRunner (host, injected = {}) {
   // un appel anticipe serait un appel jete a chaque fois.
   function startPrefetch () {
     if (!isRunning() || mission.cancelled) return
-    if (!planner.isEnabled()) return
+    if (!brain(mission).isEnabled()) return
     if (mission.prefetch) return
     if (mission.queue.length !== 1) return
     if (mission.kind === 'geste') return
@@ -5779,7 +5782,7 @@ function createMissionRunner (host, injected = {}) {
     }
 
     const controller = new AbortController()
-    const promise = planner.plan(
+    const promise = brain(mission).plan(
       snap, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
       { signal: controller.signal, profil: profilPrompt(), relance: featureOn('relance_plan') }
     )
@@ -5836,7 +5839,7 @@ function createMissionRunner (host, injected = {}) {
           state.environnement.capture_presente = Boolean(capture)
         }
         const revision = mission.planRevision
-        const result = await planner.plan(
+        const result = await brain(mission).plan(
           state, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
           { signal: mission.navigationAbort.signal, profil: profilPrompt(), relance: featureOn('relance_plan') }
         )
@@ -5873,7 +5876,7 @@ function createMissionRunner (host, injected = {}) {
   }
 
   async function decide (state) {
-    return planner.isEnabled() ? decideFromPlan(state) : null
+    return brain(mission).isEnabled() ? decideFromPlan(state) : null
   }
 
   // Le garde-fou du « le modele classe, il ne compte pas », applique a la seule
@@ -6043,6 +6046,12 @@ function createMissionRunner (host, injected = {}) {
         if (/annule/.test(err.message)) {
           await sleep(TICK_MS)
           continue
+        }
+        // Cerveau scripte au bout de son script (ou etape invalide) : fin dite,
+        // pas une panne a rejouer.
+        if (err.fin) {
+          finish('failed', err.message)
+          return
         }
         mission.plannerErrors += 1
         console.error(`[mission] planificateur indisponible (${mission.plannerErrors}/${MAX_PLANNER_ERRORS}) : ${err.message}`)
@@ -6500,7 +6509,15 @@ function createMissionRunner (host, injected = {}) {
 
   async function startMission (objective, requester, opts, appel) {
     if (!host.isReady()) return { ok: false, error: 'bot non connecte' }
-    if (!brain().isEnabled()) {
+    let cerveau = planner
+    if (opts.script) {
+      try {
+        cerveau = createScriptBrain({ script: opts.script, brief: opts.brief })
+      } catch (err) {
+        return { ok: false, error: `script refuse : ${err.message}` }
+      }
+    }
+    if (!cerveau.isEnabled()) {
       return { ok: false, error: 'aucun planificateur disponible, aucune mission possible' }
     }
 
@@ -6573,14 +6590,14 @@ function createMissionRunner (host, injected = {}) {
     let brief
     try {
       try {
-        brief = normalizeBrief(await brain().readBrief(text, { signal: request.signal, deferGestureValidation: true }))
+        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true }))
       } catch (first) {
         // Un echec isole (reponse tronquee deux fois, panne passagere) laissait
         // le bot immobile sans rien dire, surtout apres un arbitrage : un
         // nouvel essai, sauf annulation.
         if (request.signal.aborted) throw first
         console.log(`[mission] lecture de l objectif echouee (${first.message}), nouvel essai`)
-        brief = normalizeBrief(await brain().readBrief(text, { signal: request.signal, deferGestureValidation: true }))
+        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true }))
       }
     } catch (err) {
       return { ok: false, error: `lecture de l objectif impossible : ${err.message}` }
@@ -6607,7 +6624,7 @@ function createMissionRunner (host, injected = {}) {
     // 'aucune' prive la mission de toute cible : le bot ne peut plus qu explorer
     // a l aveugle. Quand ce choix n est pas assure, on retient la meilleure
     // matiere proposee a la place.
-    if (resource === 'aucune' && brief.resourceConfidence < brain().MIN_CONFIDENCE && brief.resourceProbabilities) {
+    if (resource === 'aucune' && brief.resourceConfidence < cerveau.MIN_CONFIDENCE && brief.resourceProbabilities) {
       const best = Object.entries(brief.resourceProbabilities)
         .filter(([name]) => name !== 'aucune')
         .sort((a, b) => b[1] - a[1])[0]
@@ -6740,6 +6757,9 @@ function createMissionRunner (host, injected = {}) {
       fabricationLastError: null,
 
       supply: SUPPLY,
+      // Cerveau de cette mission : le planificateur, ou un script (banc de
+      // competences). Jamais persiste : une mission reprise replanifie.
+      cerveau: cerveau === planner ? null : cerveau,
       buildBlock: skills.RESOURCES[resource]?.build ?? 'dirt',
       // Le motif accepte plusieurs noms : en survie le bloc pose depend de ce
       // qui est tombe (pierre -> cobblestone, bloc d herbe -> terre) et de

@@ -57,6 +57,7 @@ Trois principes structurent le code :
 | `action-gestes.js` | premiere famille d actions a contexte explicite : gestes, attente, fin, memoire |
 | `executor.js` | slot physique unique : une action du monde a la fois, annulable |
 | `planner.js` | prompts, plan JSON, brief, chat, conception de plans libres (`designBlueprint`), coercition des parametres |
+| `script-brain.js` | cerveau scripte du banc de competences (`skill/*`) : brief et etapes donnes, valides comme ceux du modele, aucun appel ; route `/api/mission/script` (`MISSION_SCRIPT=1`) |
 | `model-chain.js`, `llm.js` | modele, effort et cle par usage ; transport OpenAI partage (chat/completions et responses) |
 | `skills.js` | table unique : commandes, actions (parametres bornes, interrupteurs), documentation native, matieres, audit |
 | `acquire-plan.js`, `recipe-plan.js` | solveur de prerequis (recolter / fabriquer / cuire) ; recettes du registre |

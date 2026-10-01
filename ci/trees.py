@@ -686,6 +686,51 @@ def base_levels():
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ACROSS_TREES for i in range(5)]),
             'rules': {},
         },
+        # Banc de competences (2026-10-01) : memes arenes et memes controles que
+        # la famille d origine, mais etapes donnees d avance (`skill`, mission
+        # scriptee, bot/script-brain.js), sans appel au modele. Un echec y est
+        # celui du CODE des actions ; les autres familles mesurent le modele.
+        # Le script est une suite generique (une etape par obstacle annonce),
+        # jamais des coordonnees.
+        {
+            'name': 'skill/tree-reachable',
+            'about': 'Script recolter : tronc de 3 buches a portee du sol, arbre entier coupe et ramasse.',
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2), (TX, 205, TZ, TX, 205, TZ)],
+            'logs': _logs(*trunk3),
+            'rules': {'leaves_broken_max': 0, 'floor_broken_max': 0, 'dirt_placed_max': 0, 'standing_y_max': 200.5},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'bois'},
+                      'script': [{'action': 'recolter', 'quantite': 3, 'repeter': 3}]},
+        },
+        {
+            'name': 'skill/tree-pillar',
+            'about': 'Script recolter, piler, recolter : tronc de 6 buches, monter de deux blocs, arbre entier, pilier retire.',
+            'leaves': [(TX-2, 206, TZ-2, TX+2, 207, TZ+2), (TX, 208, TZ, TX, 208, TZ)],
+            'logs': _logs(*trunk6),
+            'rules': {'leaves_broken_max': 0, 'standing_y_min': 201.9},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'bois'},
+                      'script': [{'action': 'recolter', 'quantite': 6, 'repeter': 2},
+                                 {'action': 'piler', 'hauteur': 2},
+                                 {'action': 'recolter', 'quantite': 6, 'repeter': 3},
+                                 {'action': 'ramasser', 'quantite': 6, 'repeter': 2}]},
+        },
+        {
+            'name': 'skill/dirt-box',
+            'about': 'Script choisir_terrain puis construire : 64 terre, boite 3x3x3, 20 blocs poses et mission close.',
+            'kind': 'build', 'give': [('dirt', 64)], 'instruction': 'Construis une maison en terre de 3 par 3 par 3',
+            'blocks': ['minecraft:dirt'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
+            'skill': {'brief': {'type': 'construction', 'matiere': 'terre'},
+                      'script': [{'action': 'choisir_terrain'}, {'action': 'construire', 'quantite': 12, 'repeter': 6}]},
+        },
+        {
+            'name': 'skill/sand-walled',
+            'about': 'Script recolter : sable enferme dans un mur de terre de 3 de haut, 4 sable en inventaire, pas de puits.',
+            'kind': 'gather', 'instruction': 'Ramasse 4 blocs de sable', 'items': ['sand'],
+            'terrain': [(TX-3, 200, TZ-3, TX+3, 202, TZ+3, 'dirt'), (TX-2, 200, TZ-2, TX+2, 202, TZ+2, 'air'),
+                        (TX-1, 199, TZ-1, TX+1, 199, TZ+1, 'sand')],
+            'target': 4, 'leaves': [], 'logs': [], 'rules': {},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'sable'},
+                      'script': [{'action': 'recolter', 'quantite': 4, 'repeter': 4}]},
+        },
     ]
 
 
@@ -810,6 +855,18 @@ def vary(level, seed, avoid=None):
     if 'loot' in level:
         out['loot'] = [(item, *_cell(dx, dz, turns, mirror)) for item, dx, dz in level['loot']]
     return out
+
+
+def instruct(level, bot, bot_api, message, requester):
+    """Give the level's order. A skill level (`skill`: brief + script) starts a
+    scripted mission (bot/script-brain.js): same objective text, same checks,
+    but the steps are fixed and the model is never called, so a failure is the
+    code's, not a model choice."""
+    skill = level.get('skill')
+    if not skill:
+        return bot_api(bot, '/api/instruction', {'message': message, 'requester': requester})
+    return bot_api(bot, '/api/mission/script', {'objective': message, 'requester': requester,
+                                                'brief': skill['brief'], 'script': skill['script']})
 
 
 def run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_player):
@@ -976,7 +1033,7 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     before = placed()
     started = time.monotonic()
     timeline = []
-    answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
+    answer = instruct(level, bot, bot_api, level['instruction'], probe_name)
     cap = level.get('cap', BUILD_CAP_S)
     # Imprevus du joueur (changement d avis...) : (secondes, phrase), envoyes
     # une fois chacun, mission en cours, par la meme voie que l ordre initial.
@@ -1067,7 +1124,7 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         rcon(f'give {username} minecraft:{item} {amount}')
     started = time.monotonic()
     timeline = []
-    answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
+    answer = instruct(level, bot, bot_api, level['instruction'], probe_name)
 
     def held():
         total = 0
@@ -1617,7 +1674,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
             return run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_name)
         if level.get('kind') == 'chat_script':
             return run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, probe_name)
-        answer = bot_api(bot, '/api/instruction', {'message': INSTRUCTION, 'requester': REQUESTER})
+        answer = instruct(level, bot, bot_api, level.get('instruction', INSTRUCTION), REQUESTER)
         started = time.monotonic()
         peak_standing = start[1]
         world, last_world_check = before, 0
@@ -1728,7 +1785,9 @@ EXPECTED_S = {
     # follow/*: run 36109916130 (712eb71).
     'follow/corner': 26, 'follow/stop': 19, 'follow/stairs': 12, 'follow/straight': 11,
     # gather/*: run 36140713444 (e8290a0) ; flowers ran to the 180 s cap then.
-    'gather/sand-walled': 75, 'gather/sand-walled~avec-nav_creuse': 75, 'gather/flowers': 70, 'gather/dirt': 44, 'gather/sand': 34,
+    'gather/sand-walled': 75, 'gather/sand-walled~avec-nav_creuse': 75,
+    # skill/* : no model call, expected shorter than their model twins.
+    'skill/tree-reachable': 20, 'skill/tree-pillar': 80, 'skill/dirt-box': 60, 'skill/sand-walled': 60, 'gather/flowers': 70, 'gather/dirt': 44, 'gather/sand': 34,
 }
 NEW_LEVEL_S = 90
 
@@ -1802,6 +1861,11 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             result['plannerCalls'] = calls_after - calls_before
         if requests_before is not None and requests_after is not None:
             result['plannerRequests'] = requests_after - requests_before
+        # A skill level measures the code alone: one model request is a leak
+        # (a chat, a brief or a plan went to the model) and fails the level.
+        if level.get('skill') and result.get('plannerRequests') is not None:
+            result.setdefault('checks', {})['aucun_appel_modele'] = result['plannerRequests'] == 0
+            result['success'] = bool(result.get('success')) and result['plannerRequests'] == 0
         # KPI de la mission (demande du proprietaire, 2026-09-27) : part
         # d actions en echec, blocages annonces (cause et derniers resultats,
         # a analyser a chaque banc).

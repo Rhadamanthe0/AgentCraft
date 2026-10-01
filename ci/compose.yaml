@@ -179,6 +179,9 @@ services:
       MISSION_MAX_STEPS: "1500"
       MISSION_MAX_DURATION_MS: "2700000"
       MISSION_DEFAULT_QUOTA: "16"
+      # Banc de competences (skill/*) : missions scriptees sans modele,
+      # route /api/mission/script (bot/script-brain.js).
+      MISSION_SCRIPT: "1"
     # 32 processes x (256 MB heap cap + ~100 MB code/buffers) stays under it
     # (mesure : ~80 MB par bot au travail) ; au-dela le noyau tue un bot, ce que
     # le healthcheck et les journaux montrent.
