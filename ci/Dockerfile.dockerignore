@@ -5,6 +5,8 @@
 !tmp/
 !tmp/*.test.js
 !tmp/probe-bot.js
+!tmp/sim-world.js
+!tmp/replay-snapshot.js
 !ci/
 !ci/Dockerfile
 !ci/harness.js

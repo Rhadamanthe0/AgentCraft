@@ -6,6 +6,8 @@ COPY bot/*.js ./
 COPY .github/workflows/codex-review-gate.yml /work/.github/workflows/codex-review-gate.yml
 COPY tmp/*.test.js tmp/*-fixture.js /work/tmp/
 COPY tmp/probe-bot.js /work/tmp/probe-bot.js
+# Monde simule partage et rejeu d instantane : requis par les tests unitaires.
+COPY tmp/sim-world.js tmp/replay-snapshot.js /work/tmp/
 COPY ci/harness.js ci/multi-bot.js ci/probes.js ci/model-probe.js /work/ci/
 # Lisible par tous quel que soit l umask du checkout : sur MINIPC-CLEM les
 # fichiers du depot arrivent sans droit de lecture pour « autres », et COPY
