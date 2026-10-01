@@ -242,7 +242,7 @@ plus vraie.
 ### Le bot compose ses actions
 
 Il n'y a **pas d'actions apprises** : le bot compose lui-même ses enchaînements
-à partir des 25 actions natives, guidé par leur documentation et des exemples
+à partir des 26 actions natives, guidé par leur documentation et des exemples
 écrits dans le code (`skills.ACTION_EXEMPLES`). Le catalogue tel que le modèle le
 lit :
 
@@ -586,7 +586,7 @@ declarees aux handlers reellement branches, ainsi que les actions de mission aux
 actions branchees :
 
 ```
-[commandes] 13 commandes (2 routables par le chat, 11 sur prefixe seul), 25 actions dont 18 parametrees, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
+[commandes] 13 commandes (2 routables par le chat, 11 sur prefixe seul), 26 actions dont 18 parametrees, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
 ```
 
 Une commande ajoutee d'un cote mais pas de l'autre apparait ici, et dans

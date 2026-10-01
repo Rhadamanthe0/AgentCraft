@@ -14,6 +14,14 @@ on:
         description: 'Graine des arenes (vide = SHA du commit) : meme graine pour comparer deux modes'
         type: string
         default: ''
+      random_seed:
+        description: 'Graine des arenes aleatoires (vide = tiree au hasard) : rejoue un jumeau ~aleatoire (variation.graine)'
+        type: string
+        default: ''
+      levels:
+        description: 'Niveaux a jouer : tout, unitaires, ou motifs (composite/*, trees/pillar*) ; vide = tout'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -34,6 +42,8 @@ jobs:
     # (clients docker et docker compose). Ports publies injoignables depuis le
     # conteneur du runner (localhost = le runner) : CI_ENDPOINT_MODE=ip, IP des conteneurs du projet.
     runs-on: [self-hosted, linux, x64, minipc, podman]
+    outputs:
+      levels: ${{ steps.levels.outputs.levels }}
     # Scenarios composites jusqu a 45 min, lances en premier (chemin critique).
     timeout-minutes: 75
     defaults:
@@ -45,15 +55,49 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Pool and admission controller on simulated metrics
-        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py
-      - name: Run unit regressions and real Minecraft tests
-        # Le banc n a QUE la cle secondaire (espace OpenCode de test) : aucune
-        # bascule possible vers la cle principale, qui n est pas transmise.
-        # Elle ne va qu au conteneur jetable des bots, jamais dans une image,
-        # un artefact ou un journal. report.keyCheck verifie la cle servie.
+        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py ci/test_keyprobe.py
+      # Tests a jouer (demande du proprietaire, 2026-10-01) : tout le banc sur
+      # main ; sur une branche, ce que le commit demande par sa ligne finale
+      # `Banc: <motifs>` (`Banc: unitaires` = tests unitaires seuls ; sans
+      # ligne, tout le banc) ; au lancement manuel, l entree `levels`. Le message passe par
+      # l environnement, jamais interpole dans le script, et seuls des noms de
+      # niveaux et des jokers sont acceptes.
+      - name: Choose the levels for this commit
+        id: levels
         env:
+          REF: ${{ github.ref }}
+          EVENT: ${{ github.event_name }}
+          INPUT_LEVELS: ${{ inputs.levels }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            levels=${INPUT_LEVELS:-tout}
+          elif [ "$REF" = refs/heads/main ]; then
+            levels=tout
+          else
+            levels=$(git log -1 --format='%(trailers:key=Banc,valueonly,separator=%x20)' HEAD | tr -s ' \n' ' ' | sed 's/^ //; s/ $//')
+            levels=${levels:-tout}
+          fi
+          if ! printf '%s' "$levels" | grep -Eq '^[A-Za-z0-9_./*?~, -]+$'; then
+            echo "Ligne Banc illisible : $levels" >&2
+            exit 1
+          fi
+          if [ "$levels" != unitaires ]; then
+            CI_LEVELS="$levels" python3 -c 'import sys; sys.path.insert(0, "ci"); import trees; bad = trees.unmatched_patterns(); bad and sys.exit("Motifs sans aucun niveau : " + " ".join(bad))'
+          fi
+          suite=all
+          [ "$levels" = unitaires ] && suite=unit
+          echo "Niveaux : $levels (suite $suite)"
+          echo "levels=$levels" >> "$GITHUB_OUTPUT"
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
+      - name: Run unit regressions and real Minecraft tests
+        # Une seule cle par banc, choisie au demarrage (ci/keyprobe.py) : mini
+        # prompt sans raisonnement sur chaque cle ; primary si les deux
+        # repondent, sinon celle qui repond, sinon echec. Seule la cle retenue
+        # va au conteneur jetable des bots, jamais dans une image, un artefact
+        # ou un journal. report.keyCheck verifie qu aucune autre n a servi.
+        env:
+          OPENCODE_PRIMARY_API_KEY: ${{ secrets.OPENCODE_PRIMARY_API_KEY }}
           OPENCODE_SECONDARY_API_KEY: ${{ secrets.OPENCODE_SECONDARY_API_KEY }}
-          CI_EXPECT_KEY: secondary
           CI_ENDPOINT_MODE: ip
           # Pool adaptatif (ci/capacity.py) : admissions sous 75 % de l enveloppe
           # (450 % sur 600 %) et 4 Gio de reserve CI + hote ; sans mesures
@@ -72,7 +116,9 @@ jobs:
           CI_ENVELOPE_CPU_PCT: '600'
           CI_POOL_SIZE: '16'
           CI_VARIATION_SEED: ${{ inputs.variation_seed }}
-        run: python3 ci/run.py --suite all
+          CI_RANDOM_SEED: ${{ inputs.random_seed }}
+          CI_LEVELS: ${{ steps.levels.outputs.levels }}
+        run: python3 ci/run.py --suite "${{ steps.levels.outputs.suite }}"
       - name: Remove any remaining disposable test containers
         if: always()
         run: python3 ci/cleanup.py
@@ -84,3 +130,34 @@ jobs:
           path: test-results/
           if-no-files-found: error
           retention-days: 14
+
+  # Porte de fusion (decision du proprietaire, 2026-10-01) : vert seulement si
+  # le banc COMPLET (`tout`) de ce commit a reussi. Un banc partiel le laisse
+  # rouge : choisir des niveaux accelere le travail, jamais la fusion. Check
+  # requis de la protection de `main`. Toujours execute (un check requis
+  # SAUTE compte comme reussi) : banc saute = porte rouge. Runner heberge par
+  # GitHub, sans checkout ni secret : il ne lit que deux sorties du banc.
+  banc-complet:
+    needs: minecraft
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Full bench passed on this commit
+        env:
+          LEVELS: ${{ needs.minecraft.outputs.levels }}
+          RESULT: ${{ needs.minecraft.result }}
+        run: |
+          if [ "$RESULT" = skipped ] || [ -z "$LEVELS" ]; then
+            echo "Banc saute ($RESULT) : aucun niveau joue, pas de fusion." >&2
+            exit 1
+          fi
+          if [ "$LEVELS" != tout ]; then
+            echo "Banc partiel ($LEVELS) : la fusion exige un banc complet reussi (commit sans ligne Banc:, ou Banc: tout)." >&2
+            exit 1
+          fi
+          if [ "$RESULT" != success ]; then
+            echo "Banc complet en echec ($RESULT) : pas de fusion." >&2
+            exit 1
+          fi
+          echo "Banc complet reussi : fusion permise."

@@ -48,7 +48,7 @@ Trois principes structurent le code :
 | `index.js` | connexion, API HTTP, chien de garde (liquide, immobilite), commandes `!`, `digToward` (pathfinder qui creuse) |
 | `conversation.js` | interpretation du chat (`planner.interpretMessage`), arbitrage entre demandes, garde don/porte non demandes |
 | `objective-controller.js`, `state-store.js` | objectifs durables persistes (`/data/objectives.json`), reprise apres redemarrage |
-| `mission.js` | boucle de mission, etat servi au modele (`buildState`), les 25 actions, garde-fous, blocages, reflexes |
+| `mission.js` | boucle de mission, etat servi au modele (`buildState`), les 26 actions, garde-fous, blocages, reflexes |
 | `executor.js` | slot physique unique : une action du monde a la fois, annulable |
 | `planner.js` | prompts, plan JSON, brief, chat, conception de plans libres (`designBlueprint`), coercition des parametres |
 | `model-chain.js`, `llm.js` | modele, effort et cle par usage ; transport OpenAI partage (chat/completions et responses) |
@@ -131,7 +131,7 @@ buildState() ──► decideFromPlan() ──► action (slot physique) ──�
 
 ### 3.5 Actions
 
-25 actions (`skills.ACTIONS`, handlers dans `mission.js`). Les plus
+26 actions (`skills.ACTIONS`, handlers dans `mission.js`). Les plus
 structurantes :
 
 | Action | Ce que fait le code |

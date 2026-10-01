@@ -18,8 +18,9 @@ import uuid
 
 from cleanup import compose_files, paper_image
 import capacity
+import keyprobe
 from pool import LauncherControl, Pool
-from trees import API_BASE_PORT, BOTS_SERVICE, POOL_MAX, POOL_SIZE, PROBES_SERVICE, arena_origins, levels, run_levels
+from trees import API_BASE_PORT, BOTS_SERVICE, POOL_MAX, POOL_SIZE, PROBES_SERVICE, arena_origins, level_patterns, levels, run_levels, selected, unmatched_patterns
 
 ROOT = Path(__file__).resolve().parents[1]
 # Acces aux ports publies : `direct` (TCP/HTTP sur 127.0.0.1, poste Windows +
@@ -120,10 +121,12 @@ def classify_failures(report):
         report['benchInvalid'] = ' ; '.join(reasons)
 
 
+# Cle du banc, choisie au demarrage par ci/keyprobe.py (une seule, aucune bascule).
+PLANNER_KEY = {}
+
+
 def planner_key_present():
-    # Le banc tourne avec la seule cle secondaire (secret OPENCODE_SECONDARY_API_KEY) ;
-    # PLANNER_API_KEY reste admise pour un poste local.
-    return bool(os.environ.get('OPENCODE_SECONDARY_API_KEY') or os.environ.get('PLANNER_API_KEY'))
+    return bool(PLANNER_KEY.get('chosen'))
 # Delai des appels HTTP aux bots : /api/instruction attend la lecture de
 # l objectif (PLANNER_TIMEOUT_MS_BRIEF, 60 s, rejouee une fois si tronquee).
 HTTP_TIMEOUT_S = 150
@@ -135,7 +138,7 @@ UNIT = ['codex-review-gate.test.js', 'navigation.test.js', 'navigation-drop.test
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
         'mission-delivery.test.js', 'piler-materials.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
         'delivery.test.js', 'planner-profile.test.js', 'planner-relaunch.test.js','llm.test.js', 'executor.test.js', 'objective-controller.test.js',
-        'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js']
+        'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js', 'ouvrir-porte.test.js', 'enclosure.test.js']
 
 
 
@@ -215,6 +218,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--suite', choices=['unit', 'minecraft', 'trees', 'all'], default='all')
     args = parser.parse_args()
+    unmatched = unmatched_patterns()
+    if unmatched:
+        print(f"Motifs de niveaux sans aucun niveau : {' '.join(unmatched)}", file=sys.stderr, flush=True)
+        return 2
+    # Levels with the planner (mission levels): none chosen = no bots, no
+    # model probe, no key check (navigation scenarios alone need none).
+    trees_wanted = args.suite in ('trees', 'all') and bool(levels())
     # Un nom par job : deux executions en parallele (branches, depots du
     # runner mutualise) ne partagent ni conteneur, ni reseau, ni volume.
     run_id = os.environ.get('GITHUB_RUN_ID', '')
@@ -237,7 +247,9 @@ def main():
     report = {'schemaVersion': 1, 'project': project, 'image': image, 'suite': args.suite,
               'startedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
               'sha': None, 'dirty': None, 'success': False, 'tests': [], 'errors': [],
-              'phases': {}}
+              'phases': {},
+              # Levels chosen for this commit (CI_LEVELS): None = every level.
+              'selection': level_patterns()}
     run_started = time.monotonic()
     # CI envelope and host metrics, 10 Hz, from files only (ci/capacity.py):
     # measured in every mode, they gate the pool only in adaptive mode.
@@ -260,6 +272,20 @@ def main():
     except (OSError, subprocess.CalledProcessError):
         pass  # An exported source directory is supported, but never claims a tested SHA.
     report['providerModels'] = provider_models()
+    if trees_wanted:
+        # Une cle par banc (2026-10-01) : mini prompt sans raisonnement sur
+        # chaque cle ; primary si les deux repondent, sinon celle qui repond,
+        # sinon aucune et le banc echoue. Seule la cle retenue va aux bots.
+        PLANNER_KEY.update(keyprobe.select())
+        report['keyProbe'] = dict(PLANNER_KEY)
+        keyprobe.bot_env(env, PLANNER_KEY['chosen'])
+        for name, result in PLANNER_KEY['probes'].items():
+            print(f"Cle {name} : {'repond' if result.get('ok') else 'ne repond pas'} "
+                  f"(HTTP {result.get('status')}, {result.get('ms')} ms, {result.get('answer') or result.get('error') or ''})", flush=True)
+        if PLANNER_KEY['chosen']:
+            print(f"Cle du banc : {PLANNER_KEY['chosen']}", flush=True)
+        else:
+            report['errors'].append('Aucune cle OpenCode ne repond au test de demarrage : niveaux non joues')
 
     log_lock = threading.Lock()
 
@@ -542,7 +568,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             phase('modelProbe', started)
 
         probe_thread = None
-        if args.suite in ('trees', 'all') and planner_key_present():
+        if trees_wanted and planner_key_present():
             probe_thread = threading.Thread(target=run_model_probe, daemon=True)
             probe_thread.start()
 
@@ -579,9 +605,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 phase('forceloadArenas', arena_started)
             arena_errors = []
             arena_thread = threading.Thread(target=forceload_arenas, daemon=True)
-            if args.suite in ('trees', 'all') and planner_key_present():
+            if trees_wanted and planner_key_present():
                 arena_thread.start()
-            bots_wanted = args.suite in ('trees', 'all') and bool(planner_key_present())
+            bots_wanted = trees_wanted and bool(planner_key_present())
             # Two containers host all pool bots and all probe players.
             extra = [BOTS_SERVICE, PROBES_SERVICE] if bots_wanted else []
             up = ('up', '-d', '--wait', '--wait-timeout', '240', 'harness', *extra)
@@ -616,6 +642,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                  ['fill 18 200 3 22 203 7 bedrock', 'fill 19 200 4 21 202 6 air'], None),
             ]
             for name, start, target, blocks, abort in scenarios:
+                if not selected(name):
+                    continue
                 print(name, flush=True)
                 try:
                     fixture(start, blocks)
@@ -641,7 +669,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         if args.suite in ('minecraft', 'all'):
             nav_thread = threading.Thread(target=run_navigation, daemon=True)
             nav_thread.start()
-        if args.suite in ('trees', 'all'):
+        if trees_wanted:
             if planner_key_present():
                 ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
                 if ops:
@@ -749,9 +777,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 }
                 for v in stats.values():
                     v.pop('latences', None)
-                # Cle attendue (CI_EXPECT_KEY, `secondary` au banc) : toute autre cle
+                # Cle attendue (celle du test de demarrage) : toute autre cle
                 # servie, ou une bascule, rend le banc non conforme.
-                expected = os.environ.get('CI_EXPECT_KEY')
+                expected = PLANNER_KEY.get('chosen') or os.environ.get('CI_EXPECT_KEY')
                 if expected:
                     served = report['plannerSummary']['cles_servies']
                     switches = report['plannerSummary']['bascules_cle']
@@ -762,7 +790,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                         report['errors'].append(f'Cle du planificateur non conforme : attendue {expected}, servie {served}, {switches} bascule(s)')
             else:
                 level_results = [{'test': level, 'success': False,
-                                  'error': 'aucune cle du planificateur (OPENCODE_SECONDARY_API_KEY ou PLANNER_API_KEY) : secret GitHub non configure'}
+                                  'error': 'aucune cle OpenCode ne repond (OPENCODE_PRIMARY_API_KEY, OPENCODE_SECONDARY_API_KEY) : voir report.keyProbe'}
                                  for level in [level['name'] for level in levels()]]
         else:
             level_results = []
@@ -833,7 +861,11 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 + (f" <{t['failureKind']}>" if t.get('failureKind') else '') + detail(t)
         summary = '\n'.join([f"Commit: {report['sha'] or 'local export (no Git SHA)'}",
                              f"Result: {'PASS' if report['success'] else 'FAIL'}",
+                             f"Niveaux joues : {'tous' if report.get('selection') is None else (' '.join(report['selection']) or 'aucun (tests unitaires seuls)') + ' (banc partiel)'}",
                              *([f"BANC INVALIDE (infrastructure) : {report['benchInvalid']}"] if report.get('benchInvalid') else []),
+                             *([f"Test des cles au demarrage : retenue {report['keyProbe']['chosen']}, "
+                                + ', '.join(f"{n} {'repond' if r.get('ok') else 'muette'} (HTTP {r.get('status')})"
+                                            for n, r in report['keyProbe']['probes'].items())] if report.get('keyProbe') else []),
                              *([f"Cle du planificateur : {report['keyCheck']}"] if report.get('keyCheck') else []), '',
                              *[line(t) for t in report['tests']],
                              *(['', 'Comparaisons A/B (niveau tel quel -> variante) :'] + [

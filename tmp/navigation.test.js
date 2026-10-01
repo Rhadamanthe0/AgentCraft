@@ -13,7 +13,11 @@ function fixture ({ mobile = true, target = [4, 0, 0], pathStatus = 'success', e
     clone () { return new V(this.x, this.y, this.z) }
     distanceTo (p) { return Math.hypot(this.x - p.x, this.y - p.y, this.z - p.z) }
   }
-  class Movements { constructor () { this.blocksToAvoid = new Set() } }
+  class Movements {
+    constructor () { this.blocksToAvoid = new Set() }
+    // Bloc vu par le calcul : Movements.next (nom), plein et non traversable.
+    getBlock () { return { name: Movements.next ?? 'air', safe: false, physical: true } }
+  }
   class GoalNear { constructor (x, y, z) { Object.assign(this, { x, y, z }) } }
   const scope = { module: { exports: {} }, setTimeout, Date,
     require: name => name === './motion-trace' ? require('../bot/motion-trace') : ({ Movements, goals: { GoalNear } }) }
@@ -43,7 +47,7 @@ function fixture ({ mobile = true, target = [4, 0, 0], pathStatus = 'success', e
       }
     }
   }
-  return { bot, controls, get plans () { return plans }, ...scope.module.exports }
+  return { bot, controls, Movements, get plans () { return plans }, ...scope.module.exports }
 }
 
 test('arrivee reelle, sans succes a un autre etage', () => {
@@ -213,4 +217,46 @@ test('annulation puis nouveau trajet : aucune touche relachee par l ancienne exe
   assert.equal((await first).code, 'cancelled')
   assert.equal((await second).code, 'arrived')
   assert.equal(nav.status().code, 'arrived')
+})
+
+// Une porte en bois se traverse comme un joueur : le calcul la tient pour un
+// passage, le bot l ouvre avant d y entrer (bot enferme dans sa cabane,
+// composite/cabin-from-scratch 7d76b18). Une porte de fer reste un mur.
+test('porte en bois : traversee par le calcul, porte de fer : mur', async () => {
+  const f = fixture()
+  const seen = {}
+  f.bot.pathfinder.getPathFromTo = function * (movements, start, goal) {
+    for (const name of ['oak_door', 'spruce_door', 'iron_door', 'stone']) {
+      f.Movements.next = name
+      const b = movements.getBlock({ x: 0, y: 0, z: 0 }, 0, 0, 0)
+      seen[name] = b.safe && !b.physical
+    }
+    f.Movements.next = null
+    yield { result: { status: 'success', path: [{ x: goal.x, y: goal.y, z: goal.z }] } }
+  }
+  await f.createNavigator(() => f.bot).toPlayer('human')
+  assert.deepEqual(seen, { oak_door: true, spruce_door: true, iron_door: false, stone: false })
+})
+
+test('porte fermee sur le chemin : ouverte une fois avant d y entrer', async () => {
+  const f = fixture({ target: [4.5, 0, 0.5] })
+  Object.assign(f.bot.entity.position, { x: 0.5, y: 0, z: 0.5 })
+  const door = { open: false }
+  const activated = []
+  f.bot.blockAt = p => {
+    const position = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }
+    if (position.x === 2 && position.z === 0 && (position.y === 0 || position.y === 1)) {
+      return { name: 'oak_door', position, shapes: door.open ? [] : [[0, 0, 0, 1, 1, 0.1875]], getProperties: () => ({ open: door.open }) }
+    }
+    return { name: 'air', position, shapes: [] }
+  }
+  f.bot.activateBlock = async block => { activated.push(block.position); door.open = true }
+  f.bot.pathfinder.getPathFromTo = function * () {
+    yield { result: { status: 'success', path: [{ x: 1, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }, { x: 4, y: 0, z: 0 }] } }
+  }
+  const nav = f.createNavigator(() => f.bot, { timeoutMs: 3000 })
+  const result = await nav.toPlayer('human')
+  assert.equal(result.reached, true, JSON.stringify(result))
+  assert.deepEqual(activated, [{ x: 2, y: 0, z: 0 }])
+  assert.ok(nav.trace().events.some(e => e.event === 'door_opened'))
 })

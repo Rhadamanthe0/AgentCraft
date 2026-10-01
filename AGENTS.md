@@ -39,6 +39,13 @@ arbre est la seule cible bois jusqu a sa derniere buche, et aucune cloture ne
 passe avant. Puis le bot retire les piliers montes pour lui. Interrupteur
 `arbre_fini` ; comportement detaille dans le [README](README.md#monter-en-pilier-piler-sans-tricher).
 
+Limite acceptee (proprietaire, 2026-10-01) : la provenance d une buche tombee
+se deduit du type et de la position (Mineflayer ne relie pas un objet a la
+coupe qui l a fait tomber). Une buche du meme bois jetee par un autre joueur
+sur la case coupee, et ramassee avant la vraie, peut donc etre comptee pour
+l arbre. Il faut un joueur qui le fasse expres ; une preuve serveur (plugin)
+serait le seul remede.
+
 ### Tout nouveau mode se mesure en A/B
 
 Interrupteur `featureOn('<mode>')` (mission.js, `POST /api/features`,
@@ -50,7 +57,8 @@ mode qui n apporte rien de mesurable n est pas garde** ; a resultats egaux, on
 garde la version la plus simple.
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
-`prompt_type`, `reflexes`, `relance_plan`, `arbre_fini` (tous allumes par defaut).
+`prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte` (tous allumes par
+defaut).
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
@@ -61,6 +69,12 @@ Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
   d avis, stop/reprise, question), terrain hostile, missions ouvertes. Les plus
   simples BLOQUENT la fusion ; un composite commence informatif et devient
   bloquant apres 3 passages d affilee. Les plus durs restent informatifs.
+- Chaque composite se joue deux fois (2026-10-01) : arene stable (graine
+  commitee, comparable d un banc a l autre) et jumeau `~aleatoire` (graine
+  tiree a chaque banc, dans `variation.graine` ; `CI_RANDOM_SEED` la rejoue).
+  Le jumeau est informatif, mais un passage ne compte pour la promotion en
+  bloquant que si les DEUX passent : un correctif qui ne marche que dans
+  l arene stable est du benchmaxing.
 - Composites lances en premier ; plafond 45 min par scenario ; la duree
   (`elapsedS`) est suivie d un banc a l autre et doit baisser.
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
@@ -73,8 +87,12 @@ Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
   `TestBot` absent de `ops.json` **et** `playerGameType = 0` (piege 3).
 - Ports lies a `127.0.0.1` uniquement.
 - Jamais de secret committe, journalise, mis dans un artefact ou une image.
-- Banc CI : **cle secondaire seule** (`OPENCODE_SECONDARY_API_KEY`), sans
-  repli silencieux ; `report.keyCheck` le verifie. Ne jamais contourner un 403
+- Banc CI : **une seule cle**, sans repli silencieux ; `report.keyCheck` le
+  verifie. Choisie au demarrage (`ci/keyprobe.py`, 2026-10-01) : mini prompt
+  sans raisonnement (deepseek-v4.1-flash) sur `OPENCODE_PRIMARY_API_KEY` et
+  `OPENCODE_SECONDARY_API_KEY` ; primary si les deux repondent, sinon celle
+  qui repond, sinon le banc echoue (`report.keyProbe`). Seule la cle retenue
+  va aux bots. Ne jamais contourner un 403
   `FreeTierError` d OpenCode.
 - Runner MINIPC-CLEM : pas de Docker Engine, pas de DinD, pas de privilege en
   plus ; ne supprimer que les ressources du job (`mc-ci-*`, `minebot-ci:*`) ;
@@ -84,7 +102,9 @@ Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
   machine) ; ne pas la relever sans son accord.
 - Ne pas allonger un delai ni relacher une assertion du banc sans preuve.
 - Fusion seulement si tous les niveaux non informatifs passent et
-  `keyCheck` est ok.
+  `keyCheck` est ok, sur un banc COMPLET de la tete de la PR (voir §5) ; un
+  banc partiel ne suffit jamais. Le check `banc-complet` du workflow n est
+  vert que dans ce cas (prerequis de fusion sur `main`, 2026-10-01).
 
 ### Decisions de retrait (ne pas remettre sans A/B favorable)
 
@@ -132,9 +152,9 @@ Flux d une demande (details : ARCHITECTURE.md) :
    (appel anticipe) ; `reflexPass` entre deux etapes ; `finishAllowed`
    refuse un arret que les chiffres contredisent ; blocages detectes
    (`detectStuck`) dits dans le chat et journalises `[blocage] {json}`.
-4. **Actions** (`skills.ACTIONS`, 25) : `casser`, `recolter`, `ramasser`,
+4. **Actions** (`skills.ACTIONS`, 26) : `casser`, `recolter`, `ramasser`,
    `donner`, `cuire`, `fabriquer`, `avancer`, `explorer`, `choisir_terrain`,
-   `piler`, `construire`, `poser_porte`, `sortir`, `attendre`, `terminer`,
+   `piler`, `construire`, `poser_porte`, `ouvrir_porte`, `sortir`, `attendre`, `terminer`,
    `dire`, `regarder`, `sauter`, `appuyer`, `regarder_autour`, `pivoter`,
    `memoriser`, `oublier`, `rejoindre_demandeur`, `tourner_vers_demandeur`.
    Chacune est parametree (duree, distance, quantite, objet...) ; le modele
@@ -189,7 +209,10 @@ dans `docs/journal.md` (section « Les pieges »).
    « reparer la nage » sans patcher prismarine-physics.
 5. **Le serveur refuse un bloc pose dans le corps du bot** (« the block is
    still air ») : `build.findVantage` choisit un poste de tir hors de la case ;
-   `clearOfTarget` recule avant la pose.
+   `clearOfTarget` recule avant la pose. **Jamais s enfermer** (decision du
+   proprietaire, 2026-10-01) : avant chaque pose, `build.enclosureBy` cherche
+   une sortie a pied ; si le bloc fermerait la derniere, le bot sort d abord
+   et pose depuis un poste hors de l enceinte (sinon echec dit).
 6. **mineflayer-pathfinder 2.4.5** : `optimizePath:false` indispensable (son
    post-traitement mutait les noeuds partages) ; `maxDropDown=3` = deux blocs
    de chute seche ; `GoalNear` peut annoncer `goal_reached` loin du but. Le
@@ -201,7 +224,10 @@ dans `docs/journal.md` (section « Les pieges »).
    arrondit le centre du bloc et creusait un trou au pied du mur. Le pathfinder
    planifie parfois une montee d un bloc sous un plafond de deux (impossible,
    la tete touche) et replanifie sans fin : trois `stuck` sur place arretent
-   le trajet (code `stuck`).
+   le trajet (code `stuck`). Il tient aussi toute porte pour un mur (il
+   n ouvre que les portillons) : le navigateur traverse les portes en bois et
+   les ouvre a la main (`openDoorAt`) ; sans cela, un bot ferme dans sa
+   cabane n en sortait plus. Une porte de fer reste un mur.
 7. **Chien de garde et pathfinder s entretuent** sans `RESCUE_COOLDOWN_MS`.
    Avant toute hypothese « il ne bouge plus » : `forward` maintenu via
    `/api/control` (le bot bouge-t-il ?) puis `/api/goto` (le pathfinder
@@ -240,6 +266,16 @@ dans `docs/journal.md` (section « Les pieges »).
 - Declenche par tout push sur `main` ou `claude/**` (workflow
   `.github/workflows/minecraft.yml`), runner self-hosted MINIPC-CLEM (Podman
   rootless), un seul job a la fois, 75 min max.
+- Ce qui se joue (2026-10-01, demande du proprietaire) : **tout** sur `main` ;
+  sur une branche, ce que demande la ligne finale du message de commit
+  (trailer, dans le dernier paragraphe avec `Co-Authored-By`) :
+  `Banc: composite/cabin-from-scratch* trees/pillar*` (motifs sur le nom
+  complet, variantes comprises ; un composite entraine son jumeau),
+  `Banc: unitaires` pour les tests unitaires seuls (ni serveur ni modele) ;
+  **sans ligne `Banc:`, banc complet**. Lancement manuel : entree `levels`.
+  Pendant le travail, choisir les niveaux que le changement peut toucher ; le
+  dernier commit avant fusion n a pas de ligne `Banc:` (banc complet, check
+  `banc-complet` vert exige).
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
@@ -247,8 +283,10 @@ dans `docs/journal.md` (section « Les pieges »).
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, plus scenarios de navigation et ~340 tests unitaires (`UNIT`,
   ci/run.py).
-- Arenes variees par la graine (SHA du commit ; `CI_VARIATION_SEED`) :
-  rotation, miroir, essence d arbre. Chaque resultat porte `variation`.
+- Arenes variees par la graine (`ci/variation-seed.txt`, sinon SHA du
+  commit ; `CI_VARIATION_SEED` prime) : rotation, miroir, essence d arbre.
+  Composites rejoues aussi en arene aleatoire (`~aleatoire`, voir §1).
+  Chaque resultat porte `variation` (graine comprise).
 - Rapport (`report.json`, `summary.md`) : resultats, `comparisons` A/B, KPI
   (taux d actions en echec, blocages, par famille : a faire baisser),
   `blocages` par niveau (a analyser a chaque banc), `plannerSummary`
@@ -323,7 +361,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | --- | --- |
 | `compose.yaml` | les deux services (pieges 1 a 3) |
 | `bot/index.js` | bot Mineflayer, API HTTP, chien de garde, commandes `!`, `digToward` |
-| `bot/mission.js` | boucle de mission, etat servi au modele, les 25 actions, garde-fous |
+| `bot/mission.js` | boucle de mission, etat servi au modele, les 26 actions, garde-fous |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |
 | `bot/skills.js` | table unique : commandes, actions, documentation native, matieres, audit |

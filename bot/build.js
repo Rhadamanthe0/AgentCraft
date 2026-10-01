@@ -983,6 +983,88 @@ async function clearOfTarget (bot, target) {
 // devient grass_block ; sans cela le bot la cassait pour la reposer).
 // `move` : trajet vers le poste de tir (le navigateur partage de la mission),
 // l ancien `moveTo` en gestes restant le repli.
+// ---------------------------------------------------------------------------
+// Ne jamais s enfermer (decision du proprietaire, 2026-10-01)
+//
+// Un bot qui pose le dernier bloc d une enceinte en etant dedans n en sort
+// plus (composite/cabin-from-scratch 7d76b18 : enferme 38 min ; sans porte,
+// meme ouvrir_porte n y peut rien). Avant chaque pose, on cherche a pied,
+// depuis les pieds du bot, une sortie : cases ou le corps tient (deux cases
+// libres, une porte en bois se traverse), marche d un bloc, chute de trois au
+// plus. Sortie = une case a plus de ESCAPE_RADIUS blocs. Le bloc a poser
+// compte comme plein : s il ferme la derniere sortie, le bot sort d abord.
+// ---------------------------------------------------------------------------
+const ESCAPE_RADIUS = 14
+const DOOR = /_door$/
+const passable = (block, extra, key) => {
+  if (!block || extra?.has(key(block.position))) return false
+  return isFree(block) || (DOOR.test(block.name) && block.name !== 'iron_door')
+}
+
+// Cases ou les pieds du bot peuvent aller a pied depuis `from` (Vec3 des
+// pieds), en tenant les cases de `solides` (cles "x,y,z") pour pleines.
+// { escape: true } des qu une case sort du rayon ; sinon la zone close.
+function walkRegion (bot, from, solides = new Set()) {
+  const key = p => `${p.x},${p.y},${p.z}`
+  const free = (x, y, z) => passable(bot.blockAt(new Vec3(x, y, z)), solides, key)
+  const floor = (x, y, z) => {
+    const b = bot.blockAt(new Vec3(x, y - 1, z))
+    return Boolean(b) && !passable(b, null, key) && !LIQUID.test(b.name ?? '')
+  }
+  const start = new Vec3(Math.floor(from.x), Math.floor(from.y + 0.01), Math.floor(from.z))
+  const seen = new Set([key(start)])
+  const queue = [start]
+  for (let i = 0; i < queue.length && i < 20000; i++) {
+    const c = queue[i]
+    if (Math.max(Math.abs(c.x - start.x), Math.abs(c.z - start.z)) > ESCAPE_RADIUS) return { escape: true, seen }
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = c.x + dx
+      const z = c.z + dz
+      let next = null
+      if (free(x, c.y, z) && free(x, c.y + 1, z)) {
+        // Meme niveau, ou chute de 1 a 3 jusqu au premier appui.
+        for (let y = c.y; y >= c.y - 3; y--) {
+          if (!free(x, y, z) || !free(x, y + 1, z)) break
+          if (floor(x, y, z)) { next = new Vec3(x, y, z); break }
+        }
+      } else if (free(c.x, c.y + 2, c.z) && free(x, c.y + 1, z) && free(x, c.y + 2, z) && floor(x, c.y + 1, z)) {
+        next = new Vec3(x, c.y + 1, z) // marche d un bloc, tete libre
+      }
+      if (next && !seen.has(key(next))) { seen.add(key(next)); queue.push(next) }
+    }
+  }
+  return { escape: false, seen }
+}
+
+// La pose de `target` enfermerait-elle le bot ? Seulement si, sans elle, il
+// a une sortie (deja enferme : rien a proteger ici). Rend la zone close
+// qu elle creerait, pour en ecarter les postes de tir.
+function enclosureBy (bot, target) {
+  const here = bot.entity?.position
+  if (!here) return null
+  const feet = Math.floor(here.y + 0.01)
+  // Seul un bloc a hauteur de passage peut couper un chemin a pied.
+  if (target.y < feet - 4 || target.y > feet + 2) return null
+  if (!walkRegion(bot, here).escape) return null
+  const after = walkRegion(bot, here, new Set([`${target.x},${target.y},${target.z}`]))
+  return after.escape ? null : after.seen
+}
+
+// Case ou se tenir hors de la zone close `inside`, la plus proche du bot.
+function exitStand (bot, inside) {
+  const here = bot.entity.position
+  const region = walkRegion(bot, here)
+  let best = null
+  for (const k of region.seen) {
+    if (inside.has(k)) continue
+    const [x, y, z] = k.split(',').map(Number)
+    const stand = new Vec3(x + 0.5, y, z + 0.5)
+    const d = stand.distanceTo(here)
+    if (!best || d < best.d) best = { stand, d }
+  }
+  return best?.stand ?? null
+}
+
 async function placeOne (bot, target, itemName, { accept = null, move = null, sol = null, signal = null } = {}) {
   const existing = bot.blockAt(target)
   if (existing && (existing.name === itemName || accept?.test(existing.name))) return 'deja'
@@ -991,9 +1073,20 @@ async function placeOne (bot, target, itemName, { accept = null, move = null, so
   // craft/stone-pickaxe : etabli a poser a cote du bot, contre un rocher ;
   // le trajet vers un « meilleur » poste echouait (12 s) et la pioche en
   // pierre n etait jamais fabriquee, pierre et planches en poche.
+  // Ne jamais s enfermer : ce bloc fermerait-il la derniere sortie ? Le bot
+  // sort d abord, et aucun poste de tir de la zone close n est retenu.
+  const inside = enclosureBy(bot, target)
+  if (inside) {
+    const exit = exitStand(bot, inside)
+    let out = false
+    if (exit && move) out = await move(exit).catch(() => false)
+    if (!out && exit) out = await moveTo(bot, exit, signal).then(() => true, () => false)
+    if (!out) throw new Error('poser ce bloc enfermerait le bot, et aucune sortie a pied n est rejointe')
+  }
+  const dehors = stand => !inside?.has(`${Math.floor(stand.x)},${Math.floor(stand.y + 0.01)},${Math.floor(stand.z)}`)
   const here = bot.entity?.position
   const center = target.offset(0.5, 0.5, 0.5)
-  const direct = here && bot.entity.onGround && isFree(existing) && !bodyOverlaps(here, target) &&
+  const direct = here && dehors(here) && bot.entity.onGround && isFree(existing) && !bodyOverlaps(here, target) &&
     here.offset(0, 1.62, 0).distanceTo(center) <= PLACE_REACH ? findSupport(bot, target) : null
   if (direct) {
     await equipMaterial(bot, itemName)
@@ -1003,7 +1096,8 @@ async function placeOne (bot, target, itemName, { accept = null, move = null, so
   }
 
   let vantage = findVantage(bot, target)
-  if (!vantage) throw new Error('aucun poste de tir au sol a portee')
+  if (vantage && !dehors(vantage.stand)) vantage = findVantages(bot, target, sol).find(v => dehors(v.stand)) ?? null
+  if (!vantage) throw new Error(inside ? 'aucun poste de tir hors de l enceinte qu il fermerait' : 'aucun poste de tir au sol a portee')
 
   let arrived = false
   if (move) {
@@ -1013,7 +1107,7 @@ async function placeOne (bot, target, itemName, { accept = null, move = null, so
     // toit d une tour fermee ne se pose que debout sur ses murs (build/tower
     // 559d03e : 49/50, les trois premiers postes au sol, perches jamais
     // essayes, plafond de 300 s).
-    const vantages = findVantages(bot, target, sol)
+    const vantages = findVantages(bot, target, sol).filter(v => dehors(v.stand))
     const essais = [...vantages.filter(v => !v.perche).slice(0, 3), ...vantages.filter(v => v.perche).slice(0, 2)]
     for (const candidate of essais) {
       arrived = await move(candidate.stand).catch(() => false)
@@ -1082,6 +1176,8 @@ async function placeDoor (bot, plan, itemName, { move = null, signal = null } = 
 }
 
 module.exports = {
+  walkRegion,
+  enclosureBy,
   standable,
   bodyOverlaps,
   parseDimensions,

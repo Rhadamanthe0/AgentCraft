@@ -91,6 +91,19 @@ function blockInReach (bot, feet, target, reach = 4) {
   return false
 }
 
+// Portes : le pathfinder 2.4.5 n ouvre que les portillons (`canOpenDoors`) et
+// tient une porte pour un mur (boite pleine quel que soit son etat). Un bot
+// qui avait ferme sa cabane derriere lui n en ressortait plus
+// (composite/cabin-from-scratch 7d76b18 : enferme 38 min, no_path vers le
+// bois a 19 blocs). Comme un joueur, le calcul traverse une porte en bois et
+// le bot l ouvre a la main avant d y entrer ; une porte de fer (levier ou
+// bouton) reste un mur.
+const isWoodDoor = name => /_door$/.test(name ?? '') && name !== 'iron_door'
+function doorClosed (block) {
+  const open = block?.getProperties?.()?.open
+  return open === false || open === 'false'
+}
+
 function createNavigator (getBot, options = {}) {
   let active = null
   let last = null
@@ -135,6 +148,36 @@ function createNavigator (getBot, options = {}) {
     // Pathfinder 2.4.5 compte jusqu au BLOC d appui, pas jusqu aux pieds :
     // 3 permits two blocks down; WalkingMovements also checks actual surfaces.
     movements.maxDropDown = 3
+    if (typeof movements.getBlock === 'function') {
+      const getBlock = movements.getBlock.bind(movements)
+      movements.getBlock = (...args) => {
+        const b = getBlock(...args)
+        if (isWoodDoor(b?.name)) { b.safe = true; b.physical = false }
+        return b
+      }
+    }
+    const opened = new Set()
+    // Porte fermee dans la case du prochain point (pieds ou tete) : l ouvrir
+    // avant d y entrer, une fois par porte et par trajet.
+    async function openDoorAt (point) {
+      const V = bot.entity.position.constructor
+      for (const dy of [0, 1]) {
+        const block = bot.blockAt(new V(Math.floor(point.x), Math.floor(point.y) + dy, Math.floor(point.z)))
+        if (!block || !isWoodDoor(block.name) || !doorClosed(block)) continue
+        const key = `${block.position.x},${block.position.y},${block.position.z}`
+        if (opened.has(key)) return
+        opened.add(key)
+        bot.clearControlStates()
+        try {
+          await bot.activateBlock(block)
+          report({ event: 'door_opened', at: { x: block.position.x, y: block.position.y, z: block.position.z } })
+        } catch (err) {
+          report({ event: 'door_refused', detail: err.message })
+        }
+        await sleep(150)
+        return
+      }
+    }
     const blockedNodes = new Set()
     movements.exclusionAreasStep ??= []
     movements.exclusionAreasStep.push(block => !block.position || blockedNodes.has(`${block.position.x},${block.position.y},${block.position.z}`) ? 100 : 0)
@@ -170,7 +213,8 @@ function createNavigator (getBot, options = {}) {
       let y = node.y
       for (const offset of [0, -1]) {
         const block = bot.blockAt(new V(node.x, node.y + offset, node.z))
-        if (block?.shapes?.length) {
+        // Une porte se traverse, ce n est jamais une marche a gravir.
+        if (block?.shapes?.length && !isWoodDoor(block.name)) {
           y = node.y + offset + Math.max(...block.shapes.map(s => s[4]))
           break
         }
@@ -325,6 +369,8 @@ function createNavigator (getBot, options = {}) {
         if (point.toBreak?.length || point.toPlace?.length || point.parkour) {
           code = 'unsupported_move'; break
         }
+        await openDoorAt(point)
+        if (stopped()) break
         const p = bot.entity.position
         if (distanceXZ(p, point) < 0.35) touchedPoint = point
         // Pendant la retombee, ne pas poursuivre/contourner un point deja
@@ -428,4 +474,4 @@ function createNavigator (getBot, options = {}) {
     status: () => active ? { username: active.username, code: 'running' } : last }
 }
 
-module.exports = { createNavigator, arrived, clearSegment, blockInReach, itemInPickupRange, WalkingMovements }
+module.exports = { createNavigator, arrived, clearSegment, blockInReach, itemInPickupRange, WalkingMovements, isWoodDoor, doorClosed }
