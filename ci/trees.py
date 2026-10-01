@@ -95,7 +95,8 @@ def base_levels():
             'about': 'Arbre tordu : tronc qui se decale deux fois, branche horizontale, couronne decalee.',
             'leaves': [(TX-1, 206, TZ-1, TX+3, 207, TZ+3), (TX+3, 203, TZ-1, TX+3, 204, TZ+1)],
             'logs': _logs(*bent[:3]) + _logs(*bent[3:5], axis='x') + _logs(*bent[5:]),
-            'rules': {},
+            # A/B: the third identical failure is refused (outcomes.js).
+            'rules': {}, 'variants': [sans('anti_boucle')],
         },
         # Chat level: the player interrupts a tree job while the bot is on its pillar.
         {
@@ -1714,7 +1715,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 EXPECTED_S = {
     'composite/cabin-from-scratch': 900, 'composite/stone-hut-from-scratch': 1200,
     'composite/cabin-change-of-mind': 1000, 'composite/cabin-across-water': 1000, 'craft/iron-pickaxe': 400, 'craft/iron-pickaxe~sans-solveur': 480,
-    'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'trees/double~sans-relance_plan': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
+    'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/bent~sans-anti_boucle': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'trees/double~sans-relance_plan': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
     'terrain/hedge-pit': 29, 'join/water-gap': 29, 'terrain/pit': 28, 'chat/chatter-ignored': 28,
     'chat/question-keeps-mission': 27, 'chat/stop-tree': 27, 'join/tall-cliff': 26, 'terrain/dirt-wall': 25,

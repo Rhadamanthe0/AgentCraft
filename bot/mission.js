@@ -19,6 +19,7 @@
 
 const skills = require('./skills')
 const build = require('./build')
+const outcomes = require('./outcomes')
 const craft = require('./craft')
 const acquirePlan = require('./acquire-plan')
 const { planCraft } = require('./recipe-plan')
@@ -2663,6 +2664,19 @@ function createMissionRunner (host, injected = {}) {
     const built = mission.kind === 'construction' ? buildProgress().done : 0
     return mission.broken + collected() + built + (doorPlaced() ? 1 : 0) +
       (mission.dirtSecondaire ?? 0) + deliveryProvenFor(mission)
+  }
+
+  const gardes = new WeakMap()
+  function gardeBoucle (m) {
+    if (!gardes.has(m)) gardes.set(m, outcomes.createLoopGuard())
+    return gardes.get(m)
+  }
+  function inventaireTotal () {
+    try {
+      return (host.getBot()?.inventory?.items?.() ?? []).reduce((n, item) => n + (item.count ?? 0), 0)
+    } catch (_) {
+      return null
+    }
   }
 
   // Trois signatures d une impasse, toutes mesurees ici :
@@ -6691,7 +6705,15 @@ function createMissionRunner (host, injected = {}) {
         return
       }
 
-      try {
+      // Anti-boucle : la meme etape, depuis la meme case et avec le meme
+      // inventaire, qui a deja rendu deux fois le meme echec n est pas rejouee.
+      const garde = gardeBoucle(mission)
+      const signatureEtape = outcomes.signature(decision.step, decision.choices,
+        host.getBot()?.entity?.position?.floored?.(), inventaireTotal())
+      const dejaVu = featureOn('anti_boucle') ? garde.refuse(signatureEtape) : null
+      if (dejaVu) outcome = outcomes.refusRepetition(decision.step, dejaVu, ACTIONS)
+
+      if (!outcome) try {
         const message = activity.ACTIONS[decision.step] ?? activity.SUBGOALS[decision.step === 'rejoindre_demandeur' ? 'rejoindre' : '']
         mission.activity?.update('execution', message || 'Je continue…', Boolean(message))
         const exec = physicalExecutor()
@@ -6750,6 +6772,9 @@ function createMissionRunner (host, injected = {}) {
       // Idem si la mission a ete remplacee (suspend + nouvel objectif).
       if (!isRunning() || mission.cancelled || mission !== myMission || myMission.navigationAbort !== controller) return
 
+      outcome = outcomes.normaliser(decision.step, outcome, ACTIONS)
+      if (outcome?.code !== 'repetition') garde.note(signatureEtape, outcome)
+
       mission.steps += 1
       if (outcome.echec) {
         mission.echecs = (mission.echecs ?? 0) + 1
@@ -6761,7 +6786,8 @@ function createMissionRunner (host, injected = {}) {
           mission.echecsDetail.push({ t: Math.round((Date.now() - mission.startedAt) / 1000), action: decision.step, resultat: String(outcome.resultat ?? '').slice(0, 160) })
         }
       }
-      mission.history.push({ action: decision.step, resultat: outcome.resultat, code: outcome.code ?? null, echec: Boolean(outcome.echec) })
+      mission.history.push({ action: decision.step, resultat: outcome.resultat, code: outcome.code ?? null, echec: Boolean(outcome.echec),
+        ...(outcome.echec && outcome.remedes?.length ? { remedes: outcome.remedes } : {}) })
       if (mission.history.length > 8) mission.history.shift()
       reportProgressSafe()
 
