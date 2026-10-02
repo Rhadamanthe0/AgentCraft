@@ -10,6 +10,12 @@ L historique complet (chaque correctif, sa raison, le banc qui l a revele) est
 dans `docs/journal.md`. Il est utile pour comprendre un choix ancien, mais il
 decrit aussi des modules retires : en cas de contradiction, ce fichier prime.
 
+**Tenir ce fichier a jour (proprietaire, 2026-10-02)** : il est la memoire d une
+session a l autre. A chaque changement qui le touche (regle, interrupteur,
+fichier, piege, maniere de travailler), le mettre a jour dans le meme commit ;
+retirer ce qui n est plus vrai plutot que l empiler ; y noter tout ce qu une
+prochaine session devrait savoir sans avoir a le redecouvrir.
+
 ## 1. Regles du proprietaire (prioritaires sur tout)
 
 ### Autonomie, pas repetition (2026-09-25)
@@ -129,6 +135,30 @@ cabane et maison en pierre, build/no-materials, craft/iron-pickaxe ; niveaux
 | Routage double MiMo/Muse, supervisor/, kernel/, bridge/, unlock-service | 2026-09-27 | jamais branches au bot |
 | `approcher`, ancien `explorer` (GoalNearXZ) | 2026-09-22 | pathfinder 26.1 peu fiable ; remplaces par le navigateur partage |
 | Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
+
+### Conduite d une session d agent (2026-10-02)
+
+- Parler au proprietaire en francais ; finir chaque reponse par ce qu il doit
+  faire, ou « Tu n as rien a faire ».
+- Points de controle programmes (`send_later`, routines) : **45 min** au plus
+  apres le dernier travail, jamais 60. Le cache du contexte dure une heure a
+  partir de la derniere activite ; a 60 min il expire et tout se relit.
+  Un banc cible dure 15 a 30 min : il est pret a 45 min.
+- Avant de corriger un echec de banc, le reproduire hors ligne quand c est
+  possible (`tmp/skill-sim.js`, `tmp/sim-server.js`, §6) et en faire un test
+  qui echoue sans le correctif.
+- Lire un banc : `python3 ci/fetch-results.py` (§5), puis `report.json`,
+  `containers.log`, `traces/`, `instantanes/`. « pas de reponse en 10 s » sur
+  tous les bots a la fois = panne du gateway, pas le code ; un echec
+  `skill/*` est toujours un bug du code.
+- Sur un banc partiel (ligne `Banc:`), `banc-complet` est rouge par
+  construction : un seul commentaire de PR l explique, pas un par banc.
+- `tmp/*` est ignore par git sauf `*.js` (et les exceptions de
+  `.gitignore`) : un nouveau fichier de donnees dans `tmp/` exige son
+  exception. Verifier avant de pousser dans un clone propre
+  (`git clone . <scratch>` puis les tests) : un fichier present seulement en
+  local a casse deux bancs (7f7ac88, e3786f9).
+- Pas de revue Codex a attendre (retiree, #60).
 
 ## 2. Ce que c est
 
