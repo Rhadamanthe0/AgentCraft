@@ -1980,3 +1980,35 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             results[index] = {'test': all_levels[index]['name'], 'success': False, 'type': mission_type(all_levels[index]['name']),
                               'error': 'aucun worker disponible (workers morts ou demarrages en echec)'}
     return results, summary
+
+
+# Offline skill runs (tmp/skill-sim.js, 2026-10-02): the skill/* levels as plain
+# JSON, local coordinates, optionally varied by a seed like a bench arena. The
+# committed tmp/skill-levels.json must equal export_skills() (ci/test_selection).
+SKILL_FIXTURE_KEYS = ('name', 'about', 'kind', 'instruction', 'start', 'terrain', 'leaves', 'leavesBlock', 'logs',
+                      'give', 'rules', 'target', 'items', 'blocks', 'door', 'minTop', 'features', 'skill', 'variation')
+
+
+def export_skills(seed=None):
+    out = []
+    for level in base_levels():
+        if not level['name'].startswith('skill/'):
+            continue
+        varied = vary(level, seed)
+        fixture = {k: varied[k] for k in SKILL_FIXTURE_KEYS if k in varied}
+        fixture.setdefault('instruction', INSTRUCTION)
+        fixture.setdefault('start', LOCAL_START)
+        fixture.setdefault('leavesBlock', LEAVES)
+        fixture['variants'] = [{'name': f"{level['name']}~{suffix}", 'features': features}
+                               for suffix, features in level.get('variants', ())]
+        out.append(fixture)
+    return {'size': SIZE, 'floorY': FLOOR_Y, 'topY': TOP_Y, 'requester': REQUESTER, 'levels': out}
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Export the skill/* levels for offline runs (tmp/skill-sim.js).')
+    parser.add_argument('--export-skills', action='store_true', required=True)
+    parser.add_argument('--seed', default=None, help='vary the arenas like a bench (rotation, mirror, species)')
+    args = parser.parse_args()
+    print(json.dumps(export_skills(args.seed), indent=1))

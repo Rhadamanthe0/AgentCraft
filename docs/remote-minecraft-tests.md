@@ -281,6 +281,15 @@ sont generiques (une etape par obstacle annonce par l action precedente),
 jamais des coordonnees ni une sequence copiee d un niveau a modele, et ils ne
 nourrissent jamais le prompt.
 
+**Hors ligne (2026-10-02).** Les memes niveaux se jouent sans serveur :
+`node tmp/skill-sim.js <niveau>` construit l arene exportee
+(`python3 ci/trees.py --export-skills`, fichier `tmp/skill-levels.json`, test
+de synchro dans `ci/test_selection.py`), lance la vraie mission scriptee sur un
+serveur simule (vrai A*, vraie physique, casse avec outil, objets au sol
+ramasses au contact de la boite du joueur elargie d un bloc, pose refusee dans
+le corps) et applique les controles de la famille. Les niveaux rapides tournent
+a chaque banc dans `tmp/skill-sim.test.js`. Hors champ : fabrication et four.
+
 Les blocs sont comptes par RCON (`clone ... filtered` vers une zone de
 comptage eloignee) toutes les 3 s ; la hauteur est echantillonnee chaque
 seconde quand le bot est au sol. Un niveau s'arrete des que l'issue est

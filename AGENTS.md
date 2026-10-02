@@ -324,6 +324,21 @@ node --check bot/mission.js
 
 Hors liste : `runtime-objectives` (S5 saute en root).
 
+Banc de competences hors ligne (2026-10-02) : un niveau `skill/*` se joue en
+local en quelques secondes, vraie mission scriptee, vrai A* 2.4.5 et vraie
+physique sur un serveur simule (`tmp/sim-server.js` : casse avec outil exige,
+objets qui tombent et se ramassent comme au serveur, pose refusee dans le
+corps du bot). A lancer AVANT de pousser un changement d action ou de
+navigation ; le banc ne sert plus qu a confirmer. Hors champ : fabrication et
+four (`skill/*-batir` restent au banc).
+
+```bash
+NODE_PATH=$PWD/bot/node_modules node tmp/skill-sim.js --liste
+NODE_PATH=$PWD/bot/node_modules node tmp/skill-sim.js skill/tree-pillar~avec-acces_unifie
+# Apres avoir change un niveau skill/* dans ci/trees.py (test de synchro sinon rouge) :
+python3 ci/trees.py --export-skills > tmp/skill-levels.json
+```
+
 Recettes en jeu (serveur local), toujours avec un harness silencieux
 `tmp/probe-bot.js` (`TestProbeN`, jamais op, jamais `TestBot` ni
 `Rhadamanthe0`) :
@@ -404,6 +419,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/logger.js`, `bot/screenshot.js` | journal ; mini-carte PNG (`MISSION_SCREENSHOT`, eteinte) |
 | `ci/` | banc (run.py, trees.py, pool.py, capacity.py, harness, sondes) |
 | `tmp/*.test.js` | tests unitaires ; `tmp/sim-world.js` monde simule partage ; `tmp/replay-snapshot.js` rejeu d un instantane de blocage ; `tmp/probe-bot.js` harness multi-bots |
+| `tmp/sim-server.js`, `tmp/skill-sim.js`, `tmp/skill-levels.json` | banc de competences hors ligne : serveur simule (vrai A*, vraie physique), joueur de niveau `skill/*`, niveaux exportes par `ci/trees.py --export-skills` |
 | `ci/promotion.py` | taux de reussite des niveaux informatifs sur N bancs, serie avec le jumeau |
 | `ci/ab.py` | decision A/B sur N bancs, par mode et par niveau : gains/pertes de reussite, duree et appels medians, mode reellement actif, verdict garder/retirer/egalite/insuffisant |
 | `docs/journal.md` | historique des decisions et correctifs |

@@ -7,6 +7,9 @@
 !tmp/probe-bot.js
 !tmp/sim-world.js
 !tmp/replay-snapshot.js
+!tmp/sim-server.js
+!tmp/skill-sim.js
+!tmp/skill-levels.json
 !ci/
 !ci/Dockerfile
 !ci/harness.js
