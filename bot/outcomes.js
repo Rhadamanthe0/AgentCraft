@@ -19,6 +19,10 @@ const REMEDES = {
   // Hauteur et acces
   cible_haute: ['piler', 'casser'],
   pilier: [],
+  // Cible rejointe par le moteur d acces unique (succes, reobservation).
+  acces: [],
+  // Bot absent pendant l acces (deconnexion) : constat, rien a tenter.
+  unavailable: [],
   stock_echafaudage_insuffisant: ['casser', 'fabriquer'],
   dug: [],
   dug_out_of_reach: ['avancer', 'piler'],

@@ -87,8 +87,9 @@ def base_levels():
             'logs': _logs(*trunk6),
             # Two blocks are required; a higher pillar is wasteful but reported, not failed.
             'rules': {'leaves_broken_max': 0, 'standing_y_min': 201.9},
-            # A/B: the pillar stays up once the tree is cut (dirt_above_floor).
-            'variants': [sans('arbre_fini')],
+            # A/B: the pillar stays up once the tree is cut (dirt_above_floor);
+            # one A* for walk, dig, tower and bridge (acces_unifie).
+            'variants': [sans('arbre_fini'), avec('acces_unifie')],
         },
         {
             'name': 'trees/bent',
@@ -96,7 +97,7 @@ def base_levels():
             'leaves': [(TX-1, 206, TZ-1, TX+3, 207, TZ+3), (TX+3, 203, TZ-1, TX+3, 204, TZ+1)],
             'logs': _logs(*bent[:3]) + _logs(*bent[3:5], axis='x') + _logs(*bent[5:]),
             # A/B: the third identical failure is refused (outcomes.js).
-            'rules': {}, 'variants': [sans('anti_boucle')],
+            'rules': {}, 'variants': [sans('anti_boucle'), avec('acces_unifie')],
         },
         # Chat level: the player interrupts a tree job while the bot is on its pillar.
         {
@@ -222,8 +223,9 @@ def base_levels():
             'leaves': [(TX-2, 208, TZ-2, TX+2, 209, TZ+2)],
             'logs': _logs(*[(TX, 205 + i, TZ) for i in range(3)]),
             'rules': {},
-            # A/B: digging path by the shared navigator (index.digTowardNavigateur).
-            'variants': [avec('nav_creuse')],
+            # A/B: digging path by the shared navigator (index.digTowardNavigateur),
+            # and the single access engine (acces_unifie).
+            'variants': [avec('nav_creuse'), avec('acces_unifie')],
         },
         {
             'name': 'terrain/hedge-pit',
@@ -332,8 +334,9 @@ def base_levels():
             'terrain': [(TX-3, 200, TZ-3, TX+3, 202, TZ+3, 'dirt'), (TX-2, 200, TZ-2, TX+2, 202, TZ+2, 'air'),
                         (TX-1, 199, TZ-1, TX+1, 199, TZ+1, 'sand')],
             'target': 4, 'leaves': [], 'logs': [], 'rules': {},
-            # A/B: digging path by the shared navigator (index.digTowardNavigateur).
-            'variants': [avec('nav_creuse')],
+            # A/B: digging path by the shared navigator (index.digTowardNavigateur),
+            # and the single access engine (acces_unifie).
+            'variants': [avec('nav_creuse'), avec('acces_unifie')],
         },
         # Craft levels: same runner as gather/* ; `give` stocks the bot by RCON
         # before the order (fixture only, like the arena itself).
@@ -545,7 +548,7 @@ def base_levels():
             'terrain': [(TX-4, 199, TZ-4, TX+4, 199, TZ+4, 'water'), (TX-2, 199, TZ-2, TX+2, 199, TZ+2, 'grass_block')],
             'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
             'logs': _logs(*trunk3),
-            'rules': {},
+            'rules': {}, 'variants': [avec('acces_unifie')],
         },
         # Arbre hors du rayon de recherche (32) : sans explorer, le bot pivote
         # et avance a l aveugle (variantes du banc de la PR #38). Informatif
@@ -712,6 +715,8 @@ def base_levels():
                                  {'action': 'piler', 'hauteur': 2},
                                  {'action': 'recolter', 'quantite': 6, 'repeter': 3},
                                  {'action': 'ramasser', 'quantite': 6, 'repeter': 2}]},
+            # A/B without model noise: the same script, access by one A*.
+            'variants': [avec('acces_unifie')],
         },
         {
             'name': 'skill/dirt-box',
@@ -730,6 +735,7 @@ def base_levels():
             'target': 4, 'leaves': [], 'logs': [], 'rules': {},
             'skill': {'brief': {'type': 'recolte', 'matiere': 'sable'},
                       'script': [{'action': 'recolter', 'quantite': 4, 'repeter': 4}]},
+            'variants': [avec('acces_unifie')],
         },
     ]
 

@@ -57,13 +57,14 @@ Trois principes structurent le code :
 | `action-gestes.js` | premiere famille d actions a contexte explicite : gestes, attente, fin, memoire |
 | `executor.js` | slot physique unique : une action du monde a la fois, annulable |
 | `planner.js` | prompts, plan JSON, brief, chat, conception de plans libres (`designBlueprint`), coercition des parametres |
+| `pose.js` | gestes de pose (tour sous soi, pose contre une face), comptes seulement si la case est pleine apres coup |
 | `script-brain.js` | cerveau scripte du banc de competences (`skill/*`) : brief et etapes donnes, valides comme ceux du modele, aucun appel ; route `/api/mission/script` (`MISSION_SCRIPT=1`) |
 | `model-chain.js`, `llm.js` | modele, effort et cle par usage ; transport OpenAI partage (chat/completions et responses) |
 | `skills.js` | table unique : commandes, actions (parametres bornes, interrupteurs), documentation native, matieres, audit |
 | `acquire-plan.js`, `recipe-plan.js` | solveur de prerequis (recolter / fabriquer / cuire) ; recettes du registre |
 | `craft.js` | fabrication unite par unite, etabli, four (`smelt`), outils (`harvestCheck`, `equipForBlock`) |
 | `build.js` | boite (`planHouse`), plans libres (`compileBlueprint`), sites, postes de tir, pose |
-| `navigation.js`, `motion-trace.js` | navigateur partage (A* de mineflayer-pathfinder pour le calcul, execution physique locale) ; traces |
+| `navigation.js`, `motion-trace.js` | navigateur partage (A* de mineflayer-pathfinder pour le calcul, execution physique locale ; options `dig` et `place` : casse, tour et pont planifies par le meme A*, executes et verifies localement) ; traces ; `atteindre` (mission.js, A/B `acces_unifie`) l utilise comme moteur d acces unique |
 | `movement-task.js`, `tree-position.js` | parcours declaratifs (rejoindre, aller-retour, attendre...) ; placement sous un arbre |
 | `reflexes.js` | reflexes entre deux etapes (tete prise, chute de bloc, feu, monstre, objets proches) |
 | `memory.js` | memoire du modele : `travail` (mission) et `long_terme` (persistante) |

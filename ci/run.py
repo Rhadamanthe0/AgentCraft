@@ -153,7 +153,7 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
         'place-direct.test.js', 'craft-table-reuse.test.js',
         # Ajoutes le 2026-09-27 (revue : 1 a 11 s chacun, regressions a bas cout).
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
-        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
+        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'navigation-place.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
         'delivery.test.js', 'planner-profile.test.js', 'planner-relaunch.test.js','llm.test.js', 'executor.test.js', 'objective-controller.test.js',
         'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js', 'ouvrir-porte.test.js', 'enclosure.test.js']
 

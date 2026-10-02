@@ -23,7 +23,7 @@ class Selection(unittest.TestCase):
 
     def test_patterns_take_variants(self):
         chosen = names('trees/pillar*, craft/planks')
-        self.assertEqual(chosen, ['trees/pillar', 'trees/pillar~sans-arbre_fini', 'craft/planks'])
+        self.assertEqual(chosen, ['trees/pillar', 'trees/pillar~sans-arbre_fini', 'trees/pillar~avec-acces_unifie', 'craft/planks'])
 
     def test_unit_only(self):
         self.assertEqual(names('unitaires'), [])

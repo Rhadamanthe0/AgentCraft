@@ -2659,6 +2659,67 @@ function createMissionRunner (host, injected = {}) {
     return hint
   }
 
+  // Moteur d acces unique (interrupteur acces_unifie, eteint par defaut) : UN
+  // calcul A* dont les pas sont marcher, sauter, chuter, ouvrir une porte,
+  // casser un bloc tendre au niveau du corps, monter en tour et poser un sol
+  // (navigation.js, options dig et place). Il remplace, quand il reussit, la
+  // cascade d avancer (descendre du pilier, feuilles, montee, pont, trajet qui
+  // creuse, poste de pilier) ; quand il echoue, la cascade reste le recours,
+  // le temps que l A/B tranche.
+  //
+  // Politique, la meme pour toute cible :
+  //   - casse : blocs tendres (durete <= 1 : terre, sable, gravier, feuilles),
+  //     jamais sous le niveau des pieds de depart (pas de puits), jamais une
+  //     buche, un bloc construit ni l emprise du chantier ; une feuille coute
+  //     cher (detour prefere, l arbre reste entier) ;
+  //   - pose : echafaudage de piler (terre d abord, puis planches pleines),
+  //     jamais pendant un chantier ; une tour posee pour un arbre est retiree
+  //     avec les piliers une fois l arbre fini.
+  const ACCES_POSE_MAX = Number(process.env.MISSION_ACCES_POSE_MAX || 12)
+  async function atteindre (bloc) {
+    const bot = host.getBot()
+    if (!bot?.entity || !bloc?.position) return { reached: false, code: 'unavailable' }
+    const travail = ['recolte', 'construction'].includes(mission.kind)
+    const chantier = empriseChantier()
+    const piedsY = Math.floor(bot.entity.position.y)
+    const casses = []
+    const poses = []
+    const pourArbre = featureOn('arbre_fini') && (TREE_LOG.test(bloc.name ?? '') || Boolean(arbreInacheve()))
+    const dig = travail ? {
+      cantBreak: Object.values(bot.registry.blocksByName).filter(b => TREE_LOG.test(b.name) || /_planks$|_door$|chest|crafting_table|furnace/.test(b.name)).map(b => b.id),
+      canBreak: b => Number.isFinite(b.hardness) && b.hardness >= 0 && b.hardness <= 1 && b.diggable !== false &&
+        b.position.y >= piedsY && !TREE_LOG.test(b.name) && !(chantier && dansEmprise(chantier, b.position)),
+      cost: b => /_leaves$/.test(b.name ?? '') ? 8 : 0,
+      digBlock: async b => {
+        try {
+          await craft.equipForBlock(bot, b)
+          await withTimeout(bot.dig(b, true), 6000, 'creusage trop long')
+        } catch (_) {
+          return false
+        }
+        const gone = bot.blockAt(b.position)?.boundingBox !== 'block'
+        if (gone) casses.push(b.name)
+        return gone
+      }
+    } : null
+    const items = scaffoldingStock(bot).materiaux.map(m => bot.registry.itemsByName[m.nom]?.id).filter(Number.isInteger)
+    const place = travail && !chantier && items.length ? {
+      items,
+      max: ACCES_POSE_MAX,
+      onPlaced: (cellule, { tour }) => {
+        poses.push(cellule)
+        if (tour && pourArbre) (mission.echafaudagePose ??= []).push(new Vec3(cellule.x, cellule.y, cellule.z))
+      }
+    } : null
+    const result = await host.navigateToPosition(bloc.position.offset(0.5, 0.5, 0.5), {
+      signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, dig, place,
+      distanceBudget: 64, timeoutMs: 45000
+    })
+    mission.acces = { appels: (mission.acces?.appels ?? 0) + 1, atteints: (mission.acces?.atteints ?? 0) + (result.reached ? 1 : 0),
+      poses: (mission.acces?.poses ?? 0) + poses.length, casses: (mission.acces?.casses ?? 0) + casses.length }
+    return { ...result, poses: poses.length, casses: casses.length }
+  }
+
   // Walks to the best untried pillar post for this target (own pillar undone
   // first: walking off its top is a fall). Each post is tried once per
   // mission and target, so the search ends instead of looping.
@@ -4353,7 +4414,20 @@ function createMissionRunner (host, injected = {}) {
       // A nearby high target is known work, not an invitation to explore blindly.
       // Explicit movement gestures keep their existing free-movement semantics.
       const high = !cible && mission.kind !== 'geste' ? highTargetHint() : null
+      // Moteur d acces unique d abord (A/B acces_unifie) ; la cascade
+      // historique reste le recours tant que la mesure n a pas tranche.
+      const parMoteur = async (bloc, avant) => {
+        if (!featureOn('acces_unifie', false) || params.__acces || !bloc || mission.cancelled) return null
+        const r = await atteindre(bloc)
+        const bilan = `${r.poses} pose(s), ${r.casses} casse(s)`
+        console.log(`[mission] acces ${bloc.name} : ${r.code} (${bilan})`)
+        if (!r.reached) return null
+        return { resultat: `${avant}${bloc.name} rejoint a portee par le moteur d acces (${bilan}, trajet de ${r.travelled ?? 0} bloc(s))`,
+          code: 'acces', ...(r.poses > 0 ? { reobserver: true } : {}) }
+      }
       if (high) {
+        const direct = await parMoteur(host.getBot()?.blockAt(high.position), `cible haute ${high.cible} : `)
+        if (direct) return direct
         // Cible deja a portee horizontale, seule la hauteur manque : le code
         // monte lui-meme (trees/bent 93a6f04 : echec « piler peut aider »).
         // Stock court compris : piler prend la terre voisine lui-meme (trees/bent
@@ -4511,6 +4585,8 @@ function createMissionRunner (host, injected = {}) {
       // distance HORIZONTALE de l indice navigation, le chemin reel contourne :
       // `avancer` s arretait court et le `casser` suivant echouait « trop
       // loin » (82 echecs par banc, revue de performance du 2026-09-27).
+      const direct = await parMoteur(cible, '')
+      if (direct) return direct
       const ligne = host.getBot()?.entity?.position?.distanceTo(cible.position.offset(0.5, 0.5, 0.5)) ?? distance
       const budget = Math.max(distance, Math.min(48, Math.ceil(ligne * 1.5) + 2))
       const approach = () => host.navigateToPosition(cible.position.offset(0.5, 0.5, 0.5), {
@@ -7269,6 +7345,9 @@ function createMissionRunner (host, injected = {}) {
       objets_recoltes: collected(),
       dirt_secondaire: mission.dirtSecondaire ?? 0,
       feuilles_degagees: mission.leavesCleared ?? 0,
+      // Moteur d acces unique (A/B acces_unifie) : appels, cibles atteintes,
+      // blocs poses et casses en route.
+      acces: mission.acces ?? null,
       arbre_entier: mission.wholeTree ? (treeStatus() ?? { commence: false }) : null,
       echafaudage_laisse: mission.echafaudageLaisse ?? 0,
       // Grand livre des dons (S6) : tente/retire/prouve/incertain par engagement.

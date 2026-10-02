@@ -59,7 +59,11 @@ garde la version la plus simple.
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
 `prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte`,
 `anti_boucle` (allumes par defaut) ; `nav_creuse` (eteint, `avec(...)` sur
-gather/sand-walled et terrain/plateau).
+gather/sand-walled et terrain/plateau) ; `acces_unifie` (eteint, moteur d acces
+unique : un seul A* pour marcher, casser, monter en tour et poser un pont,
+`avancer` -> `atteindre`, la cascade historique en recours ; `avec(...)` sur
+trees/pillar, trees/bent, terrain/plateau, terrain/moat, gather/sand-walled et
+les `skill/*` d acces).
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
@@ -384,7 +388,8 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/acquire-plan.js` / `bot/recipe-plan.js` | solveur de prerequis ; recettes |
 | `bot/craft.js` | fabrication, etabli, four (`smelt`), outils (`harvestCheck`) |
 | `bot/build.js` | plans (boite, plans libres compiles), postes de tir, pose |
-| `bot/navigation.js` / `bot/motion-trace.js` | navigateur partage ; traces de trajet |
+| `bot/navigation.js` / `bot/motion-trace.js` | navigateur partage (options `dig` et `place` : casse et pose planifiees par A*) ; traces de trajet |
+| `bot/pose.js` | gestes de pose partages : tour (pose sous soi au sommet du saut), pose contre une face, verifies par le monde |
 | `bot/movement-task.js` / `bot/tree-position.js` | parcours declaratifs ; placement sous un arbre |
 | `bot/reflexes.js` | reflexes entre deux etapes (A/B `reflexes`) |
 | `bot/memory.js` | memoire du modele (travail, long terme) |

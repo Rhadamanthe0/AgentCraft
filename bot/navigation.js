@@ -2,6 +2,7 @@
 
 const { Movements, goals } = require('mineflayer-pathfinder')
 const { createMotionTrace } = require('./motion-trace')
+const { poserSousSoi, poserContre } = require('./pose')
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const distanceXZ = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
 
@@ -70,8 +71,10 @@ function itemInPickupRange (bot, feet, item, radius = 1.6) {
 
 // Une ressource est un bloc a toucher, pas une position ou mettre les pieds.
 // A* cherche n importe quel poste avec appui, corps libre et ligne de vue.
-function blockInReach (bot, feet, target, reach = 4) {
-  if (!clearSegment(bot, feet, feet, true)) return false
+// `sansSol` : poste encore virtuel dont le sol sera pose par le pas qui y mene
+// (tour, pont) ; seul le corps doit y etre libre.
+function blockInReach (bot, feet, target, reach = 4, { sansSol = false } = {}) {
+  if (!clearSegment(bot, feet, feet, !sansSol)) return false
   const V = bot.entity.position.constructor
   const eye = new V(feet.x, feet.y + 1.62, feet.z)
   const length = eye.distanceTo(target)
@@ -89,6 +92,12 @@ function blockInReach (bot, feet, target, reach = 4) {
     if (shapes.some(s => p.x >= x + s[0] && p.x <= x + s[3] && p.y >= y + s[1] && p.y <= y + s[4] && p.z >= z + s[2] && p.z <= z + s[5])) return false
   }
   return false
+}
+
+// Le pas qui mene a ce noeud pose-t-il son propre sol (tour, pont) ?
+function posePorteAppui (node) {
+  return Boolean(node?.toPlace?.some(p => !p.useOne &&
+    p.x + p.dx === node.x && p.y + p.dy === node.y - 1 && p.z + p.dz === node.z))
 }
 
 // Portes : le pathfinder 2.4.5 n ouvre que les portillons (`canOpenDoors`) et
@@ -123,7 +132,7 @@ function createNavigator (getBot, options = {}) {
 
   async function navigate (resolveTarget, { signal, follow = false, durationMs = null, radius = 2, username = null,
     interaction = false, allowHighApproach = false, pickup = false, distanceBudget = Infinity, timeoutMs: journeyTimeoutMs = timeoutMs,
-    dig = null } = {}) {
+    dig = null, place = null } = {}) {
     if (signal?.aborted) return { code: 'cancelled', reached: false }
     cancel()
     const bot = getBot()
@@ -147,12 +156,27 @@ function createNavigator (getBot, options = {}) {
     //   digBlock(block) : casse mesuree, rend vrai si le bloc a disparu.
     movements.canDig = Boolean(dig)
     if (dig?.cantBreak) for (const id of dig.cantBreak) movements.blocksCantBreak.add(id)
-    movements.allow1by1towers = false
+    // Surcout de casse par bloc (feuilles d un arbre a garder, par exemple) :
+    // A* prefere alors le detour, sans l interdire.
+    if (dig?.cost) movements.exclusionAreasBreak.push(block => dig.cost(block) ?? 0)
+    // Mode poser (`place`, moteur d acces unique, interrupteur acces_unifie) :
+    // A* peut monter en tour (pose sous soi) et poser un sol ou une marche, et
+    // l execution pose elle-meme (pose.js). `place` fournit :
+    //   items : ids d objets d echafaudage, par ordre de preference ;
+    //   max : blocs posables au plus pour ce trajet ;
+    //   cost : surcout d une pose (defaut 3 : marcher reste prefere) ;
+    //   onPlaced(cellule, { tour }) : la case posee (echafaudage a retirer).
+    // Sans `place`, ce navigateur ne pose rien : un bot porteur de terre
+    // recevait des chemins a poser refuses en unsupported_move, en boucle (vu
+    // sur terrain/moat apres le pont de terre).
+    movements.allow1by1towers = Boolean(place)
     movements.allowParkour = false
-    // Ce navigateur ne pose rien : sans cela, un bot porteur de terre recevait
-    // des chemins a poser (pont sur l eau) refuses en unsupported_move, en
-    // boucle (vu sur terrain/moat apres le pont de terre).
-    movements.scafoldingBlocks = []
+    movements.scafoldingBlocks = place ? [...place.items] : []
+    if (place) {
+      movements.placeCost = place.cost ?? 3
+      const compter = movements.countScaffoldingItems.bind(movements)
+      movements.countScaffoldingItems = () => Math.min(compter(), place.max ?? Infinity)
+    }
     // Pathfinder 2.4.5 compte jusqu au BLOC d appui, pas jusqu aux pieds :
     // 3 permits two blocks down; WalkingMovements also checks actual surfaces.
     movements.maxDropDown = 3
@@ -236,7 +260,9 @@ function createNavigator (getBot, options = {}) {
       const start = bot.entity.position.clone()
       const goal = new goals.GoalNear(target.x, target.y, target.z, interaction ? 4 : 1)
       // Le but du calcul et le test d arrivee utilisent la meme geometrie.
-      goal.isEnd = node => highApproach ? isHighPost(waypoint(node), target) : isArrived(waypoint(node), target)
+      goal.isEnd = node => highApproach ? isHighPost(waypoint(node), target)
+        : interaction && posePorteAppui(node) ? blockInReach(bot, waypoint(node), target, 4, { sansSol: true })
+          : isArrived(waypoint(node), target)
       if (highApproach) goal.heuristic = node => Math.max(0, distanceXZ(waypoint(node), target) - 2)
       const generator = bot.pathfinder.getPathFromTo(movements, start, goal, {
         timeout: 1000, tickTimeout: 20, searchRadius: 64, optimizePath: false
@@ -374,7 +400,7 @@ function createNavigator (getBot, options = {}) {
         emptyReplans = 0
         const point = route[0]
         recording.target(point)
-        if (dig && point.toBreak?.length && !point.toPlace?.length && !point.parkour) {
+        if (dig && point.toBreak?.length && !point.parkour) {
           // Casser d abord ce qui barre ce pas (pieds, tete, plafond d une
           // marche), puis avancer. Un bloc refuse exclut la case du graphe :
           // le calcul suivant passe ailleurs, jamais le meme refus en boucle.
@@ -399,6 +425,39 @@ function createNavigator (getBot, options = {}) {
           else {
             // La hauteur du point se lisait sur le bloc casse : la relire.
             Object.assign(point, waypoint({ x: Math.floor(point.x), y: point.noeudY ?? Math.floor(point.y), z: Math.floor(point.z) }), { toBreak: [] })
+          }
+          continue
+        }
+        if (place && point.toPlace?.length && !point.toBreak?.length && !point.parkour) {
+          // Poser ce qu exige ce pas : sous soi pour une tour (saut), contre la
+          // face d un voisin pour un sol ou une marche. Une pose refusee exclut
+          // la case du graphe, comme une casse refusee.
+          bot.clearControlStates()
+          let refuse = null
+          for (const pose of point.toPlace) {
+            if (stopped()) break
+            const V = bot.entity.position.constructor
+            const ref = bot.blockAt(new V(pose.x, pose.y, pose.z))
+            const face = new V(pose.dx, pose.dy, pose.dz)
+            const cellule = ref?.position.plus(face)
+            if (pose.useOne || !ref || !cellule) { refuse = 'pose inconnue'; break }
+            if (bot.blockAt(cellule)?.boundingBox === 'block') continue
+            const item = place.items.map(id => bot.inventory.items().find(i => i.type === id)).find(Boolean)
+            if (!item) { refuse = 'plus d echafaudage en inventaire'; break }
+            const fait = pose.jump ? await poserSousSoi(bot, ref, item) : await poserContre(bot, ref, face, item)
+            if (!fait.ok) { refuse = fait.detail; break }
+            report({ event: 'placed', at: { x: cellule.x, y: cellule.y, z: cellule.z }, block: item.name, tour: Boolean(pose.jump) })
+            place.onPlaced?.({ x: cellule.x, y: cellule.y, z: cellule.z }, { tour: Boolean(pose.jump) })
+          }
+          if (stopped()) break
+          progressAt = Date.now()
+          anchor = bot.entity.position.clone()
+          if (refuse) {
+            blockedNodes.add(`${Math.floor(point.x)},${Math.floor(point.y)},${Math.floor(point.z)}`)
+            report({ event: 'place_refused', point: { x: point.x, y: point.y, z: point.z }, detail: refuse })
+            route = []
+          } else {
+            Object.assign(point, waypoint({ x: Math.floor(point.x), y: point.noeudY ?? Math.floor(point.y), z: Math.floor(point.z) }), { toPlace: [] })
           }
           continue
         }
@@ -510,4 +569,4 @@ function createNavigator (getBot, options = {}) {
     status: () => active ? { username: active.username, code: 'running' } : last }
 }
 
-module.exports = { createNavigator, arrived, clearSegment, blockInReach, itemInPickupRange, WalkingMovements, isWoodDoor, doorClosed }
+module.exports = { createNavigator, arrived, clearSegment, blockInReach, itemInPickupRange, WalkingMovements, isWoodDoor, doorClosed, posePorteAppui }
