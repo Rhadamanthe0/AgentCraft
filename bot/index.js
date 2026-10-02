@@ -1248,7 +1248,10 @@ function validateModeFirst (req, res, next) {
   next()
 }
 
-function resolveArbitrationNow ({ choice, actor } = {}) {
+// `startOpts` : options de demarrage de la demande qui remplace (script et
+// brief d une mission scriptee) ; sans elles, le remplacement automatique
+// relancait l objectif sans son script et le modele le planifiait (banc 25603d5).
+function resolveArbitrationNow ({ choice, actor, startOpts = null, pour = null } = {}) {
   if (!objectives) throw Object.assign(new Error('arbitrage indisponible'), { code: 'stale' })
   const out = objectives.resolveArbitration({ choice, actor })
   // Reprise strictement explicite : pause_reprise demarre le NOUVEL objectif,
@@ -1273,7 +1276,7 @@ function resolveArbitrationNow ({ choice, actor } = {}) {
     }
     // Le resultat {ok:false} n etait jamais lu : un echec de lecture laissait
     // le bot immobile et muet apres « remplace ». On le dit au joueur.
-    missionRunner.start(out.objective.texte, out.objective.auteur, { objectiveId: out.objective.id, mode: out.objective.mode })
+    missionRunner.start(out.objective.texte, out.objective.auteur, { ...(startOpts && pour && out.objective.id === pour ? startOpts : {}), objectiveId: out.objective.id, mode: out.objective.mode })
       .then(result => {
         if (result && result.ok === false && !/annule/.test(String(result.error))) {
           say(`« ${out.objective.texte} » impossible : ${result.error}`)
@@ -1326,7 +1329,9 @@ async function startObjectiveDurable (objective, requester, opts = {}) {
     // demandeur est l auteur du candidat, donc autorise a trancher (D44).
     if (ARBITRATION_DEFAULT !== 'question') {
       try {
-        const out = resolveArbitrationNow({ choice: 'remplacement', actor: requester })
+        // Le candidat tranche est cette demande : ses options la suivent.
+        const { mode: _mode, ...startOpts } = opts
+        const out = resolveArbitrationNow({ choice: 'remplacement', actor: requester, startOpts, pour: proposal.objective?.id })
         return { ok: true, replaced: true, status: out?.status, objective: proposal.objective, mode: proposalMode }
       } catch (err) {
         console.error(`[arbitrage] remplacement automatique impossible : ${err.message}`)
