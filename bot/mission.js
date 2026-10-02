@@ -6471,6 +6471,15 @@ function createMissionRunner (host, injected = {}) {
         return
       }
 
+      // Bloc hors catalogue a rejoindre (buts_ouverts) : l arrivee a portee se
+      // mesure et clot. Vu au banc : « Trouve une cloche pour le joueur »,
+      // cloche atteinte trois fois, le modele repartait la « rapporter ».
+      if (mission.kind === 'deplacement' && String(mission.resource).startsWith('libre:') && !arbreOuvert &&
+        finishAllowed(buildState()).ok) {
+        finish('done', `${mission.resource.slice(6)} a portee`)
+        return
+      }
+
       // « ... et rapporte moi le bois » : l arbre fini, rejoindre d abord le
       // demandeur (s il est en jeu), puis clore ; un echec de trajet laisse la
       // boucle continuer (pendingJoin). Vu sur chat/tree-then-bring : mission

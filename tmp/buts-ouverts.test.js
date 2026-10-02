@@ -74,6 +74,20 @@ test('buts_ouverts : un bloc qui ne lache rien se rejoint (deplacement mesure)',
   assert.equal(avec.status.etat, 'done', `${avec.status.raison} : ${avec.lignes.filter(l => /\[mission\]/.test(l)).slice(-6).join(' | ')}`)
 })
 
+test('buts_ouverts : arrive a portee du bloc demande, le code clot sans attendre « terminer »', { timeout: 150000 }, async () => {
+  // Vu au banc : « Trouve une cloche pour le joueur » ; cloche atteinte trois
+  // fois, le modele repartait vers le joueur pour la lui rapporter, jusqu au plafond.
+  const avec = await jouer(true, {
+    blocks: { '24,200,18': 'enchanting_table' },
+    objectif: 'Trouve une table d enchantement',
+    brief: { type: 'deplacement', matiere: 'aucune', bloc: 'enchanting_table' },
+    script: [{ action: 'avancer' }, { action: 'avancer', distance: 20 }, { action: 'avancer', distance: 20 }]
+  })
+  assert.equal(avec.status.etat, 'done', `${avec.status.raison} : ${avec.lignes.filter(l => /\[mission\]/.test(l)).slice(-6).join(' | ')}`)
+  assert.match(avec.status.raison ?? '', /portee/)
+  assert.equal(avec.status.etapes, 1, 'clos des la premiere arrivee')
+})
+
 test('buts_ouverts : une capacite absente est refusee tout de suite, en le disant', async () => {
   const r = await jouer(true, {
     blocks: {},

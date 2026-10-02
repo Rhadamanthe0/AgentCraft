@@ -86,7 +86,8 @@ de l effort ; `avec(...)` sur trees/double et composite/stone-hut-from-scratch) 
 `buts_ouverts` (eteint : matiere ou lieu hors catalogue nomme par le brief au
 registre du jeu, cle `libre:<bloc>` decrite par `skills.resourceSpec` ; un
 nom absent du registre (nom francais : « magnetite ») est renvoye une fois
-au modele avec `bloc_refuse` (`readBrief`, `opts.blocConnu`) ; et
+au modele avec `bloc_refuse` (`readBrief`, `opts.blocConnu`) ; un
+deplacement vers un tel bloc est clos par le code des qu il est a portee ; et
 refus immediat d une capacite absente, identifiant de
 `skills.CAPACITES_ABSENTES`, jamais un texte libre ; niveaux `ouvert/*`,
 `avec(...)` sur gather/flowers et craft/axe pour voir les faux refus).
