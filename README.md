@@ -1,6 +1,14 @@
-# Minebot Lab
+# AgentCraft
 
-Bot Minecraft Java 26.1 et banc de tests en jeu sous Docker Desktop (Windows).
+Bot Minecraft autonome piloté par un modèle de langage : il reçoit un objectif
+en français (« coupe un arbre », « fais une maison en terre de 5 par 5 »), le
+décompose en actions et le poursuit en survie, sans tricher. Le dépôt contient
+le bot (Minecraft Java 26.1, Docker Desktop sous Windows) et un banc de tests
+en jeu qui mesure son autonomie.
+
+Pour aller plus loin : [`ARCHITECTURE.md`](ARCHITECTURE.md) (modules et flux
+d'une demande), [`AGENTS.md`](AGENTS.md) (règles du propriétaire, interrupteurs
+et pièges), [banc de tests](#banc-de-tests-et-interrupteurs-ab).
 
 **Tests depuis Claude distant** : [banc Minecraft sur ce PC et raccordement GitHub Actions](docs/remote-minecraft-tests.md).
 Lancement local : `python ci/run.py` (Python + Docker Desktop).
@@ -83,6 +91,13 @@ Vérifier l'état des conteneurs :
 
 ```powershell
 docker compose ps
+```
+
+Vérifier que l'API locale répond et que le bot est réellement apparu dans le
+serveur (la commande échoue sinon) :
+
+```powershell
+.\verify.ps1
 ```
 
 Quand le serveur et le bot sont prêts :
@@ -223,8 +238,8 @@ par le gateway OpenCode Go** (`https://opencode.ai/zen/go/v1`). Il répond en JS
 
 Chaque action porte une **valeur numérique** décidée par le modèle — une durée
 en secondes, une distance en blocs, une quantité — et le code exécute
-exactement cette valeur. Les actions unitaires (`choisir_terrain`, `poser_porte`,
-`sortir`, `terminer`, `regarder_autour`) n'en prennent pas.
+exactement cette valeur. Les actions unitaires (voir « Actions parametrees »)
+n'en prennent pas.
 
 Un appel rend donc **plusieurs actions**, exécutées dans l'ordre sans redemander
 quoi que ce soit — c'est ce qui tient la latence basse. Chaque plan vise
@@ -242,7 +257,7 @@ plus vraie.
 ### Le bot compose ses actions
 
 Il n'y a **pas d'actions apprises** : le bot compose lui-même ses enchaînements
-à partir des 26 actions natives, guidé par leur documentation et des exemples
+à partir des actions natives, guidé par leur documentation et des exemples
 écrits dans le code (`skills.ACTION_EXEMPLES`). Le catalogue tel que le modèle le
 lit :
 
@@ -409,22 +424,25 @@ modele choisit lui-meme, dans l'unite de l'action :
 | --- | --- |
 | `casser` | `duree` (1 a 15 secondes) |
 | `recolter` | `quantite` (1 a 16 objets : avancer, casser, ramasser enchaines par le code) |
-| `explorer` | `distance` (spirale de caps autour du depart, arret des que la matiere est en vue) |
+| `explorer` | `distance` (8 a 32 blocs par trajet ; spirale de caps autour du depart, arret des que la matiere est en vue) |
 | `ramasser` | `quantite` (1 a 6 objets) |
 | `cuire` | `objet` et `quantite` (four rejoint ou pose, combustible choisi par le code) |
 | `donner` | `objet`, `quantite`, `destinataire` (seulement si le joueur a demande un don) |
 | `avancer` | `distance` (budget de trajet de 1 a 40 blocs ; cap actuel sans cible) |
-| `construire` | `quantite` (1 a 40 blocs) et `objet` (materiau, optionnel) |
+| `construire` | `quantite` (4 a 40 blocs) et `objet` (materiau, optionnel) |
 | `fabriquer` | `quantite` (1 a 16 exemplaires) et `objet` (recette possible) |
 | `piler` | `hauteur` (1 a 6 blocs, en dirt de l'inventaire reel) |
-| `attendre` | `duree` (1 a 10 secondes) |
+| `attendre` | `duree` (1 a 5 secondes) |
 
 Les gestes (`dire`, `regarder`, `sauter`, `appuyer`, `pivoter`) gardent leurs
 parametres propres (texte, angle, touches, duree). Les actions unitaires
-(`choisir_terrain`, `poser_porte`, `sortir`, `terminer`,
+(`choisir_terrain`, `poser_porte`, `ouvrir_porte`, `sortir`, `terminer`,
 `regarder_autour`, `rejoindre_demandeur`, `tourner_vers_demandeur`) n'ont aucun
-parametre. Seules les actions du type de mission en cours sont
-proposees : un chantier ne voit jamais `ramasser`.
+parametre. Seules les actions du type de mission en cours, et de ses
+interrupteurs allumes, sont proposees : un chantier ne voit jamais `ramasser`.
+Avec l'interrupteur `sous_buts`, `batir` (tout le chantier) et `obtenir` (un
+objet et ses prerequis) laissent le modele choisir le but et le code le conduire
+jusqu'au bout ; ils rendent la main au premier echec.
 
 Peu d'actions et non pas beaucoup, c'est delibere : le choix se degrade avec
 leur nombre, et chaque action coute des jetons dans le prompt. Les gestes de bas
@@ -552,7 +570,7 @@ C'est aussi pour cela qu'aucun vol n'est utilise : `bot.creative.flyTo` ne rend
 jamais la main sur une longue distance, et `startFlying()` ne coupe la gravite
 que cote client, si bien que le bot retombait dans la case avant de poser.
 
-### Le serveur tourne en survie
+## Le serveur tourne en survie
 
 En créatif, casser un bloc ne fait rien tomber : aucune récolte ne serait
 possible. Le serveur est donc en `MODE: "survival"`, et le bot joue avec.
@@ -565,6 +583,10 @@ s'y ajouter en exploitation, par RCON, sans passer par `OPS`. Une commande
 `/gamemode` tapée par le bot est rejetée par le serveur, et l'action `dire`
 refuse tout texte commençant par `/`.
 
+Attention : retirer la ligne `OPS` en gardant `OVERRIDE_OPS: "TRUE"` ne vide pas
+`ops.json` : le fichier du volume survit, avec ses entrées. Il faut une ligne
+`OPS` explicite.
+
 Pour le vérifier, deux contrôles : le pseudo du bot doit être **absent** de
 `ops.json`, et son mode de jeu doit valoir survie (`playerGameType = 0`).
 
@@ -576,7 +598,7 @@ docker compose exec -T minecraft rcon-cli "data get entity TestBot playerGameTyp
 # 0 = survie
 ```
 
-### Confidentialité
+## Confidentialité
 
 **Le chat et l'état de jeu quittent la machine.** Avec le planificateur distant
 (configuration par défaut), le prompt système, le message utilisateur (état de
@@ -595,9 +617,9 @@ sont tous derives, et `skills.audit()` compare au demarrage les commandes
 declarees aux handlers reellement branches, ainsi que les actions de mission aux
 actions branchees :
 
-```
-[commandes] 13 commandes (2 routables par le chat, 11 sur prefixe seul), 26 actions dont 18 parametrees, sur 4 types de mission, 9 matieres, 3 reperes, 7 fabrications, approvisionnement harvest : coherent
-```
+La ligne `[commandes]` du journal compte les commandes, les actions (dont les
+parametrees), les types de mission, les matieres, les reperes et les
+fabrications, puis conclut `coherent` ou liste les incoherences.
 
 Une commande ajoutee d'un cote mais pas de l'autre apparait ici, et dans
 `GET /api/commands`, au lieu de se decouvrir en jeu. L'audit verifie aussi que
@@ -634,15 +656,8 @@ Le projet contourne le probleme au lieu de compter sur la nage :
 - les evenements `path_update` du pathfinder sont ecoutes : un `noPath` ou un
   `timeout` est journalise et abandonne au lieu de bloquer silencieusement.
 
-Le sauvetage **ne se teleporte plus** : le bot n'est plus operateur. La
-configuration ne nomme qu'un operateur, l'humain `Rhadamanthe0` : `OPS` porte
-son UUID hors-ligne et `OVERRIDE_OPS: "TRUE"` reecrit `ops.json` depuis cette
-seule source a chaque demarrage. Le fichier vit sur le volume : des ops ajoutes
-ensuite en exploitation (par RCON) s'y ajoutent sans passer par `OPS`. La
-garantie qui compte est que le bot n'y figure pas.
-Attention : retirer la ligne `OPS` en gardant `OVERRIDE_OPS: "TRUE"` ne vide pas
-`ops.json` — le fichier du volume survit, et une entree obsolete (le bot, du
-temps ou il etait operateur) y reste. Il faut une ligne `OPS` explicite.
+Le sauvetage ne se teleporte pas : le bot n'est pas operateur (voir « Le
+serveur tourne en survie »).
 
 Les champs `inLiquid`, `pathStatus`, `rescues` et `lastRescue` de
 `/api/status` permettent de suivre tout cela. `POST /api/unstuck` force un
@@ -692,6 +707,21 @@ Sans `NODE_PATH`, les tests échouent sur « Cannot find module 'vec3' » :
 `tmp/` n'a pas de `node_modules`. La CI le pose dans `ci/Dockerfile` et lance
 la liste `UNIT` de `ci/run.py`.
 
+## Banc de tests et interrupteurs A/B
+
+Le banc joue des niveaux en jeu (récolte, arbres, construction, fabrication,
+terrain, missions composites) et rend PASS/FAIL par niveau. Il mesure
+l'autonomie du bot ; il n'est jamais une cible à optimiser.
+
+- Lancement local : `python ci/run.py` (Python + Docker Desktop) ; banc distant
+  et raccordement GitHub Actions :
+  [`docs/remote-minecraft-tests.md`](docs/remote-minecraft-tests.md).
+- Chaque comportement optionnel est un interrupteur (`featureOn('<mode>')`,
+  `POST /api/features`, variable `FEATURE_<MODE>`), comparé en A/B par le banc ;
+  la décision se prend sur plusieurs bancs avec `python3 ci/ab.py`.
+- La liste des interrupteurs, leur état par défaut et les règles du banc :
+  [`AGENTS.md`](AGENTS.md).
+
 ## Arrêt sans supprimer le monde
 
 ```powershell
@@ -735,30 +765,14 @@ Ne remplace pas ces liaisons par `25565:25565` ou `3000:3000` si tu conserves le
 
 Le conteneur bot s'exécute comme utilisateur non-root, avec `no-new-privileges` et toutes les capabilities Linux supprimées.
 
-## Versions vérifiées le 21 septembre 2026
+## Versions figées
 
-- Minecraft/Paper : 26.1, volontairement figé pour compatibilité Mineflayer ;
-- Mineflayer : 4.39.0 ;
-- mineflayer-pathfinder : 2.4.5 ;
-- Express : 5.2.1 ;
-- Node.js : branche 24 LTS ;
-- image serveur : `itzg/minecraft-server:2026.9.1-java25`, Java 25 requis par Paper 26.1+.
+Vérifiées le 21 septembre 2026 ; voir « Pourquoi Minecraft 26.1 est figé ».
 
-
-## Vérification après démarrage
-
-```powershell
-.\verify.ps1
-```
-
-La commande échoue si l'API locale ne répond pas ou si le bot n'est pas réellement apparu dans le serveur.
-
-## Versions figées pour ce test
-
-- image serveur : `itzg/minecraft-server:2026.9.1-java25`
-- Minecraft/Paper : `26.1.2` (aucun artefact `26.1` n'existe chez Paper)
-- protocole annonce au bot (`MC_VERSION`) : `26.1`
-- image Node : `node:24.21.0-alpine3.24`
-- Mineflayer : `4.39.0`
-- mineflayer-pathfinder : `2.4.5`
-- Express : `5.2.1`
+- image serveur : `itzg/minecraft-server:2026.9.1-java25` (Java 25, requis par Paper 26.1+) ;
+- Minecraft/Paper : `26.1.2` (aucun artefact `26.1` n'existe chez Paper) ;
+- protocole annoncé au bot (`MC_VERSION`) : `26.1` ;
+- image Node : `node:24.21.0-alpine3.24` ;
+- Mineflayer : `4.39.0` ;
+- mineflayer-pathfinder : `2.4.5` ;
+- Express : `5.2.1`.

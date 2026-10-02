@@ -96,14 +96,14 @@ runner n est PAS l enveloppe (Paper, bots et sondes sont des conteneurs
 freres) : il n est que rapporte (`report.capacity.sources.runnerCgroup`).
 Sur MINIPC-CLEM : enveloppe = `/sys/fs/cgroup/user.slice/user-1008.slice`
 (compte `podman-ci`, `cpu.max` 600000/100000, `memory.high` 14G, `MemoryMax`
-16G) ; pendant un job, `cpu-arbiter` (systemd-maintainer, infra-deploy)
+16G) ; pendant un job, `cpu-arbiter` (systemd-maintainer, rhada-server)
 cantonne la slice a 3 coeurs physiques (6 threads) et les interdit au reste de
 la machine, qui garde les 5 autres (choix du proprietaire, 2026-09-28 : marge
 pour les autres services, dont Project Zomboid) ; hors job, le quota reste un
 garde-fou. Le runner a un cgroupns
 prive (son `/sys/fs/cgroup` est sa feuille : `cpu.max` = `max`, trompeur), donc
 la slice est montee en lecture seule sur `/host/ci-cgroup` par le quadlet du
-runner (`Volume=...:/host/ci-cgroup:ro`, infra-deploy) et le workflow pose
+runner (`Volume=...:/host/ci-cgroup:ro`, rhada-server) et le workflow pose
 `CI_METRICS_CGROUP=/host/ci-cgroup`. `/proc/meminfo` et `/proc/stat` du runner
 sont ceux de l hote (pas de lxcfs ; 16 CPU, ~30,6 Gio).
 `validate` refuse une enveloppe plus petite que la memoire des conteneurs du

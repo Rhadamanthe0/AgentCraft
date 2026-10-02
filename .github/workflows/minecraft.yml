@@ -110,7 +110,7 @@ jobs:
           # que sa feuille) : slice user-1008 (podman-ci, CPUQuota 600 % depuis
           # le 2026-09-28, choix du proprietaire pour laisser de la marge aux
           # autres services de la machine ; MemoryHigh 14G, MemoryMax 16G) montee
-          # en lecture seule par le quadlet du runner (infra-deploy). Absente =>
+          # en lecture seule par le quadlet du runner (rhada-server). Absente =>
           # repli fixe, ecrit dans le rapport.
           CI_METRICS_CGROUP: /host/ci-cgroup
           CI_ENVELOPE_CPU_PCT: '600'
