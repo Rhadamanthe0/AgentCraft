@@ -1928,6 +1928,18 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             trace = (bot_api(worker.bot, '/api/mission/trace') or {}).get('trace') if m else None
             if trace and trace.get('mission') == m.get('id'):
                 result['trace'] = trace.get('resume')
+            # Mode counters (ci/ab.py, A/B summary): did the mode actually act?
+            # acces_unifie: engine calls, targets reached, blocks placed/dug;
+            # sous_buts: batir/obtenir steps and failures.
+            modes = {}
+            if m.get('acces'):
+                modes['acces'] = m['acces']
+            par_action = (result.get('trace') or {}).get('parAction') or {}
+            for action in ('batir', 'obtenir'):
+                if par_action.get(action):
+                    modes[action] = {k: par_action[action].get(k) for k in ('n', 'echecs', 'ms')}
+            if modes:
+                result['modes'] = modes
                 folder = Path(output) / 'traces'
                 folder.mkdir(parents=True, exist_ok=True)
                 stem = re.sub(r'[^A-Za-z0-9_.-]+', '_', level['name'])

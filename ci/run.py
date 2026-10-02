@@ -203,6 +203,21 @@ def provider_models():
     return found
 
 
+def mode_counters(t):
+    """What a mode actually did in this level (trees.run_one `modes`): without
+    it, an A/B pair where the mode never acted reads like a measured tie."""
+    modes = t.get('modes') or {}
+    out = []
+    acces = modes.get('acces')
+    if acces:
+        out.append(f"acces {acces.get('atteints', 0)}/{acces.get('appels', 0)} atteints, "
+                   f"{acces.get('poses', 0)} pose(s), {acces.get('casses', 0)} casse(s)")
+    for action in ('batir', 'obtenir'):
+        if modes.get(action):
+            out.append(f"{action} x{modes[action].get('n', 0)} ({modes[action].get('echecs', 0)} echec(s))")
+    return out
+
+
 def compare_variants(tests):
     """One line per A/B pair: success, time, model calls, damage, end."""
     by_name = {t['test']: t for t in tests}
@@ -220,6 +235,7 @@ def compare_variants(tests):
         for key in ('itemsHeld', 'blocksPlaced', 'bonusItems'):
             if t.get(key) is not None:
                 parts.append(f"{key}={t[key]}")
+        parts.extend(mode_counters(t))
         return ', '.join(parts)
 
     out = []

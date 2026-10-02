@@ -52,9 +52,11 @@ Interrupteur `featureOn('<mode>')` (mission.js, `POST /api/features`,
 variable `FEATURE_<MODE>`) ; ses niveaux portent `variants: [sans('<mode>')]`
 (ou `avec(...)` pour un mode eteint par defaut). Le banc joue le niveau (il
 decide PASS/FAIL) puis la variante, informative ; `report.comparisons` et le
-resume donnent reussite, duree, appels au modele et degats cote a cote. **Un
-mode qui n apporte rien de mesurable n est pas garde** ; a resultats egaux, on
-garde la version la plus simple.
+resume donnent reussite, duree, appels au modele, degats et compteurs du mode
+(`modes` : le mode a-t-il agi ?) cote a cote. **Un mode qui n apporte rien de
+mesurable n est pas garde** ; a resultats egaux, on garde la version la plus
+simple. Une paire d un seul banc est du bruit : la decision se prend sur
+plusieurs bancs avec `python3 ci/ab.py <report.json...>` (au moins 6 paires).
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
 `prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte`,
@@ -403,4 +405,5 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `ci/` | banc (run.py, trees.py, pool.py, capacity.py, harness, sondes) |
 | `tmp/*.test.js` | tests unitaires ; `tmp/sim-world.js` monde simule partage ; `tmp/replay-snapshot.js` rejeu d un instantane de blocage ; `tmp/probe-bot.js` harness multi-bots |
 | `ci/promotion.py` | taux de reussite des niveaux informatifs sur N bancs, serie avec le jumeau |
+| `ci/ab.py` | decision A/B sur N bancs, par mode et par niveau : gains/pertes de reussite, duree et appels medians, mode reellement actif, verdict garder/retirer/egalite/insuffisant |
 | `docs/journal.md` | historique des decisions et correctifs |
