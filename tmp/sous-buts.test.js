@@ -23,6 +23,11 @@ test('chantier : ordre des gestes suivant les besoins mesures', () => {
   assert.equal(prochainGesteChantier({ ...base, besoins: { a_obtenir: 20 } }).action, 'recolter')
   assert.ok(prochainGesteChantier({ ...base, besoins: {} }).bloque)
   assert.equal(prochainGesteChantier({ ...base, restants: 0, porteVoulue: true }).params.objet, 'porte')
+  // Planches de la porte prises par les murs : bûches puis planches d abord.
+  const porte = { ...base, restants: 0, porteVoulue: true }
+  assert.equal(prochainGesteChantier({ ...porte, besoins: { buches_a_recolter: 1 } }).action, 'recolter')
+  assert.deepEqual(prochainGesteChantier({ ...porte, besoins: { planches_a_fabriquer: 6, buches_en_poche: 1 } }).params,
+    { objet: 'planches', quantite: 4 })
   assert.equal(prochainGesteChantier({ ...base, restants: 0, porteVoulue: true, porteEnPoche: true }).action, 'poser_porte')
   assert.equal(prochainGesteChantier({ ...base, restants: 0 }).fini, true)
 })
@@ -124,4 +129,24 @@ test('batir : la reparation n est jouee qu une fois ; l echec d origine remonte 
   const r = await m.sb.batir()
   assert.equal(pilers, 1)
   assert.equal(r.code, 'cible_haute')
+})
+
+test('batir : un progres mesure rouvre le remede (second arbre, nouveau tronc haut)', async () => {
+  const m = monde(() => [{ action: 'piler', params: { hauteur: 3 }, pourquoi: 'tronc haut' }])
+  m.etat.planChoisi = true
+  m.etat.besoins = { buches_a_recolter: 2 }
+  let essais = 0
+  // Chaque arbre : tronc haut d abord, puis la coupe avance d une buche.
+  m.actions.recolter = async () => {
+    essais += 1
+    if (essais % 2 === 1) return { resultat: 'cible haute', echec: true, code: 'cible_haute' }
+    m.etat.besoins = { buches_a_recolter: m.etat.besoins.buches_a_recolter - 1 }
+    if (m.etat.besoins.buches_a_recolter === 0) { m.etat.besoins = {}; m.etat.stock = 8 }
+    return { resultat: 'ok' }
+  }
+  let pilers = 0
+  m.actions.piler = async () => { pilers += 1; return { resultat: 'pilier' } }
+  const r = await m.sb.batir()
+  assert.equal(r.echec, undefined, r.resultat)
+  assert.equal(pilers, 2)
 })

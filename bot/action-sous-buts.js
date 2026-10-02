@@ -32,7 +32,15 @@ function prochainGesteChantier (e) {
     return { bloque: `${e.restants} bloc(s) a poser, aucun materiau en poche ni moyen mesure d en obtenir` }
   }
   if (e.porteVoulue && !e.portePosee) {
-    if (!e.porteEnPoche) return { action: 'fabriquer', params: { objet: 'porte', quantite: 1 }, pourquoi: 'porte a fabriquer' }
+    if (!e.porteEnPoche) {
+      // besoins compte les planches de la porte : les murs ont pu prendre
+      // celles en poche (vu au banc ec97eb4 : « buche x1 a recolter »).
+      if ((b.planches_a_fabriquer ?? 0) > 0 && (b.buches_en_poche ?? 0) > 0) {
+        return { action: 'fabriquer', params: { objet: 'planches', quantite: Math.min(b.planches_a_fabriquer, b.buches_en_poche * 4) }, pourquoi: 'planches de la porte' }
+      }
+      if ((b.buches_a_recolter ?? 0) > 0) return { action: 'recolter', params: { quantite: Math.min(16, b.buches_a_recolter) }, pourquoi: 'buches de la porte' }
+      return { action: 'fabriquer', params: { objet: 'porte', quantite: 1 }, pourquoi: 'porte a fabriquer' }
+    }
     return { action: 'poser_porte', params: {}, pourquoi: 'porte a poser' }
   }
   return { fini: true }
@@ -58,8 +66,9 @@ function prochainGesteSolveur (plan, faisable) {
 //   empreinte() -> chaine qui change quand quelque chose de mesure change ;
 //   reparation(code) -> [{ action, params, pourquoi }] ou null : remedes
 //     mesures d un geste rate, dans l ordre de REMEDES (cible_haute -> piler
-//     puis casser depuis le sommet), joues UNE fois par code ; s ils
-//     reussissent tous, le sous-but reprend, sinon l echec d origine remonte.
+//     puis casser depuis le sommet), joues UNE fois par code entre deux
+//     progres mesures ; s ils reussissent tous, le sous-but reprend, sinon
+//     l echec d origine remonte.
 function createSousButs (deps) {
   const { getMission, actions, etatChantier, planSolveur, recolteFaisable, empreinte, reparation = () => null, now = () => Date.now() } = deps
 
@@ -101,6 +110,8 @@ function createSousButs (deps) {
           resultat: `${nom} arrete sur ${g.action} (${g.pourquoi}) : ${r.resultat}${journal.length > 1 ? ` ; avant : ${journal.slice(-6, -1).join(', ')}` : ''}` }
       }
       const apres = empreinte()
+      // Un progres mesure rouvre les remedes (arbre suivant : nouveau tronc haut).
+      if (apres !== derniere) repares.clear()
       sansProgres = apres === derniere ? sansProgres + 1 : 0
       derniere = apres
       if (sansProgres >= SANS_PROGRES_MAX) {

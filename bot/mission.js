@@ -5250,6 +5250,22 @@ function createMissionRunner (host, injected = {}) {
       let rallyFails = 0
       const RALLY_MAX = 3
 
+      // Bot au fond d un trou (pierre recoltee sous le sol mis a nu) : les
+      // postes de tir se rallient a pied et deux blocs plus haut ils sont
+      // injoignables (skill/stone-hut-batir ec97eb4, « trajet trop long »
+      // jusqu a la fin). Rejoindre d abord le chantier par le recours commun
+      // des trajets : sortie par le haut, puis trajet qui creuse.
+      const sol = mission.plan?.origin?.y
+      const emprise = empriseChantier()
+      if (Number.isFinite(sol) && emprise && Math.floor(bot.entity.position.y + 0.01) <= sol - 2 && !mission.cancelled) {
+        const profondeur = sol - Math.floor(bot.entity.position.y + 0.01)
+        const chantier = new Vec3((emprise.x0 + emprise.x1 + 1) / 2, sol, (emprise.z0 + emprise.z1 + 1) / 2)
+        const sortie = await navWithDescent(() => host.navigateToPosition(chantier, {
+          signal: mission.navigationAbort.signal, __owner: stepToken, radius: 4, timeoutMs: 15000
+        }), { target: chantier, owner: stepToken })
+        console.log(`[mission] construire depuis un trou (${profondeur} sous le sol) : ${sortie?.reached ? 'chantier rejoint' : sortie?.code ?? 'echec'}`)
+      }
+
       for (const entry of mission.plan.blocks) {
         if (mission.cancelled) break
         if (placed >= budget || Date.now() - started > PLACE_BURST_MS) break
