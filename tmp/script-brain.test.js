@@ -81,3 +81,32 @@ test('mission scriptee : un script invalide est refuse avant tout demarrage', as
   assert.equal(out.ok, false)
   assert.match(out.error, /script refuse : script vide/)
 })
+
+// Vu au banc (skill/dirt-box c9e1088) : choisir_terrain demandait la forme au
+// modele (designBlueprint) ; un script n en a pas, la boite du code suffit.
+test('mission scriptee de construction : jamais de conception de plan par le modele', async () => {
+  let conceptions = 0
+  planner.isEnabled = () => true
+  planner.designBlueprint = async () => { conceptions++; return { forme: 'boite' } }
+  planner.plan = async () => { throw new Error('planificateur appele') }
+  craft.targetCriteria = () => ({})
+  const ground = position => position.y < 65
+  const bot = { entity: { position: new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
+    registry: { blocksByName: { dirt: { id: 2 } }, itemsByName: { dirt: { id: 2 } } },
+    inventory: { items: () => [{ name: 'dirt', type: 2, count: 64 }] },
+    players: {}, entities: {}, findBlocks: () => [], findBlock: () => null,
+    blockAt: position => ground(position)
+      ? { name: 'grass_block', position, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
+      : { name: 'air', position, boundingBox: 'empty', shapes: [] },
+    clearControlStates () {}, setControlState () {}, look: async () => {} }
+  const r = createMissionRunner({ getBot: () => bot, isReady: () => true, inLiquid: () => false,
+    stopPathfinding () {}, chat () {}, navigateToPosition: async () => ({ reached: false, code: 'no_path' }) })
+  const started = await r.start('Construis une maison en terre de 3 par 3 par 3', 'banc', {
+    script: [{ action: 'choisir_terrain' }], brief: { type: 'construction', matiere: 'terre' }
+  })
+  assert.equal(started.ok, true, started.error)
+  for (let i = 0; i < 400 && r.isRunning(); i++) await new Promise(resolve => setTimeout(resolve, 25))
+  r.stop('test')
+  assert.equal(r.status().historique[0]?.action, 'choisir_terrain')
+  assert.equal(conceptions, 0)
+})

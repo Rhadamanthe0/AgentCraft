@@ -1158,8 +1158,11 @@ function createMissionRunner (host, injected = {}) {
   // valide, {} pour la boite (demandee, ou repli apres deux plans refuses).
   async function designShape () {
     if (mission.shape) return mission.shape
-    // Interrupteur A/B `plans` : coupe, toujours la boite du code.
-    if (!featureOn('plans')) {
+    // Interrupteur A/B `plans` : coupe, toujours la boite du code. Un cerveau
+    // sans conception de plan (mission scriptee, banc de competences) aussi :
+    // la forme est un choix du modele, jamais un appel cache.
+    const cerveau = brain(mission)
+    if (!featureOn('plans') || typeof cerveau.designBlueprint !== 'function') {
       mission.shape = {}
       return mission.shape
     }
@@ -1170,10 +1173,10 @@ function createMissionRunner (host, injected = {}) {
     const bot = host.getBot()
     const stock = (bot?.inventory?.items() ?? []).filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
     const dimensionsImposees = /trois/.test(dims.source)
-    for (let essai = 0; essai < 3 && planner.isEnabled?.() !== false; essai++) {
+    for (let essai = 0; essai < 3 && cerveau.isEnabled?.() !== false; essai++) {
       let bp = null
       try {
-        bp = await planner.designBlueprint({
+        bp = await cerveau.designBlueprint({
           objectif: mission.objective,
           // Une seule dimension (« tour de 6 blocs de haut ») n est pas un
           // cube : parseDimensions la recopie sur les trois axes (vu : tour
