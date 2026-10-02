@@ -11,5 +11,7 @@ test-results/
 tmp/*
 !tmp/*.js
 !tmp/*.ps1
+# Niveaux skill/* exportes pour le banc hors ligne (ci/trees.py --export-skills).
+!tmp/skill-levels.json
 # Runner registration and credentials always stay outside version control.
 .runner/
