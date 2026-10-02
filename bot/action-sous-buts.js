@@ -64,9 +64,9 @@ function prochainGesteSolveur (plan, faisable) {
 //     porteVoulue, portePosee, porteEnPoche, etapeSolveur } ;
 //   planSolveur() -> plan du solveur ; recolteFaisable(etapes, s, i) ;
 //   empreinte() -> chaine qui change quand quelque chose de mesure change ;
-//   reparation(code) -> [{ action, params, pourquoi }] ou null : remedes
-//     mesures d un geste rate, dans l ordre de REMEDES (cible_haute -> piler
-//     puis casser depuis le sommet), joues UNE fois par code entre deux
+//   reparation(code, action) -> [{ action, params, pourquoi }] ou null :
+//     remedes mesures d un geste rate (mission.remedesMesures, la table de la
+//     boucle de mission), joues UNE fois par code entre deux
 //     progres mesures ; s ils reussissent tous, le sous-but reprend, sinon
 //     l echec d origine remonte.
 function createSousButs (deps) {
@@ -91,7 +91,7 @@ function createSousButs (deps) {
       }
       const r = await actions()[g.action](null, g.params)
       journal.push(`${g.action}${g.params.quantite ? ` ${g.params.quantite}` : ''}${g.params.objet ? ` ${g.params.objet}` : ''}${r?.echec ? ' (echec)' : ''}`)
-      const remedes = r?.echec && !repares.has(r.code) ? reparation(r.code) : null
+      const remedes = r?.echec && !repares.has(r.code) ? reparation(r.code, g.action) : null
       if (remedes?.length) {
         repares.add(r.code)
         let repare = true
