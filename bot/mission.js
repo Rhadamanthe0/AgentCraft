@@ -3553,6 +3553,18 @@ function createMissionRunner (host, injected = {}) {
     actions: () => ACTIONS,
     planSolveur: () => acquisition(),
     recolteFaisable,
+    // Remedes mesures d un geste rate, joues une fois par le sous-but (ceux
+    // que le modele joue d apres REMEDES) : tronc haut => piler de la hauteur
+    // qui met la buche a portee (meme mesure que conseilPilier), puis casser
+    // depuis le sommet (recolter commencerait par redescendre en marchant).
+    reparation: code => {
+      if (code !== 'cible_haute') return null
+      const hint = highTargetHint()
+      if (!hint) return null
+      const hauteur = Math.max(PILER_MIN, Math.min(PILER_MAX, hint.denivele - 1))
+      return [{ action: 'piler', params: { hauteur }, pourquoi: `tronc haut +${hint.denivele}` },
+        { action: 'casser', params: { duree: 6 }, pourquoi: 'depuis le sommet' }]
+    },
     etatChantier: () => {
       const bot = host.getBot()
       const progress = mission.plan ? buildProgress() : { left: null, done: 0, total: 0 }
@@ -4873,7 +4885,9 @@ function createMissionRunner (host, injected = {}) {
         if (scaffoldingStock(bot).total < hauteurVisee) {
           // Bornes de temps : vu sur chat/replace-and-join, bot tombe dans un
           // trou qu il venait de creuser et l action ne rendait plus la main.
-          await gatherDirt(hauteurVisee, () => false, { sol: true, budgetMs: 25000 })
+          // Chantier en cours : sa terre n est jamais prise (emprise +1).
+          const emprise = empriseChantier()
+          await gatherDirt(hauteurVisee, (x, z) => dansEmprise(emprise, { x, z }), { sol: true, budgetMs: 25000 })
           await collectScaffoldDrops(stepToken, { budgetMs: 15000 })
         }
         available = scaffoldingStock(bot)

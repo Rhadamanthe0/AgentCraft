@@ -40,7 +40,7 @@ test('solveur : premiere etape faisable, recolte bornee, fin et blocage dits', (
   assert.equal(prochainGesteSolveur({ etapes: [plan.etapes[0]], bloque: [] }, () => false).code, 'obtenir_bloque')
 })
 
-function monde () {
+function monde (reparation) {
   const etat = { ...base, planChoisi: false, restants: 8, stock: 0, besoins: { buches_a_recolter: 1 } }
   const joues = []
   const actions = {
@@ -50,8 +50,15 @@ function monde () {
     construire: async (_, p) => { joues.push('construire'); etat.restants -= p.quantite; etat.stock -= p.quantite; return { resultat: 'ok' } }
   }
   const mission = { cancelled: false }
-  const sb = createSousButs({ getMission: () => mission, actions: () => actions, etatChantier: () => etat,
-    planSolveur: () => null, recolteFaisable: () => true, empreinte: () => JSON.stringify(etat) })
+  const sb = createSousButs({
+    getMission: () => mission,
+    actions: () => actions,
+    etatChantier: () => etat,
+    planSolveur: () => null,
+    recolteFaisable: () => true,
+    empreinte: () => JSON.stringify(etat),
+    reparation
+  })
   return { etat, joues, actions, mission, sb }
 }
 
@@ -93,4 +100,28 @@ test('batir : une mission arretee ou remplacee interrompt le sous-but', async ()
   m.actions.choisir_terrain = async () => { m.mission.cancelled = true; return { resultat: 'ok' } }
   const r = await m.sb.batir()
   assert.equal(r.code, 'cancelled')
+})
+
+test('batir : un tronc haut est repare une fois (piler mesure), puis le chantier reprend', async () => {
+  const m = monde(code => code === 'cible_haute' ? [{ action: 'piler', params: { hauteur: 3 }, pourquoi: 'tronc haut' }] : null)
+  let hautes = 1
+  const recolter = m.actions.recolter
+  m.actions.recolter = async (s, p) => hautes-- > 0
+    ? { resultat: 'cible haute', echec: true, code: 'cible_haute' }
+    : recolter(s, p)
+  m.actions.piler = async (_, p) => { m.joues.push(`piler ${p.hauteur}`); return { resultat: 'pilier' } }
+  const r = await m.sb.batir()
+  assert.equal(r.echec, undefined, r.resultat)
+  assert.deepEqual(m.joues, ['choisir_terrain', 'piler 3', 'recolter', 'fabriquer', 'construire'])
+})
+
+test('batir : la reparation n est jouee qu une fois ; l echec d origine remonte ensuite', async () => {
+  const m = monde(() => [{ action: 'piler', params: { hauteur: 3 }, pourquoi: 'tronc haut' }])
+  m.etat.planChoisi = true
+  m.actions.recolter = async () => ({ resultat: 'cible haute', echec: true, code: 'cible_haute' })
+  let pilers = 0
+  m.actions.piler = async () => { pilers += 1; return { resultat: 'pilier' } }
+  const r = await m.sb.batir()
+  assert.equal(pilers, 1)
+  assert.equal(r.code, 'cible_haute')
 })

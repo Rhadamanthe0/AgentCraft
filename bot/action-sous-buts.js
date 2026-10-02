@@ -55,9 +55,13 @@ function prochainGesteSolveur (plan, faisable) {
 //   etatChantier() -> { arbreInacheve, planChoisi, restants, stock, besoins,
 //     porteVoulue, portePosee, porteEnPoche, etapeSolveur } ;
 //   planSolveur() -> plan du solveur ; recolteFaisable(etapes, s, i) ;
-//   empreinte() -> chaine qui change quand quelque chose de mesure change.
+//   empreinte() -> chaine qui change quand quelque chose de mesure change ;
+//   reparation(code) -> [{ action, params, pourquoi }] ou null : remedes
+//     mesures d un geste rate, dans l ordre de REMEDES (cible_haute -> piler
+//     puis casser depuis le sommet), joues UNE fois par code ; s ils
+//     reussissent tous, le sous-but reprend, sinon l echec d origine remonte.
 function createSousButs (deps) {
-  const { getMission, actions, etatChantier, planSolveur, recolteFaisable, empreinte, now = () => Date.now() } = deps
+  const { getMission, actions, etatChantier, planSolveur, recolteFaisable, empreinte, reparation = () => null, now = () => Date.now() } = deps
 
   async function conduire (nom, prochain) {
     const mission = getMission()
@@ -65,6 +69,7 @@ function createSousButs (deps) {
     const journal = []
     let derniere = empreinte()
     let sansProgres = 0
+    const repares = new Set()
     for (let tour = 0; tour < TOURS_MAX; tour += 1) {
       if (!mission || mission.cancelled || getMission() !== mission) return { resultat: `${nom} interrompu`, echec: true, code: 'cancelled' }
       if (now() - debut > DUREE_MAX_MS) break
@@ -77,6 +82,18 @@ function createSousButs (deps) {
       }
       const r = await actions()[g.action](null, g.params)
       journal.push(`${g.action}${g.params.quantite ? ` ${g.params.quantite}` : ''}${g.params.objet ? ` ${g.params.objet}` : ''}${r?.echec ? ' (echec)' : ''}`)
+      const remedes = r?.echec && !repares.has(r.code) ? reparation(r.code) : null
+      if (remedes?.length) {
+        repares.add(r.code)
+        let repare = true
+        for (const remede of remedes) {
+          if (mission.cancelled) break
+          const rr = await actions()[remede.action](null, remede.params)
+          journal.push(`${remede.action} (${remede.pourquoi})${rr?.echec ? ' (echec)' : ''}`)
+          if (rr?.echec) { repare = false; break }
+        }
+        if (repare) continue
+      }
       if (r?.echec) {
         // Le code de l action qui a echoue (ou son code generique) : ses
         // remedes sont ceux du geste rate, pas ceux du sous-but entier.
