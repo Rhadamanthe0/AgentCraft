@@ -265,6 +265,30 @@ commence que quand le precedent est entierement vert.
 | fabriquer (planches, etabli, hache) | `craft/*` : 6 (planches, batons, etabli, hache, porte, planches depuis un arbre) | vert |
 | construire (maison de terre) | `build/*` : 6 (boite 3x3x3, avec porte, cabane en planches, 4x4x4, cabane avec porte, sans materiaux) | tour 3 en validation |
 | parcours (allers-retours, aller sous un arbre) | `route/*` : 7 (aller-retour, deux et trois allers-retours, sous l arbre proche et lointain, mur, attente) | tour 3 en validation |
+| competences (code seul, sans modele) | `skill/*` : 4 (arbre a portee, arbre a piler, boite de terre, sable emmure) | 2026-10-01, bloquants |
+
+**Banc de competences (`skill/*`, 2026-10-01).** Un niveau `skill/*` reprend
+l arene et les controles d une famille (bois, construire, ramasser), mais la
+mission est **scriptee** : le champ `skill` du niveau donne le brief et la
+suite d etapes (`{action, ...parametres, repeter}`), envoyes a
+`POST /api/mission/script` (ouverte par `MISSION_SCRIPT=1`, banc seulement ;
+`bot/script-brain.js`). Le reste de la mission ne change pas : contrats,
+reflexes, anti-boucle, fins mesurees, refus d arret. Aucun appel au modele :
+`plannerRequests` doit valoir 0 (controle `aucun_appel_modele`). Un echec y
+est donc celui du **code** des actions, reproductible d un banc a l autre,
+alors que les autres familles mesurent l autonomie du modele. Les scripts
+sont generiques (une etape par obstacle annonce par l action precedente),
+jamais des coordonnees ni une sequence copiee d un niveau a modele, et ils ne
+nourrissent jamais le prompt.
+
+**Hors ligne (2026-10-02).** Les memes niveaux se jouent sans serveur :
+`node tmp/skill-sim.js <niveau>` construit l arene exportee
+(`python3 ci/trees.py --export-skills`, fichier `tmp/skill-levels.json`, test
+de synchro dans `ci/test_selection.py`), lance la vraie mission scriptee sur un
+serveur simule (vrai A*, vraie physique, casse avec outil, objets au sol
+ramasses au contact de la boite du joueur elargie d un bloc, pose refusee dans
+le corps) et applique les controles de la famille. Les niveaux rapides tournent
+a chaque banc dans `tmp/skill-sim.test.js`. Hors champ : fabrication et four.
 
 Les blocs sont comptes par RCON (`clone ... filtered` vers une zone de
 comptage eloignee) toutes les 3 s ; la hauteur est echantillonnee chaque

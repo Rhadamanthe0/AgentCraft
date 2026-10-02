@@ -24,6 +24,7 @@ const perception = require('./perception')
 const missionState = require('./mission-state')
 const missionTrace = require('./trace')
 const { createGestes } = require('./action-gestes')
+const { createSousButs, prochainGesteSolveur } = require('./action-sous-buts')
 const {
   PILER_DIRT, scaffoldingStock, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
   marcheDevant, videDevant, sondeAlentours, capDepuisVecteur, choisirCoteContournement, dansEmprise
@@ -36,14 +37,17 @@ const { DELIVERY, DOOR } = require('./conversation')
 const reflexes = require('./reflexes')
 const Vec3 = require('vec3').Vec3
 const planner = require('./planner')
+const { createScriptBrain } = require('./script-brain')
 const memory = require('./memory')
 const screenshot = require('./screenshot')
 const { blockInReach, clearSegment, itemInPickupRange, isWoodDoor, doorClosed } = require('./navigation')
 
 // Qui decide : le planificateur JSON distant (plan de plusieurs etapes par
 // appel).
-function brain () {
-  return planner
+// Une mission scriptee (banc de competences, script-brain.js) porte son propre
+// cerveau ; toutes les autres passent par le planificateur.
+function brain (m = null) {
+  return m?.cerveau ?? planner
 }
 
 // Pause entre deux etapes **deja planifiees** : il n y a pas d appel reseau a
@@ -121,7 +125,7 @@ function setFeatures (changes = {}) {
 // validation du planificateur suivent featureOn.
 function syncActionFeatures () {
   for (const spec of Object.values(skills.ACTIONS)) {
-    if (spec.feature) skills.setFeatureEnabled(spec.feature, featureOn(spec.feature))
+    if (spec.feature) skills.setFeatureEnabled(spec.feature, featureOn(spec.feature, spec.featureDefault ?? true))
   }
 }
 syncActionFeatures()
@@ -1155,8 +1159,11 @@ function createMissionRunner (host, injected = {}) {
   // valide, {} pour la boite (demandee, ou repli apres deux plans refuses).
   async function designShape () {
     if (mission.shape) return mission.shape
-    // Interrupteur A/B `plans` : coupe, toujours la boite du code.
-    if (!featureOn('plans')) {
+    // Interrupteur A/B `plans` : coupe, toujours la boite du code. Un cerveau
+    // sans conception de plan (mission scriptee, banc de competences) aussi :
+    // la forme est un choix du modele, jamais un appel cache.
+    const cerveau = brain(mission)
+    if (!featureOn('plans') || typeof cerveau.designBlueprint !== 'function') {
       mission.shape = {}
       return mission.shape
     }
@@ -1167,10 +1174,10 @@ function createMissionRunner (host, injected = {}) {
     const bot = host.getBot()
     const stock = (bot?.inventory?.items() ?? []).filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
     const dimensionsImposees = /trois/.test(dims.source)
-    for (let essai = 0; essai < 3 && planner.isEnabled?.() !== false; essai++) {
+    for (let essai = 0; essai < 3 && cerveau.isEnabled?.() !== false; essai++) {
       let bp = null
       try {
-        bp = await planner.designBlueprint({
+        bp = await cerveau.designBlueprint({
           objectif: mission.objective,
           // Une seule dimension (« tour de 6 blocs de haut ») n est pas un
           // cube : parseDimensions la recopie sur les trois axes (vu : tour
@@ -2653,6 +2660,67 @@ function createMissionRunner (host, injected = {}) {
     return hint
   }
 
+  // Moteur d acces unique (interrupteur acces_unifie, eteint par defaut) : UN
+  // calcul A* dont les pas sont marcher, sauter, chuter, ouvrir une porte,
+  // casser un bloc tendre au niveau du corps, monter en tour et poser un sol
+  // (navigation.js, options dig et place). Il remplace, quand il reussit, la
+  // cascade d avancer (descendre du pilier, feuilles, montee, pont, trajet qui
+  // creuse, poste de pilier) ; quand il echoue, la cascade reste le recours,
+  // le temps que l A/B tranche.
+  //
+  // Politique, la meme pour toute cible :
+  //   - casse : blocs tendres (durete <= 1 : terre, sable, gravier, feuilles),
+  //     jamais sous le niveau des pieds de depart (pas de puits), jamais une
+  //     buche, un bloc construit ni l emprise du chantier ; une feuille coute
+  //     cher (detour prefere, l arbre reste entier) ;
+  //   - pose : echafaudage de piler (terre d abord, puis planches pleines),
+  //     jamais pendant un chantier ; une tour posee pour un arbre est retiree
+  //     avec les piliers une fois l arbre fini.
+  const ACCES_POSE_MAX = Number(process.env.MISSION_ACCES_POSE_MAX || 12)
+  async function atteindre (bloc) {
+    const bot = host.getBot()
+    if (!bot?.entity || !bloc?.position) return { reached: false, code: 'unavailable' }
+    const travail = ['recolte', 'construction'].includes(mission.kind)
+    const chantier = empriseChantier()
+    const piedsY = Math.floor(bot.entity.position.y)
+    const casses = []
+    const poses = []
+    const pourArbre = featureOn('arbre_fini') && (TREE_LOG.test(bloc.name ?? '') || Boolean(arbreInacheve()))
+    const dig = travail ? {
+      cantBreak: Object.values(bot.registry.blocksByName).filter(b => TREE_LOG.test(b.name) || /_planks$|_door$|chest|crafting_table|furnace/.test(b.name)).map(b => b.id),
+      canBreak: b => Number.isFinite(b.hardness) && b.hardness >= 0 && b.hardness <= 1 && b.diggable !== false &&
+        b.position.y >= piedsY && !TREE_LOG.test(b.name) && !(chantier && dansEmprise(chantier, b.position)),
+      cost: b => /_leaves$/.test(b.name ?? '') ? 8 : 0,
+      digBlock: async b => {
+        try {
+          await craft.equipForBlock(bot, b)
+          await withTimeout(bot.dig(b, true), 6000, 'creusage trop long')
+        } catch (_) {
+          return false
+        }
+        const gone = bot.blockAt(b.position)?.boundingBox !== 'block'
+        if (gone) casses.push(b.name)
+        return gone
+      }
+    } : null
+    const items = scaffoldingStock(bot).materiaux.map(m => bot.registry.itemsByName[m.nom]?.id).filter(Number.isInteger)
+    const place = travail && !chantier && items.length ? {
+      items,
+      max: ACCES_POSE_MAX,
+      onPlaced: (cellule, { tour }) => {
+        poses.push(cellule)
+        if (tour && pourArbre) (mission.echafaudagePose ??= []).push(new Vec3(cellule.x, cellule.y, cellule.z))
+      }
+    } : null
+    const result = await host.navigateToPosition(bloc.position.offset(0.5, 0.5, 0.5), {
+      signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, dig, place,
+      distanceBudget: 64, timeoutMs: 45000
+    })
+    mission.acces = { appels: (mission.acces?.appels ?? 0) + 1, atteints: (mission.acces?.atteints ?? 0) + (result.reached ? 1 : 0),
+      poses: (mission.acces?.poses ?? 0) + poses.length, casses: (mission.acces?.casses ?? 0) + casses.length }
+    return { ...result, poses: poses.length, casses: casses.length }
+  }
+
   // Walks to the best untried pillar post for this target (own pillar undone
   // first: walking off its top is a fall). Each post is tried once per
   // mission and target, so the search ends instead of looping.
@@ -3478,6 +3546,49 @@ function createMissionRunner (host, injected = {}) {
   }
 
   const gestes = createGestes({ host, getMission: () => mission, findTargetBlock, scaled })
+  // Sous-buts (A/B sous_buts) : chantier et objet du solveur conduits jusqu au
+  // bout par le code, guides par les besoins et le plan qu il mesure deja.
+  const sousButs = createSousButs({
+    getMission: () => mission,
+    actions: () => ACTIONS,
+    planSolveur: () => acquisition(),
+    recolteFaisable,
+    // Remedes mesures d un geste rate, joues une fois par le sous-but (ceux
+    // que le modele joue d apres REMEDES) : tronc haut => piler de la hauteur
+    // qui met la buche a portee (meme mesure que conseilPilier), puis casser
+    // depuis le sommet (recolter commencerait par redescendre en marchant).
+    reparation: code => {
+      if (code !== 'cible_haute') return null
+      const hint = highTargetHint()
+      if (!hint) return null
+      const hauteur = Math.max(PILER_MIN, Math.min(PILER_MAX, hint.denivele - 1))
+      return [{ action: 'piler', params: { hauteur }, pourquoi: `tronc haut +${hint.denivele}` },
+        { action: 'casser', params: { duree: 6 }, pourquoi: 'depuis le sommet' }]
+    },
+    etatChantier: () => {
+      const bot = host.getBot()
+      const progress = mission.plan ? buildProgress() : { left: null, done: 0, total: 0 }
+      const stock = (bot?.inventory?.items() ?? []).filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
+      const besoins = besoinsConstruction(progress, stock)
+      // L outil qu exige la matiere (pioche pour la pierre) passe avant.
+      const outil = bot && outilManquant(bot) ? prochainGesteSolveur(acquisition(), recolteFaisable) : null
+      return {
+        arbreInacheve: Boolean(arbreInacheve()),
+        planChoisi: Boolean(mission.plan),
+        restants: mission.plan ? progress.left : (besoins?.blocs_restants ?? 1),
+        stock,
+        besoins,
+        porteVoulue: Boolean(mission.wantsDoor),
+        portePosee: doorPlaced(),
+        porteEnPoche: Boolean(doorItem()),
+        etapeSolveur: outil?.action ? outil : null
+      }
+    },
+    empreinte: () => {
+      const m = mesuresEffet()
+      return `${m.inventaire}|${m.poses}|${m.casses}|${Boolean(mission.plan)}|${doorPlaced()}`
+    }
+  })
 
   const ACTIONS = {
     // Il y avait ici `approcher`, qui deleguait au pathfinder (GoalNearXZ). Le
@@ -4347,7 +4458,20 @@ function createMissionRunner (host, injected = {}) {
       // A nearby high target is known work, not an invitation to explore blindly.
       // Explicit movement gestures keep their existing free-movement semantics.
       const high = !cible && mission.kind !== 'geste' ? highTargetHint() : null
+      // Moteur d acces unique d abord (A/B acces_unifie) ; la cascade
+      // historique reste le recours tant que la mesure n a pas tranche.
+      const parMoteur = async (bloc, avant) => {
+        if (!featureOn('acces_unifie', false) || params.__acces || !bloc || mission.cancelled) return null
+        const r = await atteindre(bloc)
+        const bilan = `${r.poses} pose(s), ${r.casses} casse(s)`
+        console.log(`[mission] acces ${bloc.name} : ${r.code} (${bilan})`)
+        if (!r.reached) return null
+        return { resultat: `${avant}${bloc.name} rejoint a portee par le moteur d acces (${bilan}, trajet de ${r.travelled ?? 0} bloc(s))`,
+          code: 'acces', ...(r.poses > 0 ? { reobserver: true } : {}) }
+      }
       if (high) {
+        const direct = await parMoteur(host.getBot()?.blockAt(high.position), `cible haute ${high.cible} : `)
+        if (direct) return direct
         // Cible deja a portee horizontale, seule la hauteur manque : le code
         // monte lui-meme (trees/bent 93a6f04 : echec « piler peut aider »).
         // Stock court compris : piler prend la terre voisine lui-meme (trees/bent
@@ -4505,6 +4629,8 @@ function createMissionRunner (host, injected = {}) {
       // distance HORIZONTALE de l indice navigation, le chemin reel contourne :
       // `avancer` s arretait court et le `casser` suivant echouait « trop
       // loin » (82 echecs par banc, revue de performance du 2026-09-27).
+      const direct = await parMoteur(cible, '')
+      if (direct) return direct
       const ligne = host.getBot()?.entity?.position?.distanceTo(cible.position.offset(0.5, 0.5, 0.5)) ?? distance
       const budget = Math.max(distance, Math.min(48, Math.ceil(ligne * 1.5) + 2))
       const approach = () => host.navigateToPosition(cible.position.offset(0.5, 0.5, 0.5), {
@@ -4759,7 +4885,9 @@ function createMissionRunner (host, injected = {}) {
         if (scaffoldingStock(bot).total < hauteurVisee) {
           // Bornes de temps : vu sur chat/replace-and-join, bot tombe dans un
           // trou qu il venait de creuser et l action ne rendait plus la main.
-          await gatherDirt(hauteurVisee, () => false, { sol: true, budgetMs: 25000 })
+          // Chantier en cours : sa terre n est jamais prise (emprise +1).
+          const emprise = empriseChantier()
+          await gatherDirt(hauteurVisee, (x, z) => dansEmprise(emprise, { x, z }), { sol: true, budgetMs: 25000 })
           await collectScaffoldDrops(stepToken, { budgetMs: 15000 })
         }
         available = scaffoldingStock(bot)
@@ -5122,6 +5250,22 @@ function createMissionRunner (host, injected = {}) {
       let rallyFails = 0
       const RALLY_MAX = 3
 
+      // Bot au fond d un trou (pierre recoltee sous le sol mis a nu) : les
+      // postes de tir se rallient a pied et deux blocs plus haut ils sont
+      // injoignables (skill/stone-hut-batir ec97eb4, « trajet trop long »
+      // jusqu a la fin). Rejoindre d abord le chantier par le recours commun
+      // des trajets : sortie par le haut, puis trajet qui creuse.
+      const sol = mission.plan?.origin?.y
+      const emprise = empriseChantier()
+      if (Number.isFinite(sol) && emprise && Math.floor(bot.entity.position.y + 0.01) <= sol - 2 && !mission.cancelled) {
+        const profondeur = sol - Math.floor(bot.entity.position.y + 0.01)
+        const chantier = new Vec3((emprise.x0 + emprise.x1 + 1) / 2, sol, (emprise.z0 + emprise.z1 + 1) / 2)
+        const sortie = await navWithDescent(() => host.navigateToPosition(chantier, {
+          signal: mission.navigationAbort.signal, __owner: stepToken, radius: 4, timeoutMs: 15000
+        }), { target: chantier, owner: stepToken })
+        console.log(`[mission] construire depuis un trou (${profondeur} sous le sol) : ${sortie?.reached ? 'chantier rejoint' : sortie?.code ?? 'echec'}`)
+      }
+
       for (const entry of mission.plan.blocks) {
         if (mission.cancelled) break
         if (placed >= budget || Date.now() - started > PLACE_BURST_MS) break
@@ -5311,6 +5455,8 @@ function createMissionRunner (host, injected = {}) {
 
     // Gestes de bas niveau, attente, fin et memoire : bot/action-gestes.js.
     ...gestes,
+    async batir () { return sousButs.batir() },
+    async obtenir () { return sousButs.obtenir() },
 
     // Chercher la matiere hors de vue sans marcher a l aveugle : le code
     // choisit, parmi huit caps, le point debout le plus lointain et le moins
@@ -5433,7 +5579,9 @@ function createMissionRunner (host, injected = {}) {
     piler: (a, b) => Boolean(a.position && b.position && b.position.y - a.position.y >= 0.5),
     construire: (a, b) => b.poses > a.poses || deplace(a, b),
     avancer: deplace,
-    explorer: deplace
+    explorer: deplace,
+    batir: (a, b) => b.poses > a.poses || b.inventaire !== a.inventaire,
+    obtenir: (a, b) => b.inventaire !== a.inventaire
   }
 
   const CONTRATS = {
@@ -5446,7 +5594,9 @@ function createMissionRunner (host, injected = {}) {
     fabriquer: { effet: EFFETS.fabriquer },
     cuire: { effet: EFFETS.cuire },
     avancer: { effet: EFFETS.avancer },
-    explorer: { effet: EFFETS.explorer }
+    explorer: { effet: EFFETS.explorer },
+    batir: { effet: EFFETS.batir },
+    obtenir: { effet: EFFETS.obtenir }
   }
 
   for (const [nom, contrat] of Object.entries(CONTRATS)) {
@@ -5761,7 +5911,7 @@ function createMissionRunner (host, injected = {}) {
   // un appel anticipe serait un appel jete a chaque fois.
   function startPrefetch () {
     if (!isRunning() || mission.cancelled) return
-    if (!planner.isEnabled()) return
+    if (!brain(mission).isEnabled()) return
     if (mission.prefetch) return
     if (mission.queue.length !== 1) return
     if (mission.kind === 'geste') return
@@ -5779,7 +5929,7 @@ function createMissionRunner (host, injected = {}) {
     }
 
     const controller = new AbortController()
-    const promise = planner.plan(
+    const promise = brain(mission).plan(
       snap, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
       { signal: controller.signal, profil: profilPrompt(), relance: featureOn('relance_plan') }
     )
@@ -5836,7 +5986,7 @@ function createMissionRunner (host, injected = {}) {
           state.environnement.capture_presente = Boolean(capture)
         }
         const revision = mission.planRevision
-        const result = await planner.plan(
+        const result = await brain(mission).plan(
           state, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
           { signal: mission.navigationAbort.signal, profil: profilPrompt(), relance: featureOn('relance_plan') }
         )
@@ -5873,7 +6023,7 @@ function createMissionRunner (host, injected = {}) {
   }
 
   async function decide (state) {
-    return planner.isEnabled() ? decideFromPlan(state) : null
+    return brain(mission).isEnabled() ? decideFromPlan(state) : null
   }
 
   // Le garde-fou du « le modele classe, il ne compte pas », applique a la seule
@@ -6043,6 +6193,12 @@ function createMissionRunner (host, injected = {}) {
         if (/annule/.test(err.message)) {
           await sleep(TICK_MS)
           continue
+        }
+        // Cerveau scripte au bout de son script (ou etape invalide) : fin dite,
+        // pas une panne a rejouer.
+        if (err.fin) {
+          finish('failed', err.message)
+          return
         }
         mission.plannerErrors += 1
         console.error(`[mission] planificateur indisponible (${mission.plannerErrors}/${MAX_PLANNER_ERRORS}) : ${err.message}`)
@@ -6500,7 +6656,15 @@ function createMissionRunner (host, injected = {}) {
 
   async function startMission (objective, requester, opts, appel) {
     if (!host.isReady()) return { ok: false, error: 'bot non connecte' }
-    if (!brain().isEnabled()) {
+    let cerveau = planner
+    if (opts.script) {
+      try {
+        cerveau = createScriptBrain({ script: opts.script, brief: opts.brief })
+      } catch (err) {
+        return { ok: false, error: `script refuse : ${err.message}` }
+      }
+    }
+    if (!cerveau.isEnabled()) {
       return { ok: false, error: 'aucun planificateur disponible, aucune mission possible' }
     }
 
@@ -6573,14 +6737,14 @@ function createMissionRunner (host, injected = {}) {
     let brief
     try {
       try {
-        brief = normalizeBrief(await brain().readBrief(text, { signal: request.signal, deferGestureValidation: true }))
+        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true }))
       } catch (first) {
         // Un echec isole (reponse tronquee deux fois, panne passagere) laissait
         // le bot immobile sans rien dire, surtout apres un arbitrage : un
         // nouvel essai, sauf annulation.
         if (request.signal.aborted) throw first
         console.log(`[mission] lecture de l objectif echouee (${first.message}), nouvel essai`)
-        brief = normalizeBrief(await brain().readBrief(text, { signal: request.signal, deferGestureValidation: true }))
+        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true }))
       }
     } catch (err) {
       return { ok: false, error: `lecture de l objectif impossible : ${err.message}` }
@@ -6607,7 +6771,7 @@ function createMissionRunner (host, injected = {}) {
     // 'aucune' prive la mission de toute cible : le bot ne peut plus qu explorer
     // a l aveugle. Quand ce choix n est pas assure, on retient la meilleure
     // matiere proposee a la place.
-    if (resource === 'aucune' && brief.resourceConfidence < brain().MIN_CONFIDENCE && brief.resourceProbabilities) {
+    if (resource === 'aucune' && brief.resourceConfidence < cerveau.MIN_CONFIDENCE && brief.resourceProbabilities) {
       const best = Object.entries(brief.resourceProbabilities)
         .filter(([name]) => name !== 'aucune')
         .sort((a, b) => b[1] - a[1])[0]
@@ -6740,6 +6904,9 @@ function createMissionRunner (host, injected = {}) {
       fabricationLastError: null,
 
       supply: SUPPLY,
+      // Cerveau de cette mission : le planificateur, ou un script (banc de
+      // competences). Jamais persiste : une mission reprise replanifie.
+      cerveau: cerveau === planner ? null : cerveau,
       buildBlock: skills.RESOURCES[resource]?.build ?? 'dirt',
       // Le motif accepte plusieurs noms : en survie le bloc pose depend de ce
       // qui est tombe (pierre -> cobblestone, bloc d herbe -> terre) et de
@@ -7246,6 +7413,9 @@ function createMissionRunner (host, injected = {}) {
       objets_recoltes: collected(),
       dirt_secondaire: mission.dirtSecondaire ?? 0,
       feuilles_degagees: mission.leavesCleared ?? 0,
+      // Moteur d acces unique (A/B acces_unifie) : appels, cibles atteintes,
+      // blocs poses et casses en route.
+      acces: mission.acces ?? null,
       arbre_entier: mission.wholeTree ? (treeStatus() ?? { commence: false }) : null,
       echafaudage_laisse: mission.echafaudageLaisse ?? 0,
       // Grand livre des dons (S6) : tente/retire/prouve/incertain par engagement.

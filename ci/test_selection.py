@@ -1,4 +1,5 @@
 """Levels chosen per commit and random twins (python3 -m unittest ci/test_selection.py)."""
+import json
 import os
 import re
 import sys
@@ -23,7 +24,7 @@ class Selection(unittest.TestCase):
 
     def test_patterns_take_variants(self):
         chosen = names('trees/pillar*, craft/planks')
-        self.assertEqual(chosen, ['trees/pillar', 'trees/pillar~sans-arbre_fini', 'craft/planks'])
+        self.assertEqual(chosen, ['trees/pillar', 'trees/pillar~sans-arbre_fini', 'trees/pillar~avec-acces_unifie', 'craft/planks'])
 
     def test_unit_only(self):
         self.assertEqual(names('unitaires'), [])
@@ -93,3 +94,13 @@ class RandomTwin(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SkillExport(unittest.TestCase):
+    def test_committed_fixtures_match_trees(self):
+        # tmp/skill-sim.js reads tmp/skill-levels.json: regenerate it with
+        # `python3 ci/trees.py --export-skills > tmp/skill-levels.json`.
+        path = os.path.join(os.path.dirname(__file__), '..', 'tmp', 'skill-levels.json')
+        with open(path, encoding='utf-8') as handle:
+            committed = json.load(handle)
+        self.assertEqual(committed, json.loads(json.dumps(trees.export_skills())))

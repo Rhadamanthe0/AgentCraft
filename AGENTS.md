@@ -10,6 +10,12 @@ L historique complet (chaque correctif, sa raison, le banc qui l a revele) est
 dans `docs/journal.md`. Il est utile pour comprendre un choix ancien, mais il
 decrit aussi des modules retires : en cas de contradiction, ce fichier prime.
 
+**Tenir ce fichier a jour (proprietaire, 2026-10-02)** : il est la memoire d une
+session a l autre. A chaque changement qui le touche (regle, interrupteur,
+fichier, piege, maniere de travailler), le mettre a jour dans le meme commit ;
+retirer ce qui n est plus vrai plutot que l empiler ; y noter tout ce qu une
+prochaine session devrait savoir sans avoir a le redecouvrir.
+
 ## 1. Regles du proprietaire (prioritaires sur tout)
 
 ### Autonomie, pas repetition (2026-09-25)
@@ -52,14 +58,24 @@ Interrupteur `featureOn('<mode>')` (mission.js, `POST /api/features`,
 variable `FEATURE_<MODE>`) ; ses niveaux portent `variants: [sans('<mode>')]`
 (ou `avec(...)` pour un mode eteint par defaut). Le banc joue le niveau (il
 decide PASS/FAIL) puis la variante, informative ; `report.comparisons` et le
-resume donnent reussite, duree, appels au modele et degats cote a cote. **Un
-mode qui n apporte rien de mesurable n est pas garde** ; a resultats egaux, on
-garde la version la plus simple.
+resume donnent reussite, duree, appels au modele, degats et compteurs du mode
+(`modes` : le mode a-t-il agi ?) cote a cote. **Un mode qui n apporte rien de
+mesurable n est pas garde** ; a resultats egaux, on garde la version la plus
+simple. Une paire d un seul banc est du bruit : la decision se prend sur
+plusieurs bancs avec `python3 ci/ab.py <report.json...>` (au moins 6 paires).
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
 `prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte`,
 `anti_boucle` (allumes par defaut) ; `nav_creuse` (eteint, `avec(...)` sur
-gather/sand-walled et terrain/plateau).
+gather/sand-walled et terrain/plateau) ; `acces_unifie` (eteint, moteur d acces
+unique : un seul A* pour marcher, casser, monter en tour et poser un pont,
+`avancer` -> `atteindre`, la cascade historique en recours ; `avec(...)` sur
+trees/pillar, trees/bent, terrain/plateau, terrain/moat, gather/sand-walled et
+les `skill/*` d acces) ; `sous_buts` (eteint : actions `batir` et `obtenir`, le
+modele choisit le but, le code le conduit jusqu au bout guide par `besoins` et
+le solveur, et rend la main au premier echec ; `avec(...)` sur les composites
+cabane et maison en pierre, build/no-materials, craft/iron-pickaxe ; niveaux
+`skill/cabin-batir` et `skill/stone-hut-batir` pour le code seul).
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
@@ -119,6 +135,30 @@ gather/sand-walled et terrain/plateau).
 | Routage double MiMo/Muse, supervisor/, kernel/, bridge/, unlock-service | 2026-09-27 | jamais branches au bot |
 | `approcher`, ancien `explorer` (GoalNearXZ) | 2026-09-22 | pathfinder 26.1 peu fiable ; remplaces par le navigateur partage |
 | Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
+
+### Conduite d une session d agent (2026-10-02)
+
+- Parler au proprietaire en francais ; finir chaque reponse par ce qu il doit
+  faire, ou « Tu n as rien a faire ».
+- Points de controle programmes (`send_later`, routines) : **45 min** au plus
+  apres le dernier travail, jamais 60. Le cache du contexte dure une heure a
+  partir de la derniere activite ; a 60 min il expire et tout se relit.
+  Un banc cible dure 15 a 30 min : il est pret a 45 min.
+- Avant de corriger un echec de banc, le reproduire hors ligne quand c est
+  possible (`tmp/skill-sim.js`, `tmp/sim-server.js`, §6) et en faire un test
+  qui echoue sans le correctif.
+- Lire un banc : `python3 ci/fetch-results.py` (§5), puis `report.json`,
+  `containers.log`, `traces/`, `instantanes/`. « pas de reponse en 10 s » sur
+  tous les bots a la fois = panne du gateway, pas le code ; un echec
+  `skill/*` est toujours un bug du code.
+- Sur un banc partiel (ligne `Banc:`), `banc-complet` est rouge par
+  construction : un seul commentaire de PR l explique, pas un par banc.
+- `tmp/*` est ignore par git sauf `*.js` (et les exceptions de
+  `.gitignore`) : un nouveau fichier de donnees dans `tmp/` exige son
+  exception. Verifier avant de pousser dans un clone propre
+  (`git clone . <scratch>` puis les tests) : un fichier present seulement en
+  local a casse deux bancs (7f7ac88, e3786f9).
+- Pas de revue Codex a attendre (retiree, #60).
 
 ## 2. Ce que c est
 
@@ -288,7 +328,8 @@ dans `docs/journal.md` (section « Les pieges »).
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
 - Familles (`ci/trees.py`, ~84 niveaux avec variantes) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
-  `composite`, plus scenarios de navigation et ~340 tests unitaires (`UNIT`,
+  `composite`, `skill` (competences : missions scriptees sans modele, le code
+  seul est mesure ; un echec y est un bug du code, jamais du bruit), plus scenarios de navigation et ~340 tests unitaires (`UNIT`,
   ci/run.py).
 - Arenes variees par la graine (`ci/variation-seed.txt`, sinon SHA du
   commit ; `CI_VARIATION_SEED` prime) : rotation, miroir, essence d arbre.
@@ -312,6 +353,21 @@ node --check bot/mission.js
 ```
 
 Hors liste : `runtime-objectives` (S5 saute en root).
+
+Banc de competences hors ligne (2026-10-02) : un niveau `skill/*` se joue en
+local en quelques secondes, vraie mission scriptee, vrai A* 2.4.5 et vraie
+physique sur un serveur simule (`tmp/sim-server.js` : casse avec outil exige,
+objets qui tombent et se ramassent comme au serveur, pose refusee dans le
+corps du bot). A lancer AVANT de pousser un changement d action ou de
+navigation ; le banc ne sert plus qu a confirmer. Hors champ : fabrication et
+four (`skill/*-batir` restent au banc).
+
+```bash
+NODE_PATH=$PWD/bot/node_modules node tmp/skill-sim.js --liste
+NODE_PATH=$PWD/bot/node_modules node tmp/skill-sim.js skill/tree-pillar~avec-acces_unifie
+# Apres avoir change un niveau skill/* dans ci/trees.py (test de synchro sinon rouge) :
+python3 ci/trees.py --export-skills > tmp/skill-levels.json
+```
 
 Recettes en jeu (serveur local), toujours avec un harness silencieux
 `tmp/probe-bot.js` (`TestProbeN`, jamais op, jamais `TestBot` ni
@@ -375,14 +431,17 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/mission-state.js` | etat persiste declare une fois (lecture = ecriture) |
 | `bot/trace.js` | trace structuree de mission |
 | `bot/action-gestes.js` | gestes, attente, fin, memoire (premier module d actions) |
+| `bot/action-sous-buts.js` | sous-buts `batir` et `obtenir` (A/B `sous_buts`) : un geste mesure a la fois jusqu au but |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
+| `bot/script-brain.js` | cerveau scripte du banc de competences (`skill/*`, `MISSION_SCRIPT=1`) |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |
 | `bot/skills.js` | table unique : commandes, actions, documentation native, matieres, audit |
 | `bot/conversation.js` | interpretation du chat, arbitrage |
 | `bot/acquire-plan.js` / `bot/recipe-plan.js` | solveur de prerequis ; recettes |
 | `bot/craft.js` | fabrication, etabli, four (`smelt`), outils (`harvestCheck`) |
 | `bot/build.js` | plans (boite, plans libres compiles), postes de tir, pose |
-| `bot/navigation.js` / `bot/motion-trace.js` | navigateur partage ; traces de trajet |
+| `bot/navigation.js` / `bot/motion-trace.js` | navigateur partage (options `dig` et `place` : casse et pose planifiees par A*) ; traces de trajet |
+| `bot/pose.js` | gestes de pose partages : tour (pose sous soi au sommet du saut), pose contre une face, verifies par le monde |
 | `bot/movement-task.js` / `bot/tree-position.js` | parcours declaratifs ; placement sous un arbre |
 | `bot/reflexes.js` | reflexes entre deux etapes (A/B `reflexes`) |
 | `bot/memory.js` | memoire du modele (travail, long terme) |
@@ -390,5 +449,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/logger.js`, `bot/screenshot.js` | journal ; mini-carte PNG (`MISSION_SCREENSHOT`, eteinte) |
 | `ci/` | banc (run.py, trees.py, pool.py, capacity.py, harness, sondes) |
 | `tmp/*.test.js` | tests unitaires ; `tmp/sim-world.js` monde simule partage ; `tmp/replay-snapshot.js` rejeu d un instantane de blocage ; `tmp/probe-bot.js` harness multi-bots |
+| `tmp/sim-server.js`, `tmp/skill-sim.js`, `tmp/skill-levels.json` | banc de competences hors ligne : serveur simule (vrai A*, vraie physique), joueur de niveau `skill/*`, niveaux exportes par `ci/trees.py --export-skills` |
 | `ci/promotion.py` | taux de reussite des niveaux informatifs sur N bancs, serie avec le jumeau |
+| `ci/ab.py` | decision A/B sur N bancs, par mode et par niveau : gains/pertes de reussite, duree et appels medians, mode reellement actif, verdict garder/retirer/egalite/insuffisant |
 | `docs/journal.md` | historique des decisions et correctifs |

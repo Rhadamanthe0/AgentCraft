@@ -87,8 +87,9 @@ def base_levels():
             'logs': _logs(*trunk6),
             # Two blocks are required; a higher pillar is wasteful but reported, not failed.
             'rules': {'leaves_broken_max': 0, 'standing_y_min': 201.9},
-            # A/B: the pillar stays up once the tree is cut (dirt_above_floor).
-            'variants': [sans('arbre_fini')],
+            # A/B: the pillar stays up once the tree is cut (dirt_above_floor);
+            # one A* for walk, dig, tower and bridge (acces_unifie).
+            'variants': [sans('arbre_fini'), avec('acces_unifie')],
         },
         {
             'name': 'trees/bent',
@@ -96,7 +97,7 @@ def base_levels():
             'leaves': [(TX-1, 206, TZ-1, TX+3, 207, TZ+3), (TX+3, 203, TZ-1, TX+3, 204, TZ+1)],
             'logs': _logs(*bent[:3]) + _logs(*bent[3:5], axis='x') + _logs(*bent[5:]),
             # A/B: the third identical failure is refused (outcomes.js).
-            'rules': {}, 'variants': [sans('anti_boucle')],
+            'rules': {}, 'variants': [sans('anti_boucle'), avec('acces_unifie')],
         },
         # Chat level: the player interrupts a tree job while the bot is on its pillar.
         {
@@ -222,8 +223,9 @@ def base_levels():
             'leaves': [(TX-2, 208, TZ-2, TX+2, 209, TZ+2)],
             'logs': _logs(*[(TX, 205 + i, TZ) for i in range(3)]),
             'rules': {},
-            # A/B: digging path by the shared navigator (index.digTowardNavigateur).
-            'variants': [avec('nav_creuse')],
+            # A/B: digging path by the shared navigator (index.digTowardNavigateur),
+            # and the single access engine (acces_unifie).
+            'variants': [avec('nav_creuse'), avec('acces_unifie')],
         },
         {
             'name': 'terrain/hedge-pit',
@@ -332,8 +334,9 @@ def base_levels():
             'terrain': [(TX-3, 200, TZ-3, TX+3, 202, TZ+3, 'dirt'), (TX-2, 200, TZ-2, TX+2, 202, TZ+2, 'air'),
                         (TX-1, 199, TZ-1, TX+1, 199, TZ+1, 'sand')],
             'target': 4, 'leaves': [], 'logs': [], 'rules': {},
-            # A/B: digging path by the shared navigator (index.digTowardNavigateur).
-            'variants': [avec('nav_creuse')],
+            # A/B: digging path by the shared navigator (index.digTowardNavigateur),
+            # and the single access engine (acces_unifie).
+            'variants': [avec('nav_creuse'), avec('acces_unifie')],
         },
         # Craft levels: same runner as gather/* ; `give` stocks the bot by RCON
         # before the order (fixture only, like the arena itself).
@@ -493,6 +496,7 @@ def base_levels():
             'about': 'Inventaire vide, « Construis une maison en terre de 3 par 3 par 3 » : creuser la terre d abord.',
             'kind': 'build', 'instruction': 'Construis une maison en terre de 3 par 3 par 3',
             'blocks': ['minecraft:dirt', 'minecraft:grass_block'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
+            'variants': [avec('sous_buts')],
         },
         {
             'name': 'route/three-trips',
@@ -545,7 +549,7 @@ def base_levels():
             'terrain': [(TX-4, 199, TZ-4, TX+4, 199, TZ+4, 'water'), (TX-2, 199, TZ-2, TX+2, 199, TZ+2, 'grass_block')],
             'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
             'logs': _logs(*trunk3),
-            'rules': {},
+            'rules': {}, 'variants': [avec('acces_unifie')],
         },
         # Arbre hors du rayon de recherche (32) : sans explorer, le bot pivote
         # et avance a l aveugle (variantes du banc de la PR #38). Informatif
@@ -593,7 +597,7 @@ def base_levels():
             # de cuisson en plus. Bloquant (4 bancs reussis d affilee au
             # 2026-09-28, 230-326 s).
             'kind': 'gather', 'instruction': 'Fabrique une pioche en fer', 'items': ['iron_pickaxe'],
-            'target': 1, 'cap': 480, 'variants': [sans('solveur')],
+            'target': 1, 'cap': 480, 'variants': [sans('solveur'), avec('sous_buts')],
             'terrain': [(20, 200, 26, 24, 201, 30, 'stone'), (22, 201, 26, 22, 201, 26, 'iron_ore'),
                         (23, 201, 26, 23, 201, 26, 'iron_ore'), (24, 201, 27, 24, 201, 27, 'iron_ore')],
             'leaves': [(6, 204, 6, 10, 205, 10)], 'logs': _logs(*[(8, 200 + i, 8) for i in range(4)]), 'rules': {},
@@ -643,7 +647,8 @@ def base_levels():
             'leaves': [box for (x, z) in COMPOSITE_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
-            'rules': {}, 'variants': [sans('ouvrir_porte')],
+            # A/B: the model picks sub-goals (batir, obtenir) the code runs to the end.
+            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts')],
         },
         # Palier 2 (2026-09-28) : chaine plus longue, imprevu, terrain hostile.
         # Informatifs jusqu a trois bancs reussis d affilee.
@@ -658,7 +663,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [avec('sous_buts')],
         },
         {
             'name': 'composite/cabin-change-of-mind',
@@ -685,6 +690,84 @@ def base_levels():
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ACROSS_TREES for i in range(5)]),
             'rules': {},
+        },
+        # Banc de competences (2026-10-01) : memes arenes et memes controles que
+        # la famille d origine, mais etapes donnees d avance (`skill`, mission
+        # scriptee, bot/script-brain.js), sans appel au modele. Un echec y est
+        # celui du CODE des actions ; les autres familles mesurent le modele.
+        # Le script est une suite generique (une etape par obstacle annonce),
+        # jamais des coordonnees.
+        {
+            'name': 'skill/tree-reachable',
+            'about': 'Script recolter : tronc de 3 buches a portee du sol, arbre entier coupe et ramasse.',
+            'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2), (TX, 205, TZ, TX, 205, TZ)],
+            'logs': _logs(*trunk3),
+            'rules': {'leaves_broken_max': 0, 'floor_broken_max': 0, 'dirt_placed_max': 0, 'standing_y_max': 200.5},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'bois'},
+                      'script': [{'action': 'recolter', 'quantite': 3, 'repeter': 3}]},
+        },
+        {
+            'name': 'skill/tree-pillar',
+            'about': 'Script recolter, piler, recolter : tronc de 6 buches, monter de deux blocs, arbre entier, pilier retire.',
+            'leaves': [(TX-2, 206, TZ-2, TX+2, 207, TZ+2), (TX, 208, TZ, TX, 208, TZ)],
+            'logs': _logs(*trunk6),
+            'rules': {'leaves_broken_max': 0, 'standing_y_min': 201.9},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'bois'},
+                      'script': [{'action': 'recolter', 'quantite': 6, 'repeter': 2},
+                                 {'action': 'piler', 'hauteur': 2},
+                                 {'action': 'recolter', 'quantite': 6, 'repeter': 3},
+                                 {'action': 'ramasser', 'quantite': 6, 'repeter': 2}]},
+            # A/B without model noise: the same script, access by one A*.
+            'variants': [avec('acces_unifie')],
+        },
+        {
+            'name': 'skill/dirt-box',
+            'about': 'Script choisir_terrain puis construire : 64 terre, boite 3x3x3, 20 blocs poses et mission close.',
+            'kind': 'build', 'give': [('dirt', 64)], 'instruction': 'Construis une maison en terre de 3 par 3 par 3',
+            'blocks': ['minecraft:dirt'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
+            'skill': {'brief': {'type': 'construction', 'matiere': 'terre'},
+                      'script': [{'action': 'choisir_terrain'}, {'action': 'construire', 'quantite': 12, 'repeter': 6}]},
+        },
+        {
+            'name': 'skill/sand-walled',
+            'about': 'Script recolter : sable enferme dans un mur de terre de 3 de haut, 4 sable en inventaire, pas de puits.',
+            'kind': 'gather', 'instruction': 'Ramasse 4 blocs de sable', 'items': ['sand'],
+            'terrain': [(TX-3, 200, TZ-3, TX+3, 202, TZ+3, 'dirt'), (TX-2, 200, TZ-2, TX+2, 202, TZ+2, 'air'),
+                        (TX-1, 199, TZ-1, TX+1, 199, TZ+1, 'sand')],
+            'target': 4, 'leaves': [], 'logs': [], 'rules': {},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'sable'},
+                      'script': [{'action': 'recolter', 'quantite': 4, 'repeter': 4}]},
+            'variants': [avec('acces_unifie')],
+        },
+        # Sous-but batir seul (A/B sous_buts) : toute la chaine depuis rien est
+        # conduite par le code, sans modele. Informatifs tant qu ils n ont pas
+        # passe trois bancs d affilee (chaine longue, comme les composites).
+        {
+            'name': 'skill/cabin-batir',
+            'about': 'Script batir : inventaire vide, cinq chenes, cabane en bois 4x4x4 avec porte, chaine entiere par le code.',
+            'kind': 'build', 'cap': 1500, 'informative': True, 'features': {'sous_buts': True},
+            'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte',
+            'blocks': ['#minecraft:planks'], 'target': 40, 'door': True,
+            'leaves': [box for (x, z) in COMPOSITE_TREES
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
+            'rules': {},
+            'skill': {'brief': {'type': 'construction', 'matiere': 'bois', 'porte': True},
+                      'script': [{'action': 'batir', 'repeter': 4}]},
+        },
+        {
+            'name': 'skill/stone-hut-batir',
+            'about': 'Script batir : inventaire vide, deux arbres et un rocher, maison en pierre 3x3x3 : pioche puis pierre, par le code.',
+            'kind': 'build', 'cap': 1500, 'informative': True, 'features': {'sous_buts': True},
+            'instruction': 'Construis-moi une maison en pierre de 3 par 3 par 3',
+            'blocks': ['minecraft:cobblestone'], 'target': 20, 'minTop': 3,
+            'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
+            'leaves': [box for (x, z) in ((4, 6), (30, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
+            'rules': {},
+            'skill': {'brief': {'type': 'construction', 'matiere': 'pierre'},
+                      'script': [{'action': 'batir', 'repeter': 4}]},
         },
     ]
 
@@ -810,6 +893,18 @@ def vary(level, seed, avoid=None):
     if 'loot' in level:
         out['loot'] = [(item, *_cell(dx, dz, turns, mirror)) for item, dx, dz in level['loot']]
     return out
+
+
+def instruct(level, bot, bot_api, message, requester):
+    """Give the level's order. A skill level (`skill`: brief + script) starts a
+    scripted mission (bot/script-brain.js): same objective text, same checks,
+    but the steps are fixed and the model is never called, so a failure is the
+    code's, not a model choice."""
+    skill = level.get('skill')
+    if not skill:
+        return bot_api(bot, '/api/instruction', {'message': message, 'requester': requester})
+    return bot_api(bot, '/api/mission/script', {'objective': message, 'requester': requester,
+                                                'brief': skill['brief'], 'script': skill['script']})
 
 
 def run_chat_steps(level, x0, bot, username, output, rcon, bot_api, measure, timeline, probe_player):
@@ -976,7 +1071,7 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     before = placed()
     started = time.monotonic()
     timeline = []
-    answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
+    answer = instruct(level, bot, bot_api, level['instruction'], probe_name)
     cap = level.get('cap', BUILD_CAP_S)
     # Imprevus du joueur (changement d avis...) : (secondes, phrase), envoyes
     # une fois chacun, mission en cours, par la meme voie que l ordre initial.
@@ -1067,7 +1162,7 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         rcon(f'give {username} minecraft:{item} {amount}')
     started = time.monotonic()
     timeline = []
-    answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
+    answer = instruct(level, bot, bot_api, level['instruction'], probe_name)
 
     def held():
         total = 0
@@ -1617,7 +1712,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
             return run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_name)
         if level.get('kind') == 'chat_script':
             return run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, probe_name)
-        answer = bot_api(bot, '/api/instruction', {'message': INSTRUCTION, 'requester': REQUESTER})
+        answer = instruct(level, bot, bot_api, level.get('instruction', INSTRUCTION), REQUESTER)
         started = time.monotonic()
         peak_standing = start[1]
         world, last_world_check = before, 0
@@ -1728,7 +1823,10 @@ EXPECTED_S = {
     # follow/*: run 36109916130 (712eb71).
     'follow/corner': 26, 'follow/stop': 19, 'follow/stairs': 12, 'follow/straight': 11,
     # gather/*: run 36140713444 (e8290a0) ; flowers ran to the 180 s cap then.
-    'gather/sand-walled': 75, 'gather/sand-walled~avec-nav_creuse': 75, 'gather/flowers': 70, 'gather/dirt': 44, 'gather/sand': 34,
+    'gather/sand-walled': 75, 'gather/sand-walled~avec-nav_creuse': 75,
+    # skill/* : no model call, expected shorter than their model twins.
+    'skill/tree-reachable': 20, 'skill/tree-pillar': 80, 'skill/dirt-box': 60, 'skill/sand-walled': 60,
+    'skill/cabin-batir': 700, 'skill/stone-hut-batir': 900, 'gather/flowers': 70, 'gather/dirt': 44, 'gather/sand': 34,
 }
 NEW_LEVEL_S = 90
 
@@ -1802,6 +1900,11 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             result['plannerCalls'] = calls_after - calls_before
         if requests_before is not None and requests_after is not None:
             result['plannerRequests'] = requests_after - requests_before
+        # A skill level measures the code alone: one model request is a leak
+        # (a chat, a brief or a plan went to the model) and fails the level.
+        if level.get('skill') and result.get('plannerRequests') is not None:
+            result.setdefault('checks', {})['aucun_appel_modele'] = result['plannerRequests'] == 0
+            result['success'] = bool(result.get('success')) and result['plannerRequests'] == 0
         # KPI de la mission (demande du proprietaire, 2026-09-27) : part
         # d actions en echec, blocages annonces (cause et derniers resultats,
         # a analyser a chaque banc).
@@ -1825,6 +1928,18 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             trace = (bot_api(worker.bot, '/api/mission/trace') or {}).get('trace') if m else None
             if trace and trace.get('mission') == m.get('id'):
                 result['trace'] = trace.get('resume')
+            # Mode counters (ci/ab.py, A/B summary): did the mode actually act?
+            # acces_unifie: engine calls, targets reached, blocks placed/dug;
+            # sous_buts: batir/obtenir steps and failures.
+            modes = {}
+            if m.get('acces'):
+                modes['acces'] = m['acces']
+            par_action = (result.get('trace') or {}).get('parAction') or {}
+            for action in ('batir', 'obtenir'):
+                if par_action.get(action):
+                    modes[action] = {k: par_action[action].get(k) for k in ('n', 'echecs', 'ms')}
+            if modes:
+                result['modes'] = modes
                 folder = Path(output) / 'traces'
                 folder.mkdir(parents=True, exist_ok=True)
                 stem = re.sub(r'[^A-Za-z0-9_.-]+', '_', level['name'])
@@ -1865,3 +1980,35 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             results[index] = {'test': all_levels[index]['name'], 'success': False, 'type': mission_type(all_levels[index]['name']),
                               'error': 'aucun worker disponible (workers morts ou demarrages en echec)'}
     return results, summary
+
+
+# Offline skill runs (tmp/skill-sim.js, 2026-10-02): the skill/* levels as plain
+# JSON, local coordinates, optionally varied by a seed like a bench arena. The
+# committed tmp/skill-levels.json must equal export_skills() (ci/test_selection).
+SKILL_FIXTURE_KEYS = ('name', 'about', 'kind', 'instruction', 'start', 'terrain', 'leaves', 'leavesBlock', 'logs',
+                      'give', 'rules', 'target', 'items', 'blocks', 'door', 'minTop', 'features', 'skill', 'variation')
+
+
+def export_skills(seed=None):
+    out = []
+    for level in base_levels():
+        if not level['name'].startswith('skill/'):
+            continue
+        varied = vary(level, seed)
+        fixture = {k: varied[k] for k in SKILL_FIXTURE_KEYS if k in varied}
+        fixture.setdefault('instruction', INSTRUCTION)
+        fixture.setdefault('start', LOCAL_START)
+        fixture.setdefault('leavesBlock', LEAVES)
+        fixture['variants'] = [{'name': f"{level['name']}~{suffix}", 'features': features}
+                               for suffix, features in level.get('variants', ())]
+        out.append(fixture)
+    return {'size': SIZE, 'floorY': FLOOR_Y, 'topY': TOP_Y, 'requester': REQUESTER, 'levels': out}
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Export the skill/* levels for offline runs (tmp/skill-sim.js).')
+    parser.add_argument('--export-skills', action='store_true', required=True)
+    parser.add_argument('--seed', default=None, help='vary the arenas like a bench (rotation, mirror, species)')
+    args = parser.parse_args()
+    print(json.dumps(export_skills(args.seed), indent=1))

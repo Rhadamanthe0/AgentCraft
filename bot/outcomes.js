@@ -19,6 +19,10 @@ const REMEDES = {
   // Hauteur et acces
   cible_haute: ['piler', 'casser'],
   pilier: [],
+  // Cible rejointe par le moteur d acces unique (succes, reobservation).
+  acces: [],
+  // Bot absent pendant l acces (deconnexion) : constat, rien a tenter.
+  unavailable: [],
   stock_echafaudage_insuffisant: ['casser', 'fabriquer'],
   dug: [],
   dug_out_of_reach: ['avancer', 'piler'],
@@ -30,6 +34,15 @@ const REMEDES = {
   chantier_absent: ['choisir_terrain'],
   dans_liquide: ['sortir'],
   plan: [],
+  // Sous-buts (action-sous-buts.js) : un echec d une action conduite garde son
+  // propre code ; ceux-ci disent que le sous-but lui-meme ne peut plus avancer.
+  batir_bloque: ['recolter', 'explorer', 'fabriquer'],
+  batir_sans_progres: ['recolter', 'construire', 'choisir_terrain'],
+  batir_borne: ['batir', 'construire'],
+  obtenir_sans_cible: ['recolter', 'fabriquer'],
+  obtenir_bloque: ['explorer', 'recolter'],
+  obtenir_sans_progres: ['recolter', 'fabriquer', 'explorer'],
+  obtenir_borne: ['obtenir', 'fabriquer'],
   // Dons
   invalid_item: ['donner'],
   invalid_count: ['donner'],
@@ -65,7 +78,9 @@ const REMEDES_PAR_ACTION = {
   sortir: ['casser', 'piler'],
   choisir_terrain: ['avancer', 'explorer'],
   rejoindre_demandeur: ['avancer', 'explorer'],
-  donner: ['rejoindre_demandeur']
+  donner: ['rejoindre_demandeur'],
+  batir: ['recolter', 'fabriquer', 'construire'],
+  obtenir: ['recolter', 'fabriquer', 'explorer']
 }
 
 function codeGenerique (action) {

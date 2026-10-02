@@ -411,6 +411,24 @@ function createApi (rt, deps) {
     res.json(result)
   })
 
+  // Mission scriptee (banc de competences, script-brain.js) : etapes donnees
+  // d avance, aucun appel au modele. Fermee hors banc (MISSION_SCRIPT=1).
+  app.post('/api/mission/script', validateModeFirst, requireBot, async (req, res) => {
+    if (process.env.MISSION_SCRIPT !== '1') return res.status(404).json({ ok: false, error: 'missions scriptees fermees (MISSION_SCRIPT)' })
+    const objective = String(req.body.objective || '').trim()
+    const requester = String(req.body.requester || 'api').slice(0, 32)
+    if (!objective || objective.length > 240) {
+      return res.status(400).json({ ok: false, error: 'objective must contain 1 to 240 characters' })
+    }
+    if (!Array.isArray(req.body.script) || req.body.script.length === 0) {
+      return res.status(400).json({ ok: false, error: 'script must be a non-empty array' })
+    }
+    if (missionRunner.isRunning()) return res.status(409).json({ ok: false, error: 'mission en cours' })
+    conversation.cancel(false)
+    const result = await startObjectiveDurable(objective, requester, { script: req.body.script, brief: req.body.brief ?? {} })
+    res.status(result.ok ? 200 : 409).json(result)
+  })
+
   app.get('/api/mission', (req, res) => {
     res.json({ ok: true, running: missionRunner.isRunning(), mission: missionRunner.status() })
   })

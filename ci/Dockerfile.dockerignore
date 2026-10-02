@@ -7,6 +7,9 @@
 !tmp/probe-bot.js
 !tmp/sim-world.js
 !tmp/replay-snapshot.js
+!tmp/sim-server.js
+!tmp/skill-sim.js
+!tmp/skill-levels.json
 !ci/
 !ci/Dockerfile
 !ci/harness.js
@@ -14,6 +17,3 @@
 !ci/probes.js
 !ci/model-probe.js
 !ci/package-lock.json
-!.github/
-!.github/workflows/
-!.github/workflows/codex-review-gate.yml
