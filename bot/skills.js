@@ -448,6 +448,29 @@ const ACTIONS = {
     }
   },
 
+  // Sous-buts (A/B `sous_buts`, eteint par defaut) : le modele choisit le but,
+  // le code le conduit jusqu au bout avec les actions ci-dessus, guide par ce
+  // qu il mesure (besoins du chantier, plan du solveur), et ne rend la main
+  // qu a la fin ou au premier echec (code et remedes).
+  batir: {
+    kinds: ['construction'],
+    feature: 'sous_buts',
+    featureDefault: false,
+    summary: 'conduire tout le chantier : terrain, bois, planches, pose, porte',
+    scale: 'sans effet',
+    secondes: 60,
+    intent: "Le chantier est le but : le code choisit le terrain, finit un arbre commence, recolte les buches qui manquent, fabrique les planches, pose les blocs puis la porte demandee, en relisant besoins a chaque geste. Rend la main chantier fini, ou au premier echec avec son code et ses remedes (decider alors de la suite)"
+  },
+  obtenir: {
+    kinds: ['recolte', 'construction'],
+    feature: 'sous_buts',
+    featureDefault: false,
+    summary: 'obtenir l objet du solveur (fabrication demandee ou outil manquant)',
+    scale: 'sans effet',
+    secondes: 45,
+    intent: "prerequis (etat) liste une chaine (recolter, fabriquer, cuire) : le code la deroule jusqu a l objet, sur l inventaire reel. Rend la main objet en poche, ou au premier echec avec son code et ses remedes"
+  },
+
   poser_porte: {
     kinds: ['construction'],
     summary: 'poser la porte dans l ouverture',

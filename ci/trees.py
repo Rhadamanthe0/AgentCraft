@@ -496,6 +496,7 @@ def base_levels():
             'about': 'Inventaire vide, « Construis une maison en terre de 3 par 3 par 3 » : creuser la terre d abord.',
             'kind': 'build', 'instruction': 'Construis une maison en terre de 3 par 3 par 3',
             'blocks': ['minecraft:dirt', 'minecraft:grass_block'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
+            'variants': [avec('sous_buts')],
         },
         {
             'name': 'route/three-trips',
@@ -596,7 +597,7 @@ def base_levels():
             # de cuisson en plus. Bloquant (4 bancs reussis d affilee au
             # 2026-09-28, 230-326 s).
             'kind': 'gather', 'instruction': 'Fabrique une pioche en fer', 'items': ['iron_pickaxe'],
-            'target': 1, 'cap': 480, 'variants': [sans('solveur')],
+            'target': 1, 'cap': 480, 'variants': [sans('solveur'), avec('sous_buts')],
             'terrain': [(20, 200, 26, 24, 201, 30, 'stone'), (22, 201, 26, 22, 201, 26, 'iron_ore'),
                         (23, 201, 26, 23, 201, 26, 'iron_ore'), (24, 201, 27, 24, 201, 27, 'iron_ore')],
             'leaves': [(6, 204, 6, 10, 205, 10)], 'logs': _logs(*[(8, 200 + i, 8) for i in range(4)]), 'rules': {},
@@ -646,7 +647,8 @@ def base_levels():
             'leaves': [box for (x, z) in COMPOSITE_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
-            'rules': {}, 'variants': [sans('ouvrir_porte')],
+            # A/B: the model picks sub-goals (batir, obtenir) the code runs to the end.
+            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts')],
         },
         # Palier 2 (2026-09-28) : chaine plus longue, imprevu, terrain hostile.
         # Informatifs jusqu a trois bancs reussis d affilee.
@@ -661,7 +663,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [avec('sous_buts')],
         },
         {
             'name': 'composite/cabin-change-of-mind',
@@ -736,6 +738,36 @@ def base_levels():
             'skill': {'brief': {'type': 'recolte', 'matiere': 'sable'},
                       'script': [{'action': 'recolter', 'quantite': 4, 'repeter': 4}]},
             'variants': [avec('acces_unifie')],
+        },
+        # Sous-but batir seul (A/B sous_buts) : toute la chaine depuis rien est
+        # conduite par le code, sans modele. Informatifs tant qu ils n ont pas
+        # passe trois bancs d affilee (chaine longue, comme les composites).
+        {
+            'name': 'skill/cabin-batir',
+            'about': 'Script batir : inventaire vide, cinq chenes, cabane en bois 4x4x4 avec porte, chaine entiere par le code.',
+            'kind': 'build', 'cap': 1500, 'informative': True, 'features': {'sous_buts': True},
+            'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte',
+            'blocks': ['#minecraft:planks'], 'target': 40, 'door': True,
+            'leaves': [box for (x, z) in COMPOSITE_TREES
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
+            'rules': {},
+            'skill': {'brief': {'type': 'construction', 'matiere': 'bois', 'porte': True},
+                      'script': [{'action': 'batir', 'repeter': 4}]},
+        },
+        {
+            'name': 'skill/stone-hut-batir',
+            'about': 'Script batir : inventaire vide, deux arbres et un rocher, maison en pierre 3x3x3 : pioche puis pierre, par le code.',
+            'kind': 'build', 'cap': 1500, 'informative': True, 'features': {'sous_buts': True},
+            'instruction': 'Construis-moi une maison en pierre de 3 par 3 par 3',
+            'blocks': ['minecraft:cobblestone'], 'target': 20, 'minTop': 3,
+            'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
+            'leaves': [box for (x, z) in ((4, 6), (30, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
+            'rules': {},
+            'skill': {'brief': {'type': 'construction', 'matiere': 'pierre'},
+                      'script': [{'action': 'batir', 'repeter': 4}]},
         },
     ]
 
@@ -1793,7 +1825,8 @@ EXPECTED_S = {
     # gather/*: run 36140713444 (e8290a0) ; flowers ran to the 180 s cap then.
     'gather/sand-walled': 75, 'gather/sand-walled~avec-nav_creuse': 75,
     # skill/* : no model call, expected shorter than their model twins.
-    'skill/tree-reachable': 20, 'skill/tree-pillar': 80, 'skill/dirt-box': 60, 'skill/sand-walled': 60, 'gather/flowers': 70, 'gather/dirt': 44, 'gather/sand': 34,
+    'skill/tree-reachable': 20, 'skill/tree-pillar': 80, 'skill/dirt-box': 60, 'skill/sand-walled': 60,
+    'skill/cabin-batir': 700, 'skill/stone-hut-batir': 900, 'gather/flowers': 70, 'gather/dirt': 44, 'gather/sand': 34,
 }
 NEW_LEVEL_S = 90
 

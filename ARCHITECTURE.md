@@ -57,6 +57,7 @@ Trois principes structurent le code :
 | `action-gestes.js` | premiere famille d actions a contexte explicite : gestes, attente, fin, memoire |
 | `executor.js` | slot physique unique : une action du monde a la fois, annulable |
 | `planner.js` | prompts, plan JSON, brief, chat, conception de plans libres (`designBlueprint`), coercition des parametres |
+| `action-sous-buts.js` | sous-buts `batir` (chantier entier) et `obtenir` (chaine du solveur), A/B `sous_buts` : le modele choisit le but, le code joue un geste mesure a la fois et rend la main a la fin ou au premier echec |
 | `pose.js` | gestes de pose (tour sous soi, pose contre une face), comptes seulement si la case est pleine apres coup |
 | `script-brain.js` | cerveau scripte du banc de competences (`skill/*`) : brief et etapes donnes, valides comme ceux du modele, aucun appel ; route `/api/mission/script` (`MISSION_SCRIPT=1`) |
 | `model-chain.js`, `llm.js` | modele, effort et cle par usage ; transport OpenAI partage (chat/completions et responses) |

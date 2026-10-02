@@ -24,6 +24,7 @@ const perception = require('./perception')
 const missionState = require('./mission-state')
 const missionTrace = require('./trace')
 const { createGestes } = require('./action-gestes')
+const { createSousButs, prochainGesteSolveur } = require('./action-sous-buts')
 const {
   PILER_DIRT, scaffoldingStock, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
   marcheDevant, videDevant, sondeAlentours, capDepuisVecteur, choisirCoteContournement, dansEmprise
@@ -124,7 +125,7 @@ function setFeatures (changes = {}) {
 // validation du planificateur suivent featureOn.
 function syncActionFeatures () {
   for (const spec of Object.values(skills.ACTIONS)) {
-    if (spec.feature) skills.setFeatureEnabled(spec.feature, featureOn(spec.feature))
+    if (spec.feature) skills.setFeatureEnabled(spec.feature, featureOn(spec.feature, spec.featureDefault ?? true))
   }
 }
 syncActionFeatures()
@@ -3545,6 +3546,37 @@ function createMissionRunner (host, injected = {}) {
   }
 
   const gestes = createGestes({ host, getMission: () => mission, findTargetBlock, scaled })
+  // Sous-buts (A/B sous_buts) : chantier et objet du solveur conduits jusqu au
+  // bout par le code, guides par les besoins et le plan qu il mesure deja.
+  const sousButs = createSousButs({
+    getMission: () => mission,
+    actions: () => ACTIONS,
+    planSolveur: () => acquisition(),
+    recolteFaisable,
+    etatChantier: () => {
+      const bot = host.getBot()
+      const progress = mission.plan ? buildProgress() : { left: null, done: 0, total: 0 }
+      const stock = (bot?.inventory?.items() ?? []).filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
+      const besoins = besoinsConstruction(progress, stock)
+      // L outil qu exige la matiere (pioche pour la pierre) passe avant.
+      const outil = bot && outilManquant(bot) ? prochainGesteSolveur(acquisition(), recolteFaisable) : null
+      return {
+        arbreInacheve: Boolean(arbreInacheve()),
+        planChoisi: Boolean(mission.plan),
+        restants: mission.plan ? progress.left : (besoins?.blocs_restants ?? 1),
+        stock,
+        besoins,
+        porteVoulue: Boolean(mission.wantsDoor),
+        portePosee: doorPlaced(),
+        porteEnPoche: Boolean(doorItem()),
+        etapeSolveur: outil?.action ? outil : null
+      }
+    },
+    empreinte: () => {
+      const m = mesuresEffet()
+      return `${m.inventaire}|${m.poses}|${m.casses}|${Boolean(mission.plan)}|${doorPlaced()}`
+    }
+  })
 
   const ACTIONS = {
     // Il y avait ici `approcher`, qui deleguait au pathfinder (GoalNearXZ). Le
@@ -5393,6 +5425,8 @@ function createMissionRunner (host, injected = {}) {
 
     // Gestes de bas niveau, attente, fin et memoire : bot/action-gestes.js.
     ...gestes,
+    async batir () { return sousButs.batir() },
+    async obtenir () { return sousButs.obtenir() },
 
     // Chercher la matiere hors de vue sans marcher a l aveugle : le code
     // choisit, parmi huit caps, le point debout le plus lointain et le moins
@@ -5515,7 +5549,9 @@ function createMissionRunner (host, injected = {}) {
     piler: (a, b) => Boolean(a.position && b.position && b.position.y - a.position.y >= 0.5),
     construire: (a, b) => b.poses > a.poses || deplace(a, b),
     avancer: deplace,
-    explorer: deplace
+    explorer: deplace,
+    batir: (a, b) => b.poses > a.poses || b.inventaire !== a.inventaire,
+    obtenir: (a, b) => b.inventaire !== a.inventaire
   }
 
   const CONTRATS = {
@@ -5528,7 +5564,9 @@ function createMissionRunner (host, injected = {}) {
     fabriquer: { effet: EFFETS.fabriquer },
     cuire: { effet: EFFETS.cuire },
     avancer: { effet: EFFETS.avancer },
-    explorer: { effet: EFFETS.explorer }
+    explorer: { effet: EFFETS.explorer },
+    batir: { effet: EFFETS.batir },
+    obtenir: { effet: EFFETS.obtenir }
   }
 
   for (const [nom, contrat] of Object.entries(CONTRATS)) {

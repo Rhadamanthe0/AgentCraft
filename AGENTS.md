@@ -63,7 +63,11 @@ gather/sand-walled et terrain/plateau) ; `acces_unifie` (eteint, moteur d acces
 unique : un seul A* pour marcher, casser, monter en tour et poser un pont,
 `avancer` -> `atteindre`, la cascade historique en recours ; `avec(...)` sur
 trees/pillar, trees/bent, terrain/plateau, terrain/moat, gather/sand-walled et
-les `skill/*` d acces).
+les `skill/*` d acces) ; `sous_buts` (eteint : actions `batir` et `obtenir`, le
+modele choisit le but, le code le conduit jusqu au bout guide par `besoins` et
+le solveur, et rend la main au premier echec ; `avec(...)` sur les composites
+cabane et maison en pierre, build/no-materials, craft/iron-pickaxe ; niveaux
+`skill/cabin-batir` et `skill/stone-hut-batir` pour le code seul).
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
@@ -380,6 +384,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/mission-state.js` | etat persiste declare une fois (lecture = ecriture) |
 | `bot/trace.js` | trace structuree de mission |
 | `bot/action-gestes.js` | gestes, attente, fin, memoire (premier module d actions) |
+| `bot/action-sous-buts.js` | sous-buts `batir` et `obtenir` (A/B `sous_buts`) : un geste mesure a la fois jusqu au but |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
 | `bot/script-brain.js` | cerveau scripte du banc de competences (`skill/*`, `MISSION_SCRIPT=1`) |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |
