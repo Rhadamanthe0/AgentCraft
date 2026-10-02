@@ -6800,18 +6800,19 @@ function createMissionRunner (host, injected = {}) {
       }
       return value
     }
+    const blocConnu = nom => !!skills.ressourceLibre(nom, host.getBot()?.registry)
     let brief
     const debutBrief = Date.now()
     try {
       try {
-        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false) }))
+        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu }))
       } catch (first) {
         // Un echec isole (reponse tronquee deux fois, panne passagere) laissait
         // le bot immobile sans rien dire, surtout apres un arbitrage : un
         // nouvel essai, sauf annulation.
         if (request.signal.aborted) throw first
         console.log(`[mission] lecture de l objectif echouee (${first.message}), nouvel essai`)
-        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false) }))
+        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu }))
       }
     } catch (err) {
       return { ok: false, error: `lecture de l objectif impossible : ${err.message}` }

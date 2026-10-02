@@ -1267,7 +1267,10 @@ son identifiant parmi la liste ci-dessous ; sinon null. Ne le mets jamais
 pour une demande que les actions connues (recolter, fabriquer, cuire,
 construire, se deplacer, donner) savent faire, meme longue.
 ${Object.entries(skills.CAPACITES_ABSENTES).map(([id, t]) => `- "${id}" : ${t}`).join('\n')}
-Ajoute ces deux champs au JSON : {"bloc": null, "hors_capacites": null}.`
+Ajoute ces deux champs au JSON : {"bloc": null, "hors_capacites": null}.
+Si l entree porte "bloc_refuse", ton identifiant precedent n existe pas au
+registre du jeu (souvent un nom francais ou invente) : rends l identifiant
+anglais exact du meme bloc, ou null si tu ne le connais pas.`
 }
 
 function briefPrompt (ouvert = false) {
@@ -1401,6 +1404,18 @@ async function readBrief (objective, opts = {}) {
 
   const response = await call(briefPrompt(opts.ouvert === true), JSON.stringify({ objectif: objective }), null, { ...opts, task: 'readBrief' })
   const parsed = parseJson(response.content)
+  // Mode ouvert : un "bloc" absent du registre (un nom francais, invente)
+  // est renvoye UNE fois au modele avec le nom refuse ; le code verifie
+  // (opts.blocConnu), le modele nomme. Seul le champ bloc est repris.
+  let ms = response.ms
+  if (opts.ouvert === true && typeof parsed?.bloc === 'string' && typeof opts.blocConnu === 'function' && !opts.blocConnu(parsed.bloc)) {
+    const refuse = parsed.bloc.slice(0, 60)
+    const second = await call(briefPrompt(true), JSON.stringify({ objectif: objective, bloc_refuse: refuse }), null, { ...opts, task: 'readBrief' })
+    ms = (ms ?? 0) + (second.ms ?? 0)
+    const bloc = parseJson(second.content)?.bloc
+    parsed.bloc = typeof bloc === 'string' && opts.blocConnu(bloc) ? bloc : null
+    console.log(`[planner] bloc "${refuse}" inconnu du registre, corrige en ${parsed.bloc ?? 'rien'}`)
+  }
   const movementTask = require('./movement-task')
   const route = movementTask.validateRoute(parsed?.parcours)
   const kinds = skills.kindCriteria()
@@ -1464,7 +1479,7 @@ async function readBrief (objective, opts = {}) {
       ? parsed.hors_capacites
       : null,
     usage: response.usage ?? null,
-    ms: response.ms
+    ms
   }
 }
 

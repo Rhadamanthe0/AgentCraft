@@ -91,3 +91,34 @@ test('buts_ouverts : une capacite absente est refusee tout de suite, en le disan
   })
   assert.equal(sans.started.ok, true, 'sans le mode, la mission part comme avant')
 })
+
+test('buts_ouverts : un bloc absent du registre est renvoye une fois au modele, avec le nom refuse', async () => {
+  const llm = require('../bot/llm')
+  const saved = { call: llm.call, url: process.env.PLANNER_BASE_URL, model: process.env.PLANNER_MODEL, sid: process.env.PLANNER_SESSION_ID }
+  Object.assign(process.env, { PLANNER_BASE_URL: 'https://exemple.invalid/v1', PLANNER_MODEL: 'm', PLANNER_SESSION_ID: 's' })
+  delete require.cache[require.resolve('../bot/planner')]
+  const planner = require('../bot/planner')
+  const registry = require('minecraft-data')('26.1')
+  const blocConnu = nom => !!skills.ressourceLibre(nom, registry)
+  const entrees = []
+  const reponses = ['{"type":"deplacement","matiere":"aucune","bloc":"table_d_enchantement"}', '{"type":"deplacement","matiere":"aucune","bloc":"enchanting_table"}']
+  llm.call = async (system, user) => { entrees.push(JSON.parse(user)); return { content: reponses[entrees.length - 1], ms: 1 } }
+  try {
+    const brief = await planner.readBrief('Va jusqu a la table d enchantement', { ouvert: true, blocConnu })
+    assert.equal(brief.blocRegistre, 'enchanting_table')
+    assert.equal(entrees.length, 2)
+    assert.equal(entrees[1].bloc_refuse, 'table_d_enchantement')
+    // Un nom connu d emblee ne coute aucun appel de plus ; un second refus donne null.
+    entrees.length = 0
+    reponses.splice(0, 2, '{"type":"recolte","matiere":"aucune","bloc":"obsidian"}')
+    assert.equal((await planner.readBrief('Ramene de l obsidienne', { ouvert: true, blocConnu })).blocRegistre, 'obsidian')
+    assert.equal(entrees.length, 1)
+    entrees.length = 0
+    reponses.splice(0, 2, '{"bloc":"truc"}', '{"bloc":"machin"}')
+    assert.equal((await planner.readBrief('Trouve un truc', { ouvert: true, blocConnu })).blocRegistre, null)
+    assert.equal(entrees.length, 2)
+  } finally {
+    llm.call = saved.call
+    for (const [k, v] of [['PLANNER_BASE_URL', saved.url], ['PLANNER_MODEL', saved.model], ['PLANNER_SESSION_ID', saved.sid]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+  }
+})
