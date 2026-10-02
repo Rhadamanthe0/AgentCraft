@@ -622,11 +622,17 @@ function createMissionRunner (host, injected = {}) {
   // Mesures : tout ce que le modele recoit comme etat est calcule ici
   // -------------------------------------------------------------------------
 
+  // Matiere du catalogue, ou bloc ouvert du registre (`libre:<bloc>`, A/B
+  // buts_ouverts) : meme forme, lue partout par ce seul accesseur.
+  function ressource (key) {
+    return skills.resourceSpec(key, host.getBot()?.registry)
+  }
+
   function blockIdsFor (resource) {
     const bot = host.getBot()
     if (!bot?.registry || !resource) return []
 
-    const names = skills.RESOURCES[resource]?.blocks ?? []
+    const names = ressource(resource)?.blocks ?? []
     const ids = []
     for (const name of names) {
       const block = bot.registry.blocksByName[name]
@@ -663,7 +669,7 @@ function createMissionRunner (host, injected = {}) {
   function outilManquant (bot) {
     if (!mission || mission.fabricationCible || !['construction', 'recolte'].includes(mission.kind) ||
       mission.supply !== 'harvest') return null
-    const name = skills.RESOURCES[mission.resource]?.blocks?.[0]
+    const name = ressource(mission.resource)?.blocks?.[0]
     const tools = name ? bot.registry?.blocksByName?.[name]?.harvestTools : null
     if (!tools || Object.keys(tools).length === 0) return null
     const ids = Object.keys(tools).map(Number)
@@ -2222,7 +2228,7 @@ function createMissionRunner (host, injected = {}) {
   // debut de la mission plutot que de faire confiance aux evenements de ramassage.
   function countResourceItems () {
     const bot = host.getBot()
-    const pattern = mission && skills.RESOURCES[harvestResource()]?.items
+    const pattern = mission && ressource(harvestResource())?.items
     if (!bot?.inventory || !pattern) return 0
 
     return bot.inventory.items()
@@ -2437,7 +2443,7 @@ function createMissionRunner (host, injected = {}) {
 
     const snapshot = craft.snapshot(bot)
     const material = buildItem()
-    const raw = skills.RESOURCES[harvestResource()]?.raw
+    const raw = ressource(harvestResource())?.raw
 
     return {
       materiau_de_construction: material,
@@ -3240,6 +3246,8 @@ function createMissionRunner (host, injected = {}) {
     if (fingerprint > mission.lastProgress) {
       mission.lastProgress = fingerprint
       mission.lastProgressStep = mission.steps
+      // Un progres mesure rouvre les reparations (arbre suivant : nouveau tronc haut).
+      mission.reparesCodes?.clear()
     }
 
     const stuck = detectStuck()
@@ -3545,6 +3553,36 @@ function createMissionRunner (host, injected = {}) {
     return null
   }
 
+  // Remedes que le code connait et mesure lui-meme, pour un echec dont la cause
+  // est sure : les jouer evite un aller-retour au modele (5 a 20 s) qui
+  // proposait les memes (bancs du 2026-10-01 : ~40 % des echecs qui vidaient
+  // un plan, hors variantes sans solveur ni plans). Une seule table pour la
+  // boucle de mission (A/B `reparer`) et les sous-buts. null : au modele.
+  //   tronc haut (cible_haute, ou arbre commence hors de portee d ici) =>
+  //   piler de la hauteur qui met la buche a portee (meme mesure que
+  //   conseilPilier), puis casser depuis le sommet (recolter commencerait par
+  //   redescendre en marchant) ; arbre commence ailleurs => le finir
+  //   (recolter vise l arbre commence) ; buches au sol => ramasser ;
+  //   chantier absent => le placer ; dans un liquide => sortir.
+  function remedesMesures (code, action = null) {
+    if (code === 'cible_haute' || code === 'arbre_inacheve') {
+      const hint = highTargetHint()
+      if (hint) {
+        const hauteur = Math.max(PILER_MIN, Math.min(PILER_MAX, hint.denivele - 1))
+        return [{ action: 'piler', params: { hauteur }, pourquoi: `tronc haut +${hint.denivele}` },
+          { action: 'casser', params: { duree: 6 }, pourquoi: 'depuis le sommet' }]
+      }
+      if (code === 'arbre_inacheve' && action !== 'recolter') {
+        return [{ action: 'recolter', params: { quantite: 16 }, pourquoi: 'arbre commence a finir' }]
+      }
+      return null
+    }
+    if (code === 'arbre_a_ramasser' && action !== 'ramasser') return [{ action: 'ramasser', params: {}, pourquoi: 'buches au sol' }]
+    if (code === 'chantier_absent' && action !== 'choisir_terrain') return [{ action: 'choisir_terrain', params: {}, pourquoi: 'chantier a placer' }]
+    if (code === 'dans_liquide' && action !== 'sortir') return [{ action: 'sortir', params: {}, pourquoi: 'hors du liquide' }]
+    return null
+  }
+
   const gestes = createGestes({ host, getMission: () => mission, findTargetBlock, scaled })
   // Sous-buts (A/B sous_buts) : chantier et objet du solveur conduits jusqu au
   // bout par le code, guides par les besoins et le plan qu il mesure deja.
@@ -3553,18 +3591,9 @@ function createMissionRunner (host, injected = {}) {
     actions: () => ACTIONS,
     planSolveur: () => acquisition(),
     recolteFaisable,
-    // Remedes mesures d un geste rate, joues une fois par le sous-but (ceux
-    // que le modele joue d apres REMEDES) : tronc haut => piler de la hauteur
-    // qui met la buche a portee (meme mesure que conseilPilier), puis casser
-    // depuis le sommet (recolter commencerait par redescendre en marchant).
-    reparation: code => {
-      if (code !== 'cible_haute') return null
-      const hint = highTargetHint()
-      if (!hint) return null
-      const hauteur = Math.max(PILER_MIN, Math.min(PILER_MAX, hint.denivele - 1))
-      return [{ action: 'piler', params: { hauteur }, pourquoi: `tronc haut +${hint.denivele}` },
-        { action: 'casser', params: { duree: 6 }, pourquoi: 'depuis le sommet' }]
-    },
+    // Remedes mesures d un geste rate, joues une fois par le sous-but :
+    // la meme table que la boucle de mission (remedesMesures).
+    reparation: remedesMesures,
     etatChantier: () => {
       const bot = host.getBot()
       const progress = mission.plan ? buildProgress() : { left: null, done: 0, total: 0 }
@@ -3839,7 +3868,7 @@ function createMissionRunner (host, injected = {}) {
       let ramasses = 0
       if (!secondaire && harvestResource() !== 'bois') {
         const avant = countResourceItems()
-        await collectScaffoldDrops(stepToken, { budgetMs: 8000, pattern: skills.RESOURCES[harvestResource()]?.items })
+        await collectScaffoldDrops(stepToken, { budgetMs: 8000, pattern: ressource(harvestResource())?.items })
         ramasses = Math.max(0, countResourceItems() - avant)
       }
 
@@ -3881,7 +3910,7 @@ function createMissionRunner (host, injected = {}) {
         if (r) return r
       }
       const matiere = harvestResource()
-      if (!skills.RESOURCES[matiere]?.items) {
+      if (!ressource(matiere)?.items) {
         return { resultat: 'aucune matiere a recolter pour cette mission', echec: true }
       }
       mission.matiereFigee = matiere
@@ -5931,7 +5960,7 @@ function createMissionRunner (host, injected = {}) {
     const controller = new AbortController()
     const promise = brain(mission).plan(
       snap, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
-      { signal: controller.signal, profil: profilPrompt(), relance: featureOn('relance_plan') }
+      { signal: controller.signal, profil: profilPrompt(), relance: featureOn('relance_plan'), sansRaisonnement: featureOn('plan_sans_raisonnement', false) }
     )
     // Rejet attendu si abort avant consommation (voir abortPrefetch).
     promise.catch(() => {})
@@ -5960,13 +5989,16 @@ function createMissionRunner (host, injected = {}) {
       if (mission.prefetch) {
         const enVol = mission.prefetch
         let result
+        const attente = Date.now()
         try {
           result = await enVol.promise
         } catch (err) {
+          mission.attenteModeleMs += Date.now() - attente
           mission.prefetch = null
           mission.prefetchAbort = null
           throw err
         }
+        mission.attenteModeleMs += Date.now() - attente
         mission.prefetch = null
         mission.prefetchAbort = null
         mission.prefetchConsommes += 1
@@ -5986,10 +6018,16 @@ function createMissionRunner (host, injected = {}) {
           state.environnement.capture_presente = Boolean(capture)
         }
         const revision = mission.planRevision
-        const result = await brain(mission).plan(
-          state, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
-          { signal: mission.navigationAbort.signal, profil: profilPrompt(), relance: featureOn('relance_plan') }
-        )
+        const attente = Date.now()
+        let result
+        try {
+          result = await brain(mission).plan(
+            state, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
+            { signal: mission.navigationAbort.signal, profil: profilPrompt(), relance: featureOn('relance_plan'), sansRaisonnement: featureOn('plan_sans_raisonnement', false) }
+          )
+        } finally {
+          mission.attenteModeleMs += Date.now() - attente
+        }
 
         if (mission.planRevision !== revision) throw new Error('plan annule apres precision')
         const fin = applyPlanResult(result, capture)
@@ -6393,7 +6431,8 @@ function createMissionRunner (host, injected = {}) {
       reportProgressSafe()
 
       if (outcome.reobserver) {
-        mission.queue = []
+        // Les etapes d une reparation sont mesurees depuis le sommet : gardees.
+        mission.queue = mission.queue.filter(e => e.reparation)
         abortPrefetch('position modifiee par le pilier, reobservation requise')
       }
 
@@ -6491,6 +6530,32 @@ function createMissionRunner (host, injected = {}) {
         return
       }
 
+      // Reparation par le code (A/B `reparer`) : une etape ratee, ou arretee
+      // court sur une cause sure (recolter partiel stoppe par un tronc haut),
+      // voit ses remedes mesures (remedesMesures) joues tout de suite puis
+      // l etape rejouee, sans appel au modele. Une fois par code entre deux
+      // progres mesures ; l echec reste dans l historique que le modele lit.
+      // Le reste du plan suit l etape rejouee : il a ete fait pour elle.
+      const remedes = featureOn('reparer', false) && outcome.code && !mission.reparesCodes?.has(outcome.code)
+        ? remedesMesures(outcome.code, decision.step) : null
+      if (remedes) {
+        mission.reparesCodes = mission.reparesCodes ?? new Set()
+        mission.reparesCodes.add(outcome.code)
+        const r = mission.reparations = mission.reparations ?? { n: 0, codes: {} }
+        r.n += 1
+        r.codes[outcome.code] = (r.codes[outcome.code] ?? 0) + 1
+        // Une etape ratee est rejouee apres ses remedes ; une etape arretee
+        // court a deja fait sa part (la rejouer apres le dernier tronc rendait
+        // « rien en vue ») : la suite revient au plan.
+        mission.queue = [
+          ...remedes.map(m => ({ action: m.action, scale: null, scaleLevel: null, choices: m.params ?? {}, reparation: true })),
+          ...(outcome.echec ? [{ action: decision.step, scale: decision.scale, scaleLevel: decision.scaleLevel, choices: decision.choices, reparation: true }] : []),
+          ...mission.queue
+        ]
+        if (!outcome.echec) abortPrefetch('reparation par le code, plan speculatif jete')
+        console.log(`[mission] reparation (${outcome.code}) : ${remedes.map(m => `${m.action} (${m.pourquoi})`).join(', ')}${outcome.echec ? `, puis ${decision.step} rejoue` : ''}`)
+      }
+
       // Repeter la meme action ratee indefiniment ne mene nulle part : mieux
       // vaut rendre la main au joueur que de bruler des appels.
       if (outcome.echec) {
@@ -6510,7 +6575,7 @@ function createMissionRunner (host, injected = {}) {
         // du plan ne vaut plus rien. On le jette et on replanifie sur l etat
         // reel au tour suivant. Le plan anticipe en vol est jete lui aussi :
         // il a ete calcule sur un etat d avant l echec.
-        if (mission.queue.length > 0) {
+        if (mission.queue.length > 0 && !remedes) {
           console.log(`[mission] plan abandonne (${mission.queue.length} etape(s)) apres un echec`)
           mission.queue = []
         }
@@ -6520,6 +6585,7 @@ function createMissionRunner (host, injected = {}) {
           finish('failed', `${MAX_REPEATED_FAILURES} actions en echec d affilee`)
           return
         }
+        if (!remedes) mission.echecsAuModele += 1
       } else {
         mission.failures = 0
       }
@@ -6735,16 +6801,17 @@ function createMissionRunner (host, injected = {}) {
       return value
     }
     let brief
+    const debutBrief = Date.now()
     try {
       try {
-        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true }))
+        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false) }))
       } catch (first) {
         // Un echec isole (reponse tronquee deux fois, panne passagere) laissait
         // le bot immobile sans rien dire, surtout apres un arbitrage : un
         // nouvel essai, sauf annulation.
         if (request.signal.aborted) throw first
         console.log(`[mission] lecture de l objectif echouee (${first.message}), nouvel essai`)
-        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true }))
+        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false) }))
       }
     } catch (err) {
       return { ok: false, error: `lecture de l objectif impossible : ${err.message}` }
@@ -6760,6 +6827,14 @@ function createMissionRunner (host, injected = {}) {
     // needsTransfer. Une livraison impossible reste un echec mesure de
     // l action, jamais un succes fictif ni une recolte declaree faite.
     if (brief.needsWeb) return { ok: false, error: 'je n ai pas d outil de recherche Internet ou de meteo en direct' }
+    // Mode ouvert (A/B buts_ouverts) : une capacite que la demande exige et
+    // que le bot n a pas (identifiant de skills.CAPACITES_ABSENTES, jamais un
+    // texte libre) se dit tout de suite, au lieu de tourner jusqu au plafond.
+    const absente = featureOn('buts_ouverts', false) && brief.horsCapacites ? skills.CAPACITES_ABSENTES[brief.horsCapacites] : null
+    if (absente) {
+      console.log(`[mission] "${text}" : capacite absente (${brief.horsCapacites}), mission refusee`)
+      return { ok: false, error: `je ne sais pas encore ${absente.split(' (')[0]}`, horsCapacites: brief.horsCapacites }
+    }
 
     // Fix 2 : resolution insensible aux variantes (« graine », « wheat_seeds »).
     // Sans elle, « ramasse 5 graines » tombait sur 'aucune' des que le modele
@@ -6767,6 +6842,18 @@ function createMissionRunner (host, injected = {}) {
     let resource = skills.resolveResource
       ? (skills.resolveResource(brief.resource) ?? 'aucune')
       : (skills.RESOURCES[brief.resource] ? brief.resource : 'aucune')
+
+    // Bloc hors catalogue (A/B buts_ouverts) : nomme au registre par le
+    // modele, valide par le code (skills.ressourceLibre), cle `libre:<bloc>`.
+    if (resource === 'aucune' && featureOn('buts_ouverts', false) && brief.blocRegistre) {
+      const libre = skills.ressourceLibre(brief.blocRegistre, host.getBot()?.registry)
+      if (libre) {
+        console.log(`[mission] bloc hors catalogue "${brief.blocRegistre}" -> matiere ${libre}`)
+        resource = libre
+      } else {
+        console.log(`[mission] bloc hors catalogue "${brief.blocRegistre}" inconnu du registre, ignore`)
+      }
+    }
 
     // 'aucune' prive la mission de toute cible : le bot ne peut plus qu explorer
     // a l aveugle. Quand ce choix n est pas assure, on retient la meilleure
@@ -6843,6 +6930,14 @@ function createMissionRunner (host, injected = {}) {
         else ledger.cancelled = true
       }
     }
+    // Bloc ouvert qui ne lache rien (spawner) ou incassable : il se rejoint,
+    // il ne se recolte pas. Une « recolte » de ce bloc devient un deplacement
+    // mesure (bloc cible a portee), plutot qu un quota jamais atteignable.
+    const specLibre = String(resource).startsWith('libre:') ? ressource(resource) : null
+    if (specLibre && kind === 'recolte' && !fabricationCible && (!specLibre.items || specLibre.incassable)) {
+      console.log(`[mission] ${resource} ne se recolte pas : type recolte -> deplacement`)
+      kind = 'deplacement'
+    }
     const objectiveMode = opts.mode === 'permanent' ? 'permanent' : 'temporary'
     mission = {
       id: opts.revisionOf?.id ?? `${Date.now()}-${generation}`,
@@ -6907,11 +7002,11 @@ function createMissionRunner (host, injected = {}) {
       // Cerveau de cette mission : le planificateur, ou un script (banc de
       // competences). Jamais persiste : une mission reprise replanifie.
       cerveau: cerveau === planner ? null : cerveau,
-      buildBlock: skills.RESOURCES[resource]?.build ?? 'dirt',
+      buildBlock: ressource(resource)?.build ?? 'dirt',
       // Le motif accepte plusieurs noms : en survie le bloc pose depend de ce
       // qui est tombe (pierre -> cobblestone, bloc d herbe -> terre) et de
       // l essence coupee (chene, bouleau...).
-      buildMatch: skills.RESOURCES[resource]?.buildMatch ?? /^dirt$/,
+      buildMatch: ressource(resource)?.buildMatch ?? /^dirt$/,
       doorBlock: process.env.MISSION_DOOR_BLOCK || 'oak_door',
 
       state: 'running',
@@ -6926,6 +7021,12 @@ function createMissionRunner (host, injected = {}) {
       reason: null,
       steps: 0,
       broken: 0,
+      // Attente du modele, bot immobile (indicateur de banc, a faire baisser) :
+      // lecture de l objectif, puis chaque plan attendu par la boucle.
+      briefMs: Date.now() - debutBrief,
+      attenteModeleMs: 0,
+      // Echecs rendus au modele (ni repares par le code, ni mission close).
+      echecsAuModele: 0,
       // Dirt cassee en mission bois pour un pilier : hors quota bois, mais
       // progres anti-blocage (voir progressFingerprint) et preuve chiffree.
       dirtSecondaire: 0,
@@ -7211,7 +7312,7 @@ function createMissionRunner (host, injected = {}) {
     if (!desc || typeof desc.kind !== 'string' || typeof desc.resource !== 'string') {
       throw new Error('rehydrate : descripteur de reprise manquant (engagement conserve, reformule l objectif)')
     }
-    if (!skills.KINDS[desc.kind] || !skills.RESOURCES[desc.resource]) {
+    if (!skills.KINDS[desc.kind] || !ressource(desc.resource)) {
       throw new Error('rehydrate : descripteur obsolete (kind/resource inconnus)')
     }
     if (desc.route !== null && desc.route !== undefined && !validRouteShape(desc.route)) {
@@ -7251,8 +7352,8 @@ function createMissionRunner (host, injected = {}) {
       dimensions: dims,
       fabricationLastError: null,
       supply: SUPPLY,
-      buildBlock: skills.RESOURCES[desc.resource]?.build ?? 'dirt',
-      buildMatch: skills.RESOURCES[desc.resource]?.buildMatch ?? /^dirt$/,
+      buildBlock: ressource(desc.resource)?.build ?? 'dirt',
+      buildMatch: ressource(desc.resource)?.buildMatch ?? /^dirt$/,
       doorBlock: process.env.MISSION_DOOR_BLOCK || 'oak_door',
       objectiveMode: obj.mode === 'permanent' ? 'permanent' : 'temporary',
       maintenance: null,
@@ -7416,6 +7517,8 @@ function createMissionRunner (host, injected = {}) {
       // Moteur d acces unique (A/B acces_unifie) : appels, cibles atteintes,
       // blocs poses et casses en route.
       acces: mission.acces ?? null,
+      // Reparations par le code (A/B reparer) : nombre et codes.
+      reparations: mission.reparations ?? null,
       arbre_entier: mission.wholeTree ? (treeStatus() ?? { commence: false }) : null,
       echafaudage_laisse: mission.echafaudageLaisse ?? 0,
       // Grand livre des dons (S6) : tente/retire/prouve/incertain par engagement.
@@ -7439,6 +7542,9 @@ function createMissionRunner (host, injected = {}) {
       // Indicateurs suivis d un banc a l autre (demande du proprietaire) : part
       // d actions en echec et blocages annonces (cause, derniers resultats).
       etapes_en_echec: mission.echecs ?? 0,
+      echecs_au_modele: mission.echecsAuModele ?? 0,
+      attente_modele_ms: (mission.briefMs ?? 0) + (mission.attenteModeleMs ?? 0),
+      brief_ms: mission.briefMs ?? null,
       echecs_detail: mission.echecsDetail ?? [],
       blocages: mission.blocages ?? []
     }

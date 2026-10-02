@@ -71,13 +71,20 @@ def kpi_summary(tests):
         k = t.get('kpi')
         if not k or t.get('informative'):
             continue
-        f = fam.setdefault(t['test'].split('/')[0], {'etapes': 0, 'echecs': 0, 'blocages': 0, 'niveaux': 0})
+        f = fam.setdefault(t['test'].split('/')[0], {'etapes': 0, 'echecs': 0, 'blocages': 0, 'niveaux': 0,
+                                                     'echecsAuModele': 0, 'attenteModeleS': 0.0, 'dureeS': 0.0})
         f['niveaux'] += 1
-        for key in ('etapes', 'echecs', 'blocages'):
+        for key in ('etapes', 'echecs', 'blocages', 'echecsAuModele', 'attenteModeleS'):
             f[key] += k.get(key) or 0
-    total = {key: sum(f[key] for f in fam.values()) for key in ('etapes', 'echecs', 'blocages', 'niveaux')}
+        # Waiting share only over missions that measured it.
+        if k.get('attenteModeleS') is not None:
+            f['dureeS'] += t.get('elapsedS') or 0
+    keys = ('etapes', 'echecs', 'blocages', 'niveaux', 'echecsAuModele', 'attenteModeleS', 'dureeS')
+    total = {key: sum(f[key] for f in fam.values()) for key in keys}
     for f in list(fam.values()) + [total]:
         f['tauxEchec'] = round(f['echecs'] / f['etapes'], 3) if f['etapes'] else None
+        f['attenteModeleS'] = round(f['attenteModeleS'], 1)
+        f['partAttente'] = round(f['attenteModeleS'] / f['dureeS'], 3) if f['dureeS'] else None
     # Structured mission traces (bot/trace.js): failures per code and gestures
     # without effect per action, summed over blocking levels.
     par_code, sans_effet = {}, {}
@@ -99,7 +106,9 @@ def kpi_lines(report):
     if not t or not t.get('etapes'):
         return []
     lines = ['', f"KPI (niveaux bloquants) : {t['echecs']}/{t['etapes']} actions en echec "
-                 f"({round(100 * (t['tauxEchec'] or 0), 1)} %), {t['blocages']} blocage(s)"]
+                 f"({round(100 * (t['tauxEchec'] or 0), 1)} %), {t['blocages']} blocage(s), "
+                 f"{t.get('echecsAuModele', 0)} echec(s) rendus au modele, "
+                 f"{round(100 * (t.get('partAttente') or 0), 1)} % du temps a attendre le modele"]
     for name, f in sorted(k['familles'].items()):
         lines.append(f"- {name} : {round(100 * (f['tauxEchec'] or 0), 1)} % d echecs ({f['echecs']}/{f['etapes']}), "
                      f"{f['blocages']} blocage(s)")
@@ -153,7 +162,7 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
         'place-direct.test.js', 'craft-table-reuse.test.js',
         # Ajoutes le 2026-09-27 (revue : 1 a 11 s chacun, regressions a bas cout).
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
-        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'navigation-place.test.js', 'sous-buts.test.js', 'skill-sim.test.js', 'construire-trou.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
+        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'navigation-place.test.js', 'sous-buts.test.js', 'skill-sim.test.js', 'construire-trou.test.js', 'reparer.test.js', 'buts-ouverts.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
         'delivery.test.js', 'planner-profile.test.js', 'planner-relaunch.test.js','llm.test.js', 'executor.test.js', 'objective-controller.test.js',
         'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js', 'ouvrir-porte.test.js', 'enclosure.test.js']
 

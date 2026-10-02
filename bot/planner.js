@@ -400,7 +400,7 @@ async function callWithProfileOnce (system, user, opts = {}) {
   }
 }
 
-async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan' } = {}) {
+async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan', sansRaisonnement = false } = {}) {
   const EFFORT = modelChain.effortFor(task)
   // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
   const base = BASE_URL
@@ -424,10 +424,14 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     stats.tentatives += 1
     syncProfileStats()
     // `reasoning_effort` sur /chat/completions, `reasoning.effort` sur /responses (muse).
-    const effort = EFFORT && !effortOff.has(model) ? EFFORT : null
+    // Plan sans raisonnement (A/B `plan_sans_raisonnement`) : thinking
+    // desactive a la place de l effort, comme la sonde de cle (ci/keyprobe.py)
+    // que deepseek-v4.1-flash accepte. Un refus retire le champ pour CE
+    // modele (thinkingOff), jamais l effort des autres usages.
+    const effort = !sansRaisonnement && EFFORT && !effortOff.has(model) ? EFFORT : null
     // L effort remplace le champ thinking (space-bunny refuse thinking mais
     // accepte reasoning_effort) : jamais les deux dans le meme appel.
-    const thinking = !effort && proto === 'chat' && THINKING === 'disabled' && !thinkingOff.has(model) ? { type: 'disabled' } : null
+    const thinking = !effort && proto === 'chat' && (sansRaisonnement || THINKING === 'disabled') && !thinkingOff.has(model) ? { type: 'disabled' } : null
     const plain = {
       baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs: timeLeft(),
       keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null, headers, image, signal, protocol: proto,
@@ -995,7 +999,8 @@ async function call (system, user, image = null, opts = {}) {
     // Relaunch only once warm: the warm-up delay covers a cold model
     // (callWithProfile also requires that very model to have answered once).
     relanceMs: warm ? (opts.relanceMs ?? 0) : 0,
-    task: opts.task ?? 'plan'
+    task: opts.task ?? 'plan',
+    sansRaisonnement: opts.sansRaisonnement === true
   })
 }
 
@@ -1173,7 +1178,8 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   let response
   try {
     response = await call(system, user, image, {
-      signal: opts.signal ?? null, task: 'plan', relanceMs: opts.relance === false ? 0 : RELAUNCH_MS
+      signal: opts.signal ?? null, task: 'plan', relanceMs: opts.relance === false ? 0 : RELAUNCH_MS,
+      sansRaisonnement: opts.sansRaisonnement === true
     })
     lastError = null
   } catch (err) {
@@ -1243,8 +1249,29 @@ function optionList (criteria) {
     .join('\n')
 }
 
-function briefPrompt () {
-  const key = 'brief'
+// Section ajoutee au brief en mode ouvert (A/B `buts_ouverts`) : bloc hors
+// catalogue nomme au registre, capacite absente nommee par identifiant. Prompt
+// a part (cle `brief|ouvert`) : le brief ordinaire et son cache ne bougent pas.
+function briefOuvert () {
+  return `
+
+Mode ouvert : la demande peut sortir du catalogue ci-dessus.
+"bloc" : quand la matiere ou le lieu demande n est dans AUCUNE matiere du
+catalogue, l identifiant du bloc Minecraft qu il designe (en anglais, comme
+dans le jeu : "obsidian", "glowstone", "enchanting_table"), et matiere
+"aucune". Sinon null. Le code le verifie au registre du jeu.
+"Ramene-moi 2 blocs d obsidienne" -> type recolte, matiere aucune, bloc "obsidian".
+"Va jusqu a la table d enchantement" -> type deplacement, matiere aucune, bloc "enchanting_table".
+"hors_capacites" : quand la demande EXIGE une capacite que le bot n a pas,
+son identifiant parmi la liste ci-dessous ; sinon null. Ne le mets jamais
+pour une demande que les actions connues (recolter, fabriquer, cuire,
+construire, se deplacer, donner) savent faire, meme longue.
+${Object.entries(skills.CAPACITES_ABSENTES).map(([id, t]) => `- "${id}" : ${t}`).join('\n')}
+Ajoute ces deux champs au JSON : {"bloc": null, "hors_capacites": null}.`
+}
+
+function briefPrompt (ouvert = false) {
+  const key = ouvert ? 'brief|ouvert' : 'brief'
   if (!prompts.has(key)) {
     prompts.set(key, `Tu lis l objectif qu un joueur confie a un bot Minecraft et tu en extrais ce qu il faut en retenir.
 
@@ -1317,7 +1344,7 @@ une entree ou un acces dans ce qui doit etre construit.
 "confiance" : de 0 a 1, ta certitude sur le type et la matiere.
 
 Tu ne rends aucune dimension et aucun nombre de blocs : le code les lit
-lui-meme dans la phrase.`)
+lui-meme dans la phrase.${ouvert ? briefOuvert() : ''}`)
   }
   return prompts.get(key)
 }
@@ -1372,7 +1399,7 @@ async function designBlueprint (input, opts = {}) {
 async function readBrief (objective, opts = {}) {
   if (!isEnabled()) return null
 
-  const response = await call(briefPrompt(), JSON.stringify({ objectif: objective }), null, { ...opts, task: 'readBrief' })
+  const response = await call(briefPrompt(opts.ouvert === true), JSON.stringify({ objectif: objective }), null, { ...opts, task: 'readBrief' })
   const parsed = parseJson(response.content)
   const movementTask = require('./movement-task')
   const route = movementTask.validateRoute(parsed?.parcours)
@@ -1431,6 +1458,11 @@ async function readBrief (objective, opts = {}) {
     landmarkConfidence: confidence,
     door: door >= DOOR_THRESHOLD,
     doorProbability: door,
+    // Mode ouvert : bruts du modele, valides par le code (registre, liste).
+    blocRegistre: opts.ouvert === true && typeof parsed?.bloc === 'string' ? parsed.bloc.slice(0, 60) : null,
+    horsCapacites: opts.ouvert === true && Object.prototype.hasOwnProperty.call(skills.CAPACITES_ABSENTES, parsed?.hors_capacites)
+      ? parsed.hors_capacites
+      : null,
     usage: response.usage ?? null,
     ms: response.ms
   }

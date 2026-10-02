@@ -59,6 +59,64 @@ def _logs(*positions, axis=None):
     return [(p, block) for p in positions]
 
 
+# Reserves des missions ouvertes : blocs hors du catalogue de matieres
+# (bot/skills.js RESOURCES), nom du jeu et facon dont le joueur le dit. A la
+# main sans outil, chaque bloc de la premiere se ramasse tel quel.
+OUVERT_RECOLTE = [('pumpkin', 'citrouilles'), ('hay_block', 'bottes de foin'), ('white_wool', 'blocs de laine blanche'),
+                  ('moss_block', 'blocs de mousse'), ('dried_kelp_block', 'blocs d algues sechees'),
+                  ('honeycomb_block', 'blocs de rayons de miel'), ('target', 'blocs cibles'),
+                  ('carved_pumpkin', 'citrouilles sculptees')]
+OUVERT_TROUVER = [('spawner', 'un spawner'), ('bell', 'une cloche'), ('lodestone', 'une magnetite'),
+                  ('anvil', 'une enclume'), ('lectern', 'un pupitre'), ('cauldron', 'un chaudron'),
+                  ('beehive', 'une ruche'), ('composter', 'un composteur')]
+# Demandes que le bot ne sait pas encore faire (bot/skills.js CAPACITES_ABSENTES) :
+# la bonne reponse est un refus rapide qui le dit.
+OUVERT_HORS = ['Fais-moi une ferme a oeufs automatique avec des entonnoirs et un coffre',
+               'Range tout ton inventaire dans un coffre', 'Tonds un mouton et ramene-moi la laine',
+               'Seme du ble dans un champ laboure', 'Va dans le Nether et ramene-moi du quartz']
+
+
+def tirage(reserve, sel):
+    """One entry per run, from the run's random seed (CI_RANDOM_SEED replays it)."""
+    rng = random.Random(f'{random_seed()}|{sel}')
+    return rng.choice(reserve)
+
+
+def _ouvert_recolte():
+    bloc, dit = tirage(OUVERT_RECOLTE, 'recolte')
+    return {
+        'name': 'ouvert/recolte-libre',
+        'about': f'« Ramene-moi 3 {dit} » ({bloc}, tire au sort) : cinq blocs disperses, hors du catalogue de matieres.',
+        'kind': 'gather', 'instruction': f'Ramene-moi 3 {dit}', 'items': [bloc], 'tirage': bloc,
+        'terrain': [(p[0], 200, p[1], p[0], 200, p[1], bloc) for p in ((14, 10), (22, 26), (28, 14), (8, 28), (24, 6))],
+        'target': 3, 'leaves': [], 'logs': [], 'rules': {}, 'informative': True,
+        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts')],
+    }
+
+
+def _ouvert_trouver():
+    bloc, dit = tirage(OUVERT_TROUVER, 'trouver')
+    return {
+        'name': 'ouvert/trouver',
+        'about': f'« Trouve {dit} » ({bloc}, tire au sort) : le bloc a 18 blocs, derriere un mur de terre ; le bot finit a portee.',
+        'kind': 'gather', 'instruction': f'Trouve {dit}', 'items': [], 'tirage': bloc,
+        'terrain': [(22, 200, 20, 22, 202, 28, 'dirt'), (28, 200, 24, 28, 200, 24, bloc)],
+        'reach': 1, 'target': 0, 'leaves': [], 'logs': [], 'rules': {}, 'informative': True,
+        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts')],
+    }
+
+
+def _ouvert_hors_capacite():
+    phrase = tirage(OUVERT_HORS, 'hors')
+    return {
+        'name': 'ouvert/hors-capacite',
+        'about': f'« {phrase} » (tire au sort) : capacite absente, refus rapide et dit.',
+        'kind': 'gather', 'instruction': phrase, 'items': [], 'tirage': phrase,
+        'expectRefusal': True, 'target': 0, 'leaves': [], 'logs': [], 'rules': {}, 'informative': True,
+        'features': {'buts_ouverts': True},
+    }
+
+
 def base_levels():
     trunk3 = [(TX, 200 + i, TZ) for i in range(3)]
     trunk6 = [(TX, 200 + i, TZ) for i in range(6)]
@@ -325,7 +383,7 @@ def base_levels():
             'terrain': [(p[0], 200, p[1], p[0], 200, p[1], 'dandelion') for p in ((14, 10), (22, 26), (28, 14), (8, 28), (24, 6))],
             'target': 3, 'leaves': [], 'logs': [], 'rules': {},
             # A/B du prompt par type de mission (regles bois/fabrication retirees).
-            'variants': [sans('prompt_type')],
+            'variants': [sans('prompt_type'), avec('buts_ouverts')],
         },
         {
             'name': 'gather/sand-walled',
@@ -363,6 +421,8 @@ def base_levels():
             'about': '3 buches en inventaire, « Fabrique une hache en bois » : planches, batons, etabli pose, hache.',
             'kind': 'gather', 'give': [('oak_log', 3)], 'instruction': 'Fabrique une hache en bois', 'items': ['wooden_axe'],
             'target': 1, 'leaves': [], 'logs': [], 'rules': {},
+            # buts_ouverts must not refuse a mission the bot knows how to do.
+            'variants': [avec('buts_ouverts')],
         },
         # Build levels: materials given by RCON (fixture), then « Construis ... » ;
         # placed blocks counted in the arena by RCON; see run_build_script.
@@ -496,7 +556,7 @@ def base_levels():
             'about': 'Inventaire vide, « Construis une maison en terre de 3 par 3 par 3 » : creuser la terre d abord.',
             'kind': 'build', 'instruction': 'Construis une maison en terre de 3 par 3 par 3',
             'blocks': ['minecraft:dirt', 'minecraft:grass_block'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
-            'variants': [avec('sous_buts')],
+            'variants': [avec('sous_buts'), avec('reparer')],
         },
         {
             'name': 'route/three-trips',
@@ -519,7 +579,7 @@ def base_levels():
             'rules': {'standing_y_min': 203.9},
             # A/B des reflexes (objets tombes ramasses entre deux etapes, mise
             # a l abri) : buches coupees depuis le pilier, dispersees au sol.
-            'variants': [sans('reflexes')],
+            'variants': [sans('reflexes'), avec('reparer')],
         },
         {
             'name': 'trees/double',
@@ -527,7 +587,7 @@ def base_levels():
             'leaves': [(TX-2, 204, TZ-2, TX+3, 205, TZ+3)],
             'logs': _logs(*[(TX + dx, 200 + i, TZ + dz) for i in range(4) for dx in (0, 1) for dz in (0, 1)]),
             # Second A/B: plan calls without the relaunch after 10 s of silence.
-            'rules': {}, 'variants': [sans('recolter'), sans('relance_plan')],
+            'rules': {}, 'variants': [sans('recolter'), sans('relance_plan'), avec('plan_sans_raisonnement')],
         },
         # Player report: a snowy spruce whose leaf skirts reach the ground,
         # left half cut for other trees. Informative until three green runs.
@@ -541,7 +601,7 @@ def base_levels():
             'leaves': [(TX, 209, TZ, TX, 209, TZ)],
             'logs': _logs(*[(TX, 200 + i, TZ) for i in range(9)]),
             'rules': {'dirt_placed_max': 0},
-            'variants': [sans('arbre_fini')],
+            'variants': [sans('arbre_fini'), avec('reparer')],
         },
         {
             'name': 'terrain/moat',
@@ -648,7 +708,7 @@ def base_levels():
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
             # A/B: the model picks sub-goals (batir, obtenir) the code runs to the end.
-            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts')],
+            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts'), avec('reparer')],
         },
         # Palier 2 (2026-09-28) : chaine plus longue, imprevu, terrain hostile.
         # Informatifs jusqu a trois bancs reussis d affilee.
@@ -663,7 +723,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [avec('sous_buts')],
+            'rules': {}, 'variants': [avec('sous_buts'), avec('plan_sans_raisonnement')],
         },
         {
             'name': 'composite/cabin-change-of-mind',
@@ -691,6 +751,14 @@ def base_levels():
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ACROSS_TREES for i in range(5)]),
             'rules': {},
         },
+        # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
+        # catalogue de matieres, tiree au sort a chaque banc dans une reserve
+        # (graine du banc, CI_RANDOM_SEED la rejoue) : un correctif doit valoir
+        # pour toute la reserve, jamais pour un seul bloc. Le modele traduit la
+        # phrase en bloc du registre, le code mesure. Informatifs.
+        _ouvert_recolte(),
+        _ouvert_trouver(),
+        _ouvert_hors_capacite(),
         # Banc de competences (2026-10-01) : memes arenes et memes controles que
         # la famille d origine, mais etapes donnees d avance (`skill`, mission
         # scriptee, bot/script-brain.js), sans appel au modele. Un echec y est
@@ -1193,6 +1261,9 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         if not seen and time.monotonic() - started > START_TIMEOUT_S:
             end_reason = 'aucune mission lancee'
             break
+        if not seen and level.get('expectRefusal') and (answer or {}).get('error'):
+            end_reason = f"refus : {answer['error']}"
+            break
         time.sleep(1)
     count = held()
     damage_answer = rcon(f'scoreboard players get {username} degats')
@@ -1206,6 +1277,19 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
               'pas_de_puits': lowest >= 198.9, 'aucun_degat': damage == 0,
               # The bot must know it is done, not run until the cap.
               'mission_terminee': end_reason.startswith('mission terminee')}
+    if level.get('reach') is not None:
+        # Open "find" mission: done AND standing within reach of the block.
+        a, b, c = level['terrain'][level['reach']][:3]
+        p = final.get('position') or {}
+        dist = math.dist((x0 + a + .5, b + .5, c + .5), (p.get('x', 1e9), p.get('y', 1e9) + 1.6, p.get('z', 1e9)))
+        checks['bloc_a_portee'] = dist <= 5
+        checks['mission_terminee'] = checks['mission_terminee'] and 'done' in end_reason
+    if level.get('expectRefusal'):
+        # Missing capability: said at once (answer carries the reason), no
+        # mission started; nothing else to measure.
+        error = str((answer or {}).get('error') or '')
+        checks = {'refus_dit': 'je ne sais pas encore' in error, 'aucune_mission': not seen,
+                  'refus_rapide': time.monotonic() - started < 60, 'aucun_degat': damage == 0}
     (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
         json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
     failed = [k for k, v in checks.items() if not v]
@@ -1213,6 +1297,7 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
         'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
         'itemsHeld': count, 'target': level['target'], 'lowestStandingY': round(lowest, 2),
+        **({'tirage': level['tirage']} if level.get('tirage') else {}),
         'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
         'botFinalPosition': final.get('position'), 'probe': probe_name,
     }
@@ -1920,7 +2005,12 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             blocages = m.get('blocages') or []
             result['kpi'] = {'etapes': steps, 'echecs': fails,
                              'tauxEchec': round(fails / steps, 3) if steps else None,
-                             'blocages': len(blocages)}
+                             'blocages': len(blocages),
+                             # Owner's review (2026-10-02): failures handed back
+                             # to the model, and time the bot stood waiting for
+                             # it (brief + plans), both to bring down.
+                             'echecsAuModele': m.get('echecs_au_modele'),
+                             'attenteModeleS': round((m.get('attente_modele_ms') or 0) / 1000, 1) if m.get('attente_modele_ms') is not None else None}
             if m.get('echecs_detail'):
                 result['kpi']['detail'] = m['echecs_detail'][:10]
             # Structured trace (bot/trace.js): the summary in the result, the
@@ -1934,6 +2024,8 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             modes = {}
             if m.get('acces'):
                 modes['acces'] = m['acces']
+            if m.get('reparations'):
+                modes['reparations'] = m['reparations']
             par_action = (result.get('trace') or {}).get('parAction') or {}
             for action in ('batir', 'obtenir'):
                 if par_action.get(action):

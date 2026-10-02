@@ -75,7 +75,19 @@ les `skill/*` d acces) ; `sous_buts` (eteint : actions `batir` et `obtenir`, le
 modele choisit le but, le code le conduit jusqu au bout guide par `besoins` et
 le solveur, et rend la main au premier echec ; `avec(...)` sur les composites
 cabane et maison en pierre, build/no-materials, craft/iron-pickaxe ; niveaux
-`skill/cabin-batir` et `skill/stone-hut-batir` pour le code seul).
+`skill/cabin-batir` et `skill/stone-hut-batir` pour le code seul) ;
+`reparer` (eteint : un echec ou un arret court dont la cause est sure
+- tronc haut, arbre commence, buches au sol, chantier absent, liquide - voit
+ses remedes joues par le code puis l etape rejouee, sans appel au modele ;
+table unique `remedesMesures`, partagee avec les sous-buts ; `avec(...)` sur
+trees/tall, trees/skirted, build/no-materials, composite/cabin-from-scratch) ;
+`plan_sans_raisonnement` (eteint : plan envoye avec thinking desactive au lieu
+de l effort ; `avec(...)` sur trees/double et composite/stone-hut-from-scratch) ;
+`buts_ouverts` (eteint : matiere ou lieu hors catalogue nomme par le brief au
+registre du jeu, cle `libre:<bloc>` decrite par `skills.resourceSpec` ; et
+refus immediat d une capacite absente, identifiant de
+`skills.CAPACITES_ABSENTES`, jamais un texte libre ; niveaux `ouvert/*`,
+`avec(...)` sur gather/flowers et craft/axe pour voir les faux refus).
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
@@ -135,6 +147,9 @@ cabane et maison en pierre, build/no-materials, craft/iron-pickaxe ; niveaux
 | Routage double MiMo/Muse, supervisor/, kernel/, bridge/, unlock-service | 2026-09-27 | jamais branches au bot |
 | `approcher`, ancien `explorer` (GoalNearXZ) | 2026-09-22 | pathfinder 26.1 peu fiable ; remplaces par le navigateur partage |
 | Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
+| Escalade sur blocage (appel en effort high, puis fin) | ecarte 2026-10-02 | les 15 missions emballees des bancs du 2026-10-01 avaient toutes une cause d ACCES (tronc haut, no_path) : un modele qui raisonne plus n y peut rien ; traite par `reparer` et le moteur d acces |
+| Brief en effort low, relance du brief | ecarte 2026-10-02 | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py` |
+| Bibliotheque de savoir-faire appris, code genere par le modele (Voyager) | ecarte 2026-10-02 | apprendrait le banc ; code genere = risque (commandes `/`), lent ; les primitives generiques et les arbres de buts couvrent le besoin |
 
 ### Conduite d une session d agent (2026-10-02)
 
@@ -159,6 +174,10 @@ cabane et maison en pierre, build/no-materials, craft/iron-pickaxe ; niveaux
   (`git clone . <scratch>` puis les tests) : un fichier present seulement en
   local a casse deux bancs (7f7ac88, e3786f9).
 - Pas de revue Codex a attendre (retiree, #60).
+- Avant de proposer un changement d architecture, le chiffrer sur les bancs
+  (`report.json` de plusieurs bancs, `containers.log`) puis le critiquer :
+  la revue du 2026-10-02 a ecarte deux propositions sur ces seuls chiffres
+  (voir le tableau des retraits).
 
 ## 2. Ce que c est
 
@@ -326,9 +345,12 @@ dans `docs/journal.md` (section « Les pieges »).
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, ~84 niveaux avec variantes) : `trees`, `chat`,
+- Familles (`ci/trees.py`, ~127 niveaux avec variantes) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
-  `composite`, `skill` (competences : missions scriptees sans modele, le code
+  `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
+  dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
+  trouver un bloc, capacite absente a refuser ; les exemples du prompt restent
+  hors reserve, ci/test_ouvert.py), `skill` (competences : missions scriptees sans modele, le code
   seul est mesure ; un echec y est un bug du code, jamais du bruit), plus scenarios de navigation et ~340 tests unitaires (`UNIT`,
   ci/run.py).
 - Arenes variees par la graine (`ci/variation-seed.txt`, sinon SHA du
@@ -336,7 +358,10 @@ dans `docs/journal.md` (section « Les pieges »).
   Composites rejoues aussi en arene aleatoire (`~aleatoire`, voir §1).
   Chaque resultat porte `variation` (graine comprise).
 - Rapport (`report.json`, `summary.md`) : resultats, `comparisons` A/B, KPI
-  (taux d actions en echec, blocages, par famille : a faire baisser),
+  (taux d actions en echec, blocages, echecs rendus au modele
+  `echecsAuModele`, part du temps a attendre le modele `partAttente`, brief
+  compris ; par famille : a faire baisser ; 25 a 60 % d attente sur les
+  composites au 2026-10-01),
   `blocages` par niveau (a analyser a chaque banc), `plannerSummary`
   (latences p50/p95 par usage), `keyCheck`, `modelProbe`, ressources.
 - Lire un resultat : `python3 ci/fetch-results.py --repo <owner/repo> --sha
@@ -451,5 +476,6 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `tmp/*.test.js` | tests unitaires ; `tmp/sim-world.js` monde simule partage ; `tmp/replay-snapshot.js` rejeu d un instantane de blocage ; `tmp/probe-bot.js` harness multi-bots |
 | `tmp/sim-server.js`, `tmp/skill-sim.js`, `tmp/skill-levels.json` | banc de competences hors ligne : serveur simule (vrai A*, vraie physique), joueur de niveau `skill/*`, niveaux exportes par `ci/trees.py --export-skills` |
 | `ci/promotion.py` | taux de reussite des niveaux informatifs sur N bancs, serie avec le jumeau |
+| `tmp/reparer.test.js`, `tmp/buts-ouverts.test.js` | reparations par le code, matieres ouvertes et refus (serveur simule) |
 | `ci/ab.py` | decision A/B sur N bancs, par mode et par niveau : gains/pertes de reussite, duree et appels medians, mode reellement actif, verdict garder/retirer/egalite/insuffisant |
 | `docs/journal.md` | historique des decisions et correctifs |

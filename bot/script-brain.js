@@ -56,6 +56,9 @@ function lireBrief (brief = {}) {
     resourceProbabilities: null,
     landmark: typeof brief.repere === 'string' ? brief.repere : 'ici',
     landmarkConfidence: 1,
+    // Mode ouvert (A/B buts_ouverts) : bloc du registre, capacite absente.
+    blocRegistre: typeof brief.bloc === 'string' ? brief.bloc : null,
+    horsCapacites: typeof brief.hors_capacites === 'string' ? brief.hors_capacites : null,
     door: brief.porte === true,
     doorProbability: brief.porte === true ? 1 : 0,
     usage: null,

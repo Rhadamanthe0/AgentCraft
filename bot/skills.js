@@ -846,6 +846,82 @@ function resolveResource (input) {
 }
 
 // ---------------------------------------------------------------------------
+// Matieres ouvertes au registre (A/B `buts_ouverts`, 2026-10-02).
+//
+// Le catalogue RESOURCES reste ferme (il nourrit les prompts mis en cache) ;
+// une demande hors catalogue (« ramene-moi 3 citrouilles », « va jusqu au
+// spawner ») nomme un bloc du registre Minecraft, que le MODELE traduit de la
+// phrase du joueur et que le CODE valide et decrit ici depuis minecraft-data :
+// objets lachees (ce qui se compte en inventaire), bloc incassable. La cle
+// `libre:<bloc>` porte tout : une mission restauree la reconstruit sans etat.
+// Aucun bloc nomme en dur : n importe quel bloc du registre vaut.
+// ---------------------------------------------------------------------------
+
+const LIBRE = 'libre:'
+const libres = new Map()
+const echapper = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+function nomBlocRegistre (input) {
+  const nom = String(input ?? '').trim().toLowerCase().replace(/^minecraft:/, '').replace(/\s+/g, '_')
+  return /^[a-z0-9_]{2,48}$/.test(nom) ? nom : null
+}
+
+// Cle `libre:<bloc>` d un bloc du registre, ou null (inconnu, air).
+function ressourceLibre (input, registry) {
+  const nom = nomBlocRegistre(input)
+  const bloc = nom && registry?.blocksByName?.[nom]
+  if (!bloc || /(^|_)air$/.test(nom)) return null
+  return LIBRE + nom
+}
+
+// Description d une matiere : celle du catalogue, sinon celle d un bloc ouvert
+// tiree du registre (null si inconnue). Meme forme que RESOURCES.
+function resourceSpec (key, registry) {
+  if (Object.prototype.hasOwnProperty.call(RESOURCES, key)) return RESOURCES[key]
+  if (typeof key !== 'string' || !key.startsWith(LIBRE)) return null
+  if (libres.has(key)) return libres.get(key)
+  const nom = key.slice(LIBRE.length)
+  const bloc = registry?.blocksByName?.[nom]
+  if (!bloc) return null
+  const lachees = (bloc.drops ?? [])
+    .map(d => typeof d === 'number' ? d : d?.drop?.id ?? d?.drop ?? d?.id)
+    .filter(Number.isInteger)
+    .map(id => registry.items?.[id]?.name)
+    .filter(Boolean)
+  const objets = [...new Set(lachees)]
+  // Se batit seulement s il se ramasse tel quel (une citrouille, pas un melon).
+  const seRamasse = objets.includes(nom)
+  const spec = {
+    intent: bloc.displayName ?? nom,
+    libre: true,
+    blocks: [nom],
+    // Rien ne se ramasse (spawner, bloc incassable) : on peut y aller, pas le recolter.
+    items: objets.length ? new RegExp(`^(${objets.map(echapper).join('|')})$`) : null,
+    incassable: bloc.diggable === false || !(bloc.hardness >= 0),
+    build: seRamasse ? nom : 'dirt',
+    buildMatch: seRamasse ? new RegExp(`^${echapper(nom)}$`) : /^(dirt|coarse_dirt|grass_block)$/,
+    raw: seRamasse ? new RegExp(`^${echapper(nom)}$`) : /^(dirt|coarse_dirt)$/
+  }
+  libres.set(key, spec)
+  return spec
+}
+
+// Ce que le bot ne sait pas encore faire (A/B `buts_ouverts`) : le brief en
+// nomme un identifiant quand la demande l EXIGE, et le code refuse aussitot en
+// le disant, au lieu de tourner jusqu au plafond. Le code ne retient qu un
+// identifiant de cette liste (jamais un texte libre du modele). Retirer une
+// entree des qu une action la couvre.
+const CAPACITES_ABSENTES = {
+  conteneur: 'ouvrir un coffre, un tonneau, un entonnoir ou un autre conteneur pour y deposer ou en retirer des objets (la cuisson au four, elle, existe)',
+  animal: 'agir sur un animal : le nourrir, le faire se reproduire, le tondre, le traire, le mener en laisse, l attirer ou l enfermer',
+  mecanisme: 'faire de la redstone ou des mecanismes : entonnoirs relies, pistons, rails, leviers, circuits, fermes automatiques',
+  culture: 'semer, planter, labourer ou faire pousser des cultures',
+  combat: 'combattre ou chasser des creatures',
+  dimension: 'aller dans le Nether ou l End',
+  echange: 'commercer avec des villageois'
+}
+
+// ---------------------------------------------------------------------------
 // Cible de fabrication generique (sans regex de phrase).
 //
 // Le brief LLM rend un nom libre ("hache", "minecraft:torch", "batons"...).
@@ -1553,6 +1629,9 @@ module.exports = {
   SCALE_LEVELS,
   resolve,
   resolveResource,
+  resourceSpec,
+  ressourceLibre,
+  CAPACITES_ABSENTES,
   actionsFor,
   setFeatureEnabled,
   jsonParamsFor,
