@@ -19,14 +19,17 @@
 const fs = require('fs')
 const path = require('path')
 const util = require('util')
+// R19 : parsing central des plafonds (bot/config.js) : reglages non
+// critiques, valeur invalide => repli + warning, jamais de NaN silencieux.
+const config = require('./config')
 
 const LOG_FILE = process.env.LOG_FILE || '/data/bot.log'
-const DEDUP_MS = Number(process.env.LOG_DEDUP_MS || 30000)
-const CHAT_MAX_PER_MIN = Number(process.env.LOG_CHAT_MAX_PER_MIN || 5)
-const CHAT_MAX_LEN = Number(process.env.LOG_CHAT_MAX_LEN || 200)
+const DEDUP_MS = config.positiveInt(process.env.LOG_DEDUP_MS, 30000, 'LOG_DEDUP_MS')
+const CHAT_MAX_PER_MIN = config.positiveInt(process.env.LOG_CHAT_MAX_PER_MIN, 5, 'LOG_CHAT_MAX_PER_MIN')
+const CHAT_MAX_LEN = config.positiveInt(process.env.LOG_CHAT_MAX_LEN, 200, 'LOG_CHAT_MAX_LEN')
 // Laisse au chat le temps de partir avant process.exit(1) sur une exception non
 // capturee. Le fichier, lui, est ecrit en synchrone : rien a vider de ce cote.
-const CRASH_DRAIN_MS = Number(process.env.LOG_CRASH_DRAIN_MS || 250)
+const CRASH_DRAIN_MS = config.positiveInt(process.env.LOG_CRASH_DRAIN_MS, 250, 'LOG_CRASH_DRAIN_MS')
 
 // Les appels du projet sont prefixes `[source]`. On s en sert pour le champ
 // source de la ligne ; a defaut, la source vaut `app`.

@@ -316,9 +316,18 @@ simulations. Les quatre scenarios ci-dessus tournent sur Paper reel.
 Ce banc ne certifie pas encore les missions de construction (`build/basic`).
 Seules les missions d'arbre utilisent une cle de modele.
 
-Les dependances npm du banc sont verrouillees par `ci/package-lock.json` et
-installees via `npm ci`. Une modification de `bot/package.json` impose de
-mettre a jour ce verrou. Les images Docker et Paper sont selectionnes par
+Les dependances npm du bot et du banc partagent un seul verrou,
+`bot/package-lock.json`, installe via `npm ci` avec les memes options
+(`--omit=dev --no-audit --no-fund`) dans l image de production
+(`bot/Dockerfile`, contexte `bot/`) et dans l image du banc (`ci/Dockerfile`,
+contexte racine) : les deux graphes sont identiques, celui du runtime etant
+le sous-graphe utile du banc, qui n ajoute aucune dependance propre. Toute
+dependance importe directement par le code (`vec3`, `minecraft-data`) est
+declaree dans `bot/package.json` a la version resolue par mineflayer /
+mineflayer-pathfinder, jamais en transitive implicite. Une modification de
+`bot/package.json` impose de regenerer ce verrou (`npm install
+--package-lock-only` dans `bot/`, sans changer les autres versions) et de
+rejouer les deux constructions. Les images Docker et Paper sont selectionnes par
 version ; ce n'est pas une garantie de reproduction bit a bit de leurs builds.
 
 ### Conteneurs et images (depuis le 24 septembre 2026)

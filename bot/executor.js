@@ -13,10 +13,22 @@
 //   ex.totalStop(reason)  // tout est refuse, meme 'survival', jusqu a resume()
 //   ex.resume()           // leve pause + stop ; ne demarre rien tout seul
 //   ex.status()           // etat d execution distinct de la valeur metier
+//   unwrapExecutionEnvelope(envelope) // completed->valeur, cancelled->jette
+//     PhysicalCancelledError, failed->jette l erreur d origine (R03)
+//   runPhysicalOrThrow(run, id, kind, fn) // run + deballage (R03)
+//   await awaitPhysicalWithTimeout(promise, ms, label, { signal?, onTimeout? })
+//   const lease = createControlLease({ run, stopNavigation, applyControl, clearControls })
 //
 // Regles physiques (non negociables) :
 // - Le slot n est libere qu a la resolution REELLE du callback. Un timeout ou
 //   un Promise.race ne libere jamais le slot : JS ne s interromp pas.
+//   Corollaire : aucune borne de delai ne rend avant le settle reel. Le helper
+//   `awaitPhysicalWithTimeout` applique cette regle a UNE promesse physique :
+//   au timeout/abort il appelle l annulation concrete (onTimeout : stopDigging,
+//   setGoal(null), clear controls...), ATTEND le settle reel de la promesse
+//   d origine, puis seulement leve timeout/cancelled. Un appelant DANS le slot
+//   garde donc le slot jusqu a la fin reelle ; un second run concurrent recoit
+//   'busy' jusque-la.
 // - pauseWork/totalStop abortent le signal interne ET appellent stopControls
 //   de facon SYNCHRONE, avant tout await.
 // - Apres pauseWork, run(kind='survival') reste admissible, le reste est
@@ -200,4 +212,248 @@ function createExecutor (opts) {
   return { run, pauseWork, totalStop, resume, status }
 }
 
-module.exports = { createExecutor, KINDS: [...KINDS] }
+// Borne une promesse physique SANS jamais liberer avant son settle reel.
+// Au premier latch (settle, delai ou abort) l annulation concrete est appelee
+// (onTimeout, best-effort : stopDigging, setGoal(null)...), mais le retour
+// n a lieu qu APRES le settle reel de `promise` :
+//   - abort (signal aborte) => leve { code: 'cancelled' } ;
+//   - delai depasse => leve Error(label) avec { code: 'timeout' } ;
+//   - sinon rend/releve le resultat reel.
+// Sans delai ni signal, simple attente du settle. Le timer est unref quand
+// c est possible (meme convention que delivery.js).
+async function awaitPhysicalWithTimeout (promise, ms, label, opts = {}) {
+  const message = String(label ?? 'delai physique depasse')
+  const timeoutMs = Number(ms)
+  const signal = opts && typeof opts.signal === 'object' && opts.signal !== null ? opts.signal : null
+  const onTimeout = opts && typeof opts.onTimeout === 'function' ? opts.onTimeout : null
+  const settleGate = Promise.resolve(promise).then(
+    value => ({ ok: true, value }),
+    error => ({ ok: false, error })
+  )
+  let timedOut = false
+  let abortFired = Boolean(signal && signal.aborted === true)
+  const fireCancel = () => {
+    if (!onTimeout) return
+    try { onTimeout(abortFired ? 'abort' : 'timeout') } catch { /* annulation best-effort */ }
+  }
+  if (abortFired) fireCancel()
+  let timer = null
+  const timeoutGate = new Promise(resolve => {
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return
+    timer = setTimeout(() => {
+      timedOut = true
+      if (signal && signal.aborted === true) abortFired = true
+      fireCancel()
+      resolve('timeout')
+    }, timeoutMs)
+    if (timer.unref) timer.unref()
+  })
+  let onAbort = null
+  const abortGate = new Promise(resolve => {
+    if (!signal || typeof signal.addEventListener !== 'function') return
+    if (signal.aborted) { abortFired = true; resolve('abort'); return }
+    onAbort = () => { abortFired = true; fireCancel(); resolve('abort') }
+    try { signal.addEventListener('abort', onAbort, { once: true }) } catch { /* ecoute best-effort */ }
+  })
+  if (timer !== null || onAbort !== null || abortFired) {
+    await Promise.race([settleGate, timeoutGate, abortGate])
+  }
+  const settle = await settleGate // <-- jamais de retour avant ce settle
+  if (timer) clearTimeout(timer)
+  if (onAbort && signal && typeof signal.removeEventListener === 'function') {
+    try { signal.removeEventListener('abort', onAbort) } catch { /* nettoyage best-effort */ }
+  }
+  if (abortFired || (signal && signal.aborted === true)) {
+    const err = new Error('cancelled')
+    err.code = 'cancelled'
+    throw err
+  }
+  if (timedOut) {
+    const err = new Error(message)
+    err.code = 'timeout'
+    throw err
+  }
+  if (!settle.ok) throw settle.error
+  return settle.value
+}
+
+// Erreur d annulation physique (R03) : levee par l adaptateur commun quand
+// l enveloppe d execution est 'cancelled'. Porte toujours { code:
+// 'cancelled' } : les appelants la distinguent d un echec sans perdre le
+// message, et ne l annoncent jamais comme un succes.
+class PhysicalCancelledError extends Error {
+  constructor (message = 'execution annulee (stop/pause)', details) {
+    super(message)
+    this.name = 'PhysicalCancelledError'
+    this.code = 'cancelled'
+    if (details !== undefined) this.details = details
+  }
+}
+
+function errorFromEnvelope (envelope, fallbackMessage) {
+  const cause = envelope ? envelope.error : undefined
+  if (cause instanceof Error) return cause
+  const message = cause && typeof cause.message === 'string'
+    ? cause.message
+    : String(cause ?? fallbackMessage ?? 'echec physique sans detail')
+  const err = new Error(message)
+  if (cause && typeof cause.code === 'string') err.code = cause.code
+  return err
+}
+
+// Adaptateur commun (R03) : deballe une enveloppe d execution SANS convertir
+// la valeur metier.
+//   completed (non annule) -> rend envelope.value ;
+//   cancelled (ou cancelled vrai) -> jette PhysicalCancelledError ;
+//   failed -> jette envelope.error d origine (code/message conserves).
+// Le contrat bas niveau de run() (enveloppe completed/failed/cancelled) est
+// inchange : seuls les appelants qui veulent un succes-ou-jettent passent ici.
+function unwrapExecutionEnvelope (envelope) {
+  if (!envelope || typeof envelope !== 'object' || typeof envelope.outcome !== 'string') {
+    throw new PhysicalCancelledError('enveloppe d execution absente ou illisible')
+  }
+  if (envelope.cancelled || envelope.outcome === 'cancelled') {
+    throw new PhysicalCancelledError('execution annulee (stop/pause)', { id: envelope.id, kind: envelope.kind })
+  }
+  if (envelope.outcome === 'failed') {
+    throw errorFromEnvelope(envelope, 'echec physique sans detail')
+  }
+  return envelope.value
+}
+
+// Variante async : execute DANS le slot puis deballe. `run` est le writer
+// (id, kind, fn) -> enveloppe (index.runPhysical, meme signature). Les refus
+// d admission (busy/paused/stopped/...) rejettent tels quels, avant le slot.
+async function runPhysicalOrThrow (run, id, kind, fn) {
+  if (typeof run !== 'function') {
+    const err = new Error('runPhysicalOrThrow exige un writer (id, kind, fn)')
+    err.code = 'invalid'
+    throw err
+  }
+  const envelope = await run(id, kind, fn)
+  return unwrapExecutionEnvelope(envelope)
+}
+
+// Bail de touche persistante (R23) : modele lease explicite au-dessus de
+// l executeur. `acquire(control)` applique la touche DANS le slot et TIENT ce
+// slot jusqu a `release()` (ou abort : pauseWork/totalStop) ; tant que le
+// lease existe, tout run normal recoit 'busy' de l executeur lui-meme (aucun
+// drapeau parallele). `release()` eteint la touche puis libere, meme lease
+// (une touche tenue par !avance se libere par /api/control state=false).
+// Fabrique pure : `run` est le writer (index.runPhysical), les trois autres
+// sont les effets jeu. Jamais de clearControlStates opportuniste hors modele :
+// toute extinction passe par le callback du slot (finally) ou stopControls.
+function createControlLease (deps) {
+  const run = deps && typeof deps.run === 'function' ? deps.run : null
+  const stopNavigation = deps && typeof deps.stopNavigation === 'function' ? deps.stopNavigation : () => {}
+  const applyControl = deps && typeof deps.applyControl === 'function' ? deps.applyControl : () => {}
+  const clearControls = deps && typeof deps.clearControls === 'function' ? deps.clearControls : () => {}
+  if (!run) throw refusal('invalid', 'createControlLease exige run(id, kind, fn)')
+
+  let held = null // { control, resolveRelease, runPromise } ou null
+
+  function status () {
+    return { held: held !== null, control: held ? held.control : null }
+  }
+
+  // Attend la liberation (release) ou l abort du slot, sans jamais jeter :
+  // l abort sort par le signal, pas par une exception de la gate.
+  function waitRelease (releaseGate, signal) {
+    if (!signal || typeof signal.addEventListener !== 'function') return releaseGate
+    if (signal.aborted) return Promise.resolve('aborted')
+    return Promise.race([
+      releaseGate,
+      new Promise(resolve => {
+        const onAbort = () => resolve('aborted')
+        try { signal.addEventListener('abort', onAbort, { once: true }) } catch { resolve('aborted') }
+      })
+    ])
+  }
+
+  async function acquire (control, id) {
+    if (typeof control !== 'string' || control.length === 0) {
+      throw refusal('invalid', 'acquire exige un nom de touche non vide')
+    }
+    if (held) {
+      throw refusal('busy', `touche ${held.control} tenue : aucune chevauche`, { control, by: held.control })
+    }
+    let resolveRelease = null
+    const releaseGate = new Promise(resolve => { resolveRelease = resolve })
+    let acquiredResolve = null
+    let acquiredReject = null
+    const acquired = new Promise((resolve, reject) => { acquiredResolve = resolve; acquiredReject = reject })
+    const record = { control, resolveRelease, runPromise: null }
+    let runPromise = null
+    try {
+      runPromise = run(id ?? `lease-${control}-${Date.now()}`, 'work', async ({ signal }) => {
+        stopNavigation()
+        try { clearControls() } catch { /* nettoyage best-effort */ }
+        applyControl(control, true)
+        acquiredResolve()
+        try {
+          await waitRelease(releaseGate, signal)
+        } finally {
+          try { applyControl(control, false) } catch { /* extinction best-effort */ }
+          if (held === record) held = null
+        }
+        return { control }
+      })
+    } catch (err) {
+      acquiredReject(err)
+      throw err
+    }
+    record.runPromise = runPromise
+    held = record
+    // Admission refusee (busy/paused/stopped) : le rejet remonte a acquire,
+    // sans lease fantome. Sans cela, `await acquired` pendrait.
+    // R03 : une enveloppe failed/cancelled (callback qui jette, abort en vol)
+    // rejette acquire avec l erreur d origine, jamais un succes ni un pendu :
+    // le slot, lui, est libere par l executeur dans tous les cas.
+    Promise.resolve(runPromise).then(
+      envelope => {
+        if (envelope && typeof envelope === 'object' && envelope.outcome !== undefined && envelope.outcome !== 'completed') {
+          const err = (envelope.outcome === 'cancelled' || envelope.cancelled)
+            ? new PhysicalCancelledError('touche interrompue (stop/pause)', { id: envelope.id, kind: envelope.kind })
+            : errorFromEnvelope(envelope, 'touche en echec')
+          try { acquiredReject(err) } catch { /* acquire deja tranche */ }
+        }
+      },
+      err => { try { acquiredReject(err) } catch { /* acquire deja tranche */ } }
+    )
+    try {
+      await acquired
+    } catch (err) {
+      if (held === record) held = null
+      try { await runPromise } catch { /* erreur d admission deja portee */ }
+      throw err
+    }
+    return { control }
+  }
+
+  async function release () {
+    const current = held
+    if (!current) {
+      try { clearControls() } catch { /* nettoyage best-effort */ }
+      return { released: false }
+    }
+    try { current.resolveRelease() } catch { /* liberation best-effort */ }
+    // R03 : le slot se libere dans tous les cas, mais le resultat ne devient
+    // jamais un succes : enveloppe failed -> erreur d origine, cancelled ->
+    // PhysicalCancelledError. L appelant (route/commande) repond en consequence.
+    const envelope = await current.runPromise
+    if (held === current) held = null
+    if (envelope && typeof envelope === 'object' && envelope.outcome !== undefined) {
+      if (envelope.outcome === 'cancelled' || envelope.cancelled) {
+        throw new PhysicalCancelledError('touche interrompue (stop/pause)', { id: envelope.id, kind: envelope.kind })
+      }
+      if (envelope.outcome !== 'completed') {
+        throw errorFromEnvelope(envelope, 'extinction de touche en echec')
+      }
+    }
+    return { released: true, control: current.control }
+  }
+
+  return { acquire, release, status }
+}
+
+module.exports = { createExecutor, awaitPhysicalWithTimeout, createControlLease, unwrapExecutionEnvelope, runPhysicalOrThrow, PhysicalCancelledError, KINDS: [...KINDS] }

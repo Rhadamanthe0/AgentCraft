@@ -164,7 +164,10 @@ UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
         'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'navigation-place.test.js', 'sous-buts.test.js', 'skill-sim.test.js', 'construire-trou.test.js', 'reparer.test.js', 'buts-ouverts.test.js', 'arbitrage-options.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
         'delivery.test.js', 'planner-profile.test.js', 'planner-relaunch.test.js','llm.test.js', 'executor.test.js', 'objective-controller.test.js',
-        'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js', 'ouvrir-porte.test.js', 'enclosure.test.js']
+        'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js', 'ouvrir-porte.test.js', 'enclosure.test.js',
+        'physical-exclusive.test.js', 'execution-envelope.test.js', 'objective-failed.test.js',
+        'r02-r04-arbitration.test.js', 'memory-r07-r24.test.js', 'objective-recover-r08.test.js',
+        'memory-r06-r25.test.js', 'config-r19.test.js', 'api-validation-r10.test.js']
 
 
 

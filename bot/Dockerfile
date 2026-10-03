@@ -2,8 +2,8 @@ FROM node:24.21.0-alpine3.24
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund \
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund \
     && npm cache clean --force
 
 # Glob volontaire : la liste explicite oubliait un fichier a chaque nouveau

@@ -3,6 +3,7 @@
 // Positionnement mesure, pas recolte : un tronc a portee ne prouve pas que le
 // corps se trouve sous la couronne. Les destinations viennent des chunks reels.
 const { clearSegment } = require('./navigation')
+const { awaitPhysicalWithTimeout } = require('./executor')
 const leaf = b => Boolean(b && /_leaves$/.test(b.name))
 const solid = b => Boolean(b?.shapes?.length || b?.boundingBox === 'block')
 const liquid = b => !b || /water|lava|bubble_column/.test(b.name)
@@ -68,24 +69,19 @@ async function clearOne (bot, block, permission, signal) {
   if (!bot.canDigBlock(block)) return { reached: false, code: 'block_out_of_reach' }
   // Reservation avant l appel : meme une erreur ou un timeout ne permet pas
   // de depasser l autorisation lors d une autre tentative/revision.
+  // R01 : au timeout/abort, stopDigging est appele puis le settle REEL du dig
+  // est attendu avant de rendre dig_timeout/cancelled. Jamais de Promise.race
+  // qui rendrait pendant que le dig vit encore (chevauchement physique).
   permission.used++
-  let timer
-  let cancel
   try {
-    const interrupted = new Promise((resolve, reject) => {
-      cancel = () => { try { bot.stopDigging() } catch (_) {} reject(new Error('cancelled')) }
-      signal.addEventListener('abort', cancel, { once: true })
-      timer = setTimeout(() => { try { bot.stopDigging() } catch (_) {} reject(new Error('dig_timeout')) }, 8000)
+    await awaitPhysicalWithTimeout(bot.dig(block, true), 8000, 'dig_timeout', {
+      signal, onTimeout: () => { try { bot.stopDigging() } catch (_) {} }
     })
-    await Promise.race([bot.dig(block, true), interrupted])
     if (signal.aborted) return { reached: false, code: 'cancelled' }
     const fresh = bot.blockAt(block.position)
     return { reached: Boolean(fresh && !solid(fresh)), code: fresh && !solid(fresh) ? 'cleared' : 'dig_refused' }
   } catch (err) {
-    return { reached: false, code: signal.aborted ? 'cancelled' : err.message }
-  } finally {
-    clearTimeout(timer)
-    signal.removeEventListener('abort', cancel)
+    return { reached: false, code: signal.aborted || err?.code === 'cancelled' ? 'cancelled' : err.message }
   }
 }
 

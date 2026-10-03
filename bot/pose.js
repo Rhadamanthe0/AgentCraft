@@ -13,32 +13,37 @@
 //     cale) : plus bas, le corps recouvre encore la case et le serveur refuse.
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+const { awaitPhysicalWithTimeout } = require('./executor')
 
-function withTimeout (promise, ms, label) {
-  let timer = null
-  return Promise.race([
-    promise.finally(() => clearTimeout(timer)),
-    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label)), ms) })
-  ])
+// Borne une promesse physique SANS jamais rendre avant son settle reel
+// (R01) : au timeout, le settle reel est attendu puis seulement l erreur de
+// delai est levee. Ici aucune annulation concrete (equip/lookAt/placeBlock
+// n en offrent pas) : un `opts.onTimeout` explicite peut en fournir une, et
+// `opts.signal` fait rendre cancelled apres settle. Le jump de poserSousSoi
+// est ainsi relache (finally) APRES la fin reelle de la pose, jamais pendant.
+function withTimeout (promise, ms, label, opts = {}) {
+  const signal = opts && typeof opts.signal === 'object' && opts.signal !== null ? opts.signal : null
+  const onTimeout = opts && typeof opts.onTimeout === 'function' ? opts.onTimeout : null
+  return awaitPhysicalWithTimeout(promise, ms, label, { signal, onTimeout })
 }
 
 const plein = block => Boolean(block && block.boundingBox === 'block')
 
-async function equiper (bot, item) {
+async function equiper (bot, item, opts) {
   if (bot.heldItem?.name === item.name) return
-  await withTimeout(bot.equip(item, 'hand'), 4000, 'equipement trop long')
+  await withTimeout(bot.equip(item, 'hand'), 4000, 'equipement trop long', opts)
 }
 
 // Saut puis pose sur `appui` (le bloc sous les pieds), face du dessus. Rend
 // { ok, detail }. Deux essais : un refus serveur re-saute et repose.
-async function poserSousSoi (bot, appui, item) {
+async function poserSousSoi (bot, appui, item, opts) {
   const V = bot.entity.position.constructor
   const cellule = appui.position.offset(0, 1, 0)
   let detail = null
   for (let essai = 1; essai <= 2; essai += 1) {
     try {
-      await equiper(bot, item)
-      await withTimeout(bot.lookAt(new V(appui.position.x + 0.5, appui.position.y + 1, appui.position.z + 0.5), true), 3000, 'visee trop longue')
+      await equiper(bot, item, opts)
+      await withTimeout(bot.lookAt(new V(appui.position.x + 0.5, appui.position.y + 1, appui.position.z + 0.5), true), 3000, 'visee trop longue', opts)
     } catch (err) {
       return { ok: false, detail: err.message }
     }
@@ -58,7 +63,7 @@ async function poserSousSoi (bot, appui, item) {
         if (stable >= 2 && dy > 0.3) { sommet = true; break }
       }
       if (!sommet && bot.entity.position.y - yDepart < 0.3) throw new Error('saut trop bas : plafond ou bot coince')
-      await withTimeout(bot.placeBlock(appui, new V(0, 1, 0)), 4000, 'pose trop longue')
+      await withTimeout(bot.placeBlock(appui, new V(0, 1, 0)), 4000, 'pose trop longue', opts)
     } catch (err) {
       detail = err.message
     } finally {
@@ -75,14 +80,14 @@ async function poserSousSoi (bot, appui, item) {
 }
 
 // Pose contre la face `face` (vecteur unite) de `ref`. Rend { ok, detail }.
-async function poserContre (bot, ref, face, item) {
+async function poserContre (bot, ref, face, item, opts) {
   const V = bot.entity.position.constructor
   const cellule = ref.position.plus(face)
   try {
-    await equiper(bot, item)
+    await equiper(bot, item, opts)
     await withTimeout(bot.lookAt(new V(ref.position.x + 0.5 + face.x * 0.5, ref.position.y + 0.5 + face.y * 0.5,
-      ref.position.z + 0.5 + face.z * 0.5), true), 3000, 'visee trop longue')
-    await withTimeout(bot.placeBlock(ref, face), 5000, 'pose trop longue')
+      ref.position.z + 0.5 + face.z * 0.5), true), 3000, 'visee trop longue', opts)
+    await withTimeout(bot.placeBlock(ref, face), 5000, 'pose trop longue', opts)
   } catch (err) {
     if (!plein(bot.blockAt(cellule))) return { ok: false, detail: err.message }
   }

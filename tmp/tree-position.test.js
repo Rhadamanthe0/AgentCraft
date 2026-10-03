@@ -100,8 +100,13 @@ test('une position en l air ne valide pas le placement', async () => {
 test('annulation pendant la casse : stopDigging et budget non rembourse', async () => {
   const f = fixture(1)
   let stopped = false
-  f.bot.dig = () => new Promise(() => {})
-  f.bot.stopDigging = () => { stopped = true }
+  // R01 : le retour attend le settle REEL du dig, que stopDigging provoque
+  // (comportement mineflayer reel : stopDigging interrompt le creusage et sa
+  // promesse atterrit). L ancien faux laissait le dig pendre a jamais, ce que
+  // le nouvel invariant interdit (aucun retour avant settle).
+  let rejectDig = null
+  f.bot.dig = () => new Promise((_, reject) => { rejectDig = reject })
+  f.bot.stopDigging = () => { stopped = true; try { rejectDig(new Error('dig interrompu')) } catch (_) {} }
   const permission = { limit: 1, used: 0 }
   const c = new AbortController()
   const pending = clearOne(f.bot, f.bot.blockAt(new Vec3(2, 2, 0)), permission, c.signal)

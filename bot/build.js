@@ -22,6 +22,9 @@
 //      et `pathfinder.goto` est sorti des missions.
 
 const Vec3 = require('vec3').Vec3
+// R19 : parsing central des variables numeriques (bot/config.js), jamais de
+// NaN silencieux sur les delais et bornes.
+const config = require('./config')
 
 // Bornes de bon sens : un « 40 par 40 » demande par erreur ne doit pas lancer
 // un chantier de 9000 blocs.
@@ -38,7 +41,7 @@ const SITE_MARGIN = 1
 const LIQUID = /water|lava|bubble_column/
 // Delai d un trajet vers un poste de tir en gestes unitaires. Marcher prend du
 // temps (Fix 3 : plus aucun pathfinder en mission, meme pour rallier un poste).
-const MOVE_TIMEOUT_MS = Number(process.env.BUILD_MOVE_TIMEOUT_MS || 12000)
+const MOVE_TIMEOUT_MS = config.positiveInt(process.env.BUILD_MOVE_TIMEOUT_MS, 12000, 'BUILD_MOVE_TIMEOUT_MS')
 // Reglages du pas de marche : les memes que la primitive walkForward de
 // mission.js (Fix 1). Meme vitesse au sol (~1 s par bloc + marge de saut),
 // meme fenetre sans progres avant de sauter, meme echec sur obstacle de deux
@@ -49,9 +52,9 @@ const STEP_MS_PER_BLOCK = 1100
 const WALK_EXTRA_MS = 4000
 // Saut de denivele : memes reglages que walkForward (mission.js) pour ne pas
 // diverger. On declenche tot, puis on re-essaie en relachant/rappuyant `jump`.
-const JUMP_FIRST_MS = Number(process.env.MISSION_JUMP_FIRST_MS || 600)
-const JUMP_RETRY_MS = Number(process.env.MISSION_JUMP_RETRY_MS || 700)
-const JUMP_MAX_ATTEMPTS = Number(process.env.MISSION_JUMP_MAX_ATTEMPTS || 3)
+const JUMP_FIRST_MS = config.positiveInt(process.env.MISSION_JUMP_FIRST_MS, 600, 'MISSION_JUMP_FIRST_MS')
+const JUMP_RETRY_MS = config.positiveInt(process.env.MISSION_JUMP_RETRY_MS, 700, 'MISSION_JUMP_RETRY_MS')
+const JUMP_MAX_ATTEMPTS = config.positiveInt(process.env.MISSION_JUMP_MAX_ATTEMPTS, 3, 'MISSION_JUMP_MAX_ATTEMPTS')
 // Fenetre de saut mesuree en jeu (voir marcheDevant) : on ne declare la marche
 // d un bloc que lorsque le contact est a ~0,9 bloc ou moins.
 const JUMP_LOOKAHEAD = [0.9, 0.6]

@@ -36,6 +36,9 @@ const skills = require('./skills')
 const memory = require('./memory')
 const llm = require('./llm')
 const modelChain = require('./model-chain')
+// R19 : parsing central des variables numeriques (bot/config.js), jamais de
+// NaN silencieux sur les garde-fous (PLAN_MAX, delais, seuils).
+const config = require('./config')
 
 const BASE_URL = (process.env.PLANNER_BASE_URL || '').replace(/\/+$/, '')
 const API_KEY = process.env.PLANNER_API_KEY || ''
@@ -44,17 +47,17 @@ const API_KEY = process.env.PLANNER_API_KEY || ''
 // PLANNER_MODEL (deepseek-v4.1-flash) et un modele par usage (model-chain.js).
 const PILOT_MODEL = 'muse-spark-1.3-contributor'
 const MODEL = (process.env.PLANNER_MODEL || '').trim() || PILOT_MODEL
-const TIMEOUT_MS = Number(process.env.PLANNER_TIMEOUT_MS || 12000)
+const TIMEOUT_MS = config.positiveInt(process.env.PLANNER_TIMEOUT_MS, 12000, 'PLANNER_TIMEOUT_MS')
 // Relaunch of a silent plan call (owner's decision, 2026-09-29): with no answer
 // after RELAUNCH_MS, the call is cut and made again once with the time left;
 // the overall deadline stays TIMEOUT_MS. A/B switch: feature `relance_plan`
 // (mission.js).
-const RELAUNCH_MS = Number(process.env.PLANNER_RELAUNCH_MS || 10000)
+const RELAUNCH_MS = config.positiveInt(process.env.PLANNER_RELAUNCH_MS, 10000, 'PLANNER_RELAUNCH_MS')
 // Below this time left, a relaunch has no chance of an answer: no relaunch.
 const RELAUNCH_MIN_LEFT_MS = 1000
 // Models that answered at least once in this process (relaunch only these).
 const warmModels = new Set()
-const PLAN_MAX = Number(process.env.PLANNER_PLAN_MAX || 5)
+const PLAN_MAX = config.positiveIntOrThrow(process.env.PLANNER_PLAN_MAX, 5, 'PLANNER_PLAN_MAX')
 // Budget de temps d un plan, en secondes. Demande par le proprietaire, et c est
 // la bonne unite : compter les actions melange un saut de 0,3 s et une rafale
 // de seize blocs. Un plan doit couvrir au moins BUDGET_MIN pour qu il reste du
@@ -66,12 +69,12 @@ const PLAN_MAX = Number(process.env.PLANNER_PLAN_MAX || 5)
 // Duree de jeu visee par plan : couvrir la latence d un appel (4 a 6 s en
 // mediane au banc), sinon le bot attend le modele entre deux plans (45 % du
 // temps de la cabane, revue du 2026-09-27). Consigne du prompt, jamais appliquee.
-const BUDGET_MIN_S = Number(process.env.PLANNER_BUDGET_MIN_S || 6)
-const BUDGET_MAX_S = Number(process.env.PLANNER_BUDGET_MAX_S || 10)
+const BUDGET_MIN_S = config.positiveInt(process.env.PLANNER_BUDGET_MIN_S, 6, 'PLANNER_BUDGET_MIN_S')
+const BUDGET_MAX_S = config.positiveInt(process.env.PLANNER_BUDGET_MAX_S, 10, 'PLANNER_BUDGET_MAX_S')
 // Marge de sortie : les jetons de raisonnement comptent dans max_tokens. Avec
 // `deepseek-v4.1-flash` et le vrai prompt, 700 ne suffisait pas (raisonnement
 // seul, contenu vide) ; 2000 laisse la place au raisonnement ET au plan.
-const MAX_TOKENS = Number(process.env.PLANNER_MAX_TOKENS || 2000)
+const MAX_TOKENS = config.positiveInt(process.env.PLANNER_MAX_TOKENS, 2000, 'PLANNER_MAX_TOKENS')
 // Garde-fou du profil : le pilote (raisonnement) exige >= 2000 jetons de sortie,
 // sinon il raisonne jusqu au bout et rend un contenu vide (finish=length).
 // Un PLANNER_MAX_TOKENS plus bas est remonte ici, jamais descendre.
@@ -97,8 +100,8 @@ const thinkingOff = new Set()
 // Meme regle pour `reasoning_effort` (PLANNER_REASONING_EFFORT[_<USAGE>]).
 const effortRefusals = new Map()
 const effortOff = new Set()
-const PILOT_MAX_TOKENS = Number(process.env.PLANNER_PILOT_MAX_TOKENS || 4096)
-const PILOT_RETRY_MAX_TOKENS = Number(process.env.PLANNER_PILOT_RETRY_MAX_TOKENS || 8192)
+const PILOT_MAX_TOKENS = config.positiveInt(process.env.PLANNER_PILOT_MAX_TOKENS, 4096, 'PLANNER_PILOT_MAX_TOKENS')
+const PILOT_RETRY_MAX_TOKENS = config.positiveInt(process.env.PLANNER_PILOT_RETRY_MAX_TOKENS, 8192, 'PLANNER_PILOT_RETRY_MAX_TOKENS')
 const PILOT_EFFECTIVE_MAX_TOKENS = Math.max(
   Number.isFinite(PILOT_MAX_TOKENS) ? PILOT_MAX_TOKENS : 4096, 2000)
 const PILOT_RETRY_EFFECTIVE_MAX_TOKENS = Math.max(
@@ -107,7 +110,7 @@ const PILOT_RETRY_EFFECTIVE_MAX_TOKENS = Math.max(
 // Jamais de pilote Astra par ce profil : un modele configure contenant `astra`
 // desactive le profil (le modele explicite est alors utilise tel quel).
 const ASTRA_RE = /astra/i
-const TEMPERATURE = Number(process.env.PLANNER_TEMPERATURE || 0)
+const TEMPERATURE = config.finiteNumber(process.env.PLANNER_TEMPERATURE, 0, 'PLANNER_TEMPERATURE')
 // Duree pendant laquelle Ollama garde le modele charge. Sans cela il le
 // decharge apres 5 min et la premiere etape suivante paie 2 a 4 s de chargement
 // en plein milieu d une mission.
@@ -144,21 +147,21 @@ function isUpstreamRefusal (err) {
   return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(text) && !/model is unavailable/i.test(text)
 }
 const USER_AGENT = process.env.PLANNER_USER_AGENT || 'minecraft-bot/1.0'
-const keyState = modelChain.createKeyState(Number(process.env.PLANNER_KEY_COOLDOWN_MS || 600000))
+const keyState = modelChain.createKeyState(config.positiveInt(process.env.PLANNER_KEY_COOLDOWN_MS, 600000, 'PLANNER_KEY_COOLDOWN_MS'))
 const DEBUG = process.env.PLANNER_DEBUG === '1'
 
 // Seuils regles en jeu (noms JEV_* historiques, gardes pour les .env
 // existants) ; ils ne dependent pas du modele qui repond.
-const DONE_THRESHOLD = Number(process.env.JEV_DONE_THRESHOLD || 0.75)
-const MIN_CONFIDENCE = Number(process.env.JEV_MIN_CONFIDENCE || 0.6)
-const DOOR_THRESHOLD = Number(process.env.JEV_DOOR_THRESHOLD || 0.6)
+const DONE_THRESHOLD = config.boundedNumber(process.env.JEV_DONE_THRESHOLD, 0.75, 0, 1, 'JEV_DONE_THRESHOLD')
+const MIN_CONFIDENCE = config.boundedNumber(process.env.JEV_MIN_CONFIDENCE, 0.6, 0, 1, 'JEV_MIN_CONFIDENCE')
+const DOOR_THRESHOLD = config.boundedNumber(process.env.JEV_DOOR_THRESHOLD, 0.6, 0, 1, 'JEV_DOOR_THRESHOLD')
 
 // Charger 4,7 Go en VRAM prend 30 a 60 s la premiere fois. Tant que ce n est
 // pas fait, AUCUN appel ne tient dans le delai normal : le tout premier ordre
 // du joueur echouait sur « pas de reponse en 8000 ms ». On accorde donc un
 // delai large tant qu aucune reponse n est revenue, et `warmup()` paie ce
 // chargement au demarrage plutot qu au premier ordre.
-const WARMUP_TIMEOUT_MS = Number(process.env.PLANNER_WARMUP_TIMEOUT_MS || 180000)
+const WARMUP_TIMEOUT_MS = config.positiveInt(process.env.PLANNER_WARMUP_TIMEOUT_MS, 180000, 'PLANNER_WARMUP_TIMEOUT_MS')
 
 const prompts = new Map()
 let lastError = null
@@ -264,7 +267,7 @@ function _resetProfile () {
 // inventer. max_tokens modeste (~1000) : la cible de compaction est 4000 jetons
 // estimes, soit ~14 000 caracteres, largement couvert.
 // ---------------------------------------------------------------------------
-const COMPACTOR_MAX_TOKENS = Number(process.env.MEMORY_COMPACTOR_MAX_TOKENS || 1000)
+const COMPACTOR_MAX_TOKENS = config.positiveInt(process.env.MEMORY_COMPACTOR_MAX_TOKENS, 1000, 'MEMORY_COMPACTOR_MAX_TOKENS')
 
 const stats = {
   appels: 0,

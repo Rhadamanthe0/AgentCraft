@@ -37,10 +37,14 @@ const { DELIVERY, DOOR } = require('./conversation')
 const reflexes = require('./reflexes')
 const Vec3 = require('vec3').Vec3
 const planner = require('./planner')
+const { awaitPhysicalWithTimeout, unwrapExecutionEnvelope } = require('./executor')
 const { createScriptBrain } = require('./script-brain')
 const memory = require('./memory')
 const screenshot = require('./screenshot')
 const { blockInReach, clearSegment, itemInPickupRange, isWoodDoor, doorClosed } = require('./navigation')
+// R19 : parsing central des variables numeriques (bot/config.js) : un NaN
+// silencieux desactiverait les garde-fous compares (`steps >= MAX_STEPS`).
+const config = require('./config')
 
 // Qui decide : le planificateur JSON distant (plan de plusieurs etapes par
 // appel).
@@ -53,7 +57,7 @@ function brain (m = null) {
 // Pause entre deux etapes **deja planifiees** : il n y a pas d appel reseau a
 // amortir, seulement le temps que le jeu prenne en compte l etape precedente.
 // C est la moitie du gain de latence, l autre etant l appel economise.
-const QUEUE_TICK_MS = Number(process.env.MISSION_QUEUE_TICK_MS || 250)
+const QUEUE_TICK_MS = config.positiveInt(process.env.MISSION_QUEUE_TICK_MS, 250, 'MISSION_QUEUE_TICK_MS')
 
 // Delai minimal entre deux phrases du bot dans le chat. Sans lui, le modele
 // boucle sur « dire -> attendre » et inonde le chat.
@@ -61,7 +65,7 @@ const QUEUE_TICK_MS = Number(process.env.MISSION_QUEUE_TICK_MS || 250)
 // Delai minimal entre deux messages SYSTEME du bot (impasse, apprentissage d une
 // action). Ils ne passent pas par l action `dire`, donc echappent a sa limite de
 // repetition ; ce delai court les empeche de spammer a eux seuls.
-const ANNOUNCE_COOLDOWN_MS = Number(process.env.MISSION_ANNOUNCE_COOLDOWN_MS || 5000)
+const ANNOUNCE_COOLDOWN_MS = config.positiveInt(process.env.MISSION_ANNOUNCE_COOLDOWN_MS, 5000, 'MISSION_ANNOUNCE_COOLDOWN_MS')
 
 // Un chantier est approvisionne d une seule facon : le bot casse, ramasse et
 // fabrique ce qu il pose.
@@ -72,20 +76,20 @@ const ANNOUNCE_COOLDOWN_MS = Number(process.env.MISSION_ANNOUNCE_COOLDOWN_MS || 
 // proprietaire. Le bot joue avec ce qu il a ramasse, ou il echoue.
 const SUPPLY = 'harvest'
 
-const TICK_MS = Number(process.env.MISSION_TICK_MS || 1200)
-const MAX_STEPS = Number(process.env.MISSION_MAX_STEPS || 60)
+const TICK_MS = config.positiveInt(process.env.MISSION_TICK_MS, 1200, 'MISSION_TICK_MS')
+const MAX_STEPS = config.positiveIntOrThrow(process.env.MISSION_MAX_STEPS, 60, 'MISSION_MAX_STEPS')
 // Un geste ne se mesure pas en quantite : il doit se conclure vite. Sans cette
 // borne, un modele qui n ose jamais dire « fini » boucle sur regarder_autour.
-const GESTE_MAX_STEPS = Number(process.env.MISSION_GESTE_MAX_STEPS || 10)
+const GESTE_MAX_STEPS = config.positiveIntOrThrow(process.env.MISSION_GESTE_MAX_STEPS, 10, 'MISSION_GESTE_MAX_STEPS')
 // Un geste dont le plan echoue replanifie au lieu de conclure sur un echec
 // (voir la boucle). Plafond : le plan initial plus ce nombre de replanifications,
 // pour qu un geste irrealisable rende quand meme la main.
-const GESTE_MAX_PLANS = Number(process.env.MISSION_GESTE_MAX_PLANS || 3)
-const MAX_DURATION_MS = Number(process.env.MISSION_MAX_DURATION_MS || 600000)
-const SEARCH_RADIUS = Number(process.env.MISSION_SEARCH_RADIUS || 32)
-const STEP_TIMEOUT_MS = Number(process.env.MISSION_STEP_TIMEOUT_MS || 20000)
+const GESTE_MAX_PLANS = config.positiveIntOrThrow(process.env.MISSION_GESTE_MAX_PLANS, 3, 'MISSION_GESTE_MAX_PLANS')
+const MAX_DURATION_MS = config.positiveIntOrThrow(process.env.MISSION_MAX_DURATION_MS, 600000, 'MISSION_MAX_DURATION_MS')
+const SEARCH_RADIUS = config.positiveInt(process.env.MISSION_SEARCH_RADIUS, 32, 'MISSION_SEARCH_RADIUS')
+const STEP_TIMEOUT_MS = config.positiveIntOrThrow(process.env.MISSION_STEP_TIMEOUT_MS, 20000, 'MISSION_STEP_TIMEOUT_MS')
 // Quantite visee quand l objectif n en precise aucune ("ramasse de l herbe").
-const DEFAULT_QUOTA = Number(process.env.MISSION_DEFAULT_QUOTA || 16)
+const DEFAULT_QUOTA = config.positiveInt(process.env.MISSION_DEFAULT_QUOTA, 16, 'MISSION_DEFAULT_QUOTA')
 
 // Mini-carte PNG jointe au planificateur (voir screenshot.js). DESACTIVEE par
 // defaut : sans MISSION_SCREENSHOT=1, aucun pixel n est genere et l etat envoye
@@ -129,15 +133,15 @@ function syncActionFeatures () {
   }
 }
 syncActionFeatures()
-const SCREENSHOT_EVERY = Math.max(1, Number(process.env.MISSION_SCREENSHOT_EVERY || 5))
-const SCREENSHOT_RAYON = Math.max(1, Number(process.env.MISSION_SCREENSHOT_RAYON || 16))
+const SCREENSHOT_EVERY = config.positiveInt(process.env.MISSION_SCREENSHOT_EVERY, 5, 'MISSION_SCREENSHOT_EVERY')
+const SCREENSHOT_RAYON = config.positiveInt(process.env.MISSION_SCREENSHOT_RAYON, 16, 'MISSION_SCREENSHOT_RAYON')
 // Portee de casse cote serveur : ~4.5 blocs. On garde une marge.
 const REACH = perception.REACH
 // Degagement de feuilles vers un tronc enferme (mission bois) : feuilles
 // cassees au plus par appel a `avancer`, hors quota, seulement dans le couloir
 // a hauteur du corps entre le bot et la buche visee, et seulement apres un
 // no_path vers cette buche. Aucune autre feuille n est touchee.
-const LEAF_CLEAR_MAX = Number(process.env.MISSION_LEAF_CLEAR_MAX || 12)
+const LEAF_CLEAR_MAX = config.positiveInt(process.env.MISSION_LEAF_CLEAR_MAX, 12, 'MISSION_LEAF_CLEAR_MAX')
 // « un arbre », « l arbre », « cet arbre » : un arbre entier est demande.
 const WHOLE_TREE_TEXT = /\b(?:un|1|cet|ce|l'|l )\s*arbre\b/i
 // Un objectif reecrit par le modele cite souvent la position du joueur
@@ -157,7 +161,8 @@ const ITEM_AUTO_PICKUP = 1.6
 // Profondeur maximale sous ses propres pieds ou le bot accepte de casser.
 // Sans cette borne, une mission « terre » se transforme en puits : la matiere
 // visee est litteralement le sol, et le bot s enterre.
-const MAX_DIG_DEPTH = Number(process.env.MISSION_MAX_DIG_DEPTH || 1)
+// Borne anti-puits : 0 interdit de casser sous ses pieds, 16 reste un garde-fou.
+const MAX_DIG_DEPTH = config.boundedNumberOrThrow(process.env.MISSION_MAX_DIG_DEPTH, 1, 0, 16, 'MISSION_MAX_DIG_DEPTH', { integer: true })
 // Hauteur maximale au-dessus des pieds ou le bot accepte de viser un bloc.
 // Le haut d un tronc est hors de portee et le bot ne grimpe pas (le
 // deplacement de mission est fait de gestes, pas de pathfinder) : sans cette
@@ -323,33 +328,33 @@ function resolveFabricationCible (bot, raw) {
 // journal `[blocage]`). Un seuil en etapes (et non en secondes) parce que tout ce
 // qui compte ici est mesure par avancement : blocs casses, objets recoltes,
 // blocs poses d un chantier.
-const NO_PROGRESS_STEPS = Number(process.env.MISSION_NO_PROGRESS_STEPS || 8)
+const NO_PROGRESS_STEPS = config.positiveInt(process.env.MISSION_NO_PROGRESS_STEPS, 8, 'MISSION_NO_PROGRESS_STEPS')
 
 // Bornes des actions parametrees : une valeur omise par le modele est
 // interpolee entre ces bornes (milieu de plage).
 const HARVEST_MIN = 2
-const HARVEST_MAX = Number(process.env.MISSION_HARVEST_BURST_MAX || 16)
+const HARVEST_MAX = config.positiveInt(process.env.MISSION_HARVEST_BURST_MAX, 16, 'MISSION_HARVEST_BURST_MAX')
 // Duree max d une action `recolter` (chaine avancer/casser/ramasser).
-const RECOLTER_MAX_MS = Number(process.env.MISSION_RECOLTER_MAX_MS || 60000)
+const RECOLTER_MAX_MS = config.positiveInt(process.env.MISSION_RECOLTER_MAX_MS, 60000, 'MISSION_RECOLTER_MAX_MS')
 // Action `explorer` : trajets de recherche au plus, et duree max.
-const EXPLORE_LEGS = Number(process.env.MISSION_EXPLORE_LEGS || 4)
-const EXPLORE_MAX_MS = Number(process.env.MISSION_EXPLORE_MAX_MS || 45000)
-const HARVEST_BURST_MS = Number(process.env.MISSION_HARVEST_BURST_MS || 15000)
+const EXPLORE_LEGS = config.positiveInt(process.env.MISSION_EXPLORE_LEGS, 4, 'MISSION_EXPLORE_LEGS')
+const EXPLORE_MAX_MS = config.positiveInt(process.env.MISSION_EXPLORE_MAX_MS, 45000, 'MISSION_EXPLORE_MAX_MS')
+const HARVEST_BURST_MS = config.positiveInt(process.env.MISSION_HARVEST_BURST_MS, 15000, 'MISSION_HARVEST_BURST_MS')
 const PICKUP_MIN = 1
 const PICKUP_MAX = 6
 const EXPLORE_MAX = 40
 const PLACE_MIN = 4
 const PLACE_MAX = 40
-const PLACE_BURST_MS = Number(process.env.MISSION_PLACE_BURST_MS || 25000)
+const PLACE_BURST_MS = config.positiveInt(process.env.MISSION_PLACE_BURST_MS, 25000, 'MISSION_PLACE_BURST_MS')
 // Garde-fou par bloc : une pose qui ne rend pas la main figerait toute la
 // mission, puisque la borne de rafale n est relue qu entre deux blocs.
 // 18 s et non 6 : `placeOne` inclut le ralliement au poste de tir, borne lui
 // a 12 s par `BUILD_MOVE_TIMEOUT_MS`. Un cap sous le trajet prevu tuait les
 // poses lointaines (« pose trop longue » a 13 blocs du chantier) alors que
 // la marche fonctionnait. La borne de rafale reste le vrai garde-fou global.
-const PLACE_ONE_TIMEOUT_MS = Number(process.env.MISSION_PLACE_ONE_TIMEOUT_MS || 18000)
+const PLACE_ONE_TIMEOUT_MS = config.positiveInt(process.env.MISSION_PLACE_ONE_TIMEOUT_MS, 18000, 'MISSION_PLACE_ONE_TIMEOUT_MS')
 const CRAFT_MIN = 1
-const CRAFT_MAX = Number(process.env.MISSION_CRAFT_MAX || 16)
+const CRAFT_MAX = config.positiveInt(process.env.MISSION_CRAFT_MAX, 16, 'MISSION_CRAFT_MAX')
 // Persisted resume fields (mission-state.js), with this module's bounds.
 const REPRISE = missionState.schemaReprise({ landmarks: skills.LANDMARKS, defaultQuota: DEFAULT_QUOTA, craftMin: CRAFT_MIN, craftMax: CRAFT_MAX })
 
@@ -365,9 +370,9 @@ const STUCK_CHECK_STEP = 0.3
 // Saut de denivele : on declenche tot (600 ms sans progres), puis on RE-essaie
 // en relachant puis rappuyant `jump` (un seul appui ne suffisait pas en mesure).
 // Au-dela de JUMP_MAX_ATTEMPTS, l obstacle est declare infranchissable.
-const JUMP_FIRST_MS = Number(process.env.MISSION_JUMP_FIRST_MS || 600)
-const JUMP_RETRY_MS = Number(process.env.MISSION_JUMP_RETRY_MS || 700)
-const JUMP_MAX_ATTEMPTS = Number(process.env.MISSION_JUMP_MAX_ATTEMPTS || 3)
+const JUMP_FIRST_MS = config.positiveInt(process.env.MISSION_JUMP_FIRST_MS, 600, 'MISSION_JUMP_FIRST_MS')
+const JUMP_RETRY_MS = config.positiveInt(process.env.MISSION_JUMP_RETRY_MS, 700, 'MISSION_JUMP_RETRY_MS')
+const JUMP_MAX_ATTEMPTS = config.positiveInt(process.env.MISSION_JUMP_MAX_ATTEMPTS, 3, 'MISSION_JUMP_MAX_ATTEMPTS')
 
 // Navigation par paliers vers une cible (sans pathfinder) : quand la cible est
 // loin, on vise un point intermediaire atteignable dans la direction puis on
@@ -385,19 +390,7 @@ const NAV_STAGNANT_MAX = 3
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const movementTask = require('./movement-task')
 const activity = require('./activity')
-const BRIEF_NOTICE_MS = Number(process.env.MISSION_BRIEF_NOTICE_MS || 3000)
-
-// Borne une promesse qui pourrait ne jamais se resoudre. La promesse continue
-// sa vie en arriere-plan, mais l appelant reprend la main.
-function withTimeout (promise, ms, label) {
-  let timer = null
-  return Promise.race([
-    promise.finally(() => clearTimeout(timer)),
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(label)), ms)
-    })
-  ])
-}
+const BRIEF_NOTICE_MS = config.positiveInt(process.env.MISSION_BRIEF_NOTICE_MS, 3000, 'MISSION_BRIEF_NOTICE_MS')
 
 // Traduit l ampleur 0..1 (defaut 0,5 : milieu de plage) dans l unite de l action.
 function scaled (scale, min, max) {
@@ -449,6 +442,22 @@ function createMissionRunner (host, injected = {}) {
     return mission?.objectiveId ?? null
   }
 
+  // Borne une promesse physique SANS jamais liberer avant son settle reel
+  // (R01). Au timeout, stopDigging est appele (annulation concrete d un
+  // creusage en vol ; sans effet sur lookAt/equip/pose, qui attendent
+  // simplement leur settle), le settle reel est attendu, puis seulement
+  // l erreur de delai est levee. Comme l etape tourne DANS le slot executeur,
+  // celui-ci reste tenu jusqu a la fin reelle : une operation lente bornee
+  // court ne laisse jamais entrer la suivante (busy) avant d avoir fini.
+  // Un 4e argument fonction remplace l annulation par defaut.
+  function withTimeout (promise, ms, label, onTimeout) {
+    const live = host.getBot()
+    const cancel = typeof onTimeout === 'function'
+      ? onTimeout
+      : () => { try { live?.stopDigging?.() } catch (_) {} }
+    return awaitPhysicalWithTimeout(promise, ms, label, { onTimeout: cancel })
+  }
+
   // Grand livre durable des dons (S6/D20) : par engagement (objectif),
   // destinataire et objet. Survit a stop/reprise, revision, rehydrate (via
   // descripteur) ; jamais efface par la file, le prefetch, terminer/fini ni
@@ -459,6 +468,17 @@ function createMissionRunner (host, injected = {}) {
   const deliveryLedgers = new Map() // `${scope}::${dest}::${item}` -> ledger
   function deliveryScope (m) {
     return m?.objectiveId ?? m?.id ?? 'sans-objectif'
+  }
+  // R25 : scope memoire d un demarrage : l objectiveId (stable a la reprise,
+  // y compris apres restart), a defaut le contexte de la revision, a defaut
+  // null (contexte legacy 'defaut' de memory.js). Une revision garde TOUJOURS
+  // le contexte de sa mission d origine. Pur : ni activation ni vidage ici,
+  // c est start() qui active AVANT tout resetWork.
+  function scopeMemoire (opts = {}) {
+    const rev = opts.revisionOf
+    const id = rev?.memoryScope ?? rev?.objectiveId ?? opts.objectiveId ?? rev?.id ?? null
+    const texte = String(id ?? '').trim()
+    return texte ? texte : null
   }
   function deliveryLedgerKey (scope, dest, item) {
     return `${scope}::${String(dest).toLowerCase()}::${String(item).toLowerCase()}`
@@ -943,7 +963,7 @@ function createMissionRunner (host, injected = {}) {
   // au-dessus peut etre de la terre (creusee en montant). Puis monte niveau par
   // niveau : creuse ce qui gene au-dessus de la tete, pose un bloc sous soi.
   // La terre creusee sert d echafaudage ; le reste est pris dans les parois.
-  const CLIMB_MAX = Number(process.env.MISSION_CLIMB_MAX || 12)
+  const CLIMB_MAX = config.positiveIntOrThrow(process.env.MISSION_CLIMB_MAX, 12, 'MISSION_CLIMB_MAX')
   const TERRE_NATURELLE = /^(dirt|grass_block|coarse_dirt|rooted_dirt|podzol|mycelium|sand|red_sand|gravel|clay|[a-z_]*_leaves)$/
   async function climbOutToward (target, owner) {
     const bot = host.getBot()
@@ -2682,7 +2702,7 @@ function createMissionRunner (host, injected = {}) {
   //   - pose : echafaudage de piler (terre d abord, puis planches pleines),
   //     jamais pendant un chantier ; une tour posee pour un arbre est retiree
   //     avec les piliers une fois l arbre fini.
-  const ACCES_POSE_MAX = Number(process.env.MISSION_ACCES_POSE_MAX || 12)
+  const ACCES_POSE_MAX = config.positiveIntOrThrow(process.env.MISSION_ACCES_POSE_MAX, 12, 'MISSION_ACCES_POSE_MAX')
   async function atteindre (bloc) {
     const bot = host.getBot()
     if (!bot?.entity || !bloc?.position) return { reached: false, code: 'unavailable' }
@@ -6353,13 +6373,17 @@ function createMissionRunner (host, injected = {}) {
           // Reentrance : l etape tient le slot ; ses sous-appels nav passent
           // leur token proprietaire (__owner) et s executent DANS le slot.
           const stepId = `mission-${mission.id}-step-${mission.steps + 1}-${decision.step}`
-          let envelope = null
           const token = {}
           stepOwner = stepId
           stepToken = token
           try {
+            // R03 : enveloppe deballee par l adaptateur commun. Echec ->
+            // code/message d origine (jamais de no_result generique) ;
+            // annulation -> echec interrompu ; seule une valeur absente sur
+            // completed donne no_result (action sans resultat mesurable).
+            let completedEmpty = false
             try {
-              envelope = await exec.run(
+              const envelope = await exec.run(
                 { id: stepId, kind: 'work' },
                 async () => {
                   const value = await run(decision.scale, decision.choices)
@@ -6367,17 +6391,25 @@ function createMissionRunner (host, injected = {}) {
                   await demonterEchafaudage(token)
                   return value
                 })
-            } catch (refus) {
-              outcome = { resultat: `action refusee (${refus.code || 'refus'}) : ${refus.message}`, echec: true, code: refus.code || 'refused' }
-            }
-            if (!outcome) {
-              if (envelope && envelope.cancelled) {
-                outcome = { resultat: 'action interrompue (stop/pause)', echec: true, code: 'cancelled' }
-              } else if (envelope && envelope.value !== undefined && envelope.value !== null) {
-                outcome = envelope.value
+              const value = unwrapExecutionEnvelope(envelope)
+              if (value === undefined || value === null) {
+                completedEmpty = true
               } else {
-                outcome = { resultat: `action sans resultat mesurable (${envelope ? envelope.outcome : 'refus'})`, echec: true, code: 'no_result' }
+                outcome = value
               }
+            } catch (err) {
+              if (err && err.code === 'cancelled') {
+                outcome = { resultat: 'action interrompue (stop/pause)', echec: true, code: 'cancelled' }
+              } else if (err && ['paused', 'stopped', 'busy', 'invalid', 'unavailable', 'aborted'].includes(err.code)) {
+                outcome = { resultat: `action refusee (${err.code}) : ${err.message}`, echec: true, code: err.code }
+              } else if (err && err.code) {
+                outcome = { resultat: `erreur : ${err.message}`, echec: true, code: err.code }
+              } else {
+                outcome = { resultat: `erreur : ${err.message}`, echec: true }
+              }
+            }
+            if (!outcome && completedEmpty) {
+              outcome = { resultat: 'action sans resultat mesurable (completed sans valeur)', echec: true, code: 'no_result' }
             }
           } finally {
             if (stepOwner === stepId) {
@@ -6671,13 +6703,26 @@ function createMissionRunner (host, injected = {}) {
         stepOwner = courseId
         stepToken = courseToken
         try {
+          // R03 : deballage commun de l enveloppe. Failed garde son
+          // code/message (jamais de lecture d une valeur absente), cancelled
+          // devient un arret ; sans resultat mesurable, echec explicite.
           const envelope = await exec.run({ id: courseId, kind: 'work' }, runCourse)
           if (current.navigationAbort !== controller) return
-          if (envelope.cancelled) {
-            await finish('stopped', 'parcours interrompu (stop/pause)')
+          try {
+            result = unwrapExecutionEnvelope(envelope)
+          } catch (err) {
+            if (current.navigationAbort !== controller) return
+            if (err && err.code === 'cancelled') {
+              await finish('stopped', 'parcours interrompu (stop/pause)')
+            } else {
+              await finish('failed', `parcours en echec (${(err && err.code) || 'erreur'}) : ${err.message}`)
+            }
             return
           }
-          result = envelope.value
+          if (!result || typeof result.reached !== 'boolean') {
+            await finish('failed', 'parcours sans resultat mesurable')
+            return
+          }
         } catch (refus) {
           if (current.navigationAbort !== controller) return
           await finish('failed', `parcours refuse (${refus.code || 'refus'}) : ${refus.message}`)
@@ -6952,6 +6997,10 @@ function createMissionRunner (host, injected = {}) {
     mission = {
       id: opts.revisionOf?.id ?? `${Date.now()}-${generation}`,
       objectiveId: opts.objectiveId ?? opts.revisionOf?.objectiveId ?? null,
+      // R25 : scope du contexte memoire transitoire (travail + pending).
+      // Pose a l activation ci-dessous (cle normalisee), snapshotte a la
+      // suspension, restaure a la reprise. Jamais persiste cote controleur.
+      memoryScope: null,
       objectiveMode,
       maintenance: null,
       rehydrated: false,
@@ -7142,6 +7191,11 @@ function createMissionRunner (host, injected = {}) {
 
     // Nouvel objectif : la memoire de travail repart a zero, la memoire longue
     // reste. C est toute la difference entre les deux portees (voir memory.js).
+    // R25 : le contexte est active AVANT tout vidage — resetWork ne vide que
+    // le NOUVEAU contexte, jamais celui d une mission suspendue. Revision :
+    // meme mission, meme contexte, pas de vidage. Pas de commit a
+    // l activation ni a la suspension : le pending ne part qu au finish.
+    mission.memoryScope = memory.setActiveScope(scopeMemoire(opts))
     if (!opts.revisionOf) memory.resetWork()
 
     const known = targetBlockIds().length
@@ -7225,8 +7279,12 @@ function createMissionRunner (host, injected = {}) {
   // d echecs remis a zero), boucle relancee selon son type. La boucle reobserve
   // le monde a chaque tour (buildState) ; le parcours reprend a son curseur
   // (executeTask saute les pas deja prouves) ; rien n est rejoue ni recompte.
+  // R25 : restauration explicite du contexte memoire snapshotte a la
+  // suspension : travail + pending intacts, sans contamination de la mission
+  // intercalee (qui a son propre contexte).
   function activatePaused (m) {
     mission = m
+    try { memory.setActiveScope(m.memoryScope ?? m.objectiveId ?? m.id) } catch (_) {}
     m.activeSince = Date.now()
     m.state = 'running'
     m.cancelled = false
@@ -7272,6 +7330,10 @@ function createMissionRunner (host, injected = {}) {
     reportProgressSafe()
     if (isRunning()) pauseWork(reason)
     const frozen = mission
+    // R25 : snapshot explicite du contexte memoire (scope actif) : la reprise
+    // reactivera exactement celui-ci, pas celui d une mission intercalee.
+    // Pas de commit force : le pending suspendu attendra le finish de SA mission.
+    try { frozen.memoryScope = memory.getActiveScope() } catch (_) {}
     if (!frozen || suspended.includes(frozen)) return frozen
     suspended.push(frozen)
     if (suspended.length > SUSPENDED_MAX) suspended.shift()
@@ -7474,6 +7536,10 @@ function createMissionRunner (host, injected = {}) {
       isActive: () => mission === current && current.state === 'running' })
     mission.activity.update('preparing', 'Reprise après redémarrage.')
     if (mission.movementTask) mission.movementTask.clearance = mission.clearance
+    // R25 : apres restart, contexte vierge scope par l objectif durable (meme
+    // cle qu avant le restart : objectiveId). Pas de vidage : le contexte est
+    // neuf, et un reset ecraserait une reprise concurrente en vol.
+    try { mission.memoryScope = memory.setActiveScope(mission.objectiveId ?? mission.id) } catch (_) {}
     try { physicalExecutor?.resume?.() } catch (_) {}
     loopPromise = (mission.movementTask ? runMovementMission(mission) : loop()).catch(err => {
       console.error('[mission] boucle interrompue :', err.message)

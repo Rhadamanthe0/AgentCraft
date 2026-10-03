@@ -11,11 +11,14 @@
 
 const memory = require('./memory')
 const { videDevant } = require('./perception')
+// R19 : parsing central du delai (bot/config.js) : valeur invalide => repli
+// 20000 + warning, jamais de NaN silencieux.
+const config = require('./config')
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const WAIT_MIN_MS = 1000
 const WAIT_MAX_MS = 5000
-const DIRE_COOLDOWN_MS = Number(process.env.MISSION_DIRE_COOLDOWN_MS || 20000)
+const DIRE_COOLDOWN_MS = config.positiveInt(process.env.MISSION_DIRE_COOLDOWN_MS, 20000, 'MISSION_DIRE_COOLDOWN_MS')
 
 // ctx : { host, getMission, findTargetBlock, scaled }
 function createGestes ({ host, getMission, findTargetBlock, scaled }) {

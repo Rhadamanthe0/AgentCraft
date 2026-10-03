@@ -12,11 +12,16 @@
 const Vec3 = require('vec3').Vec3
 const build = require('./build')
 const { blockInReach } = require('./navigation')
+// R19 : bornes de montee et de visee (bot/config.js), garde-fous critiques
+// comme MISSION_CLIMB_MAX et MISSION_MAX_DIG_DEPTH (AGENTS.md §7 : pilier /
+// bornes de casse) : valeur renseignee mais invalide => demarrage refuse,
+// jamais de filtre compare a NaN (toujours faux, garde-fou desactive).
+const config = require('./config')
 
 const REACH = 4
-const PILER_MAX = Number(process.env.MISSION_PILER_MAX || 6)
+const PILER_MAX = config.positiveIntOrThrow(process.env.MISSION_PILER_MAX, 6, 'MISSION_PILER_MAX')
 // Plus haut casse depuis le sol, en blocs au-dessus des pieds.
-const MAX_REACH_UP = Number(process.env.MISSION_MAX_REACH_UP || 3)
+const MAX_REACH_UP = config.boundedNumberOrThrow(process.env.MISSION_MAX_REACH_UP, 3, 0, 16, 'MISSION_MAX_REACH_UP', { integer: true })
 
 // Dirt de pilier : les blocs meubles du sol, cassables a la main et reposables
 // sous les pieds. Meme motif que la matiere brute `terre`.

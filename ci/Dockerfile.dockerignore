@@ -1,6 +1,7 @@
 **
 !bot/
 !bot/package.json
+!bot/package-lock.json
 !bot/*.js
 !tmp/
 !tmp/*.test.js
@@ -16,4 +17,3 @@
 !ci/multi-bot.js
 !ci/probes.js
 !ci/model-probe.js
-!ci/package-lock.json

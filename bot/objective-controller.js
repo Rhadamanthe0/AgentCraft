@@ -46,7 +46,9 @@
 //   ctrl.recordProgress(valeur) -> copie objectif courant (objet avec
 //     `objectifId` : refuse `stale` si ce n est plus le courant ; sans
 //     objectifId : repli heritage sans controle)
-//   ctrl.complete(resultat?) -> { objectif, restaure? }
+//   ctrl.complete(resultat?) -> { objectif, restaure? } (R05 : { etat: 'done' }
+//     ou sans resultat = succes ; tout autre etat present = archive failed
+//     avec raison/resultat, jamais maintaining/done, sans reactivation)
 //   ctrl.snapshot() -> copie profonde (inclut `outbox`, `pausedStack`, alias `pausedPrevious`)
 //   ctrl.flushOutbox() -> { flushed, remaining, errors } (retry journal, deduplique par id)
 //   ctrl.recover() -> copie snapshot rechargee (revalide faits, reflush, relance timer sauf interruption)
@@ -99,6 +101,137 @@ function normalizeMode (mode) {
   if (MODES.has(key)) return key
   if (MODE_ALIASES[key]) return MODE_ALIASES[key]
   throw new TypeError(`objective-controller: mode inconnu (recu ${String(mode)}, attendu temporary|permanent)`)
+}
+
+// R08 : schema versionne strict du snapshot persiste. Toute lecture qui ne
+// s y conforme pas (version inconnue, tableau manquant, booleen non strict,
+// objectif incomplet, arbitrage incomplet) echoue en lecture seule : recover()
+// leve AVANT toute mutation/sauvegarde et preserve le fichier, sans reecriture
+// auto. Seules des migrations explicites vN->vN+1 testees sont admises ; ici
+// une seule version connue (1), donc toute autre version est refusee.
+const SNAPSHOT_VERSION = 1
+const OBJECTIVE_MODES = new Set(['temporary', 'permanent'])
+
+function assertObjectiveShape (value, field) {
+  if (!isPlainObject(value)) {
+    throw new Error(`objective-controller: snapshot corrompu (${field} : objet objectif attendu)`)
+  }
+  if (typeof value.id !== 'string' || value.id.trim() === '') {
+    throw new Error(`objective-controller: snapshot corrompu (${field}.id : chaine non vide attendue)`)
+  }
+  if (typeof value.auteur !== 'string' || value.auteur.trim() === '') {
+    throw new Error(`objective-controller: snapshot corrompu (${field}.auteur : chaine non vide attendue)`)
+  }
+  if (typeof value.texte !== 'string' || value.texte.trim() === '') {
+    throw new Error(`objective-controller: snapshot corrompu (${field}.texte : chaine non vide attendue)`)
+  }
+  if (typeof value.mode !== 'string' || !OBJECTIVE_MODES.has(value.mode)) {
+    throw new Error(`objective-controller: snapshot corrompu (${field}.mode : temporary|permanent attendu)`)
+  }
+  if (typeof value.statut !== 'string' || value.statut.trim() === '') {
+    throw new Error(`objective-controller: snapshot corrompu (${field}.statut : chaine non vide attendue)`)
+  }
+  if (!Number.isInteger(value.version) || value.version < 1) {
+    throw new Error(`objective-controller: snapshot corrompu (${field}.version : entier >= 1 attendu)`)
+  }
+  if (value.progression !== undefined && !isPlainObject(value.progression)) {
+    throw new Error(`objective-controller: snapshot corrompu (${field}.progression : objet attendu)`)
+  }
+  if (value.contraintes !== undefined && !Array.isArray(value.contraintes)) {
+    throw new Error(`objective-controller: snapshot corrompu (${field}.contraintes : tableau attendu)`)
+  }
+  if (value.createdAt !== undefined && typeof value.createdAt !== 'string') {
+    throw new Error(`objective-controller: snapshot corrompu (${field}.createdAt : chaine attendue)`)
+  }
+  if (value.updatedAt !== undefined && typeof value.updatedAt !== 'string') {
+    throw new Error(`objective-controller: snapshot corrompu (${field}.updatedAt : chaine attendue)`)
+  }
+}
+
+function assertArrayOfObjects (loaded, name) {
+  if (!Array.isArray(loaded[name])) {
+    throw new Error(`objective-controller: snapshot corrompu (${name} : tableau attendu)`)
+  }
+  for (let i = 0; i < loaded[name].length; i++) {
+    if (!isPlainObject(loaded[name][i])) {
+      throw new Error(`objective-controller: snapshot corrompu (${name}[${i}] : objet attendu)`)
+    }
+  }
+}
+
+function assertSnapshotValid (loaded) {
+  if (loaded.version !== SNAPSHOT_VERSION) {
+    throw new Error(`objective-controller: snapshot corrompu (version inconnue ${String(loaded.version)}, attendue ${SNAPSHOT_VERSION}) : migration explicite requise`)
+  }
+  if (!Number.isInteger(loaded.seq) || loaded.seq < 0) {
+    throw new Error('objective-controller: snapshot corrompu (seq : entier >= 0 attendu)')
+  }
+  assertArrayOfObjects(loaded, 'inbox')
+  for (let i = 0; i < loaded.inbox.length; i++) {
+    const m = loaded.inbox[i]
+    if (typeof m.auteur !== 'string' || m.auteur.trim() === '' || typeof m.texte !== 'string' || m.texte.trim() === '') {
+      throw new Error(`objective-controller: snapshot corrompu (inbox[${i}] : auteur/texte non vides attendus)`)
+    }
+  }
+  if (loaded.current !== null && loaded.current !== undefined) {
+    assertObjectiveShape(loaded.current, 'current')
+  }
+  assertArrayOfObjects(loaded, 'pending')
+  for (let i = 0; i < loaded.pending.length; i++) assertObjectiveShape(loaded.pending[i], `pending[${i}]`)
+  assertArrayOfObjects(loaded, 'pausedStack')
+  for (let i = 0; i < loaded.pausedStack.length; i++) assertObjectiveShape(loaded.pausedStack[i], `pausedStack[${i}]`)
+  // Alias historique du sommet : null ou objectif valide, jamais un tableau.
+  if (loaded.pausedPrevious !== null && loaded.pausedPrevious !== undefined) {
+    assertObjectiveShape(loaded.pausedPrevious, 'pausedPrevious')
+  }
+  assertArrayOfObjects(loaded, 'questions')
+  for (let i = 0; i < loaded.questions.length; i++) {
+    if (typeof loaded.questions[i].texte !== 'string' || loaded.questions[i].texte.trim() === '') {
+      throw new Error(`objective-controller: snapshot corrompu (questions[${i}].texte : chaine non vide attendue)`)
+    }
+  }
+  assertArrayOfObjects(loaded, 'archive')
+  for (let i = 0; i < loaded.archive.length; i++) assertObjectiveShape(loaded.archive[i], `archive[${i}]`)
+  assertArrayOfObjects(loaded, 'facts')
+  assertArrayOfObjects(loaded, 'outbox')
+  // Booleens STRICTS : "true"/1 ne valent jamais true (ex hardstop:"true" -> false silencieux refuse).
+  if (typeof loaded.hardstop !== 'boolean') {
+    throw new Error('objective-controller: snapshot corrompu (hardstop : booleen strict attendu)')
+  }
+  if (loaded.hardstopReason !== null && loaded.hardstopReason !== undefined && typeof loaded.hardstopReason !== 'string') {
+    throw new Error('objective-controller: snapshot corrompu (hardstopReason : chaine ou null attendue)')
+  }
+  if (typeof loaded.workPaused !== 'boolean') {
+    throw new Error('objective-controller: snapshot corrompu (workPaused : booleen strict attendu)')
+  }
+  if (loaded.workPausedReason !== null && loaded.workPausedReason !== undefined && typeof loaded.workPausedReason !== 'string') {
+    throw new Error('objective-controller: snapshot corrompu (workPausedReason : chaine ou null attendue)')
+  }
+  if (loaded.arbitration !== null && loaded.arbitration !== undefined) {
+    const arb = loaded.arbitration
+    if (!isPlainObject(arb)) {
+      throw new Error('objective-controller: snapshot corrompu (arbitration : objet ou null attendu)')
+    }
+    // Arbitrage incomplet : echec strict, jamais de reparation silencieuse
+    // (ni pending refile, ni previous restaure, ni defaut).
+    if (!isPlainObject(arb.candidate) || !isPlainObject(arb.previous)) {
+      throw new Error('objective-controller: snapshot corrompu (arbitration : candidate/previous objectifs attendus)')
+    }
+    assertObjectiveShape(arb.candidate, 'arbitration.candidate')
+    assertObjectiveShape(arb.previous, 'arbitration.previous')
+    if (typeof arb.question !== 'string') {
+      throw new Error('objective-controller: snapshot corrompu (arbitration.question : chaine attendue)')
+    }
+    if (typeof arb.deadline !== 'number' || !Number.isFinite(arb.deadline)) {
+      throw new Error('objective-controller: snapshot corrompu (arbitration.deadline : nombre fini attendu)')
+    }
+    if (typeof arb.deadlineIso !== 'string' || arb.deadlineIso === '') {
+      throw new Error('objective-controller: snapshot corrompu (arbitration.deadlineIso : chaine attendue)')
+    }
+    if (arb.generation !== undefined && (!Number.isInteger(arb.generation) || arb.generation < 0)) {
+      throw new Error('objective-controller: snapshot corrompu (arbitration.generation : entier >= 0 attendu)')
+    }
+  }
 }
 
 function createObjectiveController (options = {}) {
@@ -228,6 +361,10 @@ function createObjectiveController (options = {}) {
   }
 
   // Journal secondaire : flush best-effort avec dedup par id. Ne jette jamais.
+  // R02 : copie durable uniquement, JAMAIS d effet live ici. L evenement live
+  // est emis une seule fois par commit/onArbitrationTimeout/recover au moment
+  // de la transition validee ; un rejeu journal ne doit jamais reprendre
+  // executeur/mission ni rejouer une decision depassee.
   function flushOutboxInternal () {
     if (state.outbox.length === 0) return { flushed: 0, remaining: 0, errors: [] }
     let knownIds = null
@@ -248,7 +385,6 @@ function createObjectiveController (options = {}) {
         const stored = store.appendEvent(evt)
         if (knownIds) knownIds.add((stored && stored.id) || evt.id)
         flushed += 1
-        emit(stored)
       } catch (err) {
         errors.push(err && err.message)
         remaining.push(evt)
@@ -320,7 +456,10 @@ function createObjectiveController (options = {}) {
       restoreState(backup)
       throw err
     }
-    // Commit reussi : flush secondaire, sans rollback en cas de panne.
+    // Commit reussi : effet live unique (transition validee), puis copie
+    // journal secondaire sans callback runtime (R02), sans rollback en cas
+    // de panne journal.
+    emit(rawEvent)
     flushOutboxInternal()
     return deepCopy(rawEvent)
   }
@@ -337,6 +476,8 @@ function createObjectiveController (options = {}) {
 
   function scheduleArbitrationTimer (generation) {
     if (!state.arbitration) return
+    // R04 : un seul timer (evite les concurrents sur double resume/recover).
+    try { clearArbitrationTimerSync() } catch { /* best-effort */ }
     try {
       const delay = Math.max(0, state.arbitration.deadline - now())
       const timerId = setTimer(() => onArbitrationTimeout(generation), delay)
@@ -348,11 +489,15 @@ function createObjectiveController (options = {}) {
   }
 
   // Callback timer : ne jette JAMAIS vers l appelant (faux clock comme reels).
+  // R04 : gele tant que workPaused/hardstop (arbitrage preserve, aucune
+  // transition vers active) ; seule resolution/expiration autorisee fait la
+  // transition suivante. Generation/token : un callback tardif est ignore.
   function onArbitrationTimeout (generation) {
     try {
       if (!state.arbitration) return
       if (state.arbitration.generation !== generation) return
       if (state.hardstop) return
+      if (state.workPaused) return
       const backup = captureState()
       try {
         const arb = state.arbitration
@@ -375,6 +520,8 @@ function createObjectiveController (options = {}) {
           emit({ type: 'arbitration-timeout-error', date: isoNow(now), error: err && err.message })
           return
         }
+        // R02 : live unique ici, journal sans callback runtime.
+        emit(rawEvent)
         flushOutboxInternal()
       } catch (err) {
         try { restoreState(backup) } catch { /* restauration best-effort */ }
@@ -559,9 +706,14 @@ function createObjectiveController (options = {}) {
   function pauseWork (reason) {
     const motif = reason === undefined || reason === null || reason === '' ? 'pause' : String(reason)
     const date = isoNow(now)
-    // Securite d abord : couper le timer avant de persister.
+    // Securite d abord : couper le timer avant de persister. R04 : arbitrage
+    // gele mais preserve (deadline+generation intactes, timerId fige a null) ;
+    // l ancien reste en pause, jamais active tant que l arbitrage est ouvert.
     const arb = state.arbitration
-    if (arb) clearArbitrationTimerSync()
+    if (arb) {
+      clearArbitrationTimerSync()
+      try { state.arbitration.timerId = null } catch { /* preserve best-effort */ }
+    }
     commit(() => {
       state.workPaused = true
       state.workPausedReason = motif
@@ -601,10 +753,26 @@ function createObjectiveController (options = {}) {
       state.hardstopReason = null
       state.workPaused = false
       state.workPausedReason = null
-      if (state.current && (state.current.statut === 'paused' || state.current.statut === 'stopped')) {
+      // R04 : tant que l arbitrage est ouvert, l ancien reste en pause ;
+      // seule resolution/expiration peut le repasser active. Le rearm
+      // invalide l ancien timer via generation (pas de concurrent).
+      if (state.arbitration) {
+        state.generation += 1
+        state.arbitration.generation = state.generation
+      } else if (state.current && (state.current.statut === 'paused' || state.current.statut === 'stopped')) {
         state.current = { ...state.current, statut: 'active', version: state.current.version + 1, updatedAt: date }
       }
     }, () => ({ type: 'resume' }))
+    // R04 : rearm du delai restant uniquement, un seul timer. Echeance
+    // depassee pendant la pause -> expiration autorisee immediatement.
+    if (state.arbitration && !state.hardstop && !state.workPaused) {
+      const remaining = state.arbitration.deadline - now()
+      if (remaining <= 0) {
+        onArbitrationTimeout(state.arbitration.generation)
+      } else {
+        scheduleArbitrationTimer(state.arbitration.generation)
+      }
+    }
     return snapshot()
   }
 
@@ -657,10 +825,28 @@ function createObjectiveController (options = {}) {
     const date = isoNow(now)
     const current = state.current
     const resultCopy = result === undefined ? null : deepCopy(result)
+    // R05 : seul un resultat { etat: 'done' } suit le chemin succes. Tout
+    // autre etat present (failed, cancelled, ...) archive l objectif en
+    // failed, jamais done/maintaining. Sans resultat (appel heritage), chemin
+    // succes inchange.
+    const failed = isPlainObject(result) && result.etat !== undefined && result.etat !== null && result.etat !== 'done'
+    const failureReason = failed && typeof result.raison === 'string' && result.raison.trim() !== ''
+      ? result.raison.trim().slice(0, 280)
+      : failed
+        ? `etat ${String(result.etat).slice(0, 60)}`
+        : null
     let outcome = null
     let restored = null
     commit(() => {
-      if (current.mode === 'permanent') {
+      if (failed) {
+        // Echec : archive statut failed avec raison/resultat, pile des
+        // suspendus et attente intactes, AUCUNE reactivation implicite (un
+        // retry eventuel est une politique explicite distincte). En
+        // particulier, une permanente en echec ne devient jamais maintaining.
+        outcome = { ...current, statut: 'failed', version: current.version + 1, updatedAt: date, raison: failureReason, resultat: resultCopy }
+        state.archive = [...state.archive, outcome]
+        state.current = null
+      } else if (current.mode === 'permanent') {
         outcome = { ...current, statut: 'maintaining', version: current.version + 1, updatedAt: date }
         state.current = outcome
       } else {
@@ -680,7 +866,7 @@ function createObjectiveController (options = {}) {
           state.current = null
         }
       }
-    }, () => ({ type: current.mode === 'permanent' ? 'maintaining' : 'complete', objective: deepCopy(outcome), result: resultCopy }))
+    }, () => ({ type: (!failed && current.mode === 'permanent') ? 'maintaining' : 'complete', objective: deepCopy(outcome), result: resultCopy }))
     return { objectif: deepCopy(outcome), restaure: restored ? deepCopy(restored) : null }
   }
 
@@ -696,6 +882,9 @@ function createObjectiveController (options = {}) {
     const loaded = store.load()
     if (loaded === null) return snapshot()
     if (!isPlainObject(loaded)) throw new Error('objective-controller: snapshot corrompu (objet attendu)')
+    // R08 : validation stricte AVANT toute mutation/sauvegarde. Echec = lecture
+    // seule (fichier preserve, aucune reecriture auto, etat in-memoire inchange).
+    assertSnapshotValid(loaded)
     clearArbitrationTimerSync()
     state.seq = Number.isInteger(loaded.seq) && loaded.seq >= 0 ? loaded.seq : 0
     state.inbox = Array.isArray(loaded.inbox) ? deepCopy(loaded.inbox) : []
@@ -737,11 +926,16 @@ function createObjectiveController (options = {}) {
           timerId: null,
           generation: state.generation
         }
-        if (state.hardstop) {
-          // Interruption respectee : aucun timer relance.
+        if (state.hardstop || state.workPaused) {
+          // R04 : interruption respectee (hardstop ou pause) : arbitrage gele,
+          // aucun timer relance, aucune expiration tant que suspendu.
         } else {
           const remaining = state.arbitration.deadline - now()
           if (remaining <= 0) {
+            // Echeance depassee hors interruption : expiration autorisee
+            // (seule transition suivante avec resolution). Recovery basee sur
+            // le snapshot courant, sans effet live historique (R02 : aucun
+            // resume physique implicite ici, la reprise reste explicite).
             const timedOut = state.arbitration
             state.current = { ...timedOut.previous, statut: 'active', updatedAt: isoNow(now) }
             state.pending = [timedOut.candidate, ...state.pending]
@@ -755,9 +949,13 @@ function createObjectiveController (options = {}) {
       state.arbitration = null
     }
     // Evenement durable de reprise, puis save + reflush (dedup par id).
+    // R02 : reflush = copie journal sans callback runtime ; seul 'recovered'
+    // (transition validee ici) donne lieu a un live unique, sans effet
+    // physique (le gestionnaire l ignore).
     const recoveredEvent = { id: nextId('evt'), type: 'recovered', date: isoNow(now) }
     state.outbox = [...state.outbox, deepCopy(recoveredEvent)]
     store.save(persistable())
+    emit(recoveredEvent)
     flushOutboxInternal()
     return snapshot()
   }

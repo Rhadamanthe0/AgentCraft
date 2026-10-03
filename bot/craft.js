@@ -22,6 +22,9 @@
 const Vec3 = require('vec3').Vec3
 const build = require('./build')
 const { planCraft } = require('./recipe-plan')
+// R19 : parsing central des rayons (bot/config.js) : reglages non critiques,
+// valeur invalide => repli + warning, jamais de NaN silencieux.
+const config = require('./config')
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -459,12 +462,12 @@ async function placeNear (bot, item) {
 // y retourne. Borne a 4-6 blocs, le solveur de prerequis le perdait de vue des
 // que le bot partait miner (craft/furnace : pierre a ~25 blocs, plan qui
 // reclamait un nouvel etabli donc du bois, allers-retours bouleau/pierre).
-const TABLE_REUSE_RADIUS = Number(process.env.CRAFT_TABLE_REUSE_RADIUS || 24)
+const TABLE_REUSE_RADIUS = config.positiveInt(process.env.CRAFT_TABLE_REUSE_RADIUS, 24, 'CRAFT_TABLE_REUSE_RADIUS')
 
 // L etabli que CE bot a pose ou utilise reste le sien tant que le bloc est la,
 // jusqu a TABLE_KNOWN_MAX blocs : un rayon fixe ne suffit pas (craft/furnace,
 // 83bbfad : pierre a ~26 blocs de l etabli, juste hors des 24).
-const TABLE_KNOWN_MAX = Number(process.env.CRAFT_TABLE_KNOWN_MAX || 64)
+const TABLE_KNOWN_MAX = config.positiveInt(process.env.CRAFT_TABLE_KNOWN_MAX, 64, 'CRAFT_TABLE_KNOWN_MAX')
 
 function placedTable (bot, radius = TABLE_REUSE_RADIUS) {
   const blockId = bot.registry?.blocksByName?.crafting_table?.id

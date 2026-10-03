@@ -13,18 +13,22 @@ const { createMissionRunner } = require('./mission')
 const { createApi } = require('./api')
 const { createNavigator } = require('./navigation')
 const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText, parseArbitrationChoice } = require('./conversation')
-const { createExecutor } = require('./executor')
+const { createExecutor, awaitPhysicalWithTimeout, createControlLease, runPhysicalOrThrow } = require('./executor')
 const { createStateStore } = require('./state-store')
 const { createObjectiveController } = require('./objective-controller')
+// R19 : parsing central des variables numeriques / enumerees (jamais de NaN
+// silencieux) et affichage de la config effective au demarrage (voir
+// startRuntime). Les garde-fous critiques jettent ici et refusent le demarrage.
+const config = require('./config')
 
 // Le chat est interprete par le planificateur JSON distant, seul cerveau. Pas
 // de repli sur des mots-cles : un bot muet vaut mieux qu un bot qui devine.
 
 const MC_HOST = process.env.MC_HOST || 'minecraft'
-const MC_PORT = Number(process.env.MC_PORT || 25565)
+const MC_PORT = config.boundedNumberOrThrow(process.env.MC_PORT, 25565, 1, 65535, 'MC_PORT', { integer: true })
 const MC_VERSION = process.env.MC_VERSION || '26.1'
 const BOT_USERNAME = process.env.BOT_USERNAME || 'TestBot'
-const API_PORT = Number(process.env.API_PORT || 3000)
+const API_PORT = config.boundedNumberOrThrow(process.env.API_PORT, 3000, 1, 65535, 'API_PORT', { integer: true })
 const CMD_PREFIX = process.env.CMD_PREFIX || '!'
 // Joueurs dont le chat est ignore (liste separee par des virgules, vide par
 // defaut). Sert aux bancs multi-bots : un bot ne doit pas prendre les phrases
@@ -39,18 +43,18 @@ const CHAT_IGNORE_PLAYERS = new Set(String(process.env.CHAT_IGNORE_PLAYERS || ''
 // remettait lui-meme en survie au spawn.
 //
 // Delai laisse a un sauvetage pour rejoindre la terre ferme a pied.
-const RESCUE_WALK_TIMEOUT_MS = Number(process.env.RESCUE_WALK_TIMEOUT_MS || 15000)
+const RESCUE_WALK_TIMEOUT_MS = config.positiveInt(process.env.RESCUE_WALK_TIMEOUT_MS, 15000, 'RESCUE_WALK_TIMEOUT_MS')
 
 // Prismarine's water physics cannot reliably swim a bot out of a pool
 // (PrismarineJS/mineflayer#2796). We therefore avoid liquids while pathfinding
 // and, if the bot ends up in one anyway, rescue it instead of waiting.
-const LIQUID_COST = Number(process.env.LIQUID_COST || 30)
-const LIQUID_GRACE_MS = Number(process.env.LIQUID_GRACE_MS || 5000)
-const STUCK_GRACE_MS = Number(process.env.STUCK_GRACE_MS || 7000)
+const LIQUID_COST = config.finiteNumber(process.env.LIQUID_COST, 30, 'LIQUID_COST', { min: 0 })
+const LIQUID_GRACE_MS = config.positiveInt(process.env.LIQUID_GRACE_MS, 5000, 'LIQUID_GRACE_MS')
+const STUCK_GRACE_MS = config.positiveInt(process.env.STUCK_GRACE_MS, 7000, 'STUCK_GRACE_MS')
 const STUCK_EPSILON = 0.15
 // Repos apres un sauvetage sur la terre ferme. Doit rester plus long que le
 // delai d une etape de mission, sinon les deux se battent.
-const RESCUE_COOLDOWN_MS = Number(process.env.RESCUE_COOLDOWN_MS || 25000)
+const RESCUE_COOLDOWN_MS = config.positiveInt(process.env.RESCUE_COOLDOWN_MS, 25000, 'RESCUE_COOLDOWN_MS')
 
 
 let bot = null
@@ -67,6 +71,10 @@ const SAFE_TRAIL_MIN_STEP = 1
 const ESCAPE_MIN_DISTANCE = 4
 let safeTrail = []
 let lastPathStatus = null
+// R03 : resultat final du dernier /api/goto admis (async) : l admission
+// repond admitted sans attendre, le resultat (completed/failed/cancelled)
+// est expose par /api/status en dernierGoto, jamais comme un ok:true.
+let lastGoto = null
 let lastRescue = null
 let rescueCount = 0
 let rescuing = false
@@ -155,11 +163,11 @@ function stopPathfinding () {
 // inbox + objectifs persistés, executeur a proprietaire unique, deux arrets
 // hors LLM. Factory injectable pour les tests sans vrai bot.
 // ---------------------------------------------------------------------------
-const ARBITRATION_MS = Number(process.env.ARBITRATION_MS || 60000)
+const ARBITRATION_MS = config.positiveInt(process.env.ARBITRATION_MS, 60000, 'ARBITRATION_MS')
 // Nouvelle demande pendant une tache : `remplacement` (defaut, demande du
 // proprietaire le 2026-09-24 : la question a chaque fois etait penible) ou
 // `question` (ancien comportement : pause + « pause_reprise ou remplacement ? »).
-const ARBITRATION_DEFAULT = (process.env.ARBITRATION_DEFAULT || 'remplacement').trim().toLowerCase()
+const ARBITRATION_DEFAULT = config.parseEnum(process.env.ARBITRATION_DEFAULT, ['remplacement', 'question'], 'remplacement', 'ARBITRATION_DEFAULT', { lower: true })
 const OBJECTIVES_FILE = process.env.OBJECTIVES_FILE || '/data/objectives.json'
 const OBJECTIVES_EVENTS_FILE = process.env.OBJECTIVES_EVENTS_FILE || '/data/objectives-events.jsonl'
 
@@ -214,6 +222,9 @@ function createDurableStack (overrides = {}) {
     try {
       return createExecutor({
         stopControls: overrides.stopControls ?? ((reason) => {
+          // R01 : un creusage en vol est annule lui aussi, sinon son settle
+          // tardif chevaucherait l operation suivante.
+          try { bot?.stopDigging?.() } catch (_) {}
           try { bot?.clearControlStates?.() } catch (_) {}
           try { navigator.cancel() } catch (_) {}
           try { bot?.pathfinder?.setGoal?.(null) } catch (_) {}
@@ -274,6 +285,20 @@ async function runPhysical (id, kind, fn) {
   }
   return physicalExecutor.run({ id, kind }, fn)
 }
+
+// Bail de touche persistante (R23) : `!avance` et `/api/control state=true`
+// n appliquent plus une touche puis ne rendent le slot ; ils ACQUIERENT ce
+// lease, qui tient le slot jusqu a `release()` (state=false, meme lease :
+// une touche tenue par l un se libere par l autre) ou abort. Tant que le
+// lease existe, l executeur lui-meme refuse tout travail normal en 'busy' :
+// aucune touche persistante ne survit a la liberation, aucune operation ne
+// chevauche une touche tenue. Fail-closed : sans executeur, pas de lease.
+const controlLease = createControlLease({
+  run: runPhysical,
+  stopNavigation: () => { try { stopPathfinding() } catch (_) {} },
+  applyControl: (control, state) => { bot.setControlState(control, state) },
+  clearControls: () => { try { bot.clearControlStates() } catch (_) {} }
+})
 
 // Bypass proprietaire : seule la sous-etape dont le token (identite OBJET
 // opaque, reference ===) egale le token courant du detenteur s execute DANS
@@ -372,8 +397,13 @@ function totalStopAll (reason) {
 function resumeAll (reason) {
   // Ordre corrige : la persistance controller doit REUSSIR avant de lever la
   // pause executeur, sinon le physique repart sans objectif repris (bug).
+  // R04 : arbitrage ouvert -> l ancien reste en pause, pas de reprise
+  // physique (le controller rearm seulement le delai restant).
   if (!objectives) throw physicalRefusal('unavailable', 'objectifs indisponibles (fail-closed)')
   objectives.resume()
+  let snap = null
+  try { snap = objectivesSnapshotSafe() } catch (_) { snap = null }
+  if (snap && snap.arbitration) { void reason; return }
   try { physicalExecutor?.resume?.() } catch (_) {}
   void reason
 }
@@ -408,7 +438,7 @@ const BUILT_BLOCK = /(_planks|_door|_trapdoor|glass|glass_pane|chest|_bed|furnac
 // Deplacement de mission en creusant (dernier recours apres no_path) : chute
 // seche bornee a deux blocs pour ne jamais se blesser (degats au-dela de
 // trois), pas de parkour, liquides evites comme ailleurs.
-const DIG_NAV_TIMEOUT_MS = Number(process.env.DIG_NAV_TIMEOUT_MS || 45000)
+const DIG_NAV_TIMEOUT_MS = config.positiveInt(process.env.DIG_NAV_TIMEOUT_MS, 45000, 'DIG_NAV_TIMEOUT_MS')
 // Portee du but « bloc en vue » de digToward, sous celle des actions (4, depuis
 // les yeux) : GoalLookAtBlock mesure depuis le coin du noeud, pas les yeux.
 const DIG_LOOK_REACH = 3.5
@@ -479,45 +509,79 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
   const movements = protectBuilt ? joinDigMovements : safeDigMovements
   if (!bot?.pathfinder || !movements || !bot.entity) return { reached: false, code: 'unavailable' }
   const start = bot.entity.position.clone()
+  // R01 : le trajet qui creuse ne rend JAMAIS avant le settle reel du goto.
+  // Timeout, abort et stuck appellent l annulation concrete (setGoal(null))
+  // puis attendent le settle, et seulement apres rendent leur code. Sans
+  // cela, le slot (etape mission ou commande) se liberait pendant que le bot
+  // marchait encore, et l operation suivante chevauchait.
   let timer = null
   let onAbort = null
   let onReset = null
+  let timedOut = false
+  let abortFired = Boolean(signal && signal.aborted)
+  let stuckFired = false
+  const cancelGoto = () => { try { bot.pathfinder.setGoal(null) } catch (_) {} }
   stopPathfinding()
   bot.pathfinder.setMovements(movements)
   const goal = block
     ? new goals.GoalLookAtBlock(block, bot.world, { reach: DIG_LOOK_REACH })
     : new goals.GoalNear(position.x, position.y, position.z, range)
+  const settleGate = bot.pathfinder.goto(goal).then(
+    value => ({ ok: true, value }),
+    error => ({ ok: false, error })
+  )
+  const latchGate = new Promise(resolve => {
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => { timedOut = true; cancelGoto(); resolve('timeout') }, timeoutMs)
+    }
+    if (signal) {
+      if (signal.aborted) {
+        abortFired = true
+        cancelGoto()
+        resolve('abort')
+      } else if (typeof signal.addEventListener === 'function') {
+        onAbort = () => { abortFired = true; cancelGoto(); resolve('abort') }
+        try { signal.addEventListener('abort', onAbort, { once: true }) } catch { /* ecoute best-effort */ }
+      }
+    }
+    // Le pathfinder replanifie sans fin le meme pas impossible (montee d un
+    // bloc dans une ouverture de deux de haut : la tete touche) et le bot
+    // restait sur place jusqu au delai, 45 s (gather/sand-walled cabbdfcd).
+    // Plusieurs `stuck` sans bouger : echec franc, apres le settle.
+    let stuck = 0
+    let from = null
+    onReset = reason => {
+      if (reason !== 'stuck' || !bot.entity) return
+      if (!from || bot.entity.position.distanceTo(from) > 0.5) {
+        from = bot.entity.position.clone()
+        stuck = 0
+      }
+      stuck += 1
+      if (stuck >= DIG_STUCK_MAX && !stuckFired) {
+        stuckFired = true
+        cancelGoto()
+        resolve('stuck')
+      }
+    }
+    bot.on('path_reset', onReset)
+  })
   try {
-    await Promise.race([
-      bot.pathfinder.goto(goal),
-      new Promise((resolve, reject) => {
-        timer = setTimeout(() => reject(new Error('timeout')), timeoutMs)
-      }),
-      new Promise((resolve, reject) => {
-        if (!signal) return
-        onAbort = () => reject(new Error('annule'))
-        if (signal.aborted) onAbort()
-        else signal.addEventListener('abort', onAbort, { once: true })
-      }),
-      // Le pathfinder replanifie sans fin le meme pas impossible (montee d un
-      // bloc dans une ouverture de deux de haut : la tete touche) et le bot
-      // restait sur place jusqu au delai, 45 s (gather/sand-walled cabbdfcd).
-      // Plusieurs `stuck` sans bouger : echec franc tout de suite.
-      new Promise((resolve, reject) => {
-        let stuck = 0
-        let from = null
-        onReset = reason => {
-          if (reason !== 'stuck' || !bot.entity) return
-          if (!from || bot.entity.position.distanceTo(from) > 0.5) {
-            from = bot.entity.position.clone()
-            stuck = 0
-          }
-          stuck += 1
-          if (stuck >= DIG_STUCK_MAX) reject(new Error('stuck'))
-        }
-        bot.on('path_reset', onReset)
-      })
-    ])
+    await Promise.race([settleGate, latchGate])
+    const settle = await settleGate // <-- jamais de retour avant ce settle
+    if (abortFired || (signal && signal.aborted)) {
+      return { reached: false, code: 'cancelled', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: 'annule' }
+    }
+    if (!settle.ok) {
+      const message = String(settle.error?.message ?? settle.error)
+      const code = /annule/.test(message) ? 'cancelled' : 'no_path'
+      return { reached: false, code, travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: message.slice(0, 120) }
+    }
+    if (timedOut) {
+      return { reached: false, code: 'timeout', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: 'timeout' }
+    }
+    if (stuckFired) {
+      return { reached: false, code: 'stuck', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: 'stuck' }
+    }
     const distance = bot.entity.position.distanceTo(position)
     return { reached: block ? true : distance <= range + 1, code: 'dug', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), distance }
   } catch (err) {
@@ -611,6 +675,40 @@ function escapePosition () {
 //
 // Les bassins de test du monde (~65, 63, -100) sont donc devenus des pieges
 // reels et non plus une demonstration de sauvetage.
+// Attente interrompue par le signal du slot : un rescue annule (pauseWork)
+// libere le slot vite au lieu de tenir jump pendant toute la duree.
+function sleepAbortable (ms, signal) {
+  if (!signal || typeof signal.addEventListener !== 'function') {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  }
+  if (signal.aborted) return Promise.resolve()
+  return new Promise(resolve => {
+    const cleanup = () => { try { signal.removeEventListener('abort', onAbort) } catch (_) {} }
+    const onAbort = () => { clearTimeout(timer); cleanup(); resolve() }
+    const timer = setTimeout(() => { cleanup(); resolve() }, ms)
+    try { signal.addEventListener('abort', onAbort, { once: true }) } catch { resolve() }
+  })
+}
+
+// Marche vers `destination` SANS prendre de slot : l appelant detient deja le
+// slot survie (rescue en une seule prise) ou en prend un (walkToSafety).
+// R01 : le timeout annule le goto (setGoal(null)) puis attend son settle reel
+// avant de rendre 'trajet trop long' ; le slot reste tenu jusque-la.
+async function walkToDestination (destination, signal) {
+  const { x, y, z } = destination
+  stopPathfinding()
+  // Se degager d un trou ou d un encastrement autorise le creusage : un bot
+  // coince dans le decor ne peut sortir autrement (plus de teleportation).
+  setNavigation('dig')
+  await awaitPhysicalWithTimeout(
+    bot.pathfinder.goto(new goals.GoalNear(x, y, z, 1)),
+    RESCUE_WALK_TIMEOUT_MS,
+    'trajet trop long',
+    { signal, onTimeout: () => { try { bot.pathfinder.setGoal(null) } catch (_) {} } }
+  )
+  if (signal?.aborted) throw Object.assign(new Error('sauvetage annule'), { code: 'cancelled' })
+}
+
 async function walkToSafety (reason) {
   const destination = escapePosition()
 
@@ -620,34 +718,15 @@ async function walkToSafety (reason) {
   }
 
   const { x, y, z } = destination
-  let timer = null
 
   try {
     // Sauvetage DANS le slot survie : le timeout borne l attente mais ne
     // libere jamais le slot (resolution reelle du callback uniquement).
-    const envelope = await runPhysical(`rescue-walk-${Date.now()}`, 'survival', async ({ signal }) => {
-      stopPathfinding()
-      // Se degager d un trou ou d un encastrement autorise le creusage : un bot
-      // coince dans le decor ne peut sortir autrement (plus de teleportation).
-      setNavigation('dig')
-      try {
-        await Promise.race([
-          bot.pathfinder.goto(new goals.GoalNear(x, y, z, 1)),
-          new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error('trajet trop long')), RESCUE_WALK_TIMEOUT_MS)
-          })
-        ])
-      } finally {
-        if (timer) { clearTimeout(timer); timer = null }
-      }
-      if (signal?.aborted) throw Object.assign(new Error('sauvetage annule'), { code: 'cancelled' })
+    // R03 : echec et annulation ne sont jamais comptes comme un succes.
+    await runPhysicalOrThrow(runPhysical, `rescue-walk-${Date.now()}`, 'survival', async ({ signal }) => {
+      await walkToDestination(destination, signal)
       return { walked: true }
     })
-    if (envelope.cancelled) {
-      lastRescue = { at: new Date().toISOString(), reason, action: 'cancelled' }
-      return false
-    }
-
     rescueCount += 1
     lastRescue = {
       at: new Date().toISOString(),
@@ -659,6 +738,10 @@ async function walkToSafety (reason) {
     return true
   } catch (err) {
     try { bot.pathfinder.setGoal(null) } catch (_) {}
+    if (err && err.code === 'cancelled') {
+      lastRescue = { at: new Date().toISOString(), reason, action: 'cancelled' }
+      return false
+    }
     if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable')) {
       lastRescue = { at: new Date().toISOString(), reason, action: `refused-${err.code}`, detail: err.message }
       return false
@@ -668,8 +751,6 @@ async function walkToSafety (reason) {
     // Sans pouvoir se teleporter, le bot n a plus qu a demander de l aide.
     say(`Coincé (${reason}), aide-moi.`)
     return false
-  } finally {
-    if (timer) clearTimeout(timer)
   }
 }
 
@@ -683,54 +764,89 @@ async function walkToSafety (reason) {
 // saut sur place ne deplace plus un bot qui allait tres bien.
 async function rescue (reason, { escalate = false } = {}) {
   if (rescuing || !bot || !spawned) return
-  // Arret total : rescue interdit (fail-closed, D18). Slot tenu => pas de
-  // chevauchement auto. On le dit une fois.
+  // Arret total : rescue interdit (fail-closed, D18). On le dit une fois.
   if (isHardStopped()) {
     lastRescue = { at: new Date().toISOString(), reason, action: 'refused-hardstop' }
     return
   }
-  try {
-    const st = physicalExecutor ? physicalExecutor.status() : null
-    if (st && st.busy) {
-      lastRescue = { at: new Date().toISOString(), reason, action: 'refused-busy', detail: `executeur occupe par ${st.current?.id}` }
-      return
-    }
-  } catch (_) {}
+  // AUCUNE mutation avant l admission : le slot survie est acquis D ABORD, et
+  // toutes les mutations (stop, touches, goto) vivent DEDANS. Slot tenu
+  // (travail en cours, meme sourd a l abort) => refus honnete sans
+  // chevauchement : preemption = pauseWork puis vraie sortie, jamais de
+  // mutation simultanee. Le chien de garde reessaiera au prochain tick.
   rescuing = true
 
   try {
-    console.log(`[rescue] triggered: ${reason}`)
-    const wasInLiquid = inLiquid()
-    const before = bot.entity.position.clone()
+    try {
+      // R03 : echec et annulation du slot survie ne sont jamais des succes.
+      await runPhysicalOrThrow(runPhysical, `rescue-${Date.now()}`, 'survival', async ({ signal }) => {
+        console.log(`[rescue] triggered: ${reason}`)
+        const wasInLiquid = inLiquid()
+        const before = bot.entity.position.clone()
 
-    stopPathfinding()
-    bot.clearControlStates()
+        stopPathfinding()
+        try { bot.clearControlStates() } catch (_) {}
 
-    if (wasInLiquid) {
-      bot.setControlState('jump', true)
-      await new Promise(resolve => setTimeout(resolve, 2500))
-      bot.setControlState('jump', false)
-    } else if (escalate) {
-      // Un saut sur place libere la plupart des coincements, sans deplacer le
-      // bot si tout allait bien.
-      bot.setControlState('jump', true)
-      await new Promise(resolve => setTimeout(resolve, 1200))
-      bot.clearControlStates()
-    }
+        if (!signal?.aborted) {
+          if (wasInLiquid) {
+            bot.setControlState('jump', true)
+            await sleepAbortable(2500, signal)
+            try { bot.setControlState('jump', false) } catch (_) {}
+          } else if (escalate) {
+            // Un saut sur place libere la plupart des coincements, sans deplacer le
+            // bot si tout allait bien.
+            bot.setControlState('jump', true)
+            await sleepAbortable(1200, signal)
+            try { bot.clearControlStates() } catch (_) {}
+          }
+        }
 
-    const moved = bot.entity ? bot.entity.position.distanceTo(before) : 0
-    const stillStuck = inLiquid() || (escalate && moved < 0.5)
+        if (signal?.aborted) throw Object.assign(new Error('sauvetage annule'), { code: 'cancelled' })
 
-    if (stillStuck) {
-      await walkToSafety(reason)
-      await new Promise(resolve => setTimeout(resolve, 500))
-    } else {
-      const action = wasInLiquid ? 'swam out' : 'cleared goal and controls'
-      rescueCount += 1
-      lastRescue = { at: new Date().toISOString(), reason, action }
-      console.log(`[rescue] ${action}, no teleport needed`)
+        const moved = bot.entity ? bot.entity.position.distanceTo(before) : 0
+        const stillStuck = inLiquid() || (escalate && moved < 0.5)
+
+        if (stillStuck) {
+          // Meme marche que walkToSafety, mais DANS ce slot (pas de run
+          // imbrique, qui serait refuse busy par soi-meme).
+          const destination = escapePosition()
+          if (!destination) {
+            lastRescue = { at: new Date().toISOString(), reason, action: 'none', detail: 'aucune position sure memorisee' }
+            return { walked: false }
+          }
+          await walkToDestination(destination, signal)
+          await sleepAbortable(500, signal)
+          if (signal?.aborted) throw Object.assign(new Error('sauvetage annule'), { code: 'cancelled' })
+          const { x, y, z } = destination
+          rescueCount += 1
+          lastRescue = {
+            at: new Date().toISOString(),
+            reason,
+            action: 'walk',
+            to: { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)), z: Number(z.toFixed(2)) }
+          }
+          console.log(`[rescue] ${reason} -> rejoint a pied ${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`)
+          return { walked: true }
+        }
+        const action = wasInLiquid ? 'swam out' : 'cleared goal and controls'
+        rescueCount += 1
+        lastRescue = { at: new Date().toISOString(), reason, action }
+        console.log(`[rescue] ${action}, no teleport needed`)
+        return { walked: false }
+      })
+    } catch (err) {
+      if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable')) {
+        lastRescue = { at: new Date().toISOString(), reason, action: `refused-${err.code}`, detail: err.message }
+        return
+      }
+      if (err && err.code === 'cancelled') {
+        lastRescue = { at: new Date().toISOString(), reason, action: 'cancelled' }
+        return
+      }
+      throw err
     }
   } catch (err) {
+    lastRescue = { at: new Date().toISOString(), reason, action: 'failed', detail: err.message }
     console.error('[rescue] failed:', err.message)
   } finally {
     resetWatchdog()
@@ -888,26 +1004,27 @@ function requireAdmissionOrThrow () {
     if (st && st.busy) throw physicalRefusal('busy', `executeur occupe par ${st.current?.id}`)
   } catch (err) {
     if (err && err.code) throw err
+    throw physicalRefusal('unavailable', 'admission indisponible (fail-closed)')
   }
 }
 
 function startOnly (control) {
-  // Touche directe gardee par le writer (admission), executee dedans.
-  // Tenu indefini cote jeu : le slot couvre l admission + la pose, documente
-  // comme tel dans /api/status (couverture partielle honnete).
-  // Erreurs d admission dites dans le chat (jamais silencieuses) : false.
+  // Touche directe en LEASE explicite (R23) : acquire applique la touche DANS
+  // le slot et le TIENT jusqu a release (state=false, meme lease, via
+  // /api/control ou une autre touche). Tant que le lease existe, l executeur
+  // refuse tout travail normal en 'busy' : pas de chevauche, pas de touche
+  // persistante hors propriete. Erreurs d admission dites dans le chat : false.
   try {
     requireAdmissionOrThrow()
   } catch (err) {
     say(`Ordre refuse (${err.code || 'refus'}) : ${err.message}`)
     return false
   }
-  runPhysical(`cmd-touch-${control}-${Date.now()}`, 'work', async () => {
-    stopPathfinding()
-    bot.clearControlStates()
-    bot.setControlState(control, true)
-    return { control }
-  }).catch(err => {
+  if (controlLease.status().held) {
+    say(`Ordre refuse (busy) : touche ${controlLease.status().control} tenue`)
+    return false
+  }
+  controlLease.acquire(control, `cmd-touch-${control}-${Date.now()}`).catch(err => {
     say(`Ordre refuse (${err.code || 'refus'}) : ${err.message}`)
   })
   return true
@@ -970,7 +1087,8 @@ const HANDLERS = {
       return
     }
     try {
-      await runPhysical(`cmd-saute-${Date.now()}`, 'work', async ({ signal }) => {
+      // R03 : echec et annulation ne sont jamais des succes silencieux.
+      const outcome = await runPhysicalOrThrow(runPhysical, `cmd-saute-${Date.now()}`, 'work', async ({ signal }) => {
         for (let i = 0; i < count; i += 1) {
           if (!bot || !spawned || signal?.aborted) return { cancelled: Boolean(signal?.aborted) }
           bot.setControlState('jump', true)
@@ -982,8 +1100,15 @@ const HANDLERS = {
         }
         return { count }
       })
+      if (outcome && outcome.cancelled) say('Saut interrompu.')
     } catch (err) {
-      say(`Saut refuse (${err.code || 'refus'}) : ${err.message}`)
+      if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable')) {
+        say(`Saut refuse (${err.code || 'refus'}) : ${err.message}`)
+      } else if (err && err.code === 'cancelled') {
+        say('Saut interrompu.')
+      } else {
+        say(`Saut impossible (${(err && err.code) || 'erreur'}) : ${err.message}`)
+      }
     }
   },
 
@@ -1026,19 +1151,29 @@ const HANDLERS = {
     // jusqu au resultat physique, meme si le calcul A* a deja termine.
     say(`Je vais en ${Math.floor(x)} ${Math.floor(y)} ${Math.floor(z)}`)
     const target = { x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) }
-    runPhysical(`cmd-va-${Date.now()}`, 'work', async ({ signal }) => {
-      if (signal?.aborted) return { code: 'cancelled', reached: false }
+    // R03 : echec et annulation ne sont jamais des succes silencieux : le
+    // resultat final est dit, avec son code (slot libere dans tous les cas).
+    runPhysicalOrThrow(runPhysical, `cmd-va-${Date.now()}`, 'work', async ({ signal }) => {
+      if (signal?.aborted) {
+        const err = new Error('deplacement annule')
+        err.code = 'cancelled'
+        throw err
+      }
       stopPathfinding()
       return await navigator.toPosition(target, { signal, radius: 1 })
-    }).then(envelope => {
-      const result = envelope?.value
-      if (!envelope?.cancelled && result && !result.reached && result.code !== 'cancelled') {
+    }).then(result => {
+      if (result && !result.reached && result.code !== 'cancelled') {
         say(`Je ne peux pas atteindre ces coordonnees : ${result.code}`)
+      } else if (!result) {
+        say('Je ne peux pas atteindre ces coordonnees : sans_resultat')
       }
     }).catch(err => {
       if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable')) {
         say(`Deplacement refuse (${err.code}) : ${err.message}`)
+      } else if (err && err.code === 'cancelled') {
+        // Stop pendant le trajet : silence, jamais un succes.
       } else {
+        say(`Je ne peux pas atteindre ces coordonnees : ${(err && err.code) || 'erreur'}`)
         console.error(`[nav] va impossible : ${err.message}`)
       }
     })
@@ -1060,22 +1195,21 @@ const HANDLERS = {
     say('J arrive.')
     let result
     try {
-      const envelope = await runPhysical(`cmd-viens-${username}-${Date.now()}`, 'work',
+      // R03 : enveloppe deballee ; echec et annulation ne sont jamais lus
+      // comme un succes, et une valeur absente n est jamais dereferencee.
+      result = await runPhysicalOrThrow(runPhysical, `cmd-viens-${username}-${Date.now()}`, 'work',
         async ({ signal }) => {
           missionRunner.stop('remplacee par un suivi')
           stopPathfinding()
           return navigator.toPlayer(username, { follow: true, signal })
         })
-      // Enveloppe cancelled = stop pendant le trajet : ne jamais readmettre
-      // un callback tardif comme un succes.
-      result = envelope && envelope.cancelled
-        ? { code: 'cancelled', reached: false }
-        : envelope.value
     } catch (err) {
-      say(`Rejoindre impossible (${err.code || 'refus'}) : ${err.message}`)
+      // Enveloppe cancelled = stop pendant le trajet : silence, jamais un succes.
+      if (err && err.code === 'cancelled') return
+      say(`Rejoindre impossible (${(err && err.code) || 'refus'}) : ${err.message}`)
       return
     }
-    if (result.code !== 'cancelled' && !result.reached) say(`Rejoindre impossible : ${result.code}`)
+    if (!result || (result.code !== 'cancelled' && !result.reached)) say(`Rejoindre impossible : ${result?.code ?? 'sans_resultat'}`)
   },
 
   sors (username) {
@@ -1088,7 +1222,7 @@ const HANDLERS = {
     say(`Je suis en ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}${inLiquid() ? ' (dans un liquide)' : ''}`)
   },
 
-  vois (username) {
+  async vois (username) {
     // L entite d un joueur n existe que si elle est chargee autour du bot : sa
     // presence est exactement la reponse a « est-ce que tu me vois ».
     const target = bot.players[username]?.entity
@@ -1107,9 +1241,30 @@ const HANDLERS = {
       : (dz >= 0 ? 'sud' : 'nord')
 
     say(`Vu : ${distance.toFixed(1)} blocs, ${direction}.`)
-    // Se tourner vers le joueur : une reponse « je te vois » qui regarde ailleurs
-    // se voit tout de suite en jeu.
-    bot.lookAt(target.position.offset(0, 1, 0), true).catch(() => {})
+    // Se tourner vers le joueur, mais JAMAIS hors-slot : slot tenu (mission,
+    // touche en lease, trajet) => purement observationnel, yaw/pitch
+    // intacts. Sinon le regard passe par le writer, borne comme ailleurs.
+    try {
+      requireAdmissionOrThrow()
+    } catch {
+      return
+    }
+    try {
+      // R03 : deballe, jamais de succes sur echec/annulation. La reponse
+      // observationnelle a deja ete dite : un echec reste silencieux ici.
+      await runPhysicalOrThrow(runPhysical, `cmd-vois-${Date.now()}`, 'work', async () => {
+        stopPathfinding()
+        await awaitPhysicalWithTimeout(
+          bot.lookAt(target.position.offset(0, 1, 0), true),
+          3000,
+          'visee trop longue'
+        )
+        return { looked: true }
+      })
+    } catch {
+      // Admission perdue entre-temps ou visee trop longue : la reponse
+      // observationnelle a deja ete dite, rien a ajouter.
+    }
   },
 
   async mission (username, args, raw) {
@@ -1135,6 +1290,26 @@ function handleHardStop () {
 }
 
 function handleResume () {
+  // R04 : arbitrage ouvert -> l ancien reste en pause, on rearm seulement le
+  // delai restant (controller), jamais de reprise mission/physique.
+  let preSnap = null
+  try { preSnap = objectivesSnapshotSafe() } catch (_) { preSnap = null }
+  if (preSnap && preSnap.arbitration) {
+    try {
+      resumeAll()
+    } catch (err) {
+      say(`Reprise impossible : ${err.message} (pause maintenue)`)
+      return
+    }
+    let post = null
+    try { post = objectivesSnapshotSafe() } catch (_) { post = null }
+    // Expiration survenue au resume (echeance depassee) : poursuivre le
+    // parcours normal ci-dessous ; sinon garder la pause d arbitrage.
+    if (post && post.arbitration) {
+      say('Arbitrage en cours : je garde la pause, « remplace » ou « reprends après » ?')
+      return
+    }
+  }
   // 1. Mission en pause en memoire : reprise directe (persistance d abord).
   const m0 = missionRunner.status()
   if (m0 && m0.etat === 'paused') {
@@ -1164,6 +1339,17 @@ function handleResume () {
   // objectifs (arbitrage) restant permis — rien n'est demarre seul.
   let snap = null
   try { snap = objectivesSnapshotSafe() } catch (_) { snap = null }
+  if (snap && snap.arbitration) {
+    try { resumeAll() } catch (err) {
+      say(`Reprise impossible : ${err.message} (pause maintenue)`)
+      return
+    }
+    try { snap = objectivesSnapshotSafe() } catch (_) { snap = null }
+    if (snap && snap.arbitration) {
+      say('Arbitrage en cours : je garde la pause, « remplace » ou « reprends après » ?')
+      return
+    }
+  }
   const cur = snap?.current
   if (cur && (cur.statut === 'paused' || cur.statut === 'stopped' || cur.statut === 'active')) {
     try {
@@ -1421,6 +1607,10 @@ async function resolveIntent (username, raw, opts) {
 // l appelant : ici no-op idempotent. Complete/maintaining : annonce, jamais
 // de replay automatique d effets incertains ; l ancien en pile attend un
 // ordre explicite.
+// R02 : seuls les lives (transition validee) arrivent ici ; le flush journal
+// ne callback jamais le runtime. R04 : reprise physique seulement si le
+// snapshot courant confirme (arbitration fermee, ni hardstop ni pause) ;
+// un rejeu ou callback tardif ne reprend jamais.
 function handleObjectiveEvent (evt) {
   if (!evt || typeof evt.type !== 'string') return
   try {
@@ -1430,6 +1620,10 @@ function handleObjectiveEvent (evt) {
       }
       try { physicalExecutor?.pauseWork?.('arbitrage concurrent') } catch (_) {}
     } else if (evt.type === 'arbitration-timeout') {
+      let snap = null
+      try { snap = objectivesSnapshotSafe() } catch (_) { snap = null }
+      const stale = !snap || snap.hardstop || snap.workPaused || snap.arbitration != null
+      if (stale) return
       try { physicalExecutor?.resume?.() } catch (_) {}
       const m = missionRunner.status()
       if (m && m.etat === 'paused') {
@@ -1594,6 +1788,8 @@ const app = createApi({
   get lastPathLength () { return lastPathLength },
   get lastPathStatus () { return lastPathStatus },
   set lastPathStatus (value) { lastPathStatus = value },
+  get lastGoto () { return lastGoto },
+  set lastGoto (value) { lastGoto = value },
   get lastRescue () { return lastRescue },
   get rescueCount () { return rescueCount },
   get commandAudit () { return commandAudit }
@@ -1607,6 +1803,7 @@ const app = createApi({
   activeControls,
   conversation,
   craft,
+  controlLease,
   durableCorrupted,
   durablePersistError,
   handleHardStop,
@@ -1692,6 +1889,7 @@ let server = null
 
 function startRuntime () {
   if (watchdogTimer) return { app, server }
+  config.logEffectiveConfig()
   watchdogTimer = setInterval(watchdogTick, 1000)
   server = app.listen(API_PORT, '0.0.0.0', () => {
     console.log(`[api] Web controller listening on port ${API_PORT}`)
@@ -1759,6 +1957,7 @@ module.exports = {
   handleObjectiveEvent,
   getController: () => objectives,
   getExecutor: () => physicalExecutor,
+  getControlLease: () => controlLease,
   getNavigator: () => navigator,
   readDirectMode
 }

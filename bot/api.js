@@ -8,6 +8,11 @@
 
 const express = require('express')
 const path = require('path')
+const { runPhysicalOrThrow } = require('./executor')
+// R10 : validation stricte des corps de requetes AVANT tout effet de bord.
+// Chaque 400 sort avant admission, lease, cancel ou mission : une requete
+// rejetee ne modifie jamais le runtime.
+const config = require('./config')
 
 function createApi (rt, deps) {
   const {
@@ -19,6 +24,7 @@ function createApi (rt, deps) {
     MC_VERSION,
     activeControls,
     conversation,
+    controlLease,
     craft,
     durableCorrupted,
     durablePersistError,
@@ -107,17 +113,24 @@ function createApi (rt, deps) {
       mission: missionRunner.status(),
       // Cycle durable (additif) : objectifs/inbox + executeur, sans changer
       // les champs historiques. `physicalWriter` dit honnetement ce qui passe
-      // Couverture honnete du writer : jamais singleWriter:true tant qu une
-      // exception subsiste (touches directes tenue indefinite, regards).
+      // par le writer unique : touches persistantes en lease (slot tenu de
+      // state=true a state=false) et regards admis avant lookAt, comme le
+      // reste (plus d exception connue).
       objectifs: objectivesSnapshotSafe(),
       durableCorrompu: durableCorrupted(),
       durableErreur: durablePersistError(),
       executor: (() => { try { return physicalExecutor ? physicalExecutor.status() : null } catch (_) { return null } })(),
+      // R03 : resultat final du dernier /api/goto admis (async) : l admission
+      // repond admitted sans attendre, mais le resultat (completed / failed /
+      // cancelled, code et message conserves) est expose ici, jamais comme un
+      // second ok:true.
+      dernierGoto: rt.lastGoto ?? null,
+      toucheTenue: (() => { try { return controlLease ? controlLease.status() : null } catch (_) { return null } })(),
       physicalWriter: {
-        singleWriter: false,
-        couverture: 'partielle',
-        viaExecuteur: ['mission-steps', 'mission-parcours', 'nav-commands', 'rescue-walk', 'api-control', 'api-goto', 'api-jump', 'api-turn', 'api-look', 'touches-commandes', 'saut-commande'],
-        exceptions: ['touches-tenues-indefini-apres-admission', 'regards-lookAt-hors-slot'],
+        singleWriter: true,
+        couverture: 'totale',
+        viaExecuteur: ['mission-steps', 'mission-parcours', 'nav-commands', 'rescue-walk', 'rescue', 'api-control-lease', 'api-goto', 'api-jump', 'api-turn', 'api-look', 'touches-commandes-lease', 'saut-commande', 'regard-vois'],
+        exceptions: [],
         profilPilote: (() => { try { return planner.profileStatus?.() ?? null } catch (_) { return null } })()
       },
       // L inventaire decide de tout en survie : le voir sans entrer en jeu evite
@@ -187,6 +200,15 @@ function createApi (rt, deps) {
     })
   })
 
+  // R24 : etat de la memoire (corruption lecture seule, erreur d ecriture).
+  // Lecture seule : ne touche ni au fichier ni a l etat.
+  app.get('/api/memory/status', (req, res) => {
+    const st = typeof memory.status === 'function'
+      ? memory.status()
+      : { fichier: memory.FILE, corrompue: false, erreur: null, erreurEcriture: memory.persistError, generation: memory.generation }
+    res.json({ ok: true, ...st })
+  })
+
   app.delete('/api/memory', (req, res) => {
     const portee = String(req.query.portee ?? req.body?.portee ?? 'tout')
     const result = memory.clear(portee)
@@ -204,50 +226,60 @@ function createApi (rt, deps) {
   })
 
   app.post('/api/control', requireBot, async (req, res) => {
-    const control = String(req.body.control || '')
-    const state = Boolean(req.body.state)
+    const body = req.body ?? {}
+    // Touche enumeree (cles connues) et state strict via config, jamais
+    // Boolean() (R23 : 'false' devenait true, l absence un release).
+    // Acquire/release exigent un booleen explicite ; sinon 400 sans effet.
+    const controlParsed = config.parseRequestEnum(body.control, CONTROL_KEYS, { name: 'control' })
+    const state = config.strictBoolean(body.state)
 
-    const allowed = new Set(CONTROL_KEYS)
+    if (!controlParsed.ok) {
+      return res.status(400).json({ ok: false, error: controlParsed.error })
+    }
+    const control = controlParsed.value
 
-    if (!allowed.has(control)) {
-      return res.status(400).json({ ok: false, error: 'Invalid control' })
+    if (state === null) {
+      return res.status(400).json({ ok: false, error: 'state must be a boolean (true to hold, false to release)' })
+    }
+    if (!controlLease || typeof controlLease.acquire !== 'function') {
+      return res.status(409).json({ ok: false, error: 'lease de touches indisponible (fail-closed)', code: 'unavailable' })
     }
     // Garde executeur : arret total ou slot tenu => refus fail-closed, jamais
     // de chevauchement avec une mission/nav en cours.
     if (isHardStopped()) {
       return res.status(409).json({ ok: false, error: 'arret total : reprends d abord', code: 'stopped' })
     }
-    try {
-      const st = physicalExecutor ? physicalExecutor.status() : null
-      if (st && st.busy) {
-        return res.status(409).json({ ok: false, error: `executeur occupe par ${st.current?.id}`, code: 'busy' })
-      }
-      if (st && st.paused) {
-        return res.status(409).json({ ok: false, error: 'travail en pause', code: 'paused' })
-      }
-    } catch (_) {}
 
-    // Controle manuel DANS le writer (admission fail-closed busy/stop d abord,
-    // jamais de chevauchement). Tenu indefini cote jeu : documente comme tel.
+    if (state === true) {
+      // Acquire : la touche est appliquee DANS le slot, qui reste TENU tant
+      // que le lease existe. Reponse immediate d admission, comme /api/goto :
+      // le slot, lui, ne se libere qu a release (state=false) ou abort.
+      try {
+        requireAdmissionOrThrow()
+      } catch (err) {
+        return res.status(409).json({ ok: false, error: err.message, code: err.code || 'refus' })
+      }
+      try {
+        await controlLease.acquire(control, `api-control-${control}-${Date.now()}`)
+      } catch (err) {
+        return res.status(409).json({ ok: false, error: err.message, code: err.code || 'refus' })
+      }
+      return res.json({ ok: true, control, state, controls: activeControls() })
+    }
+    // Release : libere le MEME lease, quel que soit son mode d acquisition
+    // (!avance ou /api/control). La touche s eteint dans le slot, qui se
+    // libere ensuite : la suivante est admise. Idempotent : sans touche
+    // tenue, ok:true avec released:false (compat : jamais de 400).
+    let released = false
     try {
-      requireAdmissionOrThrow()
+      const outcome = await controlLease.release()
+      // Bail reel : { released: true/false }. Mocks historiques sans forme :
+      // compat (release effectue), released:true.
+      released = outcome && typeof outcome.released === 'boolean' ? outcome.released : true
     } catch (err) {
       return res.status(409).json({ ok: false, error: err.message, code: err.code || 'refus' })
     }
-    try {
-      await runPhysical(`api-control-${control}-${Date.now()}`, 'work', async () => {
-        const held = state ? activeControls() : []
-        if (state && rt.bot?.pathfinder?.goal) stopPathfinding()
-        rt.bot.setControlState(control, state)
-        for (const name of held) {
-          if (name !== control) rt.bot.setControlState(name, true)
-        }
-        return { control, state }
-      })
-    } catch (err) {
-      return res.status(409).json({ ok: false, error: err.message, code: err.code || 'refus' })
-    }
-    res.json({ ok: true, control, state, controls: activeControls() })
+    res.json({ ok: true, control, state, released, controls: activeControls() })
   })
 
   app.post('/api/jump', requireBot, async (req, res) => {
@@ -256,8 +288,10 @@ function createApi (rt, deps) {
     } catch (err) {
       return res.status(409).json({ ok: false, error: err.message, code: err.code || 'refus' })
     }
+    // R03 : le callback qui jette ne rend jamais ok:true (code/message
+    // conserves, slot libere par l executeur dans tous les cas).
     try {
-      await runPhysical(`api-jump-${Date.now()}`, 'work', async () => {
+      await runPhysicalOrThrow(runPhysical, `api-jump-${Date.now()}`, 'work', async () => {
         stopPathfinding()
         rt.bot.setControlState('jump', true)
         await new Promise(resolve => setTimeout(resolve, 300))
@@ -265,17 +299,22 @@ function createApi (rt, deps) {
         return { jumped: true }
       })
     } catch (err) {
-      return res.status(409).json({ ok: false, error: err.message, code: err.code || 'refus' })
+      if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable' || err.code === 'cancelled')) {
+        return res.status(409).json({ ok: false, error: err.message, code: err.code })
+      }
+      return res.status(500).json({ ok: false, error: err.message, code: (err && err.code) || 'erreur' })
     }
     res.json({ ok: true })
   })
 
   app.post('/api/turn', requireBot, async (req, res) => {
-    const degrees = Number(req.body.degrees)
-
-    if (!Number.isFinite(degrees) || Math.abs(degrees) > 360) {
-      return res.status(400).json({ ok: false, error: 'degrees must be between -360 and 360' })
+    // Nombre fini et borne, sans coercition (Number(null) valait 0 : un tour
+    // nul admis pour rien). 400 avant toute admission.
+    const parsed = config.parseRequestNumber((req.body ?? {}).degrees, { min: -360, max: 360, name: 'degrees' })
+    if (!parsed.ok) {
+      return res.status(400).json({ ok: false, error: parsed.error })
     }
+    const degrees = parsed.value
     try {
       requireAdmissionOrThrow()
     } catch (err) {
@@ -283,7 +322,7 @@ function createApi (rt, deps) {
     }
 
     try {
-      await runPhysical(`api-turn-${Date.now()}`, 'work', async () => {
+      await runPhysicalOrThrow(runPhysical, `api-turn-${Date.now()}`, 'work', async () => {
         stopPathfinding()
         const radians = degrees * Math.PI / 180
         await rt.bot.look(rt.bot.entity.yaw + radians, rt.bot.entity.pitch, true)
@@ -291,20 +330,27 @@ function createApi (rt, deps) {
       })
       res.json({ ok: true })
     } catch (err) {
-      if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable')) {
+      if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable' || err.code === 'cancelled')) {
         return res.status(409).json({ ok: false, error: err.message, code: err.code })
       }
-      res.status(500).json({ ok: false, error: err.message })
+      res.status(500).json({ ok: false, error: err.message, code: (err && err.code) || 'erreur' })
     }
   })
 
   app.post('/api/look', requireBot, async (req, res) => {
-    const yaw = Number(req.body.yaw)
-    const pitch = Number(req.body.pitch)
-
-    if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) {
-      return res.status(400).json({ ok: false, error: 'yaw and pitch must be numbers in degrees' })
+    // yaw borne au tour complet, pitch a la verticale : sans borne, un pitch
+    // absurde partait au slot physique avant d echouer. 400 avant admission.
+    const body = req.body ?? {}
+    const yawParsed = config.parseRequestNumber(body.yaw, { min: -360, max: 360, name: 'yaw' })
+    const pitchParsed = config.parseRequestNumber(body.pitch, { min: -90, max: 90, name: 'pitch' })
+    if (!yawParsed.ok) {
+      return res.status(400).json({ ok: false, error: yawParsed.error })
     }
+    if (!pitchParsed.ok) {
+      return res.status(400).json({ ok: false, error: pitchParsed.error })
+    }
+    const yaw = yawParsed.value
+    const pitch = pitchParsed.value
     try {
       requireAdmissionOrThrow()
     } catch (err) {
@@ -312,41 +358,60 @@ function createApi (rt, deps) {
     }
 
     try {
-      await runPhysical(`api-look-${Date.now()}`, 'work', async () => {
+      await runPhysicalOrThrow(runPhysical, `api-look-${Date.now()}`, 'work', async () => {
         stopPathfinding()
         await rt.bot.look(yaw * Math.PI / 180, pitch * Math.PI / 180, true)
         return { yaw, pitch }
       })
       res.json({ ok: true })
     } catch (err) {
-      if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable')) {
+      if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable' || err.code === 'cancelled')) {
         return res.status(409).json({ ok: false, error: err.message, code: err.code })
       }
-      res.status(500).json({ ok: false, error: err.message })
+      res.status(500).json({ ok: false, error: err.message, code: (err && err.code) || 'erreur' })
     }
   })
 
   app.post('/api/chat', requireBot, (req, res) => {
-    const message = String(req.body.message || '').trim()
-
-    if (!message || message.length > 240) {
-      return res.status(400).json({ ok: false, error: 'Message must contain 1 to 240 characters' })
+    // Chaine reelle exigee : String({}) valait '[object Object]' et partait au jeu.
+    const parsed = config.parseRequestString((req.body ?? {}).message, { minLen: 1, maxLen: 240, name: 'message' })
+    if (!parsed.ok) {
+      return res.status(400).json({ ok: false, error: parsed.error })
     }
+    const message = parsed.value
 
     rt.bot.chat(message)
     res.json({ ok: true })
   })
 
-  app.post('/api/goto', requireBot, (req, res) => {
-    const x = Number(req.body.x)
-    const y = Number(req.body.y)
-    const z = Number(req.body.z)
-    const rangeInput = Number(req.body.range ?? 1)
-    const range = Math.max(1, Math.min(8, Number.isFinite(rangeInput) ? rangeInput : 1))
-
-    if (![x, y, z].every(Number.isFinite)) {
-      return res.status(400).json({ ok: false, error: 'x, y and z must be numbers' })
+  app.post('/api/goto', requireBot, async (req, res) => {
+    // Coordonnees finies dans le monde, range entier borne : Number(null)
+    // valait 0 (destination 0,0,0 admise) et un range 'abc' retombait a 1 en
+    // silence. Toute erreur rend 400 avant toute admission.
+    const body = req.body ?? {}
+    const xParsed = config.parseRequestNumber(body.x, { min: -30000000, max: 30000000, name: 'x' })
+    const yParsed = config.parseRequestNumber(body.y, { min: -2048, max: 2048, name: 'y' })
+    const zParsed = config.parseRequestNumber(body.z, { min: -30000000, max: 30000000, name: 'z' })
+    if (!xParsed.ok) {
+      return res.status(400).json({ ok: false, error: xParsed.error })
     }
+    if (!yParsed.ok) {
+      return res.status(400).json({ ok: false, error: yParsed.error })
+    }
+    if (!zParsed.ok) {
+      return res.status(400).json({ ok: false, error: zParsed.error })
+    }
+    let range = 1
+    if (body.range !== undefined) {
+      const rangeParsed = config.parseRequestNumber(body.range, { min: 1, max: 8, integer: true, name: 'range' })
+      if (!rangeParsed.ok) {
+        return res.status(400).json({ ok: false, error: rangeParsed.error })
+      }
+      range = rangeParsed.value
+    }
+    const x = xParsed.value
+    const y = yParsed.value
+    const z = zParsed.value
     // Admission AVANT tout ordre (fail-closed) : un refus ne detruit rien.
     try {
       requireAdmissionOrThrow()
@@ -357,14 +422,52 @@ function createApi (rt, deps) {
     const target = { x, y, z, range: Math.floor(range) }
     // Une invocation = tout le trajet, en tache de fond (reponse immediate
     // d admission, slot tenu jusqu a resolution reelle).
-    runPhysical(`api-goto-${Date.now()}`, 'work', async ({ signal }) => {
-      if (signal?.aborted) return { code: 'cancelled', reached: false }
+    // R03 : l admission repond admitted sans attendre la fin du trajet, mais
+    // APRES la prise effective du slot (I1) : un busy concurrent rend 409,
+    // jamais admitted:true suivi d un lastGoto failed. Le resultat final est
+    // enregistre (rt.lastGoto, expose par /api/status en dernierGoto) avec
+    // son outcome distinct : jamais de ok:true sur failed/cancelled.
+    const admittedAt = new Date().toISOString()
+    let priseResolve = null
+    const prise = new Promise(resolve => { priseResolve = resolve })
+    const execPromise = runPhysicalOrThrow(runPhysical, `api-goto-${Date.now()}`, 'work', async (ctx) => {
+      try { priseResolve() } catch (_) {}
+      const signal = ctx?.signal
+      if (signal?.aborted) {
+        const err = new Error('goto annule avant depart')
+        err.code = 'cancelled'
+        throw err
+      }
       stopPathfinding()
       rt.lastPathStatus = null
       return await navigator.toPosition({ x, y, z }, { signal, radius: target.range })
-    }).catch(err => {
-      console.error(`[nav] goto refuse/interrompu (${err.code || 'erreur'}) : ${err.message}`)
     })
+    // Prise effective avant de repondre : le refus d admission (busy, paused,
+    // stopped, unavailable) rejette avant la prise et rend 409. Un echec du
+    // trajet APRES la prise reste un lastGoto failed, jamais un 409.
+    try {
+      await Promise.race([prise, execPromise])
+    } catch (err) {
+      return res.status(409).json({ ok: false, error: err.message, code: (err && err.code) || 'refus' })
+    }
+    execPromise.then(
+      result => {
+        try { rt.lastGoto = { target, admittedAt, at: new Date().toISOString(), outcome: 'completed', result } } catch (_) {}
+      },
+      err => {
+        console.error(`[nav] goto refuse/interrompu (${err.code || 'erreur'}) : ${err.message}`)
+        try {
+          rt.lastGoto = {
+            target,
+            admittedAt,
+            at: new Date().toISOString(),
+            outcome: err && err.code === 'cancelled' ? 'cancelled' : 'failed',
+            code: (err && err.code) || 'erreur',
+            error: err.message
+          }
+        } catch (_) {}
+      }
+    )
     res.json({ ok: true, admitted: true, target })
   })
 
@@ -372,9 +475,19 @@ function createApi (rt, deps) {
   // stop / arret total / reprends bypassent le modele ; le reste passe par la
   // conversation (question/context conservent, concurrent => arbitrage).
   app.post('/api/instruction', validateModeFirst, requireBot, async (req, res) => {
-    const message = String(req.body.message ?? '').trim()
-    const requester = String(req.body.requester ?? '').trim()
-    if (!message || message.length > 1000 || !requester) return res.status(400).json({ ok: false, error: 'message et requester requis' })
+    // Validation complete avant tout effet (inbox, stop, reprise) : une 400 ne
+    // pousse rien dans recentChat et ne touche a aucun arret.
+    const body = req.body ?? {}
+    const messageParsed = config.parseRequestString(body.message, { minLen: 1, maxLen: 1000, name: 'message' })
+    if (!messageParsed.ok) {
+      return res.status(400).json({ ok: false, error: messageParsed.error })
+    }
+    const requesterParsed = config.parseRequestString(body.requester, { minLen: 1, maxLen: 32, name: 'requester' })
+    if (!requesterParsed.ok) {
+      return res.status(400).json({ ok: false, error: requesterParsed.error })
+    }
+    const message = messageParsed.value
+    const requester = requesterParsed.value
     // Inbox persistee best-effort AVANT interpret (sans perte sur annulation).
     // Le terminal (propose/addContext) persiste aussi : en cas de doublon futur,
     // c est l inbox qui fait foi, jamais une perte.
@@ -397,13 +510,24 @@ function createApi (rt, deps) {
   })
 
   app.post('/api/mission', validateModeFirst, requireBot, async (req, res) => {
-    conversation.cancel(false)
-    const objective = String(req.body.objective || '').trim()
-    const requester = String(req.body.requester || 'api').slice(0, 32)
-
-    if (!objective || objective.length > 240) {
-      return res.status(400).json({ ok: false, error: 'objective must contain 1 to 240 characters' })
+    // R10 : validation COMPLETE avant tout effet de bord. Le cancel annulait
+    // les interpretations en vol meme pour un objectif vide ou trop long : une
+    // 400 ne doit jamais modifier le runtime (ni cancel, ni objectif).
+    const body = req.body ?? {}
+    const objectiveParsed = config.parseRequestString(body.objective, { minLen: 1, maxLen: 240, name: 'objective' })
+    if (!objectiveParsed.ok) {
+      return res.status(400).json({ ok: false, error: objectiveParsed.error })
     }
+    let requester = 'api'
+    if (body.requester !== undefined) {
+      const requesterParsed = config.parseRequestString(body.requester, { minLen: 1, maxLen: 32, name: 'requester' })
+      if (!requesterParsed.ok) {
+        return res.status(400).json({ ok: false, error: requesterParsed.error })
+      }
+      requester = requesterParsed.value
+    }
+    const objective = objectiveParsed.value
+    conversation.cancel(false)
     // Meme intake durable que le chat (hardstop + arbitrage), jamais direct.
     const result = await startObjectiveDurable(objective, requester, req.directMode ? { mode: req.directMode } : undefined)
     if (!result.ok && !result.arbitration && !result.queued) return res.status(409).json(result)
@@ -415,17 +539,36 @@ function createApi (rt, deps) {
   // d avance, aucun appel au modele. Fermee hors banc (MISSION_SCRIPT=1).
   app.post('/api/mission/script', validateModeFirst, requireBot, async (req, res) => {
     if (process.env.MISSION_SCRIPT !== '1') return res.status(404).json({ ok: false, error: 'missions scriptees fermees (MISSION_SCRIPT)' })
-    const objective = String(req.body.objective || '').trim()
-    const requester = String(req.body.requester || 'api').slice(0, 32)
-    if (!objective || objective.length > 240) {
-      return res.status(400).json({ ok: false, error: 'objective must contain 1 to 240 characters' })
+    // Validation complete avant tout effet : 400/409 avant le cancel.
+    const body = req.body ?? {}
+    const objectiveParsed = config.parseRequestString(body.objective, { minLen: 1, maxLen: 240, name: 'objective' })
+    if (!objectiveParsed.ok) {
+      return res.status(400).json({ ok: false, error: objectiveParsed.error })
     }
-    if (!Array.isArray(req.body.script) || req.body.script.length === 0) {
-      return res.status(400).json({ ok: false, error: 'script must be a non-empty array' })
+    let requester = 'api'
+    if (body.requester !== undefined) {
+      const requesterParsed = config.parseRequestString(body.requester, { minLen: 1, maxLen: 32, name: 'requester' })
+      if (!requesterParsed.ok) {
+        return res.status(400).json({ ok: false, error: requesterParsed.error })
+      }
+      requester = requesterParsed.value
     }
+    const scriptParsed = config.parseRequestArray(body.script, { minLen: 1, maxLen: 200, item: 'object', name: 'script' })
+    if (!scriptParsed.ok) {
+      return res.status(400).json({ ok: false, error: scriptParsed.error })
+    }
+    let brief = {}
+    if (body.brief !== undefined) {
+      const briefParsed = config.parseRequestObject(body.brief, { name: 'brief' })
+      if (!briefParsed.ok) {
+        return res.status(400).json({ ok: false, error: briefParsed.error })
+      }
+      brief = briefParsed.value
+    }
+    const objective = objectiveParsed.value
     if (missionRunner.isRunning()) return res.status(409).json({ ok: false, error: 'mission en cours' })
     conversation.cancel(false)
-    const result = await startObjectiveDurable(objective, requester, { script: req.body.script, brief: req.body.brief ?? {} })
+    const result = await startObjectiveDurable(objective, requester, { script: scriptParsed.value, brief })
     res.status(result.ok ? 200 : 409).json(result)
   })
 

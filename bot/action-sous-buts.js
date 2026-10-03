@@ -11,8 +11,13 @@
 // moindre changement mesure (blocs poses, inventaire, plan) arretent le
 // sous-but, dit. Bornes : tours et duree.
 
-const TOURS_MAX = Number(process.env.MISSION_SOUS_BUT_TOURS || 30)
-const DUREE_MAX_MS = Number(process.env.MISSION_SOUS_BUT_MAX_MS || 600000)
+// R19 : bornes de la boucle autonome (bot/config.js), garde-fous critiques
+// comme GESTE_MAX_STEPS / MAX_DURATION_MS : valeur renseignee mais invalide
+// => demarrage refuse, jamais de borne NaN qui desactiverait la boucle.
+const config = require('./config')
+
+const TOURS_MAX = config.positiveIntOrThrow(process.env.MISSION_SOUS_BUT_TOURS, 30, 'MISSION_SOUS_BUT_TOURS')
+const DUREE_MAX_MS = config.positiveIntOrThrow(process.env.MISSION_SOUS_BUT_MAX_MS, 600000, 'MISSION_SOUS_BUT_MAX_MS')
 const SANS_PROGRES_MAX = 3
 
 // Le prochain geste d un chantier, d apres ce que le code mesure. Rend
