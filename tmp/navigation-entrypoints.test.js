@@ -5,6 +5,8 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const { runPhysicalOrThrow } = require('../bot/executor')
+const config = require('../bot/config')
 const source = fs.readFileSync(path.join(__dirname, '../bot/index.js'), 'utf8')
 // Les routes HTTP vivent dans bot/api.js depuis le decoupage d index.js.
 const apiSource = fs.readFileSync(path.join(__dirname, '../bot/api.js'), 'utf8')
@@ -23,14 +25,23 @@ function fixture ({ refused = false, aborted = false } = {}) {
     requireAdmissionOrThrow: () => { if (refused) throw Object.assign(new Error('occupe'), { code: 'busy' }) },
     stopPathfinding: () => { state.stops++ },
     navigator: { toPosition: (target, opts) => { state.calls.push({ target, opts }); return navigation } },
+    runPhysicalOrThrow,
+    config,
+    // Writer au contrat de l executeur (R03) : il rend une enveloppe, jamais
+    // la valeur brute ; runPhysicalOrThrow la deballe.
     runPhysical: (id, kind, execute) => {
       state.id = id
       state.kind = kind
-      state.pending = Promise.resolve(execute({ signal: controller.signal })).then(value => {
+      let started
+      try { started = Promise.resolve(execute({ signal: controller.signal })) } catch (err) { started = Promise.reject(err) }
+      const settled = started
+        .then(value => ({ id, kind, outcome: 'completed', value }),
+          err => ({ id, kind, outcome: err.code === 'cancelled' ? 'cancelled' : 'failed', error: err.message, code: err.code }))
+      state.pending = settled.then(envelope => {
         state.settled = true
-        return { value }
+        return { value: envelope.outcome === 'completed' ? envelope.value : { code: envelope.code } }
       })
-      return state.pending
+      return settled
     },
     app: { post: (url, middleware, handler) => { state.goto = handler } }
   }
@@ -62,7 +73,7 @@ test('!va conserve le writer jusqu au resultat et transmet les echecs physiques'
 
 test('/api/goto admet immediatement, conserve coordonnees et ne conclut pas avant navigation', async () => {
   const f = fixture()
-  f.goto({ body: { x: 12.4, y: 65.5, z: -4.2, range: 2 } }, f.response)
+  await f.goto({ body: { x: 12.4, y: 65.5, z: -4.2, range: 2 } }, f.response)
   assert.equal(f.body.admitted, true)
   assert.equal(f.settled, false)
   assert.deepEqual(JSON.parse(JSON.stringify(f.calls[0].target)), { x: 12.4, y: 65.5, z: -4.2 })
@@ -78,7 +89,7 @@ test('refus admission et signal deja annule ne touchent pas au trajet courant', 
     for (const scenario of [{ refused: true }, { aborted: true }]) {
       const f = fixture(scenario)
       if (entry === 'command') f.va('human', ['12', '65', '-4'])
-      else f.goto({ body: { x: 12, y: 65, z: -4 } }, f.response)
+      else await f.goto({ body: { x: 12, y: 65, z: -4 } }, f.response)
       if (f.pending) assert.equal((await f.pending).value.code, 'cancelled')
       assert.equal(f.stops, 0)
       assert.equal(f.calls.length, 0)

@@ -52,7 +52,8 @@ const TIMEOUT_MS = config.positiveInt(process.env.PLANNER_TIMEOUT_MS, 12000, 'PL
 // after RELAUNCH_MS, the call is cut and made again once with the time left;
 // the overall deadline stays TIMEOUT_MS. A/B switch: feature `relance_plan`
 // (mission.js).
-const RELAUNCH_MS = config.positiveInt(process.env.PLANNER_RELAUNCH_MS, 10000, 'PLANNER_RELAUNCH_MS')
+// 0 desactive la relance (planner-profile.test.js) : borne basse 0, pas 1.
+const RELAUNCH_MS = config.finiteNumber(process.env.PLANNER_RELAUNCH_MS, 10000, 'PLANNER_RELAUNCH_MS', { min: 0 })
 // Below this time left, a relaunch has no chance of an answer: no relaunch.
 const RELAUNCH_MIN_LEFT_MS = 1000
 // Models that answered at least once in this process (relaunch only these).

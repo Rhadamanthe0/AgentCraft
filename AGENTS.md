@@ -329,6 +329,11 @@ dans `docs/journal.md` (section « Les pieges »).
 15. **Git Bash (Windows)** : `MSYS_NO_PATHCONV=1` devant tout `docker compose
     cp/exec` avec un chemin du conteneur ; heredocs de plus de ~150 lignes
     casses par l outil Bash : ecrire le script dans un fichier.
+16. **`config.positiveInt` refuse 0** (repli sur le defaut, `bot/config.js`) :
+    une variable ou 0 veut dire « coupe » (`PLANNER_RELAUNCH_MS`,
+    `MISSION_BRIEF_NOTICE_MS`) se lit par `config.finiteNumber(..., { min: 0 })`.
+    Avant `config.js`, `Number('0' || d)` valait 0 : la conversion du 2026-10-03
+    avait rallume ces deux mecanismes en silence.
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 

@@ -390,7 +390,8 @@ const NAV_STAGNANT_MAX = 3
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const movementTask = require('./movement-task')
 const activity = require('./activity')
-const BRIEF_NOTICE_MS = config.positiveInt(process.env.MISSION_BRIEF_NOTICE_MS, 3000, 'MISSION_BRIEF_NOTICE_MS')
+// 0 coupe l annonce (mission-duration.test.js) : borne basse 0, pas 1.
+const BRIEF_NOTICE_MS = config.finiteNumber(process.env.MISSION_BRIEF_NOTICE_MS, 3000, 'MISSION_BRIEF_NOTICE_MS', { min: 0 })
 
 // Traduit l ampleur 0..1 (defaut 0,5 : milieu de plage) dans l unite de l action.
 function scaled (scale, min, max) {
