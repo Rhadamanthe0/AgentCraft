@@ -410,6 +410,37 @@ test('cuisson deja faite : l etape suivante du plan au lieu de « rien a cuire �
   assert.ok(!c.echec)
 })
 
+test('cuisson : la quantite du solveur prime sur une demande plus petite', async () => {
+  // Vu sur craft/iron-pickaxe (bff20b0) : solveur « cuire 3 iron_ingot »,
+  // modele « cuire 1 » ; une buche (1,5 cuisson) brulee pour un lingot, plus
+  // de combustible pour les deux autres, bois cherche loin, plafond atteint.
+  const acquirePlan = require('../bot/acquire-plan')
+  const orig = acquirePlan.planAcquire
+  const origSmelt = craft.smelt
+  acquirePlan.planAcquire = () => ({ ok: true, bloque: [], etapes: [
+    { op: 'cuire', objet: 'iron_ingot', quantite: 3, depuis: 'raw_iron' },
+    { op: 'fabriquer', objet: 'torch', quantite: 4 }] })
+  const demandes = []
+  craft.smelt = async (bot, objet, wanted) => {
+    demandes.push(wanted)
+    return { item: objet, produced: wanted, wanted, input: 'raw_iron', fuel: 'oak_log', fuelCount: 2, arret: null }
+  }
+  try {
+    const brief = realShapeBrief({
+      kind: 'recolte', resource: 'bois',
+      fabrication: 'torch', fabricationQuantite: 4, _texte: 'fabrique 4 torches'
+    })
+    await runMission({ brief, stock: { raw_iron: 3, oak_log: 1, oak_planks: 1 }, plans: ['cuire:iron_ingot:1', 'terminer'],
+      makeStub: async (bot, target, wanted) => ({ item: target, produced: 0, wanted }) })
+    assert.deepEqual(demandes, [3])
+  } finally {
+    acquirePlan.planAcquire = orig
+    craft.smelt = origSmelt
+    restorePlanner()
+    restoreCraft()
+  }
+})
+
 test('toutes les recoltes attendent un outil a fabriquer : l etape suivante du plan est faite', async () => {
   // Vu sur craft/iron-pickaxe (7b01683) : bois recolte, reste pierre et fer,
   // pioche en bois pas encore fabriquee, « stone ne lache rien sans pioche ».

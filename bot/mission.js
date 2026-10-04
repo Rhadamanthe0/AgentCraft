@@ -4197,9 +4197,14 @@ function createMissionRunner (host, injected = {}) {
       if (!objet && etape) objet = etape.objet
       if (!objet && acquirePlan.SMELT[mission.fabricationCible]) objet = mission.fabricationCible
       if (!objet) return { resultat: `cuisson impossible : objet non reconnu (${brut || 'vide'}) ; ex : iron_ingot, charcoal, glass`, echec: true, code: 'unknown' }
-      const quantite = Number.isFinite(Number(params.quantite))
+      const demandee = Number.isFinite(Number(params.quantite))
         ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
         : (etape?.objet === objet ? etape.quantite : scaled(scale, 1, 16))
+      // Le solveur mesure ce que la chaine exige ; une cuisson plus petite
+      // brule une unite de combustible entiere pour moins d objets (buche =
+      // 1,5 cuisson) et laisse la suite sans combustible (craft/iron-pickaxe
+      // bff20b0 : « cuire 1 » sur 3, bois cherche loin, plafond atteint).
+      const quantite = etape?.objet === objet ? Math.min(16, Math.max(demandee, etape.quantite)) : demandee
       // Output already smelted: the solver, run on the real inventory, has
       // no smelt left. Its next step instead of « rien a cuire ».
       const plan = acquisition()
@@ -5518,6 +5523,13 @@ function createMissionRunner (host, injected = {}) {
       const distance = Number.isFinite(Number(params.distance))
         ? Math.max(8, Math.min(32, Math.round(Number(params.distance))))
         : scaled(scale, 8, 32)
+      // Arbre commence, arbre fini : il est la seule cible bois et passe avant
+      // tout ; explorer l eloignait sans retour (cabin-from-scratch bff20b0 :
+      // explorer depuis le pilier, arbre jamais retrouve, plafond de 45 min).
+      const arbre = arbreInacheve()
+      if (arbre) {
+        return { resultat: `arbre commence : ${arbre.length} buche(s) encore debout, les couper avant d explorer (piler si trop haut, ou changer de poste pres de lui)`, echec: true, code: 'arbre_inacheve' }
+      }
       const suite = rienARecolter()
       if (suite) {
         return (await etapeSuivanteAuLieu('rien a chercher : tout est en poche')) ??

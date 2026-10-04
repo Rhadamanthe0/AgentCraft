@@ -560,6 +560,25 @@ for (const action of ['construire', 'poser_porte']) {
   })
 }
 
+// Banc bff20b0 (composite/cabin-from-scratch) : du haut d un pilier, le
+// modele a choisi explorer pour « trouver du bois » ; le bot a quitte l arbre
+// commence et ne l a jamais retrouve (plafond de 45 min). Explorer s eloigne
+// de la seule cible bois permise : refuse tant qu une buche reste debout.
+test('explorer refuse tant que l arbre commence est debout', async t => {
+  const trajets = []
+  const f = await simulate(t, { inventory: [{ name: 'oak_planks', count: 8 }], kind: 'construction', first: 'casser',
+    text: 'construis une cabane en bois', logY: 65,
+    extra: { '1,66,0': 'oak_log', '1,67,0': 'oak_log', '1,68,0': 'oak_log', '1,69,0': 'oak_log' }, allLogs: true,
+    queue: [['casser'], [{ action: 'explorer', choices: { distance: 16 } }]],
+    navigate: async position => { trajets.push(position); return { reached: true, code: 'arrived', remaining: 1 } } })
+  assert.ok(f.blocks.has('1,69,0'), 'une partie du tronc reste debout')
+  const step = f.states.flatMap(state => state.dernieres_etapes ?? []).find(step => step.action === 'explorer')
+  assert.ok(step, 'explorer joue')
+  assert.equal(step.code, 'arbre_inacheve')
+  assert.match(step.resultat, /arbre commence/)
+  assert.equal(trajets.length, 0, 'aucun trajet d exploration')
+})
+
 for (const split of [false, true]) {
   test(`arbre entier et pommes : trajet avec objet explicite (${split ? 'plans separes' : 'meme plan'})`, async t => {
     let joins = 0
