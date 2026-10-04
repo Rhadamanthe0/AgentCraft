@@ -9,6 +9,19 @@ sont dans AGENTS.md ; en cas de contradiction, AGENTS.md prime.
 
 ---
 
+## Bancs rouges sur main apres 5c9667f (2026-10-04)
+
+- Cles : primary refusee (401), secondary au plafond hebdomadaire (429) ;
+  aucun niveau joue. Remplacees par le proprietaire.
+- 8 unitaires rouges : `config.positiveInt` refusait 0 (relance du plan et
+  annonce du brief impossibles a couper), fixtures en retard sur
+  l executeur (enveloppe, `runPhysicalOrThrow`, `isHardStopped`).
+- Banc complet bff20b0 : `composite/cabin-from-scratch` (explorer depuis le
+  pilier, arbre commence perdu, 45 min) et `craft/iron-pickaxe` (« cuire 1 »
+  sur 3, buche brulee pour un lingot). `explorer` refuse tant que l arbre
+  commence a des buches ; `cuire` prend la quantite du solveur si la demande
+  est plus petite. Banc cible 2acbdcc : cabane 397 s, pioche en fer 273 s.
+
 
 ## Objectif final : l autonomie, pas la repetition (2026-09-25, prioritaire sur tout)
 
