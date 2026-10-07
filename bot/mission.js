@@ -3601,6 +3601,7 @@ function createMissionRunner (host, injected = {}) {
     if (code === 'arbre_a_ramasser' && action !== 'ramasser') return [{ action: 'ramasser', params: {}, pourquoi: 'buches au sol' }]
     if (code === 'chantier_absent' && action !== 'choisir_terrain') return [{ action: 'choisir_terrain', params: {}, pourquoi: 'chantier a placer' }]
     if (code === 'dans_liquide' && action !== 'sortir') return [{ action: 'sortir', params: {}, pourquoi: 'hors du liquide' }]
+    if (code === 'aucune_cible' && action === 'recolter') return [{ action: 'explorer', params: { distance: 16 }, pourquoi: 'matiere hors de vue' }]
     return null
   }
 

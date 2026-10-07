@@ -131,6 +131,33 @@ test('batir : la reparation n est jouee qu une fois ; l echec d origine remonte 
   assert.equal(r.code, 'cible_haute')
 })
 
+// Miroir de remedesMesures (bot/mission.js) : la fonction n est pas exportee,
+// le contrat est donc verifie au niveau conduire. Reproduit le banc
+// skill/cabin-batir : recolter rend aucune_cible quand la matiere est hors
+// de vue, le sous-but doit jouer explorer puis reprendre recolter.
+function remedesMiroir (code, action) {
+  if (code === 'aucune_cible' && action === 'recolter') return [{ action: 'explorer', params: { distance: 16 }, pourquoi: 'matiere hors de vue' }]
+  return null
+}
+
+test('batir : matiere hors de vue sur recolter -> explorer joue puis recolter repris (skill/cabin-batir)', async () => {
+  const m = monde(remedesMiroir)
+  m.etat.planChoisi = true
+  m.etat.besoins = { buches_a_recolter: 3 }
+  let visible = false
+  m.actions.recolter = async (s, p) => {
+    if (!visible) return { resultat: 'aucun bloc de la matiere visee en vue : explorer, puis recolter', echec: true, code: 'aucune_cible' }
+    m.joues.push('recolter')
+    m.etat.besoins = {}
+    m.etat.stock = 8
+    return { resultat: 'ok' }
+  }
+  m.actions.explorer = async (s, p) => { m.joues.push(`explorer ${p.distance}`); visible = true; return { resultat: 'matiere en vue' } }
+  const r = await m.sb.batir()
+  assert.equal(r.echec, undefined, r.resultat)
+  assert.deepEqual(m.joues, ['explorer 16', 'recolter', 'construire'])
+})
+
 test('batir : un progres mesure rouvre le remede (second arbre, nouveau tronc haut)', async () => {
   const m = monde(() => [{ action: 'piler', params: { hauteur: 3 }, pourquoi: 'tronc haut' }])
   m.etat.planChoisi = true
