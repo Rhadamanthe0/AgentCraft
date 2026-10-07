@@ -32,6 +32,22 @@ test('chantier : ordre des gestes suivant les besoins mesures', () => {
   assert.equal(prochainGesteChantier({ ...base, restants: 0 }).fini, true)
 })
 
+test('chantier : la matiere de la porte et de l etabli est reservee avant de construire', () => {
+  const etat = { ...base, restants: 20, stock: 16, porteVoulue: true, portePosee: false, porteEnPoche: false,
+    besoins: { porte_a_fabriquer: true, etabli_a_fabriquer: true, planches_a_fabriquer: 10, buches_en_poche: 2 } }
+  // 16 en poche moins 6 (porte) + 4 (etabli) : seuls 6 vont aux murs.
+  assert.deepEqual(prochainGesteChantier(etat).params, { quantite: 6 })
+  // Stock au niveau de la reserve : les planches de la porte d abord, sans recolter.
+  const reserve = { ...etat, stock: 10 }
+  assert.equal(prochainGesteChantier(reserve).action, 'fabriquer')
+  assert.equal(prochainGesteChantier(reserve).params.objet, 'planches')
+  // Sans etabli : seule la porte est reservee.
+  const sansEtabli = { ...etat, besoins: { ...etat.besoins, etabli_a_fabriquer: false } }
+  assert.deepEqual(prochainGesteChantier(sansEtabli).params, { quantite: 10 })
+  // Porte en poche : aucune reserve, les murs prennent tout.
+  assert.deepEqual(prochainGesteChantier({ ...etat, porteEnPoche: true }).params, { quantite: 16 })
+})
+
 test('solveur : premiere etape faisable, recolte bornee, fin et blocage dits', () => {
   const toujours = () => true
   assert.equal(prochainGesteSolveur(null, toujours).code, 'obtenir_sans_cible')

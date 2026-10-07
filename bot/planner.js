@@ -1578,7 +1578,7 @@ async function interpretMessage (message, context, opts = {}) {
   // sur chat/tree-then-bring 33abea6 : « rapporte moi le bois » perdu, bot
   // reste loin du joueur). Jamais un autre modele, jamais apres annulation.
   if (!RELATIONS.includes(value?.relation) && !opts.signal?.aborted) {
-    console.log(`[planner] chat : relation invalide (${JSON.stringify(value?.relation ?? null).slice(0, 40)}), nouvel essai`)
+    console.log(`[planner] chat : relation invalide (${String(response.content ?? '').slice(0, 200)}), nouvel essai`)
     value = lire((await ask()).content)
   }
   const relation = value?.relation

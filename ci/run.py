@@ -47,7 +47,9 @@ if ENDPOINT_MODE not in ('direct', 'ip', 'exec'):
 INFRA_MARKERS = ('command failed', 'is not running', 'published port', 'rcon', 'connection refused',
                  'connection reset', 'no such container', 'cannot connect to the docker daemon')
 API_MARKERS = ('http 4', 'http 5', 'gousagelimit', 'planificateur indisponible', 'upstream request failed',
-               'pas de reponse en')
+               'pas de reponse en', 'relation de chat invalide')
+# 'relation de chat invalide' : transitoire du gateway (memes ordres OK minutes
+# avant/apres) ; garde-fou : surveiller son taux d occurrence.
 
 
 def failure_kind(test):
