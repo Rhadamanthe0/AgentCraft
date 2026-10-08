@@ -2597,3 +2597,17 @@ modele : presque tous les rouges restants. Le banc rejoue desormais une fois
 un tel niveau (`trees.rejouable`, ci/test_rejeu.py), visiblement dans le
 rapport ; option par defaut d une carte de decision posee au proprietaire.
 
+Banc complet de 4003d81 : 131/134, le rejeu a sauve chat/replace-and-join.
+Deux causes nouvelles, toutes deux dans le code :
+- terrain/plateau : `/api/status` rendait 500 pendant une reconnexion
+  (EPIPE, puis « Connecting » sans monde jusqu au spawn) : l etat de la
+  mission precedente relisait son chantier ou son arbre (`bot.blockAt` ->
+  `world.getBlock`). Chantier, porte et arbre gardent leur derniere mesure.
+  Vu aussi sur 8361df7, f4713b2 et 6dd0993.
+- composite/cabin-from-scratch (5 plans muets en 94 s) et craft/iron-pickaxe
+  (96 s d attente, plafond de 480 s) : les six reaiguillages de session
+  etaient comptes sur toute la vie du bot et epuises en 3 a 20 min de banc.
+  Sur quatre bancs, plans muets 5 a 10 % avant l epuisement (21 % sur celui
+  de la coupure reseau ; jamais plus de 2 d affilee), 11 a 23 % apres
+  (jusqu a 7 d affilee). Le plafond compte
+  desormais les reaiguillages d affilee sans reponse.

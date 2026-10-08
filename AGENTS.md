@@ -262,7 +262,7 @@ Modeles (un par usage, `bot/model-chain.js`, banc : `ci/models.env`) :
 
 Seuls rejeux admis, toujours le MEME modele : reponse tronquee (budget
 double), panne passagere du gateway (silence, reseau coupe, 5xx, 429, 400
-« Upstream request failed » : `planner.estPassager`), reaiguillage de session (`x-opencode-session` suffixe `-rN`),
+« Upstream request failed » : `planner.estPassager`), reaiguillage de session (`x-opencode-session` suffixe `-rN`, apres un delai ou un 400 upstream ; six d affilee SANS reponse au plus, compteur remis a zero a chaque reponse),
 retrait d un champ thinking/effort refuse, et changement de CLE (primary <->
 secondary) sur 429/401-403 (`PLANNER_KEY_FIRST`).
 

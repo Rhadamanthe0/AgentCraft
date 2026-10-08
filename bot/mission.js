@@ -2353,12 +2353,17 @@ function createMissionRunner (host, injected = {}) {
     if (!bot) return { total, done: mission.placed, left: total - mission.placed }
 
     let done = 0
-    for (const entry of mission.plan.blocks) {
-      const block = bot.blockAt(entry.position)
-      // Le motif, pas le nom exact : en survie l essence du bois depend de
-      // l arbre coupe, et un mur en `birch_planks` est aussi fini qu un mur en
-      // `oak_planks`.
-      if (block && mission.buildMatch.test(block.name)) done += 1
+    try {
+      for (const entry of mission.plan.blocks) {
+        const block = bot.blockAt(entry.position)
+        // Le motif, pas le nom exact : en survie l essence du bois depend de
+        // l arbre coupe, et un mur en `birch_planks` est aussi fini qu un mur en
+        // `oak_planks`.
+        if (block && mission.buildMatch.test(block.name)) done += 1
+      }
+    } catch (_) {
+      // Reconnexion : pas de monde avant le spawn ; la derniere mesure vaut.
+      return { total, done: mission.placed, left: total - mission.placed }
     }
 
     mission.placed = done
@@ -2371,7 +2376,8 @@ function createMissionRunner (host, injected = {}) {
     const bot = host.getBot()
     if (!bot) return mission.doorPlaced
 
-    const block = bot.blockAt(mission.plan.door.position)
+    let block
+    try { block = bot.blockAt(mission.plan.door.position) } catch (_) { return Boolean(mission.doorPlaced) }
     mission.doorPlaced = Boolean(block && /_door$/.test(block.name))
     return mission.doorPlaced
   }
@@ -7583,6 +7589,15 @@ function createMissionRunner (host, injected = {}) {
     return { ok: true, mission: status() }
   }
 
+  let dernierEtatArbre = { mission: null, etat: null }
+  function etatArbreSur () {
+    try {
+      dernierEtatArbre = { mission, etat: treeStatus() }
+    } catch (_) {
+      if (dernierEtatArbre.mission !== mission) dernierEtatArbre = { mission, etat: null }
+    }
+    return dernierEtatArbre.etat
+  }
   function status () {
     if (preparation && !isRunning()) return { id: preparation.id, etat: 'preparing',
       objectif: preparation.objective, demandeur: preparation.requester, etapes: 0,
@@ -7629,7 +7644,8 @@ function createMissionRunner (host, injected = {}) {
       acces: mission.acces ?? null,
       // Reparations par le code (A/B reparer) : nombre et codes.
       reparations: mission.reparations ?? null,
-      arbre_entier: mission.wholeTree ? (treeStatus() ?? { commence: false }) : null,
+      // Reconnexion : sans monde avant le spawn, la derniere mesure vaut.
+      arbre_entier: mission.wholeTree ? (etatArbreSur() ?? { commence: false }) : null,
       echafaudage_laisse: mission.echafaudageLaisse ?? 0,
       // Grand livre des dons (S6) : tente/retire/prouve/incertain par engagement.
       livraison: deliveryLedgersFor(mission).map(deliveryLedgerView),
