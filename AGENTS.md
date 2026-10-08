@@ -151,7 +151,7 @@ refus immediat d une capacite absente, identifiant de
 | `approcher`, ancien `explorer` (GoalNearXZ) | 2026-09-22 | pathfinder 26.1 peu fiable ; remplaces par le navigateur partage |
 | Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
 | Escalade sur blocage (appel en effort high, puis fin) | ecarte 2026-10-02 | les 15 missions emballees des bancs du 2026-10-01 avaient toutes une cause d ACCES (tronc haut, no_path) : un modele qui raisonne plus n y peut rien ; traite par `reparer` et le moteur d acces |
-| Brief en effort low, relance du brief | ecarte 2026-10-02 | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py` |
+| Brief en effort low | ecarte 2026-10-02 | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py`. La relance du brief, ecartee le meme jour, est remise le 2026-10-08 (`PLANNER_RELAUNCH_MS_BRIEF`, a confirmer par le proprietaire) : sur 3 bancs complets, 16 a 19 briefs relances dont 13 a 16 repondus, briefs sans reponse 2 a 4 par banc au lieu de 11 |
 | Bibliotheque de savoir-faire appris, code genere par le modele (Voyager) | ecarte 2026-10-02 | apprendrait le banc ; code genere = risque (commandes `/`), lent ; les primitives generiques et les arbres de buts couvrent le besoin |
 
 ### Conduite d une session d agent (2026-10-02)

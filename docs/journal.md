@@ -2583,3 +2583,10 @@ valeur est juste (chat/stop-tree). La relation se lit desormais sous une
 cle « relation... » si une seule valeur valide s y trouve ; « objectif »
 vaut « objective ».
 
+Banc complet de 4c65a55 : un seul niveau bloquant rouge, craft/torches,
+quatre lectures d objectif muettes de suite (60 s, gateway). Plateau
+repasse (64.9 s). Aucun ordre de chat perdu. Relance du brief mesuree
+sur trois bancs : 16 a 19 briefs relances, 13 a 16 repondus ; briefs sans
+reponse 2 a 4 par banc (11 avant). Elle avait ete ecartee le 2026-10-02 :
+remise a confirmer par le proprietaire.
+
