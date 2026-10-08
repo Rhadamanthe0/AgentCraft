@@ -170,11 +170,12 @@ const MAX_DIG_DEPTH = config.boundedNumberOrThrow(process.env.MISSION_MAX_DIG_DE
 // au lieu de passer a l arbre suivant.
 const MAX_REACH_UP = perception.MAX_REACH_UP
 const MAX_PLANNER_ERRORS = 3
-// Modele muet (pas de reponse dans le delai) : passager le plus souvent, les
-// autres bots recoivent leurs plans au meme moment (bancs du 2026-10-07/08 :
-// 67 a 122 plans muets par banc complet, 5 a 11 missions tuees par trois
-// silences de suite). Une serie de silences est toleree tant qu elle dure
-// moins que ce delai ; tout autre echec (refus, 403) arrete au troisieme.
+// Panne passagere du planificateur (planner.estPassager : silence, reseau
+// coupe, 5xx, 429). Bancs du 2026-10-07/08 : 67 a 122 plans muets par banc
+// complet, 5 a 11 missions tuees par trois silences de suite, puis 13 par
+// 30 s de « fetch failed ». Une serie de pannes passageres est toleree tant
+// qu elle dure moins que ce delai ; tout autre echec (refus, 403) arrete au
+// troisieme.
 const PLANNER_OUTAGE_MS = config.finiteNumber(process.env.MISSION_PLANNER_OUTAGE_MS, 90000, 'MISSION_PLANNER_OUTAGE_MS', { min: 0 })
 const MAX_REPEATED_FAILURES = 5
 // Pilier : bornes de la montee en blocs. Un pilier coute sa dirt (inventaire
@@ -6280,21 +6281,23 @@ function createMissionRunner (host, injected = {}) {
         }
         mission.plannerErrors += 1
         if (mission.plannerErrors === 1) mission.plannerSilenceSince = Date.now()
-        const silence = /pas de reponse/.test(err.message)
+        const passager = err.passager === true
         const silenceMs = Date.now() - mission.plannerSilenceSince
-        console.error(`[mission] planificateur indisponible (${mission.plannerErrors}/${MAX_PLANNER_ERRORS}${silence ? `, muet depuis ${Math.round(silenceMs / 1000)} s sur ${Math.round(PLANNER_OUTAGE_MS / 1000)}` : ''}) : ${err.message}`)
+        console.error(`[mission] planificateur indisponible (${mission.plannerErrors}/${MAX_PLANNER_ERRORS}${passager ? `, panne passagere depuis ${Math.round(silenceMs / 1000)} s sur ${Math.round(PLANNER_OUTAGE_MS / 1000)}` : ''}) : ${err.message}`)
 
         // Une file heritee d un plan devenu douteux ne doit pas survivre a la
         // panne qui l a interrompue.
         mission.queue = []
         abortPrefetch('panne planificateur')
 
-        if (mission.plannerErrors >= MAX_PLANNER_ERRORS && (!silence || silenceMs >= PLANNER_OUTAGE_MS)) {
+        if (mission.plannerErrors >= MAX_PLANNER_ERRORS && (!passager || silenceMs >= PLANNER_OUTAGE_MS)) {
           finish('failed', 'planificateur indisponible')
           return
         }
 
-        await sleep(TICK_MS * 2)
+        // Un reseau coupe echoue en un instant : une pause plus longue evite
+        // de marteler le gateway pendant la panne.
+        await sleep(passager && !/pas de reponse/.test(err.message) ? TICK_MS * 4 : TICK_MS * 2)
         continue
       }
 
@@ -6880,16 +6883,22 @@ function createMissionRunner (host, injected = {}) {
     const blocConnu = nom => !!skills.ressourceLibre(nom, host.getBot()?.registry)
     let brief
     const debutBrief = Date.now()
+    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu, relance: featureOn('relance_plan') }))
     try {
       try {
-        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu, relance: featureOn('relance_plan') }))
+        brief = await lireBrief()
       } catch (first) {
         // Un echec isole (reponse tronquee deux fois, panne passagere) laissait
         // le bot immobile sans rien dire, surtout apres un arbitrage : un
-        // nouvel essai, sauf annulation.
+        // nouvel essai, sauf annulation. Une panne passagere (reseau coupe,
+        // qui echoue en un instant) se rejoue tant que dure le budget de deux
+        // lectures muettes.
         if (request.signal.aborted) throw first
         console.log(`[mission] lecture de l objectif echouee (${first.message}), nouvel essai`)
-        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu, relance: featureOn('relance_plan') }))
+        const budgetMs = 2 * planner.delaiAppel('readBrief') - (Date.now() - debutBrief)
+        brief = planner.estPassager(first)
+          ? await planner.rejouerSiPassager(lireBrief, { budgetMs, signal: request.signal, quoi: 'lecture de l objectif' })
+          : await lireBrief()
       }
     } catch (err) {
       return { ok: false, error: `lecture de l objectif impossible : ${err.message}` }

@@ -215,3 +215,45 @@ describe('plan sans raisonnement', () => {
     assert.equal(calls.at(-1).options.reasoningEffort, 'low', 'effort du plan intact apres deux refus de thinking')
   })
 })
+
+// Pannes passageres (bancs du 2026-10-08 : 30 s de « fetch failed » sur 13
+// bots) : classees par le code, rejouees tant que dure le budget.
+describe('panne passagere', () => {
+  const reseau = async () => { throw Object.assign(new TypeError('fetch failed'), { code: 'LLM_NETWORK' }) }
+
+  it('classement : silence, reseau, 5xx, 429 oui ; 403, annulation, contenu non', () => {
+    const planner = require('../bot/planner')
+    const e = (code, status, message = 'x') => Object.assign(new Error(message), { code, status })
+    assert.equal(planner.estPassager(e('LLM_TIMEOUT')), true)
+    assert.equal(planner.estPassager(e('LLM_NETWORK')), true)
+    assert.equal(planner.estPassager(e('LLM_HTTP', 503)), true)
+    assert.equal(planner.estPassager(e('LLM_HTTP', 429)), true)
+    assert.equal(planner.estPassager(e('LLM_HTTP', 400, 'HTTP 400 : Upstream request failed')), true)
+    assert.equal(planner.estPassager(e('LLM_HTTP', 403, 'HTTP 403 FreeTierError')), false)
+    assert.equal(planner.estPassager(e('LLM_ABORTED')), false)
+    assert.equal(planner.estPassager(new Error('relation de chat invalide')), false)
+  })
+
+  it('plan : l erreur rendue dit si la panne est passagere', async () => {
+    const planner = await warmPlanner([reseau])
+    await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest'), err => err.passager === true)
+    const refuse = async () => { throw Object.assign(new Error('HTTP 403 FreeTierError'), { code: 'LLM_HTTP', status: 403 }) }
+    const p2 = await warmPlanner([refuse])
+    await assert.rejects(p2.plan({ consigne: 'test' }, 'recolte', 'harvest'), err => err.passager === false)
+  })
+
+  it('chat : un reseau coupe se rejoue jusqu a la reponse', async () => {
+    const okChat = async () => ({ content: '{"relation":"new","objectif":"coupe du bois"}', usage: null, ms: 5 })
+    const planner = await warmPlanner([reseau, reseau, okChat], { PLANNER_TIMEOUT_MS: '6000' })
+    const decision = await planner.interpretMessage('coupe du bois', {})
+    assert.equal(calls.length, 3)
+    assert.equal(decision.relation, 'new')
+  })
+
+  it('chat : un refus (403) n est pas rejoue', async () => {
+    const refuse = async () => { throw Object.assign(new Error('HTTP 403 FreeTierError'), { code: 'LLM_HTTP', status: 403 }) }
+    const planner = await warmPlanner([refuse])
+    await assert.rejects(planner.interpretMessage('coupe du bois', {}), /FreeTierError/)
+    assert.equal(calls.length, 1)
+  })
+})

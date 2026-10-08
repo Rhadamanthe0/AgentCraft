@@ -1196,7 +1196,7 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
     if (opts.signal?.aborted) throw new Error('plan annule')
     stats.echecs += 1
     lastError = err.message
-    throw new Error(`planificateur indisponible : ${err.message}`)
+    throw Object.assign(new Error(`planificateur indisponible : ${err.message}`), { passager: estPassager(err) })
   }
 
   let parsed
@@ -1562,19 +1562,50 @@ function parseInterpretMode (raw) {
   throw new Error(`mode d objectif invalide (recu ${String(raw)})`)
 }
 
+// Panne passagere du gateway : silence, reseau coupe (« fetch failed »), 5xx,
+// 429 ou 400 « Upstream request failed ». Un refus (401/403, FreeTierError),
+// une requete invalide ou une annulation ne le sont jamais. Bancs du
+// 2026-10-08 : 30 s de « fetch failed » sur 13 bots a la fois tuaient 13
+// missions et perdaient des ordres de chat.
+function estPassager (err) {
+  if (!err) return false
+  if (err.passager === true) return true
+  if (err.code === 'LLM_TIMEOUT' || err.code === 'LLM_NETWORK' || /pas de reponse/.test(String(err.message))) return true
+  if (err.code === 'LLM_HTTP') return err.status >= 500 || err.status === 429 || (err.status === 400 && /upstream request failed/i.test(String(err.message)))
+  return false
+}
+
+// Rejoue `fn` sur panne passagere tant que `budgetMs` (depuis le premier
+// essai) laisse au moins 3 s ; pause de 2 s entre deux essais. Un silence
+// n est rejoue qu une fois (il a deja coute tout son delai).
+async function rejouerSiPassager (fn, { budgetMs, signal = null, quoi = 'appel' }) {
+  const debut = Date.now()
+  let silences = 0
+  for (;;) {
+    try {
+      return await fn()
+    } catch (err) {
+      const reste = budgetMs - (Date.now() - debut)
+      if (/pas de reponse/.test(String(err?.message))) silences += 1
+      if (signal?.aborted || !estPassager(err) || reste < 3000 || silences >= 2) throw err
+      console.log(`[planner] ${quoi} : ${err.message}, nouvel essai`)
+      await new Promise(resolve => {
+        const pause = setTimeout(resolve, 2000)
+        signal?.addEventListener('abort', () => { clearTimeout(pause); resolve() }, { once: true })
+      })
+      if (signal?.aborted) throw err
+    }
+  }
+}
+
 async function interpretMessage (message, context, opts = {}) {
   const ask = () => call(CONVERSATION_PROMPT, JSON.stringify({ message, ...context }), null, { ...opts, task: 'interpretMessage' })
-  let response
-  try {
-    response = await ask()
-  } catch (err) {
-    // Pas de reponse dans le delai : UN rejeu du meme modele (panne passagere
-    // du fournisseur ; vu en CI, 12:06 sur c499481 : deux ordres perdus, chat
-    // p95 19 s). Jamais apres une annulation, jamais un autre modele.
-    if (opts.signal?.aborted || !/pas de reponse/i.test(String(err?.message))) throw err
-    console.log(`[planner] chat sans reponse (${err.message}), nouvel essai`)
-    response = await ask()
-  }
+  // Panne passagere : rejeux du meme modele (vu en CI, 12:06 sur c499481 :
+  // deux ordres perdus, chat p95 19 s), jamais apres une annulation, jamais un
+  // autre modele. Un silence coute son delai (deux essais, comme avant) ; un
+  // reseau coupe echoue vite et se rejoue tant que le budget dure.
+  const budgetMs = 2 * effectiveTimeout({ task: 'interpretMessage' })
+  const response = await rejouerSiPassager(ask, { budgetMs, signal: opts.signal, quoi: 'chat' })
   const RELATIONS = ['new', 'amend', 'context', 'question', 'stop']
   const lire = content => { try { return parseJson(content) } catch (_) { return null } }
   let value = lire(response.content)
@@ -1620,6 +1651,9 @@ async function warmup () {
 }
 
 module.exports = {
+  estPassager,
+  delaiAppel: task => effectiveTimeout({ task }),
+  rejouerSiPassager,
   isEnabled,
   warmup,
   plan,

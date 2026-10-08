@@ -18,15 +18,15 @@ const craft = require('../bot/craft')
 const { createMissionRunner } = require('../bot/mission')
 const brief = { kind: 'recolte', kindConfidence: 1, resource: 'bois', resourceConfidence: 1, landmark: 'ici', door: false, doorProbability: 0 }
 
-function fixture (t, failure) {
+function fixture (t, failure, callMs = 20000) {
   let now = 1000000
   t.mock.method(Date, 'now', () => now)
   t.mock.method(planner, 'isEnabled', () => true)
   t.mock.method(craft, 'targetCriteria', () => ({}))
   t.mock.method(planner, 'readBrief', async () => brief)
   let calls = 0
-  // Chaque appel dure 20 s (delai total du plan) puis echoue.
-  t.mock.method(planner, 'plan', async () => { calls += 1; now += 20000; throw new Error(failure) })
+  // Chaque appel dure callMs (20 s : delai total du plan) puis echoue.
+  t.mock.method(planner, 'plan', async () => { calls += 1; now += callMs; throw failure() })
   const bot = { entity: { position: new Vec3(0, 65, 0), yaw: 0, pitch: 0 },
     registry: { blocksByName: {}, itemsByName: {} }, inventory: { items: () => [] }, players: {}, entities: {},
     findBlocks: () => [], findBlock: () => null, blockAt: () => null, clearControlStates () {} }
@@ -41,7 +41,7 @@ async function ended (runner) {
 }
 
 test('silences du modele : la mission tient au-dela de trois appels muets', async t => {
-  const f = fixture(t, 'planificateur indisponible : pas de reponse en 9997 ms')
+  const f = fixture(t, () => Object.assign(new Error('planificateur indisponible : pas de reponse en 9997 ms'), { passager: true }))
   await f.runner.start('coupe du bois', 'human')
   await ended(f.runner)
   assert.equal(f.runner.status().etat, 'failed')
@@ -50,10 +50,31 @@ test('silences du modele : la mission tient au-dela de trois appels muets', asyn
   assert.equal(f.calls(), 6, `appels avant abandon : ${f.calls()}`)
 })
 
+test('reseau coupe (fetch failed) : panne passagere, toleree comme un silence', async t => {
+  const f = fixture(t, () => Object.assign(new Error('planificateur indisponible : fetch failed'), { passager: true }), 10000)
+  await f.runner.start('coupe du bois', 'human')
+  await ended(f.runner)
+  assert.equal(f.runner.status().etat, 'failed')
+  assert.equal(f.calls(), 10, `appels avant abandon : ${f.calls()}`)
+})
+
 test('refus du gateway (403) : abandon au troisieme echec, sans attendre', async t => {
-  const f = fixture(t, 'planificateur indisponible : HTTP 403 FreeTierError')
+  const f = fixture(t, () => Object.assign(new Error('planificateur indisponible : HTTP 403 FreeTierError'), { passager: false }))
   await f.runner.start('coupe du bois', 'human')
   await ended(f.runner)
   assert.equal(f.runner.status().etat, 'failed')
   assert.equal(f.calls(), 3)
+})
+
+test('lecture de l objectif : un reseau coupe se rejoue, la mission demarre', async t => {
+  const f = fixture(t, () => Object.assign(new Error('planificateur indisponible : pas de reponse'), { passager: true }))
+  let lectures = 0
+  planner.readBrief.mock.mockImplementation(async () => {
+    lectures += 1
+    if (lectures <= 2) throw Object.assign(new TypeError('fetch failed'), { code: 'LLM_NETWORK' })
+    return brief
+  })
+  const out = await f.runner.start('coupe du bois', 'human')
+  assert.equal(lectures, 3)
+  assert.notEqual(out?.ok, false, `demarrage refuse : ${out?.error}`)
 })

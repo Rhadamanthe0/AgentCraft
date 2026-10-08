@@ -2563,3 +2563,13 @@ Correctifs generiques : une serie de silences est toleree 90 s
 troisieme ; le brief est relance a 15 s dans ses 30 s
 (`PLANNER_RELAUNCH_MS_BRIEF`, interrupteur `relance_plan`). Tests :
 tmp/planner-outage.test.js, tmp/planner-relaunch.test.js.
+
+Banc complet de f4713b2 : plus aucune mission tuee par un silence, mais 30 s
+de « fetch failed » (reseau coupe, 13 bots a la fois, 16:05) ont tue 13
+missions en 10 s (erreur non reconnue comme passagere, trois echecs
+instantanes), fait echouer deux lectures d objectif et perdu deux ordres de
+chat (rejoues seulement sur silence). Correctif : `planner.estPassager`
+classe silence, reseau, 5xx, 429 ; le plan porte `passager`, la mission le
+tolere 90 s avec une pause plus longue apres un echec instantane ; lecture
+d objectif et chat rejouent une panne passagere dans le budget de deux
+essais (`rejouerSiPassager`, un silence rejoue une seule fois).

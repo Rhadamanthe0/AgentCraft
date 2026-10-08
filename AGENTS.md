@@ -169,7 +169,8 @@ refus immediat d une capacite absente, identifiant de
   `containers.log`, `traces/`, `instantanes/`. « pas de reponse en 10 s » sur
   tous les bots a la fois = panne du gateway, pas le code ; des silences
   epars (un bot a la fois, 67 a 122 plans par banc complet au 2026-10-08)
-  sont le gateway lent sous 16 bots : toleres (`MISSION_PLANNER_OUTAGE_MS`,
+  sont le gateway lent sous 16 bots, et « fetch failed » sur tous les bots
+  pendant 30 s une coupure reseau : toleres (`MISSION_PLANNER_OUTAGE_MS`,
   relance du brief), ils ne doivent plus tuer de mission ; un echec
   `skill/*` est toujours un bug du code.
 - Sur un banc partiel (ligne `Banc:`), `banc-complet` est rouge par
@@ -255,8 +256,8 @@ Modeles (un par usage, `bot/model-chain.js`, banc : `ci/models.env`) :
 | COMPACT (resume memoire) | muse-spark-1.3-contributor (`/responses`) | high | 90 s |
 
 Seuls rejeux admis, toujours le MEME modele : reponse tronquee (budget
-double), panne passagere du gateway (5xx, 429, 400 « Upstream request
-failed »), reaiguillage de session (`x-opencode-session` suffixe `-rN`),
+double), panne passagere du gateway (silence, reseau coupe, 5xx, 429, 400
+« Upstream request failed » : `planner.estPassager`), reaiguillage de session (`x-opencode-session` suffixe `-rN`),
 retrait d un champ thinking/effort refuse, et changement de CLE (primary <->
 secondary) sur 429/401-403 (`PLANNER_KEY_FIRST`).
 
@@ -434,7 +435,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `PLANNER_TIMEOUT_MS[_<USAGE>]` | 12000 | delai d un appel |
 | `PLANNER_RELAUNCH_MS` | 10000 | plan sans reponse apres ce delai : appel coupe et refait une fois avec le temps restant, jamais deux appels en meme temps, delai total inchange (interrupteur `relance_plan`, decision du proprietaire 2026-09-29) |
 | `PLANNER_RELAUNCH_MS_BRIEF` | 15000 | meme relance pour la lecture d objectif, dans son delai de 30 s (meme interrupteur) : deux briefs muets laissaient un niveau sans mission |
-| `MISSION_PLANNER_OUTAGE_MS` | 90000 | serie de plans muets toleree avant d abandonner la mission ; tout autre echec du planificateur (refus, 403) arrete au troisieme |
+| `MISSION_PLANNER_OUTAGE_MS` | 90000 | serie de pannes passageres du plan (`planner.estPassager` : silence, reseau coupe, 5xx, 429) toleree avant d abandonner la mission ; un refus (403...) arrete au troisieme echec. Lecture d objectif et chat rejouent aussi une coupure reseau dans le budget de deux essais (`rejouerSiPassager`) |
 | `PLANNER_PLAN_MAX` | 5 | actions max par plan |
 | `PLANNER_BUDGET_MIN_S` / `_MAX_S` | 6 / 10 | secondes de jeu visees par plan (consigne du prompt, jamais appliquee) |
 | `PLANNER_MAX_TOKENS` | 2000 | sortie, raisonnement compris |
