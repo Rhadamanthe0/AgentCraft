@@ -10,7 +10,7 @@ COPY tmp/sim-world.js tmp/replay-snapshot.js /work/tmp/
 # Banc de competences hors ligne (tmp/skill-sim.test.js) : serveur simule,
 # joueur de niveaux et niveaux skill/* exportes par ci/trees.py.
 COPY tmp/sim-server.js tmp/skill-sim.js tmp/skill-levels.json /work/tmp/
-COPY ci/harness.js ci/multi-bot.js ci/probes.js ci/model-probe.js /work/ci/
+COPY ci/harness.js ci/attendre-chunks.js ci/multi-bot.js ci/probes.js ci/model-probe.js /work/ci/
 # Lisible par tous quel que soit l umask du checkout : sur MINIPC-CLEM les
 # fichiers du depot arrivent sans droit de lecture pour « autres », et COPY
 # garde ces droits (EACCES sur /work/ci/model-probe.js pour l utilisateur node).

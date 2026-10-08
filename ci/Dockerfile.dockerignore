@@ -14,6 +14,7 @@
 !ci/
 !ci/Dockerfile
 !ci/harness.js
+!ci/attendre-chunks.js
 !ci/multi-bot.js
 !ci/probes.js
 !ci/model-probe.js

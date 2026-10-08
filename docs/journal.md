@@ -2611,3 +2611,10 @@ Deux causes nouvelles, toutes deux dans le code :
   de la coupure reseau ; jamais plus de 2 d affilee), 11 a 23 % apres
   (jusqu a 7 d affilee). Le plafond compte
   desormais les reaiguillages d affilee sans reponse.
+
+Banc complet de 5c22cfe : invalide, quota mensuel de la cle primary epuise
+a 22:05 (429 GoUsageLimitError sur tous les appels, 34 rouges). Relance
+decidee par le proprietaire (cle secondary retenue par la sonde) : morte
+apres 160 s, le serveur a tarde a envoyer deux chunks au harness et le
+rejet de `waitForChunksToLoad` n etait pas attrape. Attente rejouee six
+fois (`ci/attendre-chunks.js`) ; sans chunks, le harness reste « pas pret ».
