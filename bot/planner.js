@@ -1612,15 +1612,24 @@ async function interpretMessage (message, context, opts = {}) {
   // Reponse illisible ou sans relation valide : UN rejeu du meme modele (vu
   // sur chat/tree-then-bring 33abea6 : « rapporte moi le bois » perdu, bot
   // reste loin du joueur). Jamais un autre modele, jamais apres annulation.
-  if (!RELATIONS.includes(value?.relation) && !opts.signal?.aborted) {
+  // deepseek abime parfois le NOM de la cle (« relation_nouvelle »,
+  // « relationer » : 6 a 9 fois par banc complet du 2026-10, 1 a 2 ordres
+  // perdus) ; sa valeur reste juste. Une seule valeur valide sous une cle
+  // « relation... » suffit ; deux valeurs differentes restent illisibles.
+  const relationLue = v => {
+    if (RELATIONS.includes(v?.relation)) return v.relation
+    const lues = new Set(Object.entries(v ?? {}).filter(([k, x]) => /^relation/i.test(k) && RELATIONS.includes(x)).map(([, x]) => x))
+    return lues.size === 1 ? [...lues][0] : undefined
+  }
+  if (!relationLue(value) && !opts.signal?.aborted) {
     console.log(`[planner] chat : relation invalide (${String(response.content ?? '').slice(0, 200)}), nouvel essai`)
     value = lire((await ask()).content)
   }
-  const relation = value?.relation
+  const relation = relationLue(value)
   if (!RELATIONS.includes(relation)) throw new Error('relation de chat invalide')
   // Objectif vide sur new/amend (vu : « Rejoins moi ») : le message du joueur
   // est lui-meme l objectif, plutot que d echouer et de laisser le bot muet.
-  let objective = String(value.objective ?? '').trim().slice(0, 1000)
+  let objective = String(value.objective ?? value.objectif ?? '').trim().slice(0, 1000)
   if (['new', 'amend'].includes(relation) && !objective) objective = String(message ?? '').trim().slice(0, 1000)
   const answer = String(value.response ?? '').trim().slice(0, 240)
   if (['new', 'amend'].includes(relation) && !objective) throw new Error('objectif de chat vide')

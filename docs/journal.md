@@ -2573,3 +2573,13 @@ classe silence, reseau, 5xx, 429 ; le plan porte `passager`, la mission le
 tolere 90 s avec une pause plus longue apres un echec instantane ; lecture
 d objectif et chat rejouent une panne passagere dans le budget de deux
 essais (`rejouerSiPassager`, un silence rejoue une seule fois).
+
+Banc complet de 6dd0993 : plus aucune mission tuee par une panne passagere
+(4 silences de suite survecus sur craft/iron-pickaxe, fini 1 s apres son
+plafond de 480 s : 118 s d attente du modele). Nouveau : le chat perdait
+1 a 2 ordres par banc parce que deepseek abime le NOM de la cle relation
+(« relation_nouvelle », « relationer », 6 a 9 fois par banc) alors que la
+valeur est juste (chat/stop-tree). La relation se lit desormais sous une
+cle « relation... » si une seule valeur valide s y trouve ; « objectif »
+vaut « objective ».
+

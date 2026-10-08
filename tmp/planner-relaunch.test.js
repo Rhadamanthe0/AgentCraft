@@ -257,3 +257,24 @@ describe('panne passagere', () => {
     assert.equal(calls.length, 1)
   })
 })
+
+// deepseek abime parfois le NOM de la cle relation (« relation_nouvelle »,
+// « relationer », 6 a 9 fois par banc complet, 1 a 2 ordres perdus) : la
+// valeur reste juste et suffit, sans rejeu.
+describe('chat : nom de cle relation abime', () => {
+  it('relation_nouvelle / objectif : lus sans rejeu', async () => {
+    const abime = async () => ({ content: '{"relation_nouvelle":"new","objectif":"Coupe un arbre","response":"OK"}', usage: null, ms: 5 })
+    const planner = await warmPlanner([abime])
+    const decision = await planner.interpretMessage('coupe moi un arbre', {})
+    assert.equal(decision.relation, 'new')
+    assert.equal(decision.objective, 'Coupe un arbre')
+    assert.equal(calls.length, 1)
+  })
+
+  it('deux cles relation contradictoires : rejeu, puis erreur', async () => {
+    const ambigu = async () => ({ content: '{"relation_a":"new","relation_b":"stop"}', usage: null, ms: 5 })
+    const planner = await warmPlanner([ambigu])
+    await assert.rejects(planner.interpretMessage('coupe moi un arbre', {}), /relation de chat invalide/)
+    assert.equal(calls.length, 2)
+  })
+})
