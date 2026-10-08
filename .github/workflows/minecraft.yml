@@ -140,7 +140,7 @@ jobs:
   banc-complet:
     needs: minecraft
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, minipc, podman]
     timeout-minutes: 5
     steps:
       - name: Full bench passed on this commit
