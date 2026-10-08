@@ -170,6 +170,12 @@ const MAX_DIG_DEPTH = config.boundedNumberOrThrow(process.env.MISSION_MAX_DIG_DE
 // au lieu de passer a l arbre suivant.
 const MAX_REACH_UP = perception.MAX_REACH_UP
 const MAX_PLANNER_ERRORS = 3
+// Modele muet (pas de reponse dans le delai) : passager le plus souvent, les
+// autres bots recoivent leurs plans au meme moment (bancs du 2026-10-07/08 :
+// 67 a 122 plans muets par banc complet, 5 a 11 missions tuees par trois
+// silences de suite). Une serie de silences est toleree tant qu elle dure
+// moins que ce delai ; tout autre echec (refus, 403) arrete au troisieme.
+const PLANNER_OUTAGE_MS = config.finiteNumber(process.env.MISSION_PLANNER_OUTAGE_MS, 90000, 'MISSION_PLANNER_OUTAGE_MS', { min: 0 })
 const MAX_REPEATED_FAILURES = 5
 // Pilier : bornes de la montee en blocs. Un pilier coute sa dirt (inventaire
 // reel, jamais de creatif) et expose a la chute a la descente : 6 blocs
@@ -6273,14 +6279,17 @@ function createMissionRunner (host, injected = {}) {
           return
         }
         mission.plannerErrors += 1
-        console.error(`[mission] planificateur indisponible (${mission.plannerErrors}/${MAX_PLANNER_ERRORS}) : ${err.message}`)
+        if (mission.plannerErrors === 1) mission.plannerSilenceSince = Date.now()
+        const silence = /pas de reponse/.test(err.message)
+        const silenceMs = Date.now() - mission.plannerSilenceSince
+        console.error(`[mission] planificateur indisponible (${mission.plannerErrors}/${MAX_PLANNER_ERRORS}${silence ? `, muet depuis ${Math.round(silenceMs / 1000)} s sur ${Math.round(PLANNER_OUTAGE_MS / 1000)}` : ''}) : ${err.message}`)
 
         // Une file heritee d un plan devenu douteux ne doit pas survivre a la
         // panne qui l a interrompue.
         mission.queue = []
         abortPrefetch('panne planificateur')
 
-        if (mission.plannerErrors >= MAX_PLANNER_ERRORS) {
+        if (mission.plannerErrors >= MAX_PLANNER_ERRORS && (!silence || silenceMs >= PLANNER_OUTAGE_MS)) {
           finish('failed', 'planificateur indisponible')
           return
         }
@@ -6873,14 +6882,14 @@ function createMissionRunner (host, injected = {}) {
     const debutBrief = Date.now()
     try {
       try {
-        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu }))
+        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu, relance: featureOn('relance_plan') }))
       } catch (first) {
         // Un echec isole (reponse tronquee deux fois, panne passagere) laissait
         // le bot immobile sans rien dire, surtout apres un arbitrage : un
         // nouvel essai, sauf annulation.
         if (request.signal.aborted) throw first
         console.log(`[mission] lecture de l objectif echouee (${first.message}), nouvel essai`)
-        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu }))
+        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu, relance: featureOn('relance_plan') }))
       }
     } catch (err) {
       return { ok: false, error: `lecture de l objectif impossible : ${err.message}` }
@@ -7105,6 +7114,7 @@ function createMissionRunner (host, injected = {}) {
       dirtSecondaire: 0,
       failures: 0,
       plannerErrors: 0,
+      plannerSilenceSince: null,
 
       // File d etapes servies par un seul appel au planificateur JSON.
       queue: [],
@@ -7460,6 +7470,7 @@ function createMissionRunner (host, injected = {}) {
       dirtSecondaire: 0,
       failures: 0,
       plannerErrors: 0,
+      plannerSilenceSince: null,
       queue: [],
       queueDone: 0,
       plans: 0,

@@ -167,7 +167,10 @@ refus immediat d une capacite absente, identifiant de
   qui echoue sans le correctif.
 - Lire un banc : `python3 ci/fetch-results.py` (§5), puis `report.json`,
   `containers.log`, `traces/`, `instantanes/`. « pas de reponse en 10 s » sur
-  tous les bots a la fois = panne du gateway, pas le code ; un echec
+  tous les bots a la fois = panne du gateway, pas le code ; des silences
+  epars (un bot a la fois, 67 a 122 plans par banc complet au 2026-10-08)
+  sont le gateway lent sous 16 bots : toleres (`MISSION_PLANNER_OUTAGE_MS`,
+  relance du brief), ils ne doivent plus tuer de mission ; un echec
   `skill/*` est toujours un bug du code.
 - Sur un banc partiel (ligne `Banc:`), `banc-complet` est rouge par
   construction : un seul commentaire de PR l explique, pas un par banc.
@@ -430,6 +433,8 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `PLANNER_REASONING_EFFORT[_<USAGE>]` | vide | `reasoning_effort` (ou `reasoning.effort`) |
 | `PLANNER_TIMEOUT_MS[_<USAGE>]` | 12000 | delai d un appel |
 | `PLANNER_RELAUNCH_MS` | 10000 | plan sans reponse apres ce delai : appel coupe et refait une fois avec le temps restant, jamais deux appels en meme temps, delai total inchange (interrupteur `relance_plan`, decision du proprietaire 2026-09-29) |
+| `PLANNER_RELAUNCH_MS_BRIEF` | 15000 | meme relance pour la lecture d objectif, dans son delai de 30 s (meme interrupteur) : deux briefs muets laissaient un niveau sans mission |
+| `MISSION_PLANNER_OUTAGE_MS` | 90000 | serie de plans muets toleree avant d abandonner la mission ; tout autre echec du planificateur (refus, 403) arrete au troisieme |
 | `PLANNER_PLAN_MAX` | 5 | actions max par plan |
 | `PLANNER_BUDGET_MIN_S` / `_MAX_S` | 6 / 10 | secondes de jeu visees par plan (consigne du prompt, jamais appliquee) |
 | `PLANNER_MAX_TOKENS` | 2000 | sortie, raisonnement compris |

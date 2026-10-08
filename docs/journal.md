@@ -2544,3 +2544,22 @@ constantes du module, surchargeables mais non listees dans le tableau.
 
 Note : `verify.ps1` compare `minecraftVersion` a la chaine `26.1` en dur. Si
 `MC_VERSION` change, ce script echouera jusqu'a mise a jour.
+
+## Plans muets sur les bancs complets (2026-10-08)
+
+Sept bancs complets de la PR #64 (8361df7 a 83485ee) rouges sur des niveaux
+qui changent d un banc a l autre ; chaque niveau rouge passe seul (sonde
+52163be). Cause commune : le modele ne repond pas dans le delai, un bot a la
+fois, pendant que les autres recoivent leurs plans (67 a 122 plans muets par
+banc, p95 du plan = 20 s, le delai). Deux effets :
+
+- trois plans muets de suite (~65 s) tuaient la mission : 5 a 11 missions par
+  banc (composite/cabin-from-scratch, craft/iron-pickaxe, craft/torches) ;
+- deux briefs muets (2 x 30 s) laissaient le niveau sans mission
+  (trees/tall, craft/furnace, route/*, build/door).
+
+Correctifs generiques : une serie de silences est toleree 90 s
+(`MISSION_PLANNER_OUTAGE_MS`), tout autre echec arrete toujours au
+troisieme ; le brief est relance a 15 s dans ses 30 s
+(`PLANNER_RELAUNCH_MS_BRIEF`, interrupteur `relance_plan`). Tests :
+tmp/planner-outage.test.js, tmp/planner-relaunch.test.js.

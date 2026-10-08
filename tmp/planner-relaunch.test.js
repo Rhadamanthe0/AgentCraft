@@ -9,7 +9,7 @@ const assert = require('node:assert/strict')
 const llm = require('../bot/llm')
 
 const PLANNER_PATH = require.resolve('../bot/planner')
-const VARS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_SESSION_ID', 'PLANNER_TIMEOUT_MS', 'PLANNER_RELAUNCH_MS',
+const VARS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_SESSION_ID', 'PLANNER_TIMEOUT_MS', 'PLANNER_RELAUNCH_MS', 'PLANNER_RELAUNCH_MS_BRIEF', 'PLANNER_TIMEOUT_MS_BRIEF', 'PLANNER_MODEL_PLAN',
   'PLANNER_TIMEOUT_MS_PLAN', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN','PLANNER_API_KEY', 'OPENCODE_SECONDARY_API_KEY', 'PLANNER_KEY_FIRST', 'BOT_USERNAME']
 
 let origCall
@@ -168,6 +168,27 @@ describe('relance d un plan sans reponse', () => {
     await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest', {}, null, { signal: controller.signal }), /plan annule/)
     assert.equal(calls.length, 1)
     assert.equal(calls[0].options.signal, controller.signal, 'signal de l appelant transmis tel quel')
+  })
+})
+
+// Lecture de l objectif : meme relance, a son propre delai. Deux briefs muets
+// de 30 s laissaient le niveau sans mission (bancs du 2026-10-07/08,
+// trees/tall et craft/furnace) alors qu un nouvel appel repond en quelques s.
+describe('relance de la lecture d objectif', () => {
+  const okBrief = async () => ({ content: '{"type":"recolte","matiere":"bois"}', usage: null, ms: 5 })
+
+  it('brief muet : coupe a PLANNER_RELAUNCH_MS_BRIEF, refait dans le delai du brief', async () => {
+    const planner = await warmPlanner([silent, okBrief], { PLANNER_TIMEOUT_MS_BRIEF: '3000', PLANNER_RELAUNCH_MS_BRIEF: '300' })
+    await planner.readBrief('coupe du bois')
+    assert.equal(calls.length, 2)
+    assert.ok(calls[0].options.timeoutMs > 280 && calls[0].options.timeoutMs <= 300, `premier appel coupe (${calls[0].options.timeoutMs} ms)`)
+    assert.ok(calls[1].options.timeoutMs > 2500 && calls[1].options.timeoutMs <= 2700, 'temps restant du delai du brief')
+  })
+
+  it('interrupteur relance_plan coupe : un seul appel', async () => {
+    const planner = await warmPlanner([silent], { PLANNER_TIMEOUT_MS: '500', PLANNER_RELAUNCH_MS_BRIEF: '100' })
+    await assert.rejects(planner.readBrief('coupe du bois', { relance: false }))
+    assert.equal(calls.length, 1)
   })
 })
 
