@@ -133,6 +133,11 @@ refus immediat d une capacite absente, identifiant de
   proprietaire, 2026-09-28 : laisser de la marge aux autres services de la
   machine) ; ne pas la relever sans son accord.
 - Ne pas allonger un delai ni relacher une assertion du banc sans preuve.
+- Rejeu (2026-10-08, `trees.rejouable`) : un niveau bloquant rouge sans
+  aucun plan servi par le modele alors qu il a ete sollicite (brief ou chat
+  muet cote gateway, 1 a 3 par banc complet) est rejoue une fois en fin de
+  file ; le resultat garde le premier essai (`rejoue`) et le resume le dit.
+  Jamais un niveau informatif, `skill/*`, ni un niveau que le modele a servi.
 - Fusion seulement si tous les niveaux non informatifs passent et
   `keyCheck` est ok, sur un banc COMPLET de la tete de la PR (voir §5) ; un
   banc partiel ne suffit jamais. Le check `banc-complet` du workflow n est

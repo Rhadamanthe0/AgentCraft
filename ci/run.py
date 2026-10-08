@@ -905,7 +905,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         def line(t):
             tag = ('INFO-' if t.get('informative') else '') + ('PASS' if t['success'] else 'FAIL')
             return f"- {tag} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '') \
-                + (f" <{t['failureKind']}>" if t.get('failureKind') else '') + detail(t)
+                + (f" <{t['failureKind']}>" if t.get('failureKind') else '') + detail(t) \
+                + (f" [rejoue : 1er essai {t['rejoue'].get('endReason')}, aucun plan servi]" if t.get('rejoue') else '')
         summary = '\n'.join([f"Commit: {report['sha'] or 'local export (no Git SHA)'}",
                              f"Result: {'PASS' if report['success'] else 'FAIL'}",
                              f"Niveaux joues : {'tous' if report.get('selection') is None else (' '.join(report['selection']) or 'aucun (tests unitaires seuls)') + ' (banc partiel)'}",

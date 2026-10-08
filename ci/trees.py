@@ -1916,6 +1916,17 @@ EXPECTED_S = {
 NEW_LEVEL_S = 90
 
 
+def rejouable(result, level):
+    """A blocking level that failed while the model never served it one plan,
+    though it was asked (brief or chat silent on one bot, gateway side: 1 to 3
+    levels per full bench on 2026-10-08), is replayed once, visibly
+    (`rejoue` in the result). Never an informative or skill/* level, never a
+    level the model did serve, never a crash."""
+    return (not result.get('success') and not result.get('error')
+            and not level.get('informative') and not level.get('skill')
+            and result.get('plannerCalls') == 0 and (result.get('plannerRequests') or 0) > 0)
+
+
 def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
     """Every level once, on the workers of `pool_factory(queue, run_one)` (ci/pool.py)."""
     seed = variation_seed()
@@ -1925,6 +1936,8 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
     if any(level.get('randomArena') for level in all_levels):
         print(f'Arenes aleatoires : graine {random_seed()!r}', flush=True)
     results = [None] * len(all_levels)
+    premiers = {}
+    pool = None
     origins = arena_origins()
     rcon('scoreboard objectives add degats minecraft.custom:minecraft.damage_taken')
     # Longest levels first (LPT): 27 levels on 16 workers, and the queue used
@@ -2061,6 +2074,15 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             result['informative'] = True
         if level.get('variantOf'):
             result['variantOf'] = level['variantOf']
+        if index in premiers:
+            result['rejoue'] = premiers[index]
+        elif rejouable(result, level) and pool is not None:
+            # Replayed once at the end of the queue; the first attempt stays
+            # in the result (`rejoue`) and in the log.
+            premiers[index] = {k: result.get(k) for k in ('bot', 'endReason', 'elapsedS', 'plannerRequests')}
+            print(f'{level["name"]} : aucun plan servi par le modele ({result.get("plannerRequests")} requete(s)), rejoue une fois', flush=True)
+            with pool.lock:
+                pool.queue.append(index)
         results[index] = result
         print(f'{level["name"]} finished in {result.get("elapsedS")} s', flush=True)
 

@@ -2590,3 +2590,10 @@ sur trois bancs : 16 a 19 briefs relances, 13 a 16 repondus ; briefs sans
 reponse 2 a 4 par banc (11 avant). Elle avait ete ecartee le 2026-10-02 :
 remise a confirmer par le proprietaire.
 
+Deuxieme banc de 085325a (rejeu du meme commit) : 133/134, seul craft/table
+rouge, lecture d objectif muette 60 s (quatre essais). Sur les cinq derniers
+bancs, 1 a 3 niveaux bloquants rouges par banc n avaient recu aucun plan du
+modele : presque tous les rouges restants. Le banc rejoue desormais une fois
+un tel niveau (`trees.rejouable`, ci/test_rejeu.py), visiblement dans le
+rapport ; option par defaut d une carte de decision posee au proprietaire.
+
