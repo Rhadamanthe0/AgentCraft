@@ -101,7 +101,10 @@ donne reussite, duree, attente et cout par bras aux prix OpenCode Go. Les
 modeles `claude-*` passent par `/messages` (format Anthropic, seul servi par
 le gateway Go pour Claude) : ni temperature ni `response_format`, systeme
 marque `cache_control`. Plafond Go de Claude Haiku 5.5 : 15 $/mois (60 $ pour
-DeepSeek V4.1 Flash).
+DeepSeek V4.1 Flash). Mesure du 2026-10-09 (6 bancs, 33 paires, 11
+niveaux dont 4 composites) : Haiku 29/33 contre 27/33, duree mediane 189 s
+contre 334 s, attente du modele 11 s contre 90 s par niveau, cout 0,21 $
+contre 0,35 $ ; changer le modele par defaut reste au proprietaire.
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
