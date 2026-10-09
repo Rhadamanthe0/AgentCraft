@@ -133,6 +133,11 @@ refus immediat d une capacite absente, identifiant de
   proprietaire, 2026-09-28 : laisser de la marge aux autres services de la
   machine) ; ne pas la relever sans son accord.
 - Ne pas allonger un delai ni relacher une assertion du banc sans preuve.
+- Plafonds de niveau hors attente du modele (proprietaire, 2026-10-09,
+  `trees.Plafond`) : le temps passe a attendre le gateway (brief compris,
+  `mission.attente_modele_ms`) ne compte pas ; plafond absolu en temps reel
+  = plafond + min(plafond, 10 min). Vu : craft/iron-pickaxe 480,9 s dont
+  95 s d attente (8 a 21 s sur main le 2026-10-02).
 - Rejeu (2026-10-08, `trees.rejouable`) : un niveau bloquant rouge sans
   aucun plan servi par le modele alors qu il a ete sollicite (brief ou chat
   muet cote gateway, 1 a 3 par banc complet) est rejoue une fois en fin de

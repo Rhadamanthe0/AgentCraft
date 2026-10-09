@@ -2618,3 +2618,10 @@ decidee par le proprietaire (cle secondary retenue par la sonde) : morte
 apres 160 s, le serveur a tarde a envoyer deux chunks au harness et le
 rejet de `waitForChunksToLoad` n etait pas attrape. Attente rejouee six
 fois (`ci/attendre-chunks.js`) ; sans chunks, le harness reste « pas pret ».
+
+Banc complet de 95edffa (cle secondary) : 133/134, seul craft/iron-pickaxe
+rouge a 480,9 s pour 480, dont 95 s d attente du modele ; sur les cinq
+derniers bancs 365 a 492 s (52 a 119 s d attente), contre 230 a 335 s
+(8 a 21 s) sur main le 2026-10-02. Decision du proprietaire : les plafonds
+de niveau ne comptent plus l attente du modele (`trees.Plafond`,
+ci/test_plafond.py), plafond absolu plafond + min(plafond, 10 min).
