@@ -92,6 +92,30 @@ refus immediat d une capacite absente, identifiant de
 `skills.CAPACITES_ABSENTES`, jamais un texte libre ; niveaux `ouvert/*`,
 `avec(...)` sur gather/flowers et craft/axe pour voir les faux refus).
 
+A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py)
+qui remplace le modele des usages plan, brief et chat pendant le niveau
+(`POST /api/models`, remis a zero apres ; `bot/model-chain.js` `setOverrides`).
+Le resultat porte `models` et `plannerTokens` (jetons par usage : entree,
+cache lu, cache ecrit, sortie) ; `python3 ci/ab_modele.py <report.json...>`
+donne reussite, duree, attente et cout par bras aux prix OpenCode Go. Les
+modeles `claude-*` passent par `/messages` (format Anthropic, seul servi par
+le gateway Go pour Claude) : ni temperature ni `response_format`, systeme
+marque `cache_control`. Plafond Go de Claude Haiku 5.5 : 15 $/mois (60 $ pour
+DeepSeek V4.1 Flash). Mesure du 2026-10-09 (6 bancs, 33 paires, 11
+niveaux dont 4 composites) : Haiku 29/33 contre 27/33, duree mediane 189 s
+contre 334 s, attente du modele 11 s contre 90 s par niveau, cout 0,21 $
+contre 0,35 $ (DeepSeek en heures pleines ; 0,18 $ en heures creuses). Plafond
+en Go Plus : 60 $ contre 120 $. Un banc complet coute ~0,33 $ en Haiku, soit
+~9 bancs par fenetre de 5 h (20 % du plafond) en Go : une campagne A/B
+l epuise (banc complet du 2026-10-09 rouge, 1284 x 429 « 5 hour »). Effort de Haiku pour plan et chat (variante `effort(...)`, 3 bancs,
+33 paires par bras) : `low` 32/33 en 201 s, `none` 30/33 en 230 s, `medium`
+29/33 en 221 s, sans gain de cout : `low` reste. Le proprietaire a choisi Haiku pour plan, brief et chat
+(2026-10-09) ; les variantes `~modele-deepseek-v4.1-flash` gardent la mesure
+(`ci/ab_modele.py`, `--base deepseek-v4.1-flash` pour les rapports d avant).
+`ci/keyprobe.py` sonde la cle avec le modele de plan du banc
+(`PLANNER_MODEL_PLAN` de `ci/models.env`) : un plafond epuise arrete le banc
+au demarrage au lieu de 75 min de niveaux rouges.
+
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
 - Le joueur donne un BUT, jamais les etapes : « construis-moi une cabane »
@@ -121,7 +145,7 @@ refus immediat d une capacite absente, identifiant de
 - Jamais de secret committe, journalise, mis dans un artefact ou une image.
 - Banc CI : **une seule cle**, sans repli silencieux ; `report.keyCheck` le
   verifie. Choisie au demarrage (`ci/keyprobe.py`, 2026-10-01) : mini prompt
-  sans raisonnement (deepseek-v4.1-flash) sur `OPENCODE_PRIMARY_API_KEY` et
+  sans raisonnement (modele de plan de `ci/models.env`) sur `OPENCODE_PRIMARY_API_KEY` et
   `OPENCODE_SECONDARY_API_KEY` ; primary si les deux repondent, sinon celle
   qui repond, sinon le banc echoue (`report.keyProbe`). Seule la cle retenue
   va aux bots. Ne jamais contourner un 403
@@ -256,13 +280,15 @@ Connaissances calculees par le code, servies au modele dans l etat :
 - **arbre entier** (`arbre_demande`), arbre commence a finir (`arbre_en_cours`), `objets_au_sol` (nom, nombre, hauteur
   relative), `outil_necessaire` (outil minimal nomme), indices de navigation.
 
-Modeles (un par usage, `bot/model-chain.js`, banc : `ci/models.env`) :
+Modeles (un par usage, `bot/model-chain.js`, banc : `ci/models.env` ;
+transport `bot/llm.js` : `/chat/completions`, `/responses` (muse) et
+`/messages` (claude-*)) :
 
 | Usage | Banc | Effort | Delai banc |
 | --- | --- | --- | --- |
-| PLAN (actions) | deepseek-v4.1-flash | low | 20 s |
-| CHAT | deepseek-v4.1-flash | low | 20 s |
-| BRIEF (lecture d objectif) | deepseek-v4.1-flash | high | 30 s, rejouee une fois |
+| PLAN (actions) | claude-haiku-5-5 (`/messages`) | low | 20 s |
+| CHAT | claude-haiku-5-5 | low | 20 s |
+| BRIEF (lecture d objectif) | claude-haiku-5-5 | high | 30 s, rejouee une fois |
 | COMPACT (resume memoire) | muse-spark-1.3-contributor (`/responses`) | high | 90 s |
 
 Seuls rejeux admis, toujours le MEME modele : reponse tronquee (budget
@@ -502,5 +528,6 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `ci/promotion.py` | taux de reussite des niveaux informatifs sur N bancs, serie avec le jumeau |
 | `tmp/reparer.test.js`, `tmp/buts-ouverts.test.js` | reparations par le code, matieres ouvertes et refus (serveur simule) |
 | `tmp/arbitrage-options.test.js` | une demande qui en remplace une autre (arbitrage automatique) garde ses options de demarrage : sans cela, une mission scriptee `skill/*` lancee pendant qu une autre tournait etait planifiee par le modele (`aucun_appel_modele` rouge) |
+| `ci/ab_modele.py` | A/B de modele (variantes `~modele-*`) : reussite, duree, attente, cout par bras aux prix OpenCode Go |
 | `ci/ab.py` | decision A/B sur N bancs, par mode et par niveau : gains/pertes de reussite, duree et appels medians, mode reellement actif, verdict garder/retirer/egalite/insuffisant |
 | `docs/journal.md` | historique des decisions et correctifs |

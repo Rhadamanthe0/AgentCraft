@@ -122,7 +122,7 @@ def _ouvert_recolte():
         'kind': 'gather', 'instruction': f'Ramene-moi 3 {dit}', 'items': [bloc], 'tirage': bloc,
         'terrain': [(p[0], 200, p[1], p[0], 200, p[1], bloc) for p in ((14, 10), (22, 26), (28, 14), (8, 28), (24, 6))],
         'target': 3, 'leaves': [], 'logs': [], 'rules': {}, 'informative': True,
-        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts')],
+        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts'), modele('deepseek-v4.1-flash')],
     }
 
 
@@ -134,7 +134,7 @@ def _ouvert_trouver():
         'kind': 'gather', 'instruction': f'Trouve {dit}', 'items': [], 'tirage': bloc,
         'terrain': [(22, 200, 20, 22, 202, 28, 'dirt'), (28, 200, 24, 28, 200, 24, bloc)],
         'reach': 1, 'target': 0, 'leaves': [], 'logs': [], 'rules': {}, 'informative': True,
-        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts')],
+        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts'), modele('deepseek-v4.1-flash')],
     }
 
 
@@ -588,7 +588,7 @@ def base_levels():
             'about': 'Inventaire vide, « Construis une maison en terre de 3 par 3 par 3 » : creuser la terre d abord.',
             'kind': 'build', 'instruction': 'Construis une maison en terre de 3 par 3 par 3',
             'blocks': ['minecraft:dirt', 'minecraft:grass_block'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
-            'variants': [avec('sous_buts'), avec('reparer')],
+            'variants': [avec('sous_buts'), avec('reparer'), modele('deepseek-v4.1-flash')],
         },
         {
             'name': 'route/three-trips',
@@ -633,7 +633,7 @@ def base_levels():
             'leaves': [(TX, 209, TZ, TX, 209, TZ)],
             'logs': _logs(*[(TX, 200 + i, TZ) for i in range(9)]),
             'rules': {'dirt_placed_max': 0},
-            'variants': [sans('arbre_fini'), avec('reparer')],
+            'variants': [sans('arbre_fini'), avec('reparer'), modele('deepseek-v4.1-flash')],
         },
         {
             'name': 'terrain/moat',
@@ -659,7 +659,7 @@ def base_levels():
             'name': 'craft/stone-pickaxe',
             'about': 'Inventaire vide, un arbre et un rocher : « Fabrique une pioche en pierre » (bois, pioche en bois, pierre).',
             'kind': 'gather', 'instruction': 'Fabrique une pioche en pierre', 'items': ['stone_pickaxe'],
-            'target': 1, 'cap': 300, 'variants': [sans('solveur')],
+            'target': 1, 'cap': 300, 'variants': [sans('solveur'), modele('deepseek-v4.1-flash')],
             'terrain': [(26, 200, 6, 28, 201, 8, 'stone')],
             'leaves': [(6, 204, 26, 10, 205, 30)], 'logs': _logs(*[(8, 200 + i, 28) for i in range(4)]), 'rules': {},
         },
@@ -689,7 +689,7 @@ def base_levels():
             # de cuisson en plus. Bloquant (4 bancs reussis d affilee au
             # 2026-09-28, 230-326 s).
             'kind': 'gather', 'instruction': 'Fabrique une pioche en fer', 'items': ['iron_pickaxe'],
-            'target': 1, 'cap': 480, 'variants': [sans('solveur'), avec('sous_buts')],
+            'target': 1, 'cap': 480, 'variants': [sans('solveur'), avec('sous_buts'), modele('deepseek-v4.1-flash')],
             'terrain': [(20, 200, 26, 24, 201, 30, 'stone'), (22, 201, 26, 22, 201, 26, 'iron_ore'),
                         (23, 201, 26, 23, 201, 26, 'iron_ore'), (24, 201, 27, 24, 201, 27, 'iron_ore')],
             'leaves': [(6, 204, 6, 10, 205, 10)], 'logs': _logs(*[(8, 200 + i, 8) for i in range(4)]), 'rules': {},
@@ -740,7 +740,7 @@ def base_levels():
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
             # A/B: the model picks sub-goals (batir, obtenir) the code runs to the end.
-            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts'), avec('reparer')],
+            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts'), avec('reparer'), modele('deepseek-v4.1-flash')],
         },
         # Palier 2 (2026-09-28) : chaine plus longue, imprevu, terrain hostile.
         # Informatifs jusqu a trois bancs reussis d affilee.
@@ -755,7 +755,24 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [avec('sous_buts'), avec('plan_sans_raisonnement')],
+            'rules': {}, 'variants': [avec('sous_buts'), avec('plan_sans_raisonnement'), modele('deepseek-v4.1-flash')],
+        },
+        # Palier 2 (2026-10-09, A/B de modele) : forme jamais demandee depuis
+        # rien (un mur, pas une boite), en pierre, avec une question du joueur
+        # en cours de route qui ne doit pas arreter le chantier. Informatif.
+        {
+            'name': 'composite/stone-wall-question',
+            'about': 'Inventaire vide, deux arbres et un rocher, « Construis-moi un mur en pierre de 6 de long et 2 de haut », '
+                     'puis a 60 s « Tu en es ou ? » : bois, etabli, pioche, pierre extraite puis posee, la question ne coupe rien.',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Construis-moi un mur en pierre de 6 de long et 2 de haut',
+            'events': [(60, 'Tu en es ou ?')],
+            'blocks': ['minecraft:cobblestone'], 'target': 10, 'minTop': 2,
+            'terrain': [(4, 200, 22, 9, 202, 27, 'stone')],
+            'leaves': [box for (x, z) in ((28, 6), (30, 28))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((28, 6), (30, 28)) for i in range(5)]),
+            'rules': {}, 'variants': [modele('deepseek-v4.1-flash')],
         },
         {
             'name': 'composite/cabin-change-of-mind',
@@ -768,7 +785,7 @@ def base_levels():
             'leaves': [box for (x, z) in COMPOSITE_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [modele('deepseek-v4.1-flash')],
         },
         {
             'name': 'composite/cabin-across-water',
@@ -781,7 +798,7 @@ def base_levels():
             'leaves': [box for (x, z) in ACROSS_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ACROSS_TREES for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [modele('deepseek-v4.1-flash')],
         },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
@@ -1673,6 +1690,21 @@ def avec(mode):
     return (f'avec-{mode}', {mode: True})
 
 
+# Model A/B (owner's request, 2026-10-09): the same level with another model
+# for plans, brief and chat (POST /api/models, reset after the level). Same
+# efforts as ci/models.env; informative like every variant.
+def modele(name):
+    return (f'modele-{name}', {}, {'plan': name, 'brief': name, 'chat': name})
+
+
+# Reasoning effort A/B (owner's request, 2026-10-09): plans and chat at
+# another effort (`none` = thinking disabled); the brief keeps its own.
+# Measured on 3 benches (33 pairs each, AGENTS.md): `low` stays; no level
+# carries it now, to spare the Haiku quota.
+def effort(label, value):
+    return (f'effort-{label}', {}, {'effort_plan': value, 'effort_chat': value})
+
+
 # Complex levels (composites) run twice (owner's request, 2026-10-01): once
 # in the stable arena (committed seed, comparable from one run to the next)
 # and once in an arena drawn at random for this run (`~aleatoire`, seed
@@ -1691,9 +1723,10 @@ def all_levels_unfiltered():
     out = []
     for level in base_levels():
         out.append(level)
-        for suffix, features in level.get('variants', ()):
+        for suffix, features, *models in level.get('variants', ()):
             out.append(dict(level, name=f"{level['name']}~{suffix}", variants=(),
                             features={**level.get('features', {}), **features},
+                            models=models[0] if models else None,
                             informative=True, variantOf=level['name'],
                             about=f"[{suffix}] {level['about']}"))
         if level['name'].split('/')[0] in RANDOM_TWIN_FAMILIES:
@@ -1937,7 +1970,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
 # 36105107224), used only to order the queue. A level missing here counts as
 # NEW_LEVEL_S (started early: unknown levels are often the long ones).
 EXPECTED_S = {
-    'composite/cabin-from-scratch': 900, 'composite/stone-hut-from-scratch': 1200,
+    'composite/cabin-from-scratch': 900, 'composite/stone-hut-from-scratch': 1200, 'composite/stone-wall-question': 1200,
     'composite/cabin-change-of-mind': 1000, 'composite/cabin-across-water': 1000, 'craft/iron-pickaxe': 400, 'craft/iron-pickaxe~sans-solveur': 480,
     'trees/tall': 99, 'trees/tall~sans-reflexes': 99, 'trees/pillar': 92, 'trees/bent': 86, 'trees/bent~sans-anti_boucle': 86, 'trees/double': 85, 'trees/double~sans-recolter': 85, 'trees/double~sans-relance_plan': 85, 'terrain/far-tree': 120, 'terrain/far-tree~sans-explorer': 120, 'terrain/plateau': 82, 'terrain/plateau~avec-nav_creuse': 82,
     'chat/replace-and-join': 78, 'chat/tree-then-bring': 40, 'terrain/moat': 38, 'chat/join-then-tree': 32,
@@ -1992,7 +2025,8 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
     def reset(bot):
         # Previous level's mission and working notes must not leak into the next one.
         for route, body, method in (('/api/stop', {}, 'POST'), ('/api/memory', None, 'DELETE'),
-                                    ('/api/features', {'reset': True}, 'POST')):
+                                    ('/api/features', {'reset': True}, 'POST'),
+                                    ('/api/models', {'reset': True}, 'POST')):
             try:
                 bot_api(bot, route, body, method=method)
             except Exception:
@@ -2007,6 +2041,14 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
         except Exception:
             return None, None
 
+    def planner_tokens(bot):
+        # Tokens per usage (planner.jetons_par_usage): the level's cost.
+        try:
+            p = bot_api(bot, '/api/status').get('planner') or {}
+            return p.get('jetons_par_usage')
+        except Exception:
+            return None
+
     def mission_start(bot):
         try:
             return ((bot_api(bot, '/api/mission') or {}).get('mission') or {}).get('debut')
@@ -2018,14 +2060,17 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
         if not first:
             reset(worker.bot)
         print(f'{level["name"]} ({worker.username}) started', flush=True)
-        calls_before = requests_before = None
+        calls_before = requests_before = tokens_before = None
         mission_before = None
         try:
             if before_level:
                 before_level()
             if level.get('features'):
                 bot_api(worker.bot, '/api/features', level['features'])
+            if level.get('models'):
+                bot_api(worker.bot, '/api/models', level['models'])
             calls_before, requests_before = planner_calls(worker.bot)
+            tokens_before = planner_tokens(worker.bot)
             mission_before = mission_start(worker.bot)
             result = run_level(level, origins[index], worker.bot, worker.username, output, rcon, bot_api, worker.probe)
         except Exception as error:  # a crashing level never takes its worker down silently
@@ -2034,6 +2079,17 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
         if level.get('variation'):
             result['variation'] = level['variation']
         calls_after, requests_after = planner_calls(worker.bot)
+        tokens_after = planner_tokens(worker.bot)
+        if tokens_after is not None and tokens_before is not None:
+            delta = {}
+            for task, after in tokens_after.items():
+                before = tokens_before.get(task) or {}
+                diff = {k: v - (before.get(k) or 0) for k, v in after.items() if isinstance(v, (int, float))}
+                if diff.get('appels'):
+                    delta[task] = diff
+            result['plannerTokens'] = delta
+        if level.get('models'):
+            result['models'] = level['models']
         if calls_before is not None and calls_after is not None:
             result['plannerCalls'] = calls_after - calls_before
         if requests_before is not None and requests_after is not None:

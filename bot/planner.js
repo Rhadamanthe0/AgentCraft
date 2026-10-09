@@ -304,6 +304,8 @@ const stats = {
   jetons_en_cache_total: 0,
   jetons_sortie_total: 0,
   jetons_raisonnement_total: 0,
+  // Ecritures de cache (/messages, facturees a part) : cout d un bras A/B.
+  jetons_cache_ecrits_total: 0,
   // Miroir du profil pour /api/status.planner (index.js etale ...stats).
   modele_configure: MODEL,
   modele_effectif: MODEL
@@ -319,6 +321,23 @@ syncProfileStats()
 const LATENCY_KEEP = 200
 const latencies = {}
 Object.defineProperty(stats, 'latences', { enumerable: true, get: () => latencies })
+
+// Jetons de chaque appel servi, par usage (plan, brief, chat...) : le banc en
+// tire le cout d un niveau (A/B de modele, ci/ab_modele.py). Rejeux compris.
+const tokensByTask = {}
+Object.defineProperty(stats, 'jetons_par_usage', { enumerable: true, get: () => tokensByTask })
+
+function recordTokens (task, usage) {
+  if (!usage) return
+  const t = tokensByTask[task] ?? (tokensByTask[task] = { appels: 0, entree: 0, cache_lu: 0, cache_ecrit: 0, sortie: 0 })
+  const cached = usage.prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? 0
+  const written = usage.cache_write_tokens ?? 0
+  t.appels += 1
+  t.entree += Math.max(0, (usage.prompt_tokens ?? 0) - cached - written)
+  t.cache_lu += cached
+  t.cache_ecrit += written
+  t.sortie += usage.completion_tokens ?? 0
+}
 
 function recordLatency (task, ms, outcome) {
   const entry = latencies[task] ?? (latencies[task] = { ms: [], ok: 0, delai: 0, erreur: 0, annule: 0 })
@@ -339,6 +358,7 @@ async function callWithProfile (system, user, opts = {}) {
     const result = relaunch ? await callRelaunched(system, user, opts) : await callWithProfileOnce(system, user, opts)
     warmModels.add(result.model)
     recordLatency(task, Date.now() - started, 'ok')
+    recordTokens(task, result.usage)
     return result
   } catch (err) {
     const outcome = opts.signal?.aborted ? 'annule' : /pas de reponse|timeout|abort/i.test(String(err?.message)) ? 'delai' : 'erreur'
@@ -413,7 +433,11 @@ async function callWithProfileOnce (system, user, opts = {}) {
 }
 
 async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan', sansRaisonnement = false } = {}) {
-  const EFFORT = modelChain.effortFor(task)
+  // `none` (PLANNER_REASONING_EFFORT_<USAGE> ou A/B d effort) : raisonnement
+  // coupe, comme le plan sans raisonnement.
+  const effortAsked = modelChain.effortFor(task)
+  const EFFORT = effortAsked === 'none' ? null : effortAsked
+  if (effortAsked === 'none') sansRaisonnement = true
   // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
   const base = BASE_URL
   const key = apiKey ?? API_KEY
@@ -1236,6 +1260,7 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   stats.jetons_en_cache_total += stats.jetons_en_cache ?? 0
   stats.jetons_sortie_total += response.usage?.completion_tokens ?? 0
   stats.jetons_raisonnement_total += response.usage?.completion_tokens_details?.reasoning_tokens ?? 0
+  stats.jetons_cache_ecrits_total += response.usage?.cache_write_tokens ?? 0
 
   if (DEBUG) {
     console.log(

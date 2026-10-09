@@ -18,10 +18,29 @@
 // `/chat/completions`, a l identique d avant. Une option explicite gagne
 // toujours sur cette detection.
 const RESPONSES_MODEL_RE = /muse-spark/i
+// Les modeles Claude (claude-haiku-5-5 au gateway Go) ne sont servis que sur
+// `/messages` (format Anthropic) : ce protocole prime sur toute option.
+const MESSAGES_MODEL_RE = /^claude-/i
 
 function resolveProtocol (model, protocol) {
+  if (MESSAGES_MODEL_RE.test(String(model ?? ''))) return 'messages'
   if (protocol === 'responses' || protocol === 'chat') return protocol
   return RESPONSES_MODEL_RE.test(String(model ?? '')) ? 'responses' : 'chat'
+}
+
+// Usage `/messages` ramene a la forme OpenAI lue par le planificateur :
+// `input_tokens` n y compte pas le cache, d ou la somme. Les ecritures de
+// cache (facturees a part chez Anthropic) restent dans `cache_write_tokens`.
+function messagesUsage (u) {
+  if (!u) return null
+  const read = u.cache_read_input_tokens ?? 0
+  const write = u.cache_creation_input_tokens ?? 0
+  return {
+    prompt_tokens: (u.input_tokens ?? 0) + read + write,
+    completion_tokens: u.output_tokens ?? 0,
+    prompt_tokens_details: { cached_tokens: read },
+    cache_write_tokens: write
+  }
 }
 
 // L API Responses ne rend pas `choices` : le texte utile vit dans les parties
@@ -133,15 +152,35 @@ async function call (system, user, options = {}) {
   if (!baseUrl || !model) throw new Error('transport LLM mal configure (baseUrl ou model manquant)')
 
   const proto = resolveProtocol(model, protocol)
-  const endpoint = joinEndpoint(baseUrl, proto === 'responses' ? '/responses' : '/chat/completions')
+  const endpoint = joinEndpoint(baseUrl, { responses: '/responses', messages: '/messages' }[proto] ?? '/chat/completions')
 
   const headers = buildHeaders(apiKey, extraHeaders)
+  if (proto === 'messages') {
+    headers['anthropic-version'] = '2023-06-01'
+    if (apiKey) headers['x-api-key'] = apiKey
+  }
 
   // Corps strictement separes par protocole : le chemin chat est inchange octet
   // pour octet (messages + response_format json_object) ; le chemin responses
   // porte l entree et demande aussi un objet JSON, sans `keep_alive`.
   let body
-  if (proto === 'responses') {
+  if (proto === 'messages') {
+    // Ni temperature (valeur non par defaut refusee en 400 par Claude Haiku
+    // 5.5) ni response_format : le prompt exige deja un JSON, parseJson le lit.
+    // Le systeme porte un point de cache : il est stable (piege 12).
+    const data = image && /^data:([^;]+);base64,(.*)$/s.exec(image)
+    const source = data ? { type: 'base64', media_type: data[1], data: data[2] } : { type: 'url', url: image }
+    const userContent = image ? [{ type: 'image', source }, { type: 'text', text: user }] : user
+    const effort = reasoningEffort ?? reasoning?.effort ?? null
+    body = JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+      ...(thinking ? { thinking } : {}),
+      ...(effort && !thinking ? { output_config: { effort } } : {}),
+      messages: [{ role: 'user', content: userContent }]
+    })
+  } else if (proto === 'responses') {
     const userContent = image
       ? [{ type: 'input_text', text: user }, { type: 'input_image', image_url: image }]
       : user
@@ -256,6 +295,19 @@ async function call (system, user, options = {}) {
     if (signal) signal.removeEventListener('abort', onExternalAbort)
   }
 
+  if (proto === 'messages') {
+    if (parsed?.type === 'error' || parsed?.error) {
+      const msg = parsed.error?.message ?? JSON.stringify(parsed.error)
+      throw new Error(`erreur modele : ${String(msg).slice(0, 200)}`)
+    }
+    if (parsed?.stop_reason === 'max_tokens') throw new Error('reponse tronquee (budget max_tokens atteint)')
+    if (parsed?.stop_reason === 'refusal') throw new Error('reponse refusee par le modele')
+    const content = (Array.isArray(parsed?.content) ? parsed.content : [])
+      .filter(c => c?.type === 'text' && typeof c.text === 'string').map(c => c.text).join('')
+    if (!content.trim()) throw new Error('reponse sans contenu')
+    return { content, usage: messagesUsage(parsed.usage), ms: Date.now() - started, responseModel: typeof parsed.model === 'string' ? parsed.model : null }
+  }
+
   if (proto === 'responses') {
     // Erreur metier rendue en 200 : la signaler telle quelle, sans le corps.
     if (parsed?.error) {
@@ -298,4 +350,4 @@ function parseJson (text) {
   }
 }
 
-module.exports = { call, parseJson }
+module.exports = { call, parseJson, resolveProtocol, messagesUsage }

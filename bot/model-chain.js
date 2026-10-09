@@ -33,9 +33,37 @@ function parse (text) {
   })
 }
 
+// A/B de modele au banc (POST /api/models, variante `modele(...)` de
+// ci/trees.py) : un modele par usage, a la place de la variable, jusqu au
+// prochain reset. Toujours UN modele par usage, jamais de repli.
+const overrides = {}
+const OVERRIDE_TASKS = { plan: 'plan', brief: 'readBrief', chat: 'interpretMessage', compact: 'compact' }
+
+// Effort aussi (`effort_plan`, `effort_chat`, `effort_brief`) : `none` coupe
+// le raisonnement (thinking disabled), comme PLANNER_REASONING_EFFORT_*=none.
+const effortOverrides = {}
+const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high'])
+
+function setOverrides (changes = {}) {
+  if (changes?.reset === true) {
+    for (const k of Object.keys(overrides)) delete overrides[k]
+    for (const k of Object.keys(effortOverrides)) delete effortOverrides[k]
+  }
+  for (const [key, value] of Object.entries(changes ?? {})) {
+    const task = OVERRIDE_TASKS[key]
+    if (task && typeof value === 'string' && /^[a-z0-9][a-z0-9.-]{0,63}$/i.test(value)) overrides[task] = value
+    const effortTask = key.startsWith('effort_') ? OVERRIDE_TASKS[key.slice(7)] : null
+    if (effortTask && EFFORTS.has(value)) effortOverrides[effortTask] = value
+  }
+  const out = Object.fromEntries(Object.entries(OVERRIDE_TASKS).filter(([, t]) => overrides[t]).map(([k, t]) => [k, overrides[t]]))
+  for (const [k, t] of Object.entries(OVERRIDE_TASKS)) if (effortOverrides[t]) out[`effort_${k}`] = effortOverrides[t]
+  return out
+}
+
 // Le modele de l usage : PLANNER_MODEL_<USAGE>, sinon PLANNER_MODEL. Une liste
 // (ancien format) ne garde que sa premiere entree. null si sa cle manque.
 function modelFor (task, env = process.env, fallback = '') {
+  if (overrides[task] && env === process.env) return { model: overrides[task], baseUrl: null, label: overrides[task] }
   const own = TASK_VARS[task] ? env[TASK_VARS[task]] : ''
   const entry = parse(String(own ?? '').trim() || env.PLANNER_MODEL || fallback)[0]
   if (!entry || entry.invalid) return null
@@ -46,6 +74,7 @@ function modelFor (task, env = process.env, fallback = '') {
 // PLANNER_REASONING_EFFORT (vide = rien envoye). Les actions (plan, chat)
 // gagnent a raisonner peu ; la lecture de l objectif garde le defaut.
 function effortFor (task, env = process.env) {
+  if (effortOverrides[task] && env === process.env) return effortOverrides[task]
   const own = TASK_VARS[task] ? env[TASK_VARS[task].replace('PLANNER_MODEL_', 'PLANNER_REASONING_EFFORT_')] : ''
   const value = String(own ?? '').trim() || String(env.PLANNER_REASONING_EFFORT ?? '').trim()
   return value.toLowerCase() || null
@@ -90,4 +119,4 @@ function createKeyState (cooldownMs = 600000) {
   }
 }
 
-module.exports = { parse, modelFor, effortFor, timeoutFor, keyOrder, isKeySwitchError, createKeyState, KEY_VARS, TASK_VARS }
+module.exports = { parse, modelFor, setOverrides, effortFor, timeoutFor, keyOrder, isKeySwitchError, createKeyState, KEY_VARS, TASK_VARS }

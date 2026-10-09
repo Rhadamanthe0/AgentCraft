@@ -1,7 +1,9 @@
 """Choose the one OpenCode key of a bench (owner's rule, 2026-10-01).
 
-At start, a tiny prompt without reasoning goes to deepseek-v4.1-flash with each
-key. Both answer: primary. One answers: that one. None: the bench fails.
+At start, a tiny prompt without reasoning goes, with each key, to the model
+the bots plan with (PLANNER_MODEL_PLAN of ci/models.env, 2026-10-09: each
+model has its own Go quota, and a DeepSeek probe let a bench with Haiku's
+5-hour quota spent play 75 min of red levels). Both answer: primary. One answers: that one. None: the bench fails.
 Only the chosen key then reaches the bots, so no switch can happen mid-bench
 (report.keyCheck). A key is never printed, logged or put in the report.
 """
@@ -13,8 +15,28 @@ import unicodedata
 import urllib.error
 import urllib.request
 
-URL = 'https://opencode.ai/zen/go/v1/chat/completions'
-MODEL = 'deepseek-v4.1-flash'
+from pathlib import Path
+
+BASE = 'https://opencode.ai/zen/go/v1'
+URL = BASE + '/chat/completions'
+MODELS_ENV = Path(__file__).with_name('models.env')
+DEFAULT_MODEL = 'deepseek-v4.1-flash'
+
+
+def bench_model(path=MODELS_ENV):
+    """PLANNER_MODEL_PLAN (else PLANNER_MODEL) of ci/models.env."""
+    values = {}
+    try:
+        for line in path.read_text(encoding='utf-8').splitlines():
+            name, sep, value = line.partition('=')
+            if sep and not name.strip().startswith('#'):
+                values[name.strip()] = value.strip()
+    except OSError:
+        pass
+    return values.get('PLANNER_MODEL_PLAN') or values.get('PLANNER_MODEL') or DEFAULT_MODEL
+
+
+MODEL = bench_model()
 PROMPT = "Pas de réflexion, répond uniquement 'test validé'"
 TIMEOUT_S = 20
 # GitHub secret(s) holding each key, in order; PLANNER_API_KEY stays accepted
@@ -40,21 +62,32 @@ def plain(text):
     return ''.join(c for c in text if not unicodedata.combining(c)).lower()
 
 
-def probe(key, urlopen=urllib.request.urlopen):
+def probe(key, urlopen=urllib.request.urlopen, model=None):
     """One call; never returns or raises anything holding the key."""
-    body = json.dumps({'model': MODEL, 'temperature': 0, 'max_tokens': 200,
-                       'thinking': {'type': 'disabled'},
-                       'messages': [{'role': 'user', 'content': PROMPT}]}).encode()
-    request = urllib.request.Request(URL, data=body, method='POST', headers={
-        'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
-        'User-Agent': 'minecraft-bot/1.0', 'x-opencode-session': 'minebot-ci-keyprobe'})
+    model = model or MODEL
+    claude = model.startswith('claude-')
+    headers = {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
+               'User-Agent': 'minecraft-bot/1.0', 'x-opencode-session': 'minebot-ci-keyprobe'}
+    if claude:
+        # Claude is served on /messages only (bot/llm.js): no temperature.
+        headers.update({'x-api-key': key, 'anthropic-version': '2023-06-01'})
+        body = {'model': model, 'max_tokens': 200, 'thinking': {'type': 'disabled'},
+                'messages': [{'role': 'user', 'content': PROMPT}]}
+    else:
+        body = {'model': model, 'temperature': 0, 'max_tokens': 200, 'thinking': {'type': 'disabled'},
+                'messages': [{'role': 'user', 'content': PROMPT}]}
+    request = urllib.request.Request(BASE + '/messages' if claude else URL, data=json.dumps(body).encode(),
+                                     method='POST', headers=headers)
     started = time.monotonic()
     result = {'status': None}
     try:
         with urlopen(request, timeout=TIMEOUT_S) as response:
             result['status'] = response.status
             data = json.load(response)
-        answer = ((data.get('choices') or [{}])[0].get('message') or {}).get('content') or ''
+        if claude:
+            answer = ''.join(c.get('text') or '' for c in data.get('content') or [] if c.get('type') == 'text')
+        else:
+            answer = ((data.get('choices') or [{}])[0].get('message') or {}).get('content') or ''
         result['answer'] = answer.strip()[:80]
     except urllib.error.HTTPError as error:
         result['status'] = error.code

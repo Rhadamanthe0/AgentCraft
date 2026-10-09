@@ -98,10 +98,9 @@ services:
       # optimise le routage et le cache de prompt cote OpenCode Zen. On le
       # derive du pseudo du bot. Sans PLANNER_BASE_URL, aucune mission possible.
       PLANNER_BASE_URL: "${PLANNER_BASE_URL:-https://opencode.ai/zen/go/v1}"
-      # deepseek-v4.1-flash est un modele a raisonnement : il lui faut de la
-      # marge de sortie (PLANNER_MAX_TOKENS), sinon il raisonne jusqu'au bout et
-      # rend un contenu vide (finish=length).
-      PLANNER_MODEL: "${PLANNER_MODEL:-deepseek-v4.1-flash}"
+      # claude-haiku-5-5 (2026-10-09) raisonne par defaut : il lui faut de la
+      # marge de sortie (PLANNER_MAX_TOKENS), sinon la reponse est tronquee.
+      PLANNER_MODEL: "${PLANNER_MODEL:-claude-haiku-5-5}"
       # Liste = ordre d essai (bot/model-chain.js) ; un usage peut avoir la
       # sienne (vide = PLANNER_MODEL). Voir .env.example.
       PLANNER_MODEL_PLAN: "${PLANNER_MODEL_PLAN:-}"
