@@ -198,6 +198,24 @@ describe('llm.call : chemin responses (Muse Go)', () => {
     assert.equal(seen.url, `${BASE}/chat/completions`)
   })
 
+  it('gpt-* : /responses impose, sans temperature, effort chat en reasoning, usage normalise', async () => {
+    mockFetch(async () => okJson({ ...responsesOk, usage: { input_tokens: 1000, output_tokens: 30, input_tokens_details: { cached_tokens: 800 }, output_tokens_details: { reasoning_tokens: 12 } } }))
+    const res = await llm.call('s', 'u', { baseUrl: BASE, model: 'gpt-6-luna', protocol: 'chat', temperature: 0, reasoningEffort: 'low' })
+    assert.equal(seen.url, `${BASE}/responses`)
+    assert.ok(!('temperature' in seen.body))
+    assert.deepEqual(seen.body.reasoning, { effort: 'low' })
+    assert.equal(res.usage.prompt_tokens, 1000)
+    assert.equal(res.usage.completion_tokens, 30)
+    assert.deepEqual(res.usage.prompt_tokens_details, { cached_tokens: 800 })
+    assert.equal(res.usage.output_tokens_details.reasoning_tokens, 12)
+  })
+
+  it('muse garde sa temperature sur /responses', async () => {
+    mockFetch(async () => okJson(responsesOk))
+    await llm.call('s', 'u', { baseUrl: BASE, model: 'muse-spark-1.3-contributor', temperature: 0 })
+    assert.equal(seen.body.temperature, 0)
+  })
+
   it('image responses en input_text + input_image', async () => {
     mockFetch(async () => okJson(responsesOk))
     await llm.call('sys', 'jeu', {

@@ -21,9 +21,13 @@ const RESPONSES_MODEL_RE = /muse-spark/i
 // Les modeles Claude (claude-haiku-5-5 au gateway Go) ne sont servis que sur
 // `/messages` (format Anthropic) : ce protocole prime sur toute option.
 const MESSAGES_MODEL_RE = /^claude-/i
+// Les modeles GPT (gpt-6-luna au gateway Go) ne sont servis que sur
+// `/responses`, sans temperature (modele a raisonnement) : idem, prime.
+const GPT_MODEL_RE = /^gpt-/i
 
 function resolveProtocol (model, protocol) {
   if (MESSAGES_MODEL_RE.test(String(model ?? ''))) return 'messages'
+  if (GPT_MODEL_RE.test(String(model ?? ''))) return 'responses'
   if (protocol === 'responses' || protocol === 'chat') return protocol
   return RESPONSES_MODEL_RE.test(String(model ?? '')) ? 'responses' : 'chat'
 }
@@ -40,6 +44,18 @@ function messagesUsage (u) {
     completion_tokens: u.output_tokens ?? 0,
     prompt_tokens_details: { cached_tokens: read },
     cache_write_tokens: write
+  }
+}
+
+// Usage `/responses` (input_tokens, cache dans input_tokens_details) complete
+// des champs OpenAI chat lus par le planificateur ; l original reste.
+function responsesUsage (u) {
+  if (!u || u.prompt_tokens != null) return u ?? null
+  return {
+    ...u,
+    prompt_tokens: u.input_tokens ?? 0,
+    completion_tokens: u.output_tokens ?? 0,
+    prompt_tokens_details: { cached_tokens: u.input_tokens_details?.cached_tokens ?? 0 }
   }
 }
 
@@ -184,11 +200,14 @@ async function call (system, user, options = {}) {
     const userContent = image
       ? [{ type: 'input_text', text: user }, { type: 'input_image', image_url: image }]
       : user
+    // Le planificateur passe l effort en `reasoningEffort` (chat) pour un
+    // modele qu il croit en chat : ramene en `reasoning.effort` ici.
+    const effort = reasoning ?? (reasoningEffort ? { effort: reasoningEffort } : null)
     body = JSON.stringify({
       model,
-      temperature,
+      ...(GPT_MODEL_RE.test(model) ? {} : { temperature }),
       max_output_tokens: maxTokens,
-      ...(reasoning ? { reasoning } : {}),
+      ...(effort ? { reasoning: effort } : {}),
       text: { format: { type: 'json_object' } },
       input: [
         { role: 'system', content: system },
@@ -323,7 +342,7 @@ async function call (system, user, options = {}) {
     }
     const content = extractResponsesText(parsed)
     if (typeof content !== 'string' || !content.trim()) throw new Error('reponse sans contenu')
-    return { content, usage: parsed.usage ?? null, ms: Date.now() - started, responseModel: typeof parsed.model === 'string' ? parsed.model : null }
+    return { content, usage: responsesUsage(parsed.usage), ms: Date.now() - started, responseModel: typeof parsed.model === 'string' ? parsed.model : null }
   }
 
   // Chemin chat inchange, plus le garde-fou troncature : `finish_reason:

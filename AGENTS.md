@@ -92,7 +92,8 @@ refus immediat d une capacite absente, identifiant de
 `skills.CAPACITES_ABSENTES`, jamais un texte libre ; niveaux `ouvert/*`,
 `avec(...)` sur gather/flowers et craft/axe pour voir les faux refus).
 
-A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py)
+A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
+liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)
 qui remplace le modele des usages plan, brief et chat pendant le niveau
 (`POST /api/models`, remis a zero apres ; `bot/model-chain.js` `setOverrides`).
 Le resultat porte `models` et `plannerTokens` (jetons par usage : entree,
@@ -100,7 +101,8 @@ cache lu, cache ecrit, sortie) ; `python3 ci/ab_modele.py <report.json...>`
 donne reussite, duree, attente et cout par bras aux prix OpenCode Go. Les
 modeles `claude-*` passent par `/messages` (format Anthropic, seul servi par
 le gateway Go pour Claude) : ni temperature ni `response_format`, systeme
-marque `cache_control`. Plafond Go de Claude Haiku 5.5 : 15 $/mois (60 $ pour
+marque `cache_control`. Les modeles `gpt-*` passent par `/responses`, sans
+temperature, effort en `reasoning.effort`. Plafond Go de Claude Haiku 5.5 : 15 $/mois (60 $ pour
 DeepSeek V4.1 Flash). Mesure du 2026-10-09 (6 bancs, 33 paires, 11
 niveaux dont 4 composites) : Haiku 29/33 contre 27/33, duree mediane 189 s
 contre 334 s, attente du modele 11 s contre 90 s par niveau, cout 0,21 $
@@ -281,7 +283,7 @@ Connaissances calculees par le code, servies au modele dans l etat :
   relative), `outil_necessaire` (outil minimal nomme), indices de navigation.
 
 Modeles (un par usage, `bot/model-chain.js`, banc : `ci/models.env` ;
-transport `bot/llm.js` : `/chat/completions`, `/responses` (muse) et
+transport `bot/llm.js` : `/chat/completions`, `/responses` (muse, gpt-*) et
 `/messages` (claude-*)) :
 
 | Usage | Banc | Effort | Delai banc |
