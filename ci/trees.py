@@ -122,7 +122,7 @@ def _ouvert_recolte():
         'kind': 'gather', 'instruction': f'Ramene-moi 3 {dit}', 'items': [bloc], 'tirage': bloc,
         'terrain': [(p[0], 200, p[1], p[0], 200, p[1], bloc) for p in ((14, 10), (22, 26), (28, 14), (8, 28), (24, 6))],
         'target': 3, 'leaves': [], 'logs': [], 'rules': {}, 'informative': True,
-        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts')],
+        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts'), modele('claude-haiku-5-5')],
     }
 
 
@@ -134,7 +134,7 @@ def _ouvert_trouver():
         'kind': 'gather', 'instruction': f'Trouve {dit}', 'items': [], 'tirage': bloc,
         'terrain': [(22, 200, 20, 22, 202, 28, 'dirt'), (28, 200, 24, 28, 200, 24, bloc)],
         'reach': 1, 'target': 0, 'leaves': [], 'logs': [], 'rules': {}, 'informative': True,
-        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts')],
+        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts'), modele('claude-haiku-5-5')],
     }
 
 
@@ -633,7 +633,7 @@ def base_levels():
             'leaves': [(TX, 209, TZ, TX, 209, TZ)],
             'logs': _logs(*[(TX, 200 + i, TZ) for i in range(9)]),
             'rules': {'dirt_placed_max': 0},
-            'variants': [sans('arbre_fini'), avec('reparer')],
+            'variants': [sans('arbre_fini'), avec('reparer'), modele('claude-haiku-5-5')],
         },
         {
             'name': 'terrain/moat',
@@ -785,7 +785,7 @@ def base_levels():
             'leaves': [box for (x, z) in COMPOSITE_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [modele('claude-haiku-5-5')],
         },
         {
             'name': 'composite/cabin-across-water',
@@ -798,7 +798,7 @@ def base_levels():
             'leaves': [box for (x, z) in ACROSS_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ACROSS_TREES for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [modele('claude-haiku-5-5')],
         },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
