@@ -104,7 +104,11 @@ marque `cache_control`. Plafond Go de Claude Haiku 5.5 : 15 $/mois (60 $ pour
 DeepSeek V4.1 Flash). Mesure du 2026-10-09 (6 bancs, 33 paires, 11
 niveaux dont 4 composites) : Haiku 29/33 contre 27/33, duree mediane 189 s
 contre 334 s, attente du modele 11 s contre 90 s par niveau, cout 0,21 $
-contre 0,35 $ ; changer le modele par defaut reste au proprietaire.
+contre 0,35 $. Le proprietaire a choisi Haiku pour plan, brief et chat
+(2026-10-09) ; les variantes `~modele-deepseek-v4.1-flash` gardent la mesure
+(`ci/ab_modele.py`, `--base deepseek-v4.1-flash` pour les rapports d avant).
+`ci/keyprobe.py` sonde encore la cle avec DeepSeek : un plafond Haiku atteint
+seul ne se voit qu au 429 des bots (bascule de cle).
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
@@ -276,9 +280,9 @@ transport `bot/llm.js` : `/chat/completions`, `/responses` (muse) et
 
 | Usage | Banc | Effort | Delai banc |
 | --- | --- | --- | --- |
-| PLAN (actions) | deepseek-v4.1-flash | low | 20 s |
-| CHAT | deepseek-v4.1-flash | low | 20 s |
-| BRIEF (lecture d objectif) | deepseek-v4.1-flash | high | 30 s, rejouee une fois |
+| PLAN (actions) | claude-haiku-5-5 (`/messages`) | low | 20 s |
+| CHAT | claude-haiku-5-5 | low | 20 s |
+| BRIEF (lecture d objectif) | claude-haiku-5-5 | high | 30 s, rejouee une fois |
 | COMPACT (resume memoire) | muse-spark-1.3-contributor (`/responses`) | high | 90 s |
 
 Seuls rejeux admis, toujours le MEME modele : reponse tronquee (budget

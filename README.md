@@ -328,12 +328,12 @@ refus de quota. Le banc fixe ces valeurs dans `ci/models.env`.
 Dans `.env` :
 
 ```
-PLANNER_MODEL=deepseek-v4.1-flash  # modele par defaut de tous les usages
-PLANNER_MODEL_BRIEF=deepseek-v4.1-flash
+PLANNER_MODEL=claude-haiku-5-5  # modele par defaut de tous les usages
+PLANNER_MODEL_BRIEF=claude-haiku-5-5
 PLANNER_REASONING_EFFORT_PLAN=low
 ```
 
-`deepseek-v4.1-flash` est un modèle à **raisonnement** : ses jetons de
+`claude-haiku-5-5` (servi sur `/messages`) et `deepseek-v4.1-flash` sont des modèles à **raisonnement** : ses jetons de
 raisonnement comptent dans `PLANNER_MAX_TOKENS`. Trop bas, il raisonne jusqu'au
 bout et rend un **contenu vide** (`finish=length`) — c'est ce qui se passait à
 700. Un modèle servi sur `/responses` (Muse) a son propre budget
@@ -346,7 +346,7 @@ configuration par défaut :
 
 ```
 PLANNER_BASE_URL=https://opencode.ai/zen/go/v1
-PLANNER_MODEL=deepseek-v4.1-flash
+PLANNER_MODEL=claude-haiku-5-5
 PLANNER_API_KEY=opencode-go-...
 ```
 

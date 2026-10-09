@@ -22,7 +22,8 @@ PRICES = {
     'deepseek-v4.1-flash': (0.30, 0.006, 0.30, 1.20),
     'claude-haiku-5-5': (0.10, 0.01, 0.125, 0.50),
 }
-BASE_MODEL = 'deepseek-v4.1-flash'
+# Model of the level as written (ci/models.env since 2026-10-09); --base to change.
+BASE_MODEL = 'claude-haiku-5-5'
 
 
 def cost(tokens, model):
@@ -42,7 +43,7 @@ def arm(test, model):
             'cost': cost(test.get('plannerTokens'), model)}
 
 
-def pairs(reports):
+def pairs(reports, base_model=BASE_MODEL):
     out = []
     for report in reports:
         by_name = {t['test']: t for t in report.get('tests', [])}
@@ -55,7 +56,7 @@ def pairs(reports):
                 continue
             model = t['models'].get('plan')
             out.append({'level': base['test'], 'sha': report.get('sha'), 'model': model,
-                        'base': arm(base, BASE_MODEL), 'other': arm(t, model)})
+                        'base': arm(base, base_model), 'other': arm(t, model)})
     return out
 
 
@@ -78,7 +79,7 @@ def summary(runs):
             'cout_total_usd': round(sum(r['cost'] or 0 for r in runs), 4)}
 
 
-def report(all_pairs):
+def report(all_pairs, base_model=BASE_MODEL):
     out = {}
     for key in sorted({(p['model'], p['level']) for p in all_pairs} | {(p['model'], '*') for p in all_pairs}):
         model, level = key
@@ -87,7 +88,7 @@ def report(all_pairs):
             'paires': len(chosen),
             'gains': sum(p['other']['success'] and not p['base']['success'] for p in chosen),
             'pertes': sum(p['base']['success'] and not p['other']['success'] for p in chosen),
-            BASE_MODEL: summary([p['base'] for p in chosen]),
+            base_model: summary([p['base'] for p in chosen]),
             model: summary([p['other'] for p in chosen])}
     return out
 
@@ -95,9 +96,10 @@ def report(all_pairs):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('reports', nargs='+')
+    parser.add_argument('--base', default=BASE_MODEL, help='model of the levels as written')
     args = parser.parse_args()
     reports = [json.loads(Path(p).read_text(encoding='utf-8')) for p in args.reports]
-    print(json.dumps(report(pairs(reports)), indent=2, ensure_ascii=False))
+    print(json.dumps(report(pairs(reports, args.base), args.base), indent=2, ensure_ascii=False))
     return 0
 
 
