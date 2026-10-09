@@ -433,7 +433,11 @@ async function callWithProfileOnce (system, user, opts = {}) {
 }
 
 async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan', sansRaisonnement = false } = {}) {
-  const EFFORT = modelChain.effortFor(task)
+  // `none` (PLANNER_REASONING_EFFORT_<USAGE> ou A/B d effort) : raisonnement
+  // coupe, comme le plan sans raisonnement.
+  const effortAsked = modelChain.effortFor(task)
+  const EFFORT = effortAsked === 'none' ? null : effortAsked
+  if (effortAsked === 'none') sansRaisonnement = true
   // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
   const base = BASE_URL
   const key = apiKey ?? API_KEY

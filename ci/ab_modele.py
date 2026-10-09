@@ -1,4 +1,5 @@
-"""Model A/B over several benches (variants `~modele-<model>`, ci/trees.py).
+"""Model and effort A/B over several benches (variants `~modele-<model>` and
+`~effort-<level>`, ci/trees.py).
 
 Pairs every level with its `~modele-<model>` variant of the same bench and
 gives, per arm: pass rate (95 % Wilson interval), median duration and model
@@ -49,13 +50,15 @@ def pairs(reports, base_model=BASE_MODEL):
         by_name = {t['test']: t for t in report.get('tests', [])}
         for t in report.get('tests', []):
             name = t.get('test', '')
-            if '~modele-' not in name or not t.get('models'):
+            if not ('~modele-' in name or '~effort-' in name) or not t.get('models'):
                 continue
             base = by_name.get(t.get('variantOf') or name.split('~', 1)[0])
             if not base:
                 continue
-            model = t['models'].get('plan')
-            out.append({'level': base['test'], 'sha': report.get('sha'), 'model': model,
+            # Arm label: the model, or the effort of an effort variant (same model).
+            model = t['models'].get('plan') or base_model
+            label = model if '~modele-' in name else f"effort-{t['models'].get('effort_plan')}"
+            out.append({'level': base['test'], 'sha': report.get('sha'), 'model': label,
                         'base': arm(base, base_model), 'other': arm(t, model)})
     return out
 

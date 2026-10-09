@@ -186,3 +186,27 @@ test('A/B de modele : setOverrides remplace le modele d un usage jusqu au reset'
     if (before === undefined) delete env.PLANNER_MODEL; else env.PLANNER_MODEL = before
   }
 })
+
+test('A/B d effort : effort_plan none ou medium jusqu au reset, valeur inconnue ignoree', () => {
+  const mc = require('../bot/model-chain')
+  try {
+    assert.deepEqual(mc.setOverrides({ effort_plan: 'none', effort_chat: 'medium', effort_brief: 'enorme' }),
+      { effort_plan: 'none', effort_chat: 'medium' })
+    assert.equal(mc.effortFor('plan'), 'none')
+    assert.equal(mc.effortFor('interpretMessage'), 'medium')
+    assert.equal(mc.effortFor('plan', { PLANNER_REASONING_EFFORT_PLAN: 'low' }), 'low', 'un env explicite n est pas touche')
+    mc.setOverrides({ reset: true })
+    assert.notEqual(mc.effortFor('plan'), 'none')
+  } finally {
+    mc.setOverrides({ reset: true })
+  }
+})
+
+test('effort none : le plan part avec thinking disabled et sans effort', async () => {
+  const sent = []
+  llm.call = async (s, u, o) => { sent.push(o); return { content: plan, usage: null, ms: 1 } }
+  const p = load({ PLANNER_MODEL: 'claude-haiku-5-5', PLANNER_REASONING_EFFORT_PLAN: 'none' })
+  await p.plan({}, 'recolte', 'harvest')
+  assert.deepEqual(sent[0].thinking, { type: 'disabled' })
+  assert.equal(sent[0].reasoningEffort ?? null, null)
+})
