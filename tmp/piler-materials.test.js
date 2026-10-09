@@ -144,7 +144,7 @@ async function simulate (t, { inventory, height = 6, refuseAt = null, noLanding 
   }
   assert.equal(runner.isRunning(), false)
   const status = runner.status()
-  return { status, snapshots, blocks, step: status.historique.find(step => step.action === first), placements, commands, states, messages, staleAborted, stopsAtPlans, lifecycleListeners,
+  return { runner, bot, status, snapshots, blocks, step: status.historique.find(step => step.action === first), placements, commands, states, messages, staleAborted, stopsAtPlans, lifecycleListeners,
     collectionListeners: bot.listenerCount('playerCollect'), spawnListeners: ['entitySpawn', 'entityGone', 'entityUpdate', 'itemDrop', 'end'].reduce((n, event) => n + bot.listenerCount(event), 0) }
 }
 
@@ -559,6 +559,25 @@ for (const action of ['construire', 'poser_porte']) {
     assert.match(step.resultat, /finir la coupe avant de construire/)
   })
 }
+
+// Banc bff20b0 (composite/cabin-from-scratch) : du haut d un pilier, le
+// modele a choisi explorer pour « trouver du bois » ; le bot a quitte l arbre
+// commence et ne l a jamais retrouve (plafond de 45 min). Explorer s eloigne
+// de la seule cible bois permise : refuse tant qu une buche reste debout.
+test('explorer refuse tant que l arbre commence est debout', async t => {
+  const trajets = []
+  const f = await simulate(t, { inventory: [{ name: 'oak_planks', count: 8 }], kind: 'construction', first: 'casser',
+    text: 'construis une cabane en bois', logY: 65,
+    extra: { '1,66,0': 'oak_log', '1,67,0': 'oak_log', '1,68,0': 'oak_log', '1,69,0': 'oak_log' }, allLogs: true,
+    queue: [['casser'], [{ action: 'explorer', choices: { distance: 16 } }]],
+    navigate: async position => { trajets.push(position); return { reached: true, code: 'arrived', remaining: 1 } } })
+  assert.ok(f.blocks.has('1,69,0'), 'une partie du tronc reste debout')
+  const step = f.states.flatMap(state => state.dernieres_etapes ?? []).find(step => step.action === 'explorer')
+  assert.ok(step, 'explorer joue')
+  assert.equal(step.code, 'arbre_inacheve')
+  assert.match(step.resultat, /arbre commence/)
+  assert.equal(trajets.length, 0, 'aucun trajet d exploration')
+})
 
 for (const split of [false, true]) {
   test(`arbre entier et pommes : trajet avec objet explicite (${split ? 'plans separes' : 'meme plan'})`, async t => {
@@ -1203,6 +1222,27 @@ test('construction et don demande : don prouve ne prouve pas chantier incomplet'
   assert.equal(f.status.chantier.blocs_poses, 0)
   assert.equal(f.status.chantier.blocs_prevus, 1)
   assert.equal(f.snapshots.at(-1).descripteur.livraison[0].prouve, 2)
+})
+
+test('monde absent (reconnexion) : l etat d un chantier se lit encore, depuis la derniere mesure', async t => {
+  // Banc 4003d81 : entre « Connecting » et « Spawned », mineflayer n a pas de
+  // monde (bot.world) ; l etat de la mission precedente relisait le chantier
+  // et /api/status rendait 500, ce qui faisait echouer le niveau suivant.
+  const f = await simulate(t, { inventory: [{ name: 'oak_log', count: 2 }], kind: 'construction', text: 'construis une cabane', completedStructure: true,
+    queue: [['choisir_terrain'], ['terminer']] })
+  f.bot.blockAt = () => { throw new TypeError("Cannot read properties of undefined (reading 'getBlock')") }
+  const status = f.runner.status()
+  assert.equal(status.chantier.blocs_prevus, f.status.chantier.blocs_prevus)
+  assert.equal(status.chantier.blocs_poses, f.status.chantier.blocs_poses)
+  assert.equal(status.chantier.porte_posee, f.status.chantier.porte_posee)
+})
+
+test('monde absent (reconnexion) : l etat d un arbre entier se lit encore', async t => {
+  const f = await simulate(t, { inventory: [], first: 'casser', logY: 65, text: 'coupe un arbre', extra: { '1,66,0': 'oak_log' },
+    queue: [['casser'], ['casser'], ['casser'], [{ action: 'attendre', choices: { duree: 1 } }]] })
+  assert.ok(f.status.arbre_entier)
+  f.bot.blockAt = () => { throw new TypeError("Cannot read properties of undefined (reading 'getBlock')") }
+  assert.ok(f.runner.status().arbre_entier)
 })
 
 test('arbre entier et don independant : don prouve ne dispense pas collecte finale', async t => {

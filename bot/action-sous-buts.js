@@ -27,7 +27,17 @@ function prochainGesteChantier (e) {
   if (!e.planChoisi) return { action: 'choisir_terrain', params: {}, pourquoi: 'aucun emplacement' }
   const b = e.besoins ?? {}
   if (e.restants > 0) {
-    if (e.stock > 0) return { action: 'construire', params: { quantite: Math.min(40, e.stock, e.restants) }, pourquoi: 'materiau en poche' }
+    if (e.stock > 0) {
+      // Murs et porte partagent la poche (chantier planches) : reserver les
+      // 6 planches de la porte et les 4 de l etabli avant de poser les murs,
+      // sinon les murs prennent tout et la porte ne se fabrique jamais.
+      const reserve = (e.porteVoulue && !e.portePosee && !e.porteEnPoche)
+        ? (b.porte_a_fabriquer ? 6 : 0) + (b.etabli_a_fabriquer ? 4 : 0)
+        : 0
+      const dispo = Math.min(e.stock - reserve, e.restants)
+      // dispo <= 0 : le fabriquer / recolter existant prend le relais.
+      if (dispo > 0) return { action: 'construire', params: { quantite: Math.min(40, dispo) }, pourquoi: 'materiau en poche' }
+    }
     if ((b.planches_a_fabriquer ?? 0) > 0 && (b.buches_en_poche ?? 0) > 0) {
       return { action: 'fabriquer', params: { objet: 'planches', quantite: Math.min(b.planches_a_fabriquer, b.buches_en_poche * 4) }, pourquoi: 'planches a fabriquer' }
     }

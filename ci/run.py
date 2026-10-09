@@ -47,7 +47,9 @@ if ENDPOINT_MODE not in ('direct', 'ip', 'exec'):
 INFRA_MARKERS = ('command failed', 'is not running', 'published port', 'rcon', 'connection refused',
                  'connection reset', 'no such container', 'cannot connect to the docker daemon')
 API_MARKERS = ('http 4', 'http 5', 'gousagelimit', 'planificateur indisponible', 'upstream request failed',
-               'pas de reponse en')
+               'pas de reponse en', 'relation de chat invalide')
+# 'relation de chat invalide' : transitoire du gateway (memes ordres OK minutes
+# avant/apres) ; garde-fou : surveiller son taux d occurrence.
 
 
 def failure_kind(test):
@@ -156,14 +158,14 @@ def planner_key_present():
 # Delai des appels HTTP aux bots : /api/instruction attend la lecture de
 # l objectif (PLANNER_TIMEOUT_MS_BRIEF, 60 s, rejouee une fois si tronquee).
 HTTP_TIMEOUT_S = 150
-UNIT = ['navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
+UNIT = ['attendre-chunks.test.js', 'navigation.test.js', 'navigation-drop.test.js', 'navigation-entrypoints.test.js',
         'motion-trace.test.js', 'mission-navigation.test.js', 'movement-task.test.js',
         'blueprint.test.js', 'model-chain.test.js', 'fabrication-utile.test.js', 'conversation.test.js', 'acquire-plan.test.js',
         'place-direct.test.js', 'craft-table-reuse.test.js',
         # Ajoutes le 2026-09-27 (revue : 1 a 11 s chacun, regressions a bas cout).
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
         'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'navigation-place.test.js', 'sous-buts.test.js', 'skill-sim.test.js', 'construire-trou.test.js', 'reparer.test.js', 'buts-ouverts.test.js', 'arbitrage-options.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
-        'delivery.test.js', 'planner-profile.test.js', 'planner-relaunch.test.js','llm.test.js', 'executor.test.js', 'objective-controller.test.js',
+        'delivery.test.js', 'planner-profile.test.js', 'planner-relaunch.test.js', 'planner-outage.test.js','llm.test.js', 'executor.test.js', 'objective-controller.test.js',
         'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js', 'ouvrir-porte.test.js', 'enclosure.test.js',
         'physical-exclusive.test.js', 'execution-envelope.test.js', 'objective-failed.test.js',
         'r02-r04-arbitration.test.js', 'memory-r07-r24.test.js', 'objective-recover-r08.test.js',
@@ -903,7 +905,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         def line(t):
             tag = ('INFO-' if t.get('informative') else '') + ('PASS' if t['success'] else 'FAIL')
             return f"- {tag} {t['test']}" + (f" [{t['type']}]" if t.get('type') else '') \
-                + (f" <{t['failureKind']}>" if t.get('failureKind') else '') + detail(t)
+                + (f" <{t['failureKind']}>" if t.get('failureKind') else '') + detail(t) \
+                + (f" [rejoue : 1er essai {t['rejoue'].get('endReason')}, aucun plan servi]" if t.get('rejoue') else '')
         summary = '\n'.join([f"Commit: {report['sha'] or 'local export (no Git SHA)'}",
                              f"Result: {'PASS' if report['success'] else 'FAIL'}",
                              f"Niveaux joues : {'tous' if report.get('selection') is None else (' '.join(report['selection']) or 'aucun (tests unitaires seuls)') + ' (banc partiel)'}",

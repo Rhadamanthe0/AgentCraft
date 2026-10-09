@@ -61,6 +61,7 @@ function buildApp (opts = {}) {
     isHardStopText: () => false,
     isResumeText: () => false,
     isSoftStopText: () => false,
+    isHardStopped: () => false,
     memory: { snapshot: () => ({}), FILE: 'memoire', persistError: null },
     missionRunner: {
       isRunning: () => Boolean(opts.missionRunning),
@@ -355,6 +356,7 @@ test('/api/control release : expose released, idempotent sans 400', async () => 
     isResumeText: () => false,
     isSoftStopText: () => false,
     isHardStopped: () => false,
+    isHardStopped: () => false,
     memory: { snapshot: () => ({}), FILE: 'memoire', persistError: null },
     missionRunner: { isRunning: () => false, status: () => ({}), setFeatures: () => ({}), SUPPLY: 'harvest' },
     navigator: { toPosition: async () => ({ reached: true }), status: () => ({}) },
@@ -424,6 +426,7 @@ test('/api/goto concurrent : prise effective avant admitted, second busy => 409'
     isHardStopText: () => false,
     isResumeText: () => false,
     isSoftStopText: () => false,
+    isHardStopped: () => false,
     isHardStopped: () => false,
     memory: { snapshot: () => ({}), FILE: 'memoire', persistError: null },
     missionRunner: { isRunning: () => false, status: () => ({}), setFeatures: () => ({}), SUPPLY: 'harvest' },

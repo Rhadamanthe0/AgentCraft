@@ -395,6 +395,27 @@ describe('reaiguillage de session sur refus du fournisseur', () => {
     assert.ok(res)
     assert.equal(seen.at(-1).options.headers['x-opencode-session'], 'minecraft-bot-TestBot-r1')
   })
+  it('le plafond compte les reaiguillages SANS reponse entre eux, pas ceux de toute la vie du bot', async () => {
+    // Bancs 2026-10-08 : les six reaiguillages etaient epuises en 3 a 20 min
+    // sur 75 ; ensuite un bot restait sur une route muette (plans muets 11 a
+    // 23 % contre 5 a 10 % avant, jusqu a 7 d affilee : mission perdue).
+    const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+    let muet = true
+    mockLlm(async () => {
+      if (muet) { const e = new Error('pas de reponse en 20000 ms'); e.code = 'LLM_TIMEOUT'; throw e }
+      return okPlan()
+    })
+    let avant = planner.profileStatus().session
+    for (let i = 1; i <= 8; i++) {
+      muet = true
+      await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest'), /pas de reponse/)
+      // Appel relance compris : un plan muet peut changer deux fois de session.
+      assert.notEqual(planner.profileStatus().session, avant, `delai ${i} sans nouvelle session`)
+      avant = planner.profileStatus().session
+      muet = false
+      assert.ok(await planner.plan({ consigne: 't' }, 'recolte', 'harvest'))
+    }
+  })
   it('un autre 400 (pas upstream) ne change pas de session', async () => {
     const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
     mockLlm(async () => { const e = new Error('HTTP 400 : bad json'); e.code = 'LLM_HTTP'; e.status = 400; throw e })

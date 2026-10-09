@@ -9,7 +9,7 @@ const assert = require('node:assert/strict')
 const llm = require('../bot/llm')
 
 const PLANNER_PATH = require.resolve('../bot/planner')
-const VARS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_SESSION_ID', 'PLANNER_TIMEOUT_MS', 'PLANNER_RELAUNCH_MS',
+const VARS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_SESSION_ID', 'PLANNER_TIMEOUT_MS', 'PLANNER_RELAUNCH_MS', 'PLANNER_RELAUNCH_MS_BRIEF', 'PLANNER_TIMEOUT_MS_BRIEF', 'PLANNER_MODEL_PLAN',
   'PLANNER_TIMEOUT_MS_PLAN', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN','PLANNER_API_KEY', 'OPENCODE_SECONDARY_API_KEY', 'PLANNER_KEY_FIRST', 'BOT_USERNAME']
 
 let origCall
@@ -171,6 +171,27 @@ describe('relance d un plan sans reponse', () => {
   })
 })
 
+// Lecture de l objectif : meme relance, a son propre delai. Deux briefs muets
+// de 30 s laissaient le niveau sans mission (bancs du 2026-10-07/08,
+// trees/tall et craft/furnace) alors qu un nouvel appel repond en quelques s.
+describe('relance de la lecture d objectif', () => {
+  const okBrief = async () => ({ content: '{"type":"recolte","matiere":"bois"}', usage: null, ms: 5 })
+
+  it('brief muet : coupe a PLANNER_RELAUNCH_MS_BRIEF, refait dans le delai du brief', async () => {
+    const planner = await warmPlanner([silent, okBrief], { PLANNER_TIMEOUT_MS_BRIEF: '3000', PLANNER_RELAUNCH_MS_BRIEF: '300' })
+    await planner.readBrief('coupe du bois')
+    assert.equal(calls.length, 2)
+    assert.ok(calls[0].options.timeoutMs > 280 && calls[0].options.timeoutMs <= 300, `premier appel coupe (${calls[0].options.timeoutMs} ms)`)
+    assert.ok(calls[1].options.timeoutMs > 2500 && calls[1].options.timeoutMs <= 2700, 'temps restant du delai du brief')
+  })
+
+  it('interrupteur relance_plan coupe : un seul appel', async () => {
+    const planner = await warmPlanner([silent], { PLANNER_TIMEOUT_MS: '500', PLANNER_RELAUNCH_MS_BRIEF: '100' })
+    await assert.rejects(planner.readBrief('coupe du bois', { relance: false }))
+    assert.equal(calls.length, 1)
+  })
+})
+
 // A/B `plan_sans_raisonnement` (mission.js) : le plan part avec thinking
 // desactive a la place de l effort ; un refus du champ ne retire jamais
 // l effort des autres usages.
@@ -192,5 +213,68 @@ describe('plan sans raisonnement', () => {
     await planner.plan({ consigne: 'test' }, 'recolte', 'harvest', {}, null, { sansRaisonnement: true })
     await planner.plan({ consigne: 'test' }, 'recolte', 'harvest')
     assert.equal(calls.at(-1).options.reasoningEffort, 'low', 'effort du plan intact apres deux refus de thinking')
+  })
+})
+
+// Pannes passageres (bancs du 2026-10-08 : 30 s de « fetch failed » sur 13
+// bots) : classees par le code, rejouees tant que dure le budget.
+describe('panne passagere', () => {
+  const reseau = async () => { throw Object.assign(new TypeError('fetch failed'), { code: 'LLM_NETWORK' }) }
+
+  it('classement : silence, reseau, 5xx, 429 oui ; 403, annulation, contenu non', () => {
+    const planner = require('../bot/planner')
+    const e = (code, status, message = 'x') => Object.assign(new Error(message), { code, status })
+    assert.equal(planner.estPassager(e('LLM_TIMEOUT')), true)
+    assert.equal(planner.estPassager(e('LLM_NETWORK')), true)
+    assert.equal(planner.estPassager(e('LLM_HTTP', 503)), true)
+    assert.equal(planner.estPassager(e('LLM_HTTP', 429)), true)
+    assert.equal(planner.estPassager(e('LLM_HTTP', 400, 'HTTP 400 : Upstream request failed')), true)
+    assert.equal(planner.estPassager(e('LLM_HTTP', 403, 'HTTP 403 FreeTierError')), false)
+    assert.equal(planner.estPassager(e('LLM_ABORTED')), false)
+    assert.equal(planner.estPassager(new Error('relation de chat invalide')), false)
+  })
+
+  it('plan : l erreur rendue dit si la panne est passagere', async () => {
+    const planner = await warmPlanner([reseau])
+    await assert.rejects(planner.plan({ consigne: 'test' }, 'recolte', 'harvest'), err => err.passager === true)
+    const refuse = async () => { throw Object.assign(new Error('HTTP 403 FreeTierError'), { code: 'LLM_HTTP', status: 403 }) }
+    const p2 = await warmPlanner([refuse])
+    await assert.rejects(p2.plan({ consigne: 'test' }, 'recolte', 'harvest'), err => err.passager === false)
+  })
+
+  it('chat : un reseau coupe se rejoue jusqu a la reponse', async () => {
+    const okChat = async () => ({ content: '{"relation":"new","objectif":"coupe du bois"}', usage: null, ms: 5 })
+    const planner = await warmPlanner([reseau, reseau, okChat], { PLANNER_TIMEOUT_MS: '6000' })
+    const decision = await planner.interpretMessage('coupe du bois', {})
+    assert.equal(calls.length, 3)
+    assert.equal(decision.relation, 'new')
+  })
+
+  it('chat : un refus (403) n est pas rejoue', async () => {
+    const refuse = async () => { throw Object.assign(new Error('HTTP 403 FreeTierError'), { code: 'LLM_HTTP', status: 403 }) }
+    const planner = await warmPlanner([refuse])
+    await assert.rejects(planner.interpretMessage('coupe du bois', {}), /FreeTierError/)
+    assert.equal(calls.length, 1)
+  })
+})
+
+// deepseek abime parfois le NOM de la cle relation (« relation_nouvelle »,
+// « relationer », 6 a 9 fois par banc complet, 1 a 2 ordres perdus) : la
+// valeur reste juste et suffit, sans rejeu.
+describe('chat : nom de cle relation abime', () => {
+  it('relation_nouvelle / objectif : lus sans rejeu', async () => {
+    const abime = async () => ({ content: '{"relation_nouvelle":"new","objectif":"Coupe un arbre","response":"OK"}', usage: null, ms: 5 })
+    const planner = await warmPlanner([abime])
+    const decision = await planner.interpretMessage('coupe moi un arbre', {})
+    assert.equal(decision.relation, 'new')
+    assert.equal(decision.objective, 'Coupe un arbre')
+    assert.equal(calls.length, 1)
+  })
+
+  it('deux cles relation contradictoires : rejeu, puis erreur', async () => {
+    const ambigu = async () => ({ content: '{"relation_a":"new","relation_b":"stop"}', usage: null, ms: 5 })
+    const planner = await warmPlanner([ambigu])
+    await assert.rejects(planner.interpretMessage('coupe moi un arbre', {}), /relation de chat invalide/)
+    assert.equal(calls.length, 2)
   })
 })

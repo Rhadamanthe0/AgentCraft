@@ -52,7 +52,11 @@ const TIMEOUT_MS = config.positiveInt(process.env.PLANNER_TIMEOUT_MS, 12000, 'PL
 // after RELAUNCH_MS, the call is cut and made again once with the time left;
 // the overall deadline stays TIMEOUT_MS. A/B switch: feature `relance_plan`
 // (mission.js).
-const RELAUNCH_MS = config.positiveInt(process.env.PLANNER_RELAUNCH_MS, 10000, 'PLANNER_RELAUNCH_MS')
+// 0 desactive la relance (planner-profile.test.js) : borne basse 0, pas 1.
+const RELAUNCH_MS = config.finiteNumber(process.env.PLANNER_RELAUNCH_MS, 10000, 'PLANNER_RELAUNCH_MS', { min: 0 })
+// Same relaunch for the brief, at its own point (the brief has a longer delay,
+// PLANNER_TIMEOUT_MS_BRIEF). 0 disables it.
+const BRIEF_RELAUNCH_MS = config.finiteNumber(process.env.PLANNER_RELAUNCH_MS_BRIEF, 15000, 'PLANNER_RELAUNCH_MS_BRIEF', { min: 0 })
 // Below this time left, a relaunch has no chance of an answer: no relaunch.
 const RELAUNCH_MIN_LEFT_MS = 1000
 // Models that answered at least once in this process (relaunch only these).
@@ -135,8 +139,13 @@ const SESSION_ID = process.env.PLANNER_SESSION_ID || `minecraft-bot-${process.en
 // mission le refait) : les delais se groupent par bot, donc par session
 // (vu sur un banc : TreeBot10 cinq fois en 2 min, les 15 autres jamais ;
 // trees/bent 189799a, deux delais de 20 s d affilee, niveau perdu).
+// Le plafond compte les reaiguillages d affilee SANS reponse (remis a zero a
+// chaque reponse) : compte sur toute la vie du bot, il etait epuise en 3 a
+// 20 min de banc, puis un bot restait sur une route muette (bancs du
+// 2026-10-08 : plans muets 11 a 23 % contre 5 a 10 %, jusqu a 7 d affilee).
 const SESSION_REROUTE_MAX = 6
 let sessionReroutes = 0
+let reroutesSansReponse = 0
 function currentSession () {
   return sessionReroutes ? `${SESSION_ID}-r${sessionReroutes}` : SESSION_ID
 }
@@ -471,6 +480,7 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
   }
   function markSuccess (res, model) {
     warm = true
+    reroutesSansReponse = 0
     if (image) stats.captures += 1
     syncProfileStats()
     return { ...res, model }
@@ -480,9 +490,10 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     try {
       res = await doCall(target0, proto0, pilotFirst)
     } catch (err) {
-      if (!isUpstreamRefusal(err) || sessionReroutes >= SESSION_REROUTE_MAX || signal?.aborted) throw err
+      if (!isUpstreamRefusal(err) || reroutesSansReponse >= SESSION_REROUTE_MAX || signal?.aborted) throw err
       const old = currentSession()
       sessionReroutes += 1
+      reroutesSansReponse += 1
       stats.reaiguillages = sessionReroutes
       console.log(`[planner] session ${old} refusee par le fournisseur (400 upstream) : nouvelle session ${currentSession()}`)
       res = await doCall(target0, proto0, pilotFirst)
@@ -503,9 +514,10 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
       const resRetry = await doCall(target0, proto0, retryBudget)
       return markSuccess(resRetry, target0)
     }
-    if (err?.code === 'LLM_TIMEOUT' && zen && !signal?.aborted && sessionReroutes < SESSION_REROUTE_MAX) {
+    if (err?.code === 'LLM_TIMEOUT' && zen && !signal?.aborted && reroutesSansReponse < SESSION_REROUTE_MAX) {
       const old = currentSession()
       sessionReroutes += 1
+      reroutesSansReponse += 1
       stats.reaiguillages = sessionReroutes
       console.log(`[planner] session ${old} sans reponse dans le delai : appels suivants sur ${currentSession()}`)
     }
@@ -1192,7 +1204,7 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
     if (opts.signal?.aborted) throw new Error('plan annule')
     stats.echecs += 1
     lastError = err.message
-    throw new Error(`planificateur indisponible : ${err.message}`)
+    throw Object.assign(new Error(`planificateur indisponible : ${err.message}`), { passager: estPassager(err) })
   }
 
   let parsed
@@ -1405,7 +1417,8 @@ async function designBlueprint (input, opts = {}) {
 async function readBrief (objective, opts = {}) {
   if (!isEnabled()) return null
 
-  const response = await call(briefPrompt(opts.ouvert === true), JSON.stringify({ objectif: objective }), null, { ...opts, task: 'readBrief' })
+  const relanceMs = opts.relance === false ? 0 : BRIEF_RELAUNCH_MS
+  const response = await call(briefPrompt(opts.ouvert === true), JSON.stringify({ objectif: objective }), null, { ...opts, relanceMs, task: 'readBrief' })
   const parsed = parseJson(response.content)
   // Mode ouvert : un "bloc" absent du registre (un nom francais, invente)
   // est renvoye UNE fois au modele avec le nom refuse ; le code verifie
@@ -1413,7 +1426,7 @@ async function readBrief (objective, opts = {}) {
   let ms = response.ms
   if (opts.ouvert === true && typeof parsed?.bloc === 'string' && typeof opts.blocConnu === 'function' && !opts.blocConnu(parsed.bloc)) {
     const refuse = parsed.bloc.slice(0, 60)
-    const second = await call(briefPrompt(true), JSON.stringify({ objectif: objective, bloc_refuse: refuse }), null, { ...opts, task: 'readBrief' })
+    const second = await call(briefPrompt(true), JSON.stringify({ objectif: objective, bloc_refuse: refuse }), null, { ...opts, relanceMs, task: 'readBrief' })
     ms = (ms ?? 0) + (second.ms ?? 0)
     const bloc = parseJson(second.content)?.bloc
     parsed.bloc = typeof bloc === 'string' && opts.blocConnu(bloc) ? bloc : null
@@ -1557,34 +1570,74 @@ function parseInterpretMode (raw) {
   throw new Error(`mode d objectif invalide (recu ${String(raw)})`)
 }
 
+// Panne passagere du gateway : silence, reseau coupe (« fetch failed »), 5xx,
+// 429 ou 400 « Upstream request failed ». Un refus (401/403, FreeTierError),
+// une requete invalide ou une annulation ne le sont jamais. Bancs du
+// 2026-10-08 : 30 s de « fetch failed » sur 13 bots a la fois tuaient 13
+// missions et perdaient des ordres de chat.
+function estPassager (err) {
+  if (!err) return false
+  if (err.passager === true) return true
+  if (err.code === 'LLM_TIMEOUT' || err.code === 'LLM_NETWORK' || /pas de reponse/.test(String(err.message))) return true
+  if (err.code === 'LLM_HTTP') return err.status >= 500 || err.status === 429 || (err.status === 400 && /upstream request failed/i.test(String(err.message)))
+  return false
+}
+
+// Rejoue `fn` sur panne passagere tant que `budgetMs` (depuis le premier
+// essai) laisse au moins 3 s ; pause de 2 s entre deux essais. Un silence
+// n est rejoue qu une fois (il a deja coute tout son delai).
+async function rejouerSiPassager (fn, { budgetMs, signal = null, quoi = 'appel' }) {
+  const debut = Date.now()
+  let silences = 0
+  for (;;) {
+    try {
+      return await fn()
+    } catch (err) {
+      const reste = budgetMs - (Date.now() - debut)
+      if (/pas de reponse/.test(String(err?.message))) silences += 1
+      if (signal?.aborted || !estPassager(err) || reste < 3000 || silences >= 2) throw err
+      console.log(`[planner] ${quoi} : ${err.message}, nouvel essai`)
+      await new Promise(resolve => {
+        const pause = setTimeout(resolve, 2000)
+        signal?.addEventListener('abort', () => { clearTimeout(pause); resolve() }, { once: true })
+      })
+      if (signal?.aborted) throw err
+    }
+  }
+}
+
 async function interpretMessage (message, context, opts = {}) {
   const ask = () => call(CONVERSATION_PROMPT, JSON.stringify({ message, ...context }), null, { ...opts, task: 'interpretMessage' })
-  let response
-  try {
-    response = await ask()
-  } catch (err) {
-    // Pas de reponse dans le delai : UN rejeu du meme modele (panne passagere
-    // du fournisseur ; vu en CI, 12:06 sur c499481 : deux ordres perdus, chat
-    // p95 19 s). Jamais apres une annulation, jamais un autre modele.
-    if (opts.signal?.aborted || !/pas de reponse/i.test(String(err?.message))) throw err
-    console.log(`[planner] chat sans reponse (${err.message}), nouvel essai`)
-    response = await ask()
-  }
+  // Panne passagere : rejeux du meme modele (vu en CI, 12:06 sur c499481 :
+  // deux ordres perdus, chat p95 19 s), jamais apres une annulation, jamais un
+  // autre modele. Un silence coute son delai (deux essais, comme avant) ; un
+  // reseau coupe echoue vite et se rejoue tant que le budget dure.
+  const budgetMs = 2 * effectiveTimeout({ task: 'interpretMessage' })
+  const response = await rejouerSiPassager(ask, { budgetMs, signal: opts.signal, quoi: 'chat' })
   const RELATIONS = ['new', 'amend', 'context', 'question', 'stop']
   const lire = content => { try { return parseJson(content) } catch (_) { return null } }
   let value = lire(response.content)
   // Reponse illisible ou sans relation valide : UN rejeu du meme modele (vu
   // sur chat/tree-then-bring 33abea6 : « rapporte moi le bois » perdu, bot
   // reste loin du joueur). Jamais un autre modele, jamais apres annulation.
-  if (!RELATIONS.includes(value?.relation) && !opts.signal?.aborted) {
-    console.log(`[planner] chat : relation invalide (${JSON.stringify(value?.relation ?? null).slice(0, 40)}), nouvel essai`)
+  // deepseek abime parfois le NOM de la cle (« relation_nouvelle »,
+  // « relationer » : 6 a 9 fois par banc complet du 2026-10, 1 a 2 ordres
+  // perdus) ; sa valeur reste juste. Une seule valeur valide sous une cle
+  // « relation... » suffit ; deux valeurs differentes restent illisibles.
+  const relationLue = v => {
+    if (RELATIONS.includes(v?.relation)) return v.relation
+    const lues = new Set(Object.entries(v ?? {}).filter(([k, x]) => /^relation/i.test(k) && RELATIONS.includes(x)).map(([, x]) => x))
+    return lues.size === 1 ? [...lues][0] : undefined
+  }
+  if (!relationLue(value) && !opts.signal?.aborted) {
+    console.log(`[planner] chat : relation invalide (${String(response.content ?? '').slice(0, 200)}), nouvel essai`)
     value = lire((await ask()).content)
   }
-  const relation = value?.relation
+  const relation = relationLue(value)
   if (!RELATIONS.includes(relation)) throw new Error('relation de chat invalide')
   // Objectif vide sur new/amend (vu : « Rejoins moi ») : le message du joueur
   // est lui-meme l objectif, plutot que d echouer et de laisser le bot muet.
-  let objective = String(value.objective ?? '').trim().slice(0, 1000)
+  let objective = String(value.objective ?? value.objectif ?? '').trim().slice(0, 1000)
   if (['new', 'amend'].includes(relation) && !objective) objective = String(message ?? '').trim().slice(0, 1000)
   const answer = String(value.response ?? '').trim().slice(0, 240)
   if (['new', 'amend'].includes(relation) && !objective) throw new Error('objectif de chat vide')
@@ -1615,6 +1668,9 @@ async function warmup () {
 }
 
 module.exports = {
+  estPassager,
+  delaiAppel: task => effectiveTimeout({ task }),
+  rejouerSiPassager,
   isEnabled,
   warmup,
   plan,

@@ -48,6 +48,38 @@ GRACE_AFTER_WOOD_S = 10
 LEVEL_CAP_S = 300
 # Scenarios composites : plafond du proprietaire, 45 min par scenario.
 COMPOSITE_CAP_S = 2700
+
+
+class Plafond:
+    """Plafond d un niveau hors attente du modele (decision du proprietaire,
+    2026-10-09) : il mesure le bot, pas le gateway (craft/iron-pickaxe 95edffa,
+    480,9 s dont 95 s d attente). L attente vient de /api/status
+    (`mission.attente_modele_ms`, brief compris), cumulee mission par mission.
+    Plafond absolu en temps reel : plafond + min(plafond, 10 min), pour qu un
+    gateway muet ne retienne pas le banc (un composite de 45 min doit tenir
+    dans le job de 75)."""
+
+    def __init__(self, cap, horloge=time.monotonic):
+        self.cap, self.horloge = cap, horloge
+        self.debut = horloge()
+        self.attente = 0.0
+        self.vu = {}
+
+    def note(self, s):
+        m = (s or {}).get('mission') or {}
+        ms = m.get('attente_modele_ms')
+        if not isinstance(ms, (int, float)):
+            return
+        avant = self.vu.get(m.get('id'), 0)
+        if ms > avant:
+            self.attente += (ms - avant) / 1000
+            self.vu[m.get('id')] = ms
+
+    def ecoule(self):
+        return self.horloge() - self.debut - self.attente
+
+    def atteint(self):
+        return self.ecoule() >= self.cap or self.horloge() - self.debut >= self.cap + min(self.cap, 600)
 # Cinq arbres (tronc de 5) loin du depart (10.5, 18.5) et de la sonde (4.5, 32.5).
 COMPOSITE_TREES = [(4, 6), (30, 6), (30, 18), (30, 30), (18, 32)]
 # Cinq arbres au-dela du fosse (x 16-17) de composite/cabin-across-water.
@@ -1066,9 +1098,11 @@ def run_route_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     started = time.monotonic()
     timeline = []
     answer = bot_api(bot, '/api/instruction', {'message': level['instruction'], 'requester': probe_name})
-    visits, far, seen, end_reason = 0, True, False, f'plafond de {ROUTE_CAP_S} s'
-    while time.monotonic() - started < ROUTE_CAP_S:
+    visits, far, seen, end_reason = 0, True, False, f'plafond de {ROUTE_CAP_S} s hors attente du modele'
+    plafond = Plafond(ROUTE_CAP_S)
+    while not plafond.atteint():
         s = bot_api(bot, '/api/status')
+        plafond.note(s)
         p = s.get('position') or {}
         running = bool(s.get('missionRunning'))
         seen = seen or running
@@ -1145,10 +1179,12 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     # une fois chacun, mission en cours, par la meme voie que l ordre initial.
     events = sorted(level.get('events', []))
     event_answers = []
-    seen, end_reason, last_count_at, now_placed = False, f'plafond de {cap} s', 0, before
+    seen, end_reason, last_count_at, now_placed = False, f'plafond de {cap} s hors attente du modele', 0, before
     signature, changed_at = None, time.monotonic()
-    while time.monotonic() - started < cap:
+    plafond = Plafond(cap)
+    while not plafond.atteint():
         s = bot_api(bot, '/api/status')
+        plafond.note(s)
         running = bool(s.get('missionRunning'))
         seen = seen or running
         p = s.get('position') or {}
@@ -1242,9 +1278,11 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     lowest, seen, count, end_reason = 200.0, False, 0, f'plafond de {GATHER_CAP_S} s'
     last_count_at = 0
     cap = level.get('cap', GATHER_CAP_S)
-    end_reason = f'plafond de {cap} s'
-    while time.monotonic() - started < cap:
+    end_reason = f'plafond de {cap} s hors attente du modele'
+    plafond = Plafond(cap)
+    while not plafond.atteint():
         s = bot_api(bot, '/api/status')
+        plafond.note(s)
         p = s.get('position') or {}
         running = bool(s.get('missionRunning'))
         seen = seen or running
@@ -1802,13 +1840,15 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
         peak_standing = start[1]
         world, last_world_check = before, 0
         seen_mission = False
-        end_reason = 'plafond de duree atteint'
+        end_reason = 'plafond de duree atteint (hors attente du modele)'
         wood_done_at = None
         signature, last_progress = None, started
         last_plan = None
-        while time.monotonic() - started < LEVEL_CAP_S:
+        plafond = Plafond(LEVEL_CAP_S)
+        while not plafond.atteint():
             now = time.monotonic()
             s = bot_api(bot, '/api/status')
+            plafond.note(s)
             m = s.get('mission') or {}
             p = s.get('position') or {}
             inv = wood(s.get('inventory'))
@@ -1916,6 +1956,17 @@ EXPECTED_S = {
 NEW_LEVEL_S = 90
 
 
+def rejouable(result, level):
+    """A blocking level that failed while the model never served it one plan,
+    though it was asked (brief or chat silent on one bot, gateway side: 1 to 3
+    levels per full bench on 2026-10-08), is replayed once, visibly
+    (`rejoue` in the result). Never an informative or skill/* level, never a
+    level the model did serve, never a crash."""
+    return (not result.get('success') and not result.get('error')
+            and not level.get('informative') and not level.get('skill')
+            and result.get('plannerCalls') == 0 and (result.get('plannerRequests') or 0) > 0)
+
+
 def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
     """Every level once, on the workers of `pool_factory(queue, run_one)` (ci/pool.py)."""
     seed = variation_seed()
@@ -1925,6 +1976,8 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
     if any(level.get('randomArena') for level in all_levels):
         print(f'Arenes aleatoires : graine {random_seed()!r}', flush=True)
     results = [None] * len(all_levels)
+    premiers = {}
+    pool = None
     origins = arena_origins()
     rcon('scoreboard objectives add degats minecraft.custom:minecraft.damage_taken')
     # Longest levels first (LPT): 27 levels on 16 workers, and the queue used
@@ -2061,6 +2114,15 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             result['informative'] = True
         if level.get('variantOf'):
             result['variantOf'] = level['variantOf']
+        if index in premiers:
+            result['rejoue'] = premiers[index]
+        elif rejouable(result, level) and pool is not None:
+            # Replayed once at the end of the queue; the first attempt stays
+            # in the result (`rejoue`) and in the log.
+            premiers[index] = {k: result.get(k) for k in ('bot', 'endReason', 'elapsedS', 'plannerRequests')}
+            print(f'{level["name"]} : aucun plan servi par le modele ({result.get("plannerRequests")} requete(s)), rejoue une fois', flush=True)
+            with pool.lock:
+                pool.queue.append(index)
         results[index] = result
         print(f'{level["name"]} finished in {result.get("elapsedS")} s', flush=True)
 

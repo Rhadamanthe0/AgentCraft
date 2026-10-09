@@ -5,13 +5,14 @@ const { bot, stop } = require('../tmp/probe-bot')
 const { pathfinder } = require('mineflayer-pathfinder')
 const { createNavigator } = require('../bot/navigation')
 const http = require('node:http')
+const { attendreChunks } = require('./attendre-chunks')
 bot.loadPlugin(pathfinder)
 const nav = createNavigator(() => bot)
 let ready = false
 let busy = false
 bot.once('spawn', async () => {
-  await bot.waitForChunksToLoad()
-  ready = true
+  // Sans chunks, le harness reste « pas pret » : /navigate le dit, rien ne plante.
+  ready = await attendreChunks(bot)
 })
 const state = () => ({ ready, position: bot.entity?.position, onGround: bot.entity?.onGround,
   controls: Object.keys(bot.controlState).filter(k => bot.controlState[k]) })

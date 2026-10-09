@@ -9,6 +9,19 @@ sont dans AGENTS.md ; en cas de contradiction, AGENTS.md prime.
 
 ---
 
+## Bancs rouges sur main apres 5c9667f (2026-10-04)
+
+- Cles : primary refusee (401), secondary au plafond hebdomadaire (429) ;
+  aucun niveau joue. Remplacees par le proprietaire.
+- 8 unitaires rouges : `config.positiveInt` refusait 0 (relance du plan et
+  annonce du brief impossibles a couper), fixtures en retard sur
+  l executeur (enveloppe, `runPhysicalOrThrow`, `isHardStopped`).
+- Banc complet bff20b0 : `composite/cabin-from-scratch` (explorer depuis le
+  pilier, arbre commence perdu, 45 min) et `craft/iron-pickaxe` (« cuire 1 »
+  sur 3, buche brulee pour un lingot). `explorer` refuse tant que l arbre
+  commence a des buches ; `cuire` prend la quantite du solveur si la demande
+  est plus petite. Banc cible 2acbdcc : cabane 397 s, pioche en fer 273 s.
+
 
 ## Objectif final : l autonomie, pas la repetition (2026-09-25, prioritaire sur tout)
 
@@ -2531,3 +2544,84 @@ constantes du module, surchargeables mais non listees dans le tableau.
 
 Note : `verify.ps1` compare `minecraftVersion` a la chaine `26.1` en dur. Si
 `MC_VERSION` change, ce script echouera jusqu'a mise a jour.
+
+## Plans muets sur les bancs complets (2026-10-08)
+
+Sept bancs complets de la PR #64 (8361df7 a 83485ee) rouges sur des niveaux
+qui changent d un banc a l autre ; chaque niveau rouge passe seul (sonde
+52163be). Cause commune : le modele ne repond pas dans le delai, un bot a la
+fois, pendant que les autres recoivent leurs plans (67 a 122 plans muets par
+banc, p95 du plan = 20 s, le delai). Deux effets :
+
+- trois plans muets de suite (~65 s) tuaient la mission : 5 a 11 missions par
+  banc (composite/cabin-from-scratch, craft/iron-pickaxe, craft/torches) ;
+- deux briefs muets (2 x 30 s) laissaient le niveau sans mission
+  (trees/tall, craft/furnace, route/*, build/door).
+
+Correctifs generiques : une serie de silences est toleree 90 s
+(`MISSION_PLANNER_OUTAGE_MS`), tout autre echec arrete toujours au
+troisieme ; le brief est relance a 15 s dans ses 30 s
+(`PLANNER_RELAUNCH_MS_BRIEF`, interrupteur `relance_plan`). Tests :
+tmp/planner-outage.test.js, tmp/planner-relaunch.test.js.
+
+Banc complet de f4713b2 : plus aucune mission tuee par un silence, mais 30 s
+de « fetch failed » (reseau coupe, 13 bots a la fois, 16:05) ont tue 13
+missions en 10 s (erreur non reconnue comme passagere, trois echecs
+instantanes), fait echouer deux lectures d objectif et perdu deux ordres de
+chat (rejoues seulement sur silence). Correctif : `planner.estPassager`
+classe silence, reseau, 5xx, 429 ; le plan porte `passager`, la mission le
+tolere 90 s avec une pause plus longue apres un echec instantane ; lecture
+d objectif et chat rejouent une panne passagere dans le budget de deux
+essais (`rejouerSiPassager`, un silence rejoue une seule fois).
+
+Banc complet de 6dd0993 : plus aucune mission tuee par une panne passagere
+(4 silences de suite survecus sur craft/iron-pickaxe, fini 1 s apres son
+plafond de 480 s : 118 s d attente du modele). Nouveau : le chat perdait
+1 a 2 ordres par banc parce que deepseek abime le NOM de la cle relation
+(« relation_nouvelle », « relationer », 6 a 9 fois par banc) alors que la
+valeur est juste (chat/stop-tree). La relation se lit desormais sous une
+cle « relation... » si une seule valeur valide s y trouve ; « objectif »
+vaut « objective ».
+
+Banc complet de 4c65a55 : un seul niveau bloquant rouge, craft/torches,
+quatre lectures d objectif muettes de suite (60 s, gateway). Plateau
+repasse (64.9 s). Aucun ordre de chat perdu. Relance du brief mesuree
+sur trois bancs : 16 a 19 briefs relances, 13 a 16 repondus ; briefs sans
+reponse 2 a 4 par banc (11 avant). Elle avait ete ecartee le 2026-10-02 :
+remise a confirmer par le proprietaire.
+
+Deuxieme banc de 085325a (rejeu du meme commit) : 133/134, seul craft/table
+rouge, lecture d objectif muette 60 s (quatre essais). Sur les cinq derniers
+bancs, 1 a 3 niveaux bloquants rouges par banc n avaient recu aucun plan du
+modele : presque tous les rouges restants. Le banc rejoue desormais une fois
+un tel niveau (`trees.rejouable`, ci/test_rejeu.py), visiblement dans le
+rapport ; option par defaut d une carte de decision posee au proprietaire.
+
+Banc complet de 4003d81 : 131/134, le rejeu a sauve chat/replace-and-join.
+Deux causes nouvelles, toutes deux dans le code :
+- terrain/plateau : `/api/status` rendait 500 pendant une reconnexion
+  (EPIPE, puis « Connecting » sans monde jusqu au spawn) : l etat de la
+  mission precedente relisait son chantier ou son arbre (`bot.blockAt` ->
+  `world.getBlock`). Chantier, porte et arbre gardent leur derniere mesure.
+  Vu aussi sur 8361df7, f4713b2 et 6dd0993.
+- composite/cabin-from-scratch (5 plans muets en 94 s) et craft/iron-pickaxe
+  (96 s d attente, plafond de 480 s) : les six reaiguillages de session
+  etaient comptes sur toute la vie du bot et epuises en 3 a 20 min de banc.
+  Sur quatre bancs, plans muets 5 a 10 % avant l epuisement (21 % sur celui
+  de la coupure reseau ; jamais plus de 2 d affilee), 11 a 23 % apres
+  (jusqu a 7 d affilee). Le plafond compte
+  desormais les reaiguillages d affilee sans reponse.
+
+Banc complet de 5c22cfe : invalide, quota mensuel de la cle primary epuise
+a 22:05 (429 GoUsageLimitError sur tous les appels, 34 rouges). Relance
+decidee par le proprietaire (cle secondary retenue par la sonde) : morte
+apres 160 s, le serveur a tarde a envoyer deux chunks au harness et le
+rejet de `waitForChunksToLoad` n etait pas attrape. Attente rejouee six
+fois (`ci/attendre-chunks.js`) ; sans chunks, le harness reste « pas pret ».
+
+Banc complet de 95edffa (cle secondary) : 133/134, seul craft/iron-pickaxe
+rouge a 480,9 s pour 480, dont 95 s d attente du modele ; sur les cinq
+derniers bancs 365 a 492 s (52 a 119 s d attente), contre 230 a 335 s
+(8 a 21 s) sur main le 2026-10-02. Decision du proprietaire : les plafonds
+de niveau ne comptent plus l attente du modele (`trees.Plafond`,
+ci/test_plafond.py), plafond absolu plafond + min(plafond, 10 min).

@@ -191,5 +191,6 @@ module.exports = {
   LOG_FILE,
   DEDUP_MS,
   CHAT_MAX_PER_MIN,
-  CHAT_MAX_LEN
+  CHAT_MAX_LEN,
+  CRASH_DRAIN_MS
 }

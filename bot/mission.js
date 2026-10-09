@@ -170,6 +170,13 @@ const MAX_DIG_DEPTH = config.boundedNumberOrThrow(process.env.MISSION_MAX_DIG_DE
 // au lieu de passer a l arbre suivant.
 const MAX_REACH_UP = perception.MAX_REACH_UP
 const MAX_PLANNER_ERRORS = 3
+// Panne passagere du planificateur (planner.estPassager : silence, reseau
+// coupe, 5xx, 429). Bancs du 2026-10-07/08 : 67 a 122 plans muets par banc
+// complet, 5 a 11 missions tuees par trois silences de suite, puis 13 par
+// 30 s de « fetch failed ». Une serie de pannes passageres est toleree tant
+// qu elle dure moins que ce delai ; tout autre echec (refus, 403) arrete au
+// troisieme.
+const PLANNER_OUTAGE_MS = config.finiteNumber(process.env.MISSION_PLANNER_OUTAGE_MS, 90000, 'MISSION_PLANNER_OUTAGE_MS', { min: 0 })
 const MAX_REPEATED_FAILURES = 5
 // Pilier : bornes de la montee en blocs. Un pilier coute sa dirt (inventaire
 // reel, jamais de creatif) et expose a la chute a la descente : 6 blocs
@@ -390,7 +397,8 @@ const NAV_STAGNANT_MAX = 3
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const movementTask = require('./movement-task')
 const activity = require('./activity')
-const BRIEF_NOTICE_MS = config.positiveInt(process.env.MISSION_BRIEF_NOTICE_MS, 3000, 'MISSION_BRIEF_NOTICE_MS')
+// 0 coupe l annonce (mission-duration.test.js) : borne basse 0, pas 1.
+const BRIEF_NOTICE_MS = config.finiteNumber(process.env.MISSION_BRIEF_NOTICE_MS, 3000, 'MISSION_BRIEF_NOTICE_MS', { min: 0 })
 
 // Traduit l ampleur 0..1 (defaut 0,5 : milieu de plage) dans l unite de l action.
 function scaled (scale, min, max) {
@@ -2345,12 +2353,17 @@ function createMissionRunner (host, injected = {}) {
     if (!bot) return { total, done: mission.placed, left: total - mission.placed }
 
     let done = 0
-    for (const entry of mission.plan.blocks) {
-      const block = bot.blockAt(entry.position)
-      // Le motif, pas le nom exact : en survie l essence du bois depend de
-      // l arbre coupe, et un mur en `birch_planks` est aussi fini qu un mur en
-      // `oak_planks`.
-      if (block && mission.buildMatch.test(block.name)) done += 1
+    try {
+      for (const entry of mission.plan.blocks) {
+        const block = bot.blockAt(entry.position)
+        // Le motif, pas le nom exact : en survie l essence du bois depend de
+        // l arbre coupe, et un mur en `birch_planks` est aussi fini qu un mur en
+        // `oak_planks`.
+        if (block && mission.buildMatch.test(block.name)) done += 1
+      }
+    } catch (_) {
+      // Reconnexion : pas de monde avant le spawn ; la derniere mesure vaut.
+      return { total, done: mission.placed, left: total - mission.placed }
     }
 
     mission.placed = done
@@ -2363,7 +2376,8 @@ function createMissionRunner (host, injected = {}) {
     const bot = host.getBot()
     if (!bot) return mission.doorPlaced
 
-    const block = bot.blockAt(mission.plan.door.position)
+    let block
+    try { block = bot.blockAt(mission.plan.door.position) } catch (_) { return Boolean(mission.doorPlaced) }
     mission.doorPlaced = Boolean(block && /_door$/.test(block.name))
     return mission.doorPlaced
   }
@@ -3600,6 +3614,7 @@ function createMissionRunner (host, injected = {}) {
     if (code === 'arbre_a_ramasser' && action !== 'ramasser') return [{ action: 'ramasser', params: {}, pourquoi: 'buches au sol' }]
     if (code === 'chantier_absent' && action !== 'choisir_terrain') return [{ action: 'choisir_terrain', params: {}, pourquoi: 'chantier a placer' }]
     if (code === 'dans_liquide' && action !== 'sortir') return [{ action: 'sortir', params: {}, pourquoi: 'hors du liquide' }]
+    if (code === 'aucune_cible' && action === 'recolter') return [{ action: 'explorer', params: { distance: 16 }, pourquoi: 'matiere hors de vue' }]
     return null
   }
 
@@ -4196,9 +4211,14 @@ function createMissionRunner (host, injected = {}) {
       if (!objet && etape) objet = etape.objet
       if (!objet && acquirePlan.SMELT[mission.fabricationCible]) objet = mission.fabricationCible
       if (!objet) return { resultat: `cuisson impossible : objet non reconnu (${brut || 'vide'}) ; ex : iron_ingot, charcoal, glass`, echec: true, code: 'unknown' }
-      const quantite = Number.isFinite(Number(params.quantite))
+      const demandee = Number.isFinite(Number(params.quantite))
         ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
         : (etape?.objet === objet ? etape.quantite : scaled(scale, 1, 16))
+      // Le solveur mesure ce que la chaine exige ; une cuisson plus petite
+      // brule une unite de combustible entiere pour moins d objets (buche =
+      // 1,5 cuisson) et laisse la suite sans combustible (craft/iron-pickaxe
+      // bff20b0 : « cuire 1 » sur 3, bois cherche loin, plafond atteint).
+      const quantite = etape?.objet === objet ? Math.min(16, Math.max(demandee, etape.quantite)) : demandee
       // Output already smelted: the solver, run on the real inventory, has
       // no smelt left. Its next step instead of « rien a cuire ».
       const plan = acquisition()
@@ -5517,6 +5537,13 @@ function createMissionRunner (host, injected = {}) {
       const distance = Number.isFinite(Number(params.distance))
         ? Math.max(8, Math.min(32, Math.round(Number(params.distance))))
         : scaled(scale, 8, 32)
+      // Arbre commence, arbre fini : il est la seule cible bois et passe avant
+      // tout ; explorer l eloignait sans retour (cabin-from-scratch bff20b0 :
+      // explorer depuis le pilier, arbre jamais retrouve, plafond de 45 min).
+      const arbre = arbreInacheve()
+      if (arbre) {
+        return { resultat: `arbre commence : ${arbre.length} buche(s) encore debout, les couper avant d explorer (piler si trop haut, ou changer de poste pres de lui)`, echec: true, code: 'arbre_inacheve' }
+      }
       const suite = rienARecolter()
       if (suite) {
         return (await etapeSuivanteAuLieu('rien a chercher : tout est en poche')) ??
@@ -6259,19 +6286,24 @@ function createMissionRunner (host, injected = {}) {
           return
         }
         mission.plannerErrors += 1
-        console.error(`[mission] planificateur indisponible (${mission.plannerErrors}/${MAX_PLANNER_ERRORS}) : ${err.message}`)
+        if (mission.plannerErrors === 1) mission.plannerSilenceSince = Date.now()
+        const passager = err.passager === true
+        const silenceMs = Date.now() - mission.plannerSilenceSince
+        console.error(`[mission] planificateur indisponible (${mission.plannerErrors}/${MAX_PLANNER_ERRORS}${passager ? `, panne passagere depuis ${Math.round(silenceMs / 1000)} s sur ${Math.round(PLANNER_OUTAGE_MS / 1000)}` : ''}) : ${err.message}`)
 
         // Une file heritee d un plan devenu douteux ne doit pas survivre a la
         // panne qui l a interrompue.
         mission.queue = []
         abortPrefetch('panne planificateur')
 
-        if (mission.plannerErrors >= MAX_PLANNER_ERRORS) {
+        if (mission.plannerErrors >= MAX_PLANNER_ERRORS && (!passager || silenceMs >= PLANNER_OUTAGE_MS)) {
           finish('failed', 'planificateur indisponible')
           return
         }
 
-        await sleep(TICK_MS * 2)
+        // Un reseau coupe echoue en un instant : une pause plus longue evite
+        // de marteler le gateway pendant la panne.
+        await sleep(passager && !/pas de reponse/.test(err.message) ? TICK_MS * 4 : TICK_MS * 2)
         continue
       }
 
@@ -6857,16 +6889,22 @@ function createMissionRunner (host, injected = {}) {
     const blocConnu = nom => !!skills.ressourceLibre(nom, host.getBot()?.registry)
     let brief
     const debutBrief = Date.now()
+    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu, relance: featureOn('relance_plan') }))
     try {
       try {
-        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu }))
+        brief = await lireBrief()
       } catch (first) {
         // Un echec isole (reponse tronquee deux fois, panne passagere) laissait
         // le bot immobile sans rien dire, surtout apres un arbitrage : un
-        // nouvel essai, sauf annulation.
+        // nouvel essai, sauf annulation. Une panne passagere (reseau coupe,
+        // qui echoue en un instant) se rejoue tant que dure le budget de deux
+        // lectures muettes.
         if (request.signal.aborted) throw first
         console.log(`[mission] lecture de l objectif echouee (${first.message}), nouvel essai`)
-        brief = normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu }))
+        const budgetMs = 2 * planner.delaiAppel('readBrief') - (Date.now() - debutBrief)
+        brief = planner.estPassager(first)
+          ? await planner.rejouerSiPassager(lireBrief, { budgetMs, signal: request.signal, quoi: 'lecture de l objectif' })
+          : await lireBrief()
       }
     } catch (err) {
       return { ok: false, error: `lecture de l objectif impossible : ${err.message}` }
@@ -7091,6 +7129,7 @@ function createMissionRunner (host, injected = {}) {
       dirtSecondaire: 0,
       failures: 0,
       plannerErrors: 0,
+      plannerSilenceSince: null,
 
       // File d etapes servies par un seul appel au planificateur JSON.
       queue: [],
@@ -7446,6 +7485,7 @@ function createMissionRunner (host, injected = {}) {
       dirtSecondaire: 0,
       failures: 0,
       plannerErrors: 0,
+      plannerSilenceSince: null,
       queue: [],
       queueDone: 0,
       plans: 0,
@@ -7549,6 +7589,15 @@ function createMissionRunner (host, injected = {}) {
     return { ok: true, mission: status() }
   }
 
+  let dernierEtatArbre = { mission: null, etat: null }
+  function etatArbreSur () {
+    try {
+      dernierEtatArbre = { mission, etat: treeStatus() }
+    } catch (_) {
+      if (dernierEtatArbre.mission !== mission) dernierEtatArbre = { mission, etat: null }
+    }
+    return dernierEtatArbre.etat
+  }
   function status () {
     if (preparation && !isRunning()) return { id: preparation.id, etat: 'preparing',
       objectif: preparation.objective, demandeur: preparation.requester, etapes: 0,
@@ -7595,7 +7644,8 @@ function createMissionRunner (host, injected = {}) {
       acces: mission.acces ?? null,
       // Reparations par le code (A/B reparer) : nombre et codes.
       reparations: mission.reparations ?? null,
-      arbre_entier: mission.wholeTree ? (treeStatus() ?? { commence: false }) : null,
+      // Reconnexion : sans monde avant le spawn, la derniere mesure vaut.
+      arbre_entier: mission.wholeTree ? (etatArbreSur() ?? { commence: false }) : null,
       echafaudage_laisse: mission.echafaudageLaisse ?? 0,
       // Grand livre des dons (S6) : tente/retire/prouve/incertain par engagement.
       livraison: deliveryLedgersFor(mission).map(deliveryLedgerView),

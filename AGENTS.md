@@ -42,7 +42,7 @@ jamais une cible a optimiser (pas de « benchmaxing ») :
 Le bot ne laisse jamais un arbre partiellement coupe : des la premiere buche
 coupee, quelle que soit la mission (quantite, fabrication, chantier), cet
 arbre est la seule cible bois jusqu a sa derniere buche, et ni cloture ni
-bloc de chantier (`construire`, `poser_porte`) ne passe avant. Puis le bot retire les piliers montes pour lui. Interrupteur
+bloc de chantier (`construire`, `poser_porte`) ni exploration (`explorer`) ne passe avant. Puis le bot retire les piliers montes pour lui. Interrupteur
 `arbre_fini` ; comportement detaille dans le [README](README.md#monter-en-pilier-piler-sans-tricher).
 
 Limite acceptee (proprietaire, 2026-10-01) : la provenance d une buche tombee
@@ -133,6 +133,16 @@ refus immediat d une capacite absente, identifiant de
   proprietaire, 2026-09-28 : laisser de la marge aux autres services de la
   machine) ; ne pas la relever sans son accord.
 - Ne pas allonger un delai ni relacher une assertion du banc sans preuve.
+- Plafonds de niveau hors attente du modele (proprietaire, 2026-10-09,
+  `trees.Plafond`) : le temps passe a attendre le gateway (brief compris,
+  `mission.attente_modele_ms`) ne compte pas ; plafond absolu en temps reel
+  = plafond + min(plafond, 10 min). Vu : craft/iron-pickaxe 480,9 s dont
+  95 s d attente (8 a 21 s sur main le 2026-10-02).
+- Rejeu (2026-10-08, `trees.rejouable`) : un niveau bloquant rouge sans
+  aucun plan servi par le modele alors qu il a ete sollicite (brief ou chat
+  muet cote gateway, 1 a 3 par banc complet) est rejoue une fois en fin de
+  file ; le resultat garde le premier essai (`rejoue`) et le resume le dit.
+  Jamais un niveau informatif, `skill/*`, ni un niveau que le modele a servi.
 - Fusion seulement si tous les niveaux non informatifs passent et
   `keyCheck` est ok, sur un banc COMPLET de la tete de la PR (voir §5) ; un
   banc partiel ne suffit jamais. Le check `banc-complet` du workflow n est
@@ -151,7 +161,7 @@ refus immediat d une capacite absente, identifiant de
 | `approcher`, ancien `explorer` (GoalNearXZ) | 2026-09-22 | pathfinder 26.1 peu fiable ; remplaces par le navigateur partage |
 | Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
 | Escalade sur blocage (appel en effort high, puis fin) | ecarte 2026-10-02 | les 15 missions emballees des bancs du 2026-10-01 avaient toutes une cause d ACCES (tronc haut, no_path) : un modele qui raisonne plus n y peut rien ; traite par `reparer` et le moteur d acces |
-| Brief en effort low, relance du brief | ecarte 2026-10-02 | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py` |
+| Brief en effort low | ecarte 2026-10-02 | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py`. La relance du brief, ecartee le meme jour, est remise le 2026-10-08 (`PLANNER_RELAUNCH_MS_BRIEF`, a confirmer par le proprietaire) : sur 3 bancs complets, 16 a 19 briefs relances dont 13 a 16 repondus, briefs sans reponse 2 a 4 par banc au lieu de 11 |
 | Bibliotheque de savoir-faire appris, code genere par le modele (Voyager) | ecarte 2026-10-02 | apprendrait le banc ; code genere = risque (commandes `/`), lent ; les primitives generiques et les arbres de buts couvrent le besoin |
 
 ### Conduite d une session d agent (2026-10-02)
@@ -167,7 +177,11 @@ refus immediat d une capacite absente, identifiant de
   qui echoue sans le correctif.
 - Lire un banc : `python3 ci/fetch-results.py` (§5), puis `report.json`,
   `containers.log`, `traces/`, `instantanes/`. « pas de reponse en 10 s » sur
-  tous les bots a la fois = panne du gateway, pas le code ; un echec
+  tous les bots a la fois = panne du gateway, pas le code ; des silences
+  epars (un bot a la fois, 67 a 122 plans par banc complet au 2026-10-08)
+  sont le gateway lent sous 16 bots, et « fetch failed » sur tous les bots
+  pendant 30 s une coupure reseau : toleres (`MISSION_PLANNER_OUTAGE_MS`,
+  relance du brief), ils ne doivent plus tuer de mission ; un echec
   `skill/*` est toujours un bug du code.
 - Sur un banc partiel (ligne `Banc:`), `banc-complet` est rouge par
   construction : un seul commentaire de PR l explique, pas un par banc.
@@ -252,8 +266,8 @@ Modeles (un par usage, `bot/model-chain.js`, banc : `ci/models.env`) :
 | COMPACT (resume memoire) | muse-spark-1.3-contributor (`/responses`) | high | 90 s |
 
 Seuls rejeux admis, toujours le MEME modele : reponse tronquee (budget
-double), panne passagere du gateway (5xx, 429, 400 « Upstream request
-failed »), reaiguillage de session (`x-opencode-session` suffixe `-rN`),
+double), panne passagere du gateway (silence, reseau coupe, 5xx, 429, 400
+« Upstream request failed » : `planner.estPassager`), reaiguillage de session (`x-opencode-session` suffixe `-rN`, apres un delai ou un 400 upstream ; six d affilee SANS reponse au plus, compteur remis a zero a chaque reponse),
 retrait d un champ thinking/effort refuse, et changement de CLE (primary <->
 secondary) sur 429/401-403 (`PLANNER_KEY_FIRST`).
 
@@ -329,6 +343,11 @@ dans `docs/journal.md` (section « Les pieges »).
 15. **Git Bash (Windows)** : `MSYS_NO_PATHCONV=1` devant tout `docker compose
     cp/exec` avec un chemin du conteneur ; heredocs de plus de ~150 lignes
     casses par l outil Bash : ecrire le script dans un fichier.
+16. **`config.positiveInt` refuse 0** (repli sur le defaut, `bot/config.js`) :
+    une variable ou 0 veut dire « coupe » (`PLANNER_RELAUNCH_MS`,
+    `MISSION_BRIEF_NOTICE_MS`) se lit par `config.finiteNumber(..., { min: 0 })`.
+    Avant `config.js`, `Number('0' || d)` valait 0 : la conversion du 2026-10-03
+    avait rallume ces deux mecanismes en silence.
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
@@ -425,6 +444,8 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `PLANNER_REASONING_EFFORT[_<USAGE>]` | vide | `reasoning_effort` (ou `reasoning.effort`) |
 | `PLANNER_TIMEOUT_MS[_<USAGE>]` | 12000 | delai d un appel |
 | `PLANNER_RELAUNCH_MS` | 10000 | plan sans reponse apres ce delai : appel coupe et refait une fois avec le temps restant, jamais deux appels en meme temps, delai total inchange (interrupteur `relance_plan`, decision du proprietaire 2026-09-29) |
+| `PLANNER_RELAUNCH_MS_BRIEF` | 15000 | meme relance pour la lecture d objectif, dans son delai de 30 s (meme interrupteur) : deux briefs muets laissaient un niveau sans mission |
+| `MISSION_PLANNER_OUTAGE_MS` | 90000 | serie de pannes passageres du plan (`planner.estPassager` : silence, reseau coupe, 5xx, 429) toleree avant d abandonner la mission ; un refus (403...) arrete au troisieme echec. Lecture d objectif et chat rejouent aussi une coupure reseau dans le budget de deux essais (`rejouerSiPassager`) |
 | `PLANNER_PLAN_MAX` | 5 | actions max par plan |
 | `PLANNER_BUDGET_MIN_S` / `_MAX_S` | 6 / 10 | secondes de jeu visees par plan (consigne du prompt, jamais appliquee) |
 | `PLANNER_MAX_TOKENS` | 2000 | sortie, raisonnement compris |
@@ -475,7 +496,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/memory.js` | memoire du modele (travail, long terme) |
 | `bot/objective-controller.js`, `executor.js`, `state-store.js`, `activity.js`, `delivery.js` | objectifs durables, slot physique, persistance, activite, dons |
 | `bot/logger.js`, `bot/screenshot.js` | journal ; mini-carte PNG (`MISSION_SCREENSHOT`, eteinte) |
-| `ci/` | banc (run.py, trees.py, pool.py, capacity.py, harness, sondes) |
+| `ci/` | banc (run.py, trees.py, pool.py, capacity.py, harness, sondes) ; `ci/attendre-chunks.js` : attente des chunks du harness rejouee (un rejet non attrape tuait tout le banc) |
 | `tmp/*.test.js` | tests unitaires ; `tmp/sim-world.js` monde simule partage ; `tmp/replay-snapshot.js` rejeu d un instantane de blocage ; `tmp/probe-bot.js` harness multi-bots |
 | `tmp/sim-server.js`, `tmp/skill-sim.js`, `tmp/skill-levels.json` | banc de competences hors ligne : serveur simule (vrai A*, vraie physique), joueur de niveau `skill/*`, niveaux exportes par `ci/trees.py --export-skills` |
 | `ci/promotion.py` | taux de reussite des niveaux informatifs sur N bancs, serie avec le jumeau |

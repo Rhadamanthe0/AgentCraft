@@ -262,7 +262,8 @@ test('R03 /api/control acquire qui jette => ok:false, code conserve, slot libere
     })
     const body = await res.json()
     assert.equal(body.ok, false, 'echec annonce comme succes')
-    assert.ok(body.code === 'touche_hs' || /touche cassee/.test(body.error || ''), `code/message perdus : ${JSON.stringify(body)}`)
+    // throwingBot : setControlState jette moteur_hs ; le code d origine doit survivre.
+    assert.ok(body.code === 'moteur_hs' || /moteur casse/.test(body.error || ''), `code/message perdus : ${JSON.stringify(body)}`)
     assert.equal(executor.status().busy, false, 'slot non libere apres echec')
   } finally {
     await close(server)
