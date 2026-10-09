@@ -92,6 +92,17 @@ refus immediat d une capacite absente, identifiant de
 `skills.CAPACITES_ABSENTES`, jamais un texte libre ; niveaux `ouvert/*`,
 `avec(...)` sur gather/flowers et craft/axe pour voir les faux refus).
 
+A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py)
+qui remplace le modele des usages plan, brief et chat pendant le niveau
+(`POST /api/models`, remis a zero apres ; `bot/model-chain.js` `setOverrides`).
+Le resultat porte `models` et `plannerTokens` (jetons par usage : entree,
+cache lu, cache ecrit, sortie) ; `python3 ci/ab_modele.py <report.json...>`
+donne reussite, duree, attente et cout par bras aux prix OpenCode Go. Les
+modeles `claude-*` passent par `/messages` (format Anthropic, seul servi par
+le gateway Go pour Claude) : ni temperature ni `response_format`, systeme
+marque `cache_control`. Plafond Go de Claude Haiku 5.5 : 15 $/mois (60 $ pour
+DeepSeek V4.1 Flash).
+
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
 - Le joueur donne un BUT, jamais les etapes : « construis-moi une cabane »
@@ -256,7 +267,9 @@ Connaissances calculees par le code, servies au modele dans l etat :
 - **arbre entier** (`arbre_demande`), arbre commence a finir (`arbre_en_cours`), `objets_au_sol` (nom, nombre, hauteur
   relative), `outil_necessaire` (outil minimal nomme), indices de navigation.
 
-Modeles (un par usage, `bot/model-chain.js`, banc : `ci/models.env`) :
+Modeles (un par usage, `bot/model-chain.js`, banc : `ci/models.env` ;
+transport `bot/llm.js` : `/chat/completions`, `/responses` (muse) et
+`/messages` (claude-*)) :
 
 | Usage | Banc | Effort | Delai banc |
 | --- | --- | --- | --- |
@@ -502,5 +515,6 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `ci/promotion.py` | taux de reussite des niveaux informatifs sur N bancs, serie avec le jumeau |
 | `tmp/reparer.test.js`, `tmp/buts-ouverts.test.js` | reparations par le code, matieres ouvertes et refus (serveur simule) |
 | `tmp/arbitrage-options.test.js` | une demande qui en remplace une autre (arbitrage automatique) garde ses options de demarrage : sans cela, une mission scriptee `skill/*` lancee pendant qu une autre tournait etait planifiee par le modele (`aucun_appel_modele` rouge) |
+| `ci/ab_modele.py` | A/B de modele (variantes `~modele-*`) : reussite, duree, attente, cout par bras aux prix OpenCode Go |
 | `ci/ab.py` | decision A/B sur N bancs, par mode et par niveau : gains/pertes de reussite, duree et appels medians, mode reellement actif, verdict garder/retirer/egalite/insuffisant |
 | `docs/journal.md` | historique des decisions et correctifs |

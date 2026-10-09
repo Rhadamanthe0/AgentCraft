@@ -13,6 +13,7 @@ const { runPhysicalOrThrow } = require('./executor')
 // Chaque 400 sort avant admission, lease, cancel ou mission : une requete
 // rejetee ne modifie jamais le runtime.
 const config = require('./config')
+const modelChain = require('./model-chain')
 
 function createApi (rt, deps) {
   const {
@@ -223,6 +224,15 @@ function createApi (rt, deps) {
     const features = missionRunner.setFeatures(req.body ?? {})
     console.log(`[features] ${JSON.stringify(features)}`)
     res.json({ ok: true, features })
+  })
+
+  // A/B de modele du banc (bot/model-chain.js) : {"plan": "claude-haiku-5-5"}
+  // remplace le modele d un usage (plan, brief, chat, compact), {"reset": true}
+  // revient au .env. Aucun pouvoir en jeu.
+  app.post('/api/models', (req, res) => {
+    const models = modelChain.setOverrides(req.body ?? {})
+    console.log(`[modeles] ${JSON.stringify(models)}`)
+    res.json({ ok: true, models })
   })
 
   app.post('/api/control', requireBot, async (req, res) => {

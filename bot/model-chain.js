@@ -33,9 +33,25 @@ function parse (text) {
   })
 }
 
+// A/B de modele au banc (POST /api/models, variante `modele(...)` de
+// ci/trees.py) : un modele par usage, a la place de la variable, jusqu au
+// prochain reset. Toujours UN modele par usage, jamais de repli.
+const overrides = {}
+const OVERRIDE_TASKS = { plan: 'plan', brief: 'readBrief', chat: 'interpretMessage', compact: 'compact' }
+
+function setOverrides (changes = {}) {
+  if (changes?.reset === true) for (const k of Object.keys(overrides)) delete overrides[k]
+  for (const [key, value] of Object.entries(changes ?? {})) {
+    const task = OVERRIDE_TASKS[key]
+    if (task && typeof value === 'string' && /^[a-z0-9][a-z0-9.-]{0,63}$/i.test(value)) overrides[task] = value
+  }
+  return Object.fromEntries(Object.entries(OVERRIDE_TASKS).filter(([, t]) => overrides[t]).map(([k, t]) => [k, overrides[t]]))
+}
+
 // Le modele de l usage : PLANNER_MODEL_<USAGE>, sinon PLANNER_MODEL. Une liste
 // (ancien format) ne garde que sa premiere entree. null si sa cle manque.
 function modelFor (task, env = process.env, fallback = '') {
+  if (overrides[task] && env === process.env) return { model: overrides[task], baseUrl: null, label: overrides[task] }
   const own = TASK_VARS[task] ? env[TASK_VARS[task]] : ''
   const entry = parse(String(own ?? '').trim() || env.PLANNER_MODEL || fallback)[0]
   if (!entry || entry.invalid) return null
@@ -90,4 +106,4 @@ function createKeyState (cooldownMs = 600000) {
   }
 }
 
-module.exports = { parse, modelFor, effortFor, timeoutFor, keyOrder, isKeySwitchError, createKeyState, KEY_VARS, TASK_VARS }
+module.exports = { parse, modelFor, setOverrides, effortFor, timeoutFor, keyOrder, isKeySwitchError, createKeyState, KEY_VARS, TASK_VARS }

@@ -33,6 +33,42 @@ describe('options dual : protocoles separes et modele renvoye', () => {
   })
 })
 
+describe('protocole /messages (Claude Haiku 5.5 au gateway Go)', () => {
+  it('claude-* va sur /messages meme si l appelant dit chat : systeme en cache, effort, ni temperature ni response_format', async () => {
+    mockFetch(() => okJson({ model: 'claude-haiku-5-5', stop_reason: 'end_turn',
+      content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: '{"a":1}' }],
+      usage: { input_tokens: 10, output_tokens: 7, cache_read_input_tokens: 900, cache_creation_input_tokens: 90 } }))
+    const r = await llm.call('sys', '{}', { baseUrl: BASE + '/', apiKey: 'k', model: 'claude-haiku-5-5', protocol: 'chat',
+      temperature: 0, reasoningEffort: 'low', maxTokens: 2000, headers: ZH })
+    assert.equal(seen.url, BASE + '/messages')
+    assert.equal(seen.init.headers['x-api-key'], 'k')
+    assert.equal(seen.init.headers['anthropic-version'], '2023-06-01')
+    assert.equal(seen.init.headers['x-opencode-session'], 's-test')
+    assert.deepEqual(seen.body.system, [{ type: 'text', text: 'sys', cache_control: { type: 'ephemeral' } }])
+    assert.deepEqual(seen.body.output_config, { effort: 'low' })
+    assert.equal(seen.body.temperature, undefined)
+    assert.equal(seen.body.response_format, undefined)
+    assert.equal(seen.body.max_tokens, 2000)
+    assert.equal(r.content, '{"a":1}')
+    assert.deepEqual(r.usage, { prompt_tokens: 1000, completion_tokens: 7, prompt_tokens_details: { cached_tokens: 900 }, cache_write_tokens: 90 })
+  })
+  it('thinking disabled passe tel quel, sans effort ; max_tokens et refus deviennent des erreurs', async () => {
+    mockFetch(() => okJson({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{}' }] }))
+    await llm.call('s', 'u', { baseUrl: BASE, model: 'claude-haiku-5-5', thinking: { type: 'disabled' }, reasoningEffort: 'low' })
+    assert.deepEqual(seen.body.thinking, { type: 'disabled' })
+    assert.equal(seen.body.output_config, undefined)
+    mockFetch(() => okJson({ stop_reason: 'max_tokens', content: [{ type: 'text', text: '{"a' }] }))
+    await assert.rejects(llm.call('s', 'u', { baseUrl: BASE, model: 'claude-haiku-5-5' }), /tronquee/)
+    mockFetch(() => okJson({ stop_reason: 'refusal', content: [] }))
+    await assert.rejects(llm.call('s', 'u', { baseUrl: BASE, model: 'claude-haiku-5-5' }), /refusee/)
+  })
+  it('les autres modeles gardent leur protocole', () => {
+    assert.equal(llm.resolveProtocol('deepseek-v4.1-flash', null), 'chat')
+    assert.equal(llm.resolveProtocol('muse-spark-1.3-contributor', null), 'responses')
+    assert.equal(llm.resolveProtocol('claude-haiku-5-5', 'responses'), 'messages')
+  })
+})
+
 let realFetch
 let seen
 

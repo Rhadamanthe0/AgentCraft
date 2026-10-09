@@ -166,3 +166,23 @@ test('chat sans reponse dans le delai : UN rejeu du meme modele, puis l erreur',
   await assert.rejects(p.interpretMessage('coupe moi un arbre', {}), /pas de reponse/)
   assert.equal(calls, 2, 'jamais plus d un rejeu')
 })
+
+test('A/B de modele : setOverrides remplace le modele d un usage jusqu au reset', () => {
+  const mc = require('../bot/model-chain')
+  const env = process.env
+  const before = env.PLANNER_MODEL
+  env.PLANNER_MODEL = 'deepseek-v4.1-flash'
+  try {
+    assert.deepEqual(mc.setOverrides({ plan: 'claude-haiku-5-5', chat: 'claude-haiku-5-5', inconnu: 'x', brief: 'a b' }),
+      { plan: 'claude-haiku-5-5', chat: 'claude-haiku-5-5' })
+    assert.equal(mc.modelFor('plan').model, 'claude-haiku-5-5')
+    assert.equal(mc.modelFor('interpretMessage').model, 'claude-haiku-5-5')
+    assert.equal(mc.modelFor('readBrief').model, 'deepseek-v4.1-flash')
+    assert.equal(mc.modelFor('plan', { PLANNER_MODEL: 'z' }).model, 'z', 'un env explicite n est pas touche')
+    assert.deepEqual(mc.setOverrides({ reset: true }), {})
+    assert.equal(mc.modelFor('plan').model, 'deepseek-v4.1-flash')
+  } finally {
+    mc.setOverrides({ reset: true })
+    if (before === undefined) delete env.PLANNER_MODEL; else env.PLANNER_MODEL = before
+  }
+})
