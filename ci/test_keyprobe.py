@@ -5,6 +5,7 @@ import os
 import sys
 import unittest
 import urllib.error
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(__file__))
 import keyprobe  # noqa: E402
@@ -55,18 +56,40 @@ class Probe(unittest.TestCase):
 
         def urlopen(request, timeout):
             sent['body'] = json.loads(request.data)
+            sent['url'] = request.full_url
             sent['auth'] = request.get_header('Authorization')
+            sent['x-api-key'] = request.get_header('X-api-key')
             if status != 200:
                 raise urllib.error.HTTPError(request.full_url, status, 'x', {}, io.BytesIO(b'{"error":"Invalid credential"}'))
-            r = Response(json.dumps({'choices': [{'message': {'content': content}}]}).encode())
+            if request.full_url.endswith('/messages'):
+                data = {'content': [{'type': 'thinking', 'thinking': ''}, {'type': 'text', 'text': content}]}
+            else:
+                data = {'choices': [{'message': {'content': content}}]}
+            r = Response(json.dumps(data).encode())
             r.status = 200
             return r
         return sent, urlopen
 
+    def test_probes_the_bench_plan_model(self):
+        env = Path(__file__).with_name('models.env').read_text(encoding='utf-8')
+        plan = next(l.split('=', 1)[1].strip() for l in env.splitlines() if l.startswith('PLANNER_MODEL_PLAN='))
+        self.assertEqual(keyprobe.MODEL, plan)
+
+    def test_claude_on_messages(self):
+        sent, urlopen = self.reply()
+        result = keyprobe.probe('k-1', urlopen, model='claude-haiku-5-5')
+        self.assertTrue(result['ok'])
+        self.assertTrue(sent['url'].endswith('/v1/messages'))
+        self.assertEqual(sent['x-api-key'], 'k-1')
+        self.assertNotIn('temperature', sent['body'])
+        self.assertEqual(sent['body']['thinking'], {'type': 'disabled'})
+        self.assertNotIn('k-1', json.dumps(result))
+
     def test_prompt_without_reasoning(self):
         sent, urlopen = self.reply()
-        result = keyprobe.probe('k-1', urlopen)
+        result = keyprobe.probe('k-1', urlopen, model='deepseek-v4.1-flash')
         self.assertTrue(result['ok'])
+        self.assertTrue(sent['url'].endswith('/v1/chat/completions'))
         self.assertEqual(sent['body']['model'], 'deepseek-v4.1-flash')
         self.assertEqual(sent['body']['thinking'], {'type': 'disabled'})
         self.assertEqual(sent['body']['messages'][0]['content'], "Pas de réflexion, répond uniquement 'test validé'")

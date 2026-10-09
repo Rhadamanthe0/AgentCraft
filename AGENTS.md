@@ -104,15 +104,17 @@ marque `cache_control`. Plafond Go de Claude Haiku 5.5 : 15 $/mois (60 $ pour
 DeepSeek V4.1 Flash). Mesure du 2026-10-09 (6 bancs, 33 paires, 11
 niveaux dont 4 composites) : Haiku 29/33 contre 27/33, duree mediane 189 s
 contre 334 s, attente du modele 11 s contre 90 s par niveau, cout 0,21 $
-contre 0,35 $ (DeepSeek en heures pleines ; 0,18 $ en heures creuses). Le
-plafond Go de Haiku est 15 $/mois (60 $ en Go Plus) contre 60 $ (120 $) pour
-DeepSeek. Effort de Haiku pour plan et chat (variante `effort(...)`, 3 bancs,
+contre 0,35 $ (DeepSeek en heures pleines ; 0,18 $ en heures creuses). Plafond
+en Go Plus : 60 $ contre 120 $. Un banc complet coute ~0,33 $ en Haiku, soit
+~9 bancs par fenetre de 5 h (20 % du plafond) en Go : une campagne A/B
+l epuise (banc complet du 2026-10-09 rouge, 1284 x 429 « 5 hour »). Effort de Haiku pour plan et chat (variante `effort(...)`, 3 bancs,
 33 paires par bras) : `low` 32/33 en 201 s, `none` 30/33 en 230 s, `medium`
 29/33 en 221 s, sans gain de cout : `low` reste. Le proprietaire a choisi Haiku pour plan, brief et chat
 (2026-10-09) ; les variantes `~modele-deepseek-v4.1-flash` gardent la mesure
 (`ci/ab_modele.py`, `--base deepseek-v4.1-flash` pour les rapports d avant).
-`ci/keyprobe.py` sonde encore la cle avec DeepSeek : un plafond Haiku atteint
-seul ne se voit qu au 429 des bots (bascule de cle).
+`ci/keyprobe.py` sonde la cle avec le modele de plan du banc
+(`PLANNER_MODEL_PLAN` de `ci/models.env`) : un plafond epuise arrete le banc
+au demarrage au lieu de 75 min de niveaux rouges.
 
 ### Scenarios composites : la vraie finalite (2026-09-27)
 
@@ -143,7 +145,7 @@ seul ne se voit qu au 429 des bots (bascule de cle).
 - Jamais de secret committe, journalise, mis dans un artefact ou une image.
 - Banc CI : **une seule cle**, sans repli silencieux ; `report.keyCheck` le
   verifie. Choisie au demarrage (`ci/keyprobe.py`, 2026-10-01) : mini prompt
-  sans raisonnement (deepseek-v4.1-flash) sur `OPENCODE_PRIMARY_API_KEY` et
+  sans raisonnement (modele de plan de `ci/models.env`) sur `OPENCODE_PRIMARY_API_KEY` et
   `OPENCODE_SECONDARY_API_KEY` ; primary si les deux repondent, sinon celle
   qui repond, sinon le banc echoue (`report.keyProbe`). Seule la cle retenue
   va aux bots. Ne jamais contourner un 403
