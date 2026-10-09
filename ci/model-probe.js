@@ -14,7 +14,7 @@ const path = require('node:path')
 // Face-a-face actions/chat (2026-09-26) : meme effort (PLANNER_REASONING_EFFORT_*
 // du banc), jetons de raisonnement et acceptation du champ effort mesures.
 // A/B Claude Haiku 5.5 (2026-10-09) : meme face-a-face, meme effort.
-const DEFAULT = ['claude-haiku-5-5', 'longcat-2.5-preview-free', 'step-5-preview-free', 'mimo-v2.6-flash', 'gpt-6-luna']
+const DEFAULT = ['claude-haiku-5-5', 'gpt-6-luna']
 const RUNS = Number(process.env.CI_PROBE_RUNS || 8)
 // Lecture d objectif (usage BRIEF) : modele:effort compares sur de vrais
 // ordres du banc (2026-09-27 : muse high, p50 17,8 s, p95 45 s, 3 delais de
@@ -124,7 +124,7 @@ async function briefOnly (spec) {
 // Tranche le 2026-09-27 (d1983b2) : deepseek-v4.1-flash high 25/27 et 4/4,
 // muse high 23/27 et 4/4, 4-5x plus lent. Vide par defaut (la sonde muse
 // allonge le banc de plusieurs minutes) ; CI_PROBE_SMART pour la refaire.
-const SMART_DEFAULT = ['claude-haiku-5-5:high', 'longcat-2.5-preview-free:high', 'step-5-preview-free:high', 'mimo-v2.6-flash:high', 'gpt-6-luna:high']
+const SMART_DEFAULT = ['claude-haiku-5-5:high', 'gpt-6-luna:high']
 const has = (route, type) => Array.isArray(route) && route.some(s => s.type === type)
 const BRIEF_CASES = [
   ['Va sous l arbre', b => [has(b.route, 'sous_arbre')]],

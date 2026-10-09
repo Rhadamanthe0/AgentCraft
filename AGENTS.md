@@ -114,6 +114,14 @@ l epuise (banc complet du 2026-10-09 rouge, 1284 x 429 « 5 hour »). Effort de 
 29/33 en 221 s, sans gain de cout : `low` reste. Le proprietaire a choisi Haiku pour plan, brief et chat
 (2026-10-09) ; les variantes `~modele-deepseek-v4.1-flash` gardent la mesure
 (`ci/ab_modele.py`, `--base deepseek-v4.1-flash` pour les rapports d avant).
+Modeles Go bon marche contre Haiku (2026-10-09, 2 bancs, 22 paires) :
+GPT 6 Luna 19/22 contre 20/22, duree 179 s contre 158 s, attente 27 s
+contre 10 s, ~30 % moins cher (meme prix au jeton, moins de jetons), plafond
+Go a part (15 $) : seule alternative credible, gardee dans `MODELES_AB`.
+LongCat 2.5 et Step 5 (gratuits) 5/22 et 0/22, MiMo V2.6 Flash 5/22 : la
+sonde a faible charge passe (MiMo 8/8), mais sous 16 bots le gateway se tait
+(« planificateur indisponible », 100 a 150 s d attente par niveau) ; ne pas
+les reessayer sans signe que leur service a change.
 `ci/keyprobe.py` sonde la cle avec le modele de plan du banc
 (`PLANNER_MODEL_PLAN` de `ci/models.env`) : un plafond epuise arrete le banc
 au demarrage au lieu de 75 min de niveaux rouges.

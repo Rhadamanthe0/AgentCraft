@@ -1698,9 +1698,11 @@ def modele(name):
 
 
 # Models measured against the bench's (ci/models.env) on the levels that
-# carry `*MODELES_AB` (ci/ab_modele.py). 2026-10-09 : cheap or free Go
-# models against Claude Haiku 5.5 (DeepSeek V4.1 Flash measured the same day).
-MODELES_AB = [modele(m) for m in ('longcat-2.5-preview-free', 'step-5-preview-free', 'mimo-v2.6-flash', 'gpt-6-luna')]
+# carry `*MODELES_AB` (ci/ab_modele.py). GPT 6 Luna stays measured: on
+# 2026-10-09 it matched Claude Haiku 5.5 (19/22 against 20/22) for ~30 % less;
+# LongCat 2.5, Step 5 (free) and MiMo V2.6 Flash dropped (5, 0 and 5 of 22:
+# gateway silent under 16 bots, 100 to 150 s of wait per level).
+MODELES_AB = [modele('gpt-6-luna')]
 
 
 # Reasoning effort A/B (owner's request, 2026-10-09): plans and chat at
