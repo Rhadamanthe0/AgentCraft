@@ -122,7 +122,7 @@ def _ouvert_recolte():
         'kind': 'gather', 'instruction': f'Ramene-moi 3 {dit}', 'items': [bloc], 'tirage': bloc,
         'terrain': [(p[0], 200, p[1], p[0], 200, p[1], bloc) for p in ((14, 10), (22, 26), (28, 14), (8, 28), (24, 6))],
         'target': 3, 'leaves': [], 'logs': [], 'rules': {}, 'informative': True,
-        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts'), modele('deepseek-v4.1-flash'), effort('aucun', 'none'), effort('moyen', 'medium')],
+        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts'), modele('deepseek-v4.1-flash')],
     }
 
 
@@ -134,7 +134,7 @@ def _ouvert_trouver():
         'kind': 'gather', 'instruction': f'Trouve {dit}', 'items': [], 'tirage': bloc,
         'terrain': [(22, 200, 20, 22, 202, 28, 'dirt'), (28, 200, 24, 28, 200, 24, bloc)],
         'reach': 1, 'target': 0, 'leaves': [], 'logs': [], 'rules': {}, 'informative': True,
-        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts'), modele('deepseek-v4.1-flash'), effort('aucun', 'none'), effort('moyen', 'medium')],
+        'features': {'buts_ouverts': True}, 'variants': [sans('buts_ouverts'), modele('deepseek-v4.1-flash')],
     }
 
 
@@ -588,7 +588,7 @@ def base_levels():
             'about': 'Inventaire vide, « Construis une maison en terre de 3 par 3 par 3 » : creuser la terre d abord.',
             'kind': 'build', 'instruction': 'Construis une maison en terre de 3 par 3 par 3',
             'blocks': ['minecraft:dirt', 'minecraft:grass_block'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
-            'variants': [avec('sous_buts'), avec('reparer'), modele('deepseek-v4.1-flash'), effort('aucun', 'none'), effort('moyen', 'medium')],
+            'variants': [avec('sous_buts'), avec('reparer'), modele('deepseek-v4.1-flash')],
         },
         {
             'name': 'route/three-trips',
@@ -633,7 +633,7 @@ def base_levels():
             'leaves': [(TX, 209, TZ, TX, 209, TZ)],
             'logs': _logs(*[(TX, 200 + i, TZ) for i in range(9)]),
             'rules': {'dirt_placed_max': 0},
-            'variants': [sans('arbre_fini'), avec('reparer'), modele('deepseek-v4.1-flash'), effort('aucun', 'none'), effort('moyen', 'medium')],
+            'variants': [sans('arbre_fini'), avec('reparer'), modele('deepseek-v4.1-flash')],
         },
         {
             'name': 'terrain/moat',
@@ -659,7 +659,7 @@ def base_levels():
             'name': 'craft/stone-pickaxe',
             'about': 'Inventaire vide, un arbre et un rocher : « Fabrique une pioche en pierre » (bois, pioche en bois, pierre).',
             'kind': 'gather', 'instruction': 'Fabrique une pioche en pierre', 'items': ['stone_pickaxe'],
-            'target': 1, 'cap': 300, 'variants': [sans('solveur'), modele('deepseek-v4.1-flash'), effort('aucun', 'none'), effort('moyen', 'medium')],
+            'target': 1, 'cap': 300, 'variants': [sans('solveur'), modele('deepseek-v4.1-flash')],
             'terrain': [(26, 200, 6, 28, 201, 8, 'stone')],
             'leaves': [(6, 204, 26, 10, 205, 30)], 'logs': _logs(*[(8, 200 + i, 28) for i in range(4)]), 'rules': {},
         },
@@ -689,7 +689,7 @@ def base_levels():
             # de cuisson en plus. Bloquant (4 bancs reussis d affilee au
             # 2026-09-28, 230-326 s).
             'kind': 'gather', 'instruction': 'Fabrique une pioche en fer', 'items': ['iron_pickaxe'],
-            'target': 1, 'cap': 480, 'variants': [sans('solveur'), avec('sous_buts'), modele('deepseek-v4.1-flash'), effort('aucun', 'none'), effort('moyen', 'medium')],
+            'target': 1, 'cap': 480, 'variants': [sans('solveur'), avec('sous_buts'), modele('deepseek-v4.1-flash')],
             'terrain': [(20, 200, 26, 24, 201, 30, 'stone'), (22, 201, 26, 22, 201, 26, 'iron_ore'),
                         (23, 201, 26, 23, 201, 26, 'iron_ore'), (24, 201, 27, 24, 201, 27, 'iron_ore')],
             'leaves': [(6, 204, 6, 10, 205, 10)], 'logs': _logs(*[(8, 200 + i, 8) for i in range(4)]), 'rules': {},
@@ -740,7 +740,7 @@ def base_levels():
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
             # A/B: the model picks sub-goals (batir, obtenir) the code runs to the end.
-            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts'), avec('reparer'), modele('deepseek-v4.1-flash'), effort('aucun', 'none'), effort('moyen', 'medium')],
+            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts'), avec('reparer'), modele('deepseek-v4.1-flash')],
         },
         # Palier 2 (2026-09-28) : chaine plus longue, imprevu, terrain hostile.
         # Informatifs jusqu a trois bancs reussis d affilee.
@@ -755,7 +755,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [avec('sous_buts'), avec('plan_sans_raisonnement'), modele('deepseek-v4.1-flash'), effort('aucun', 'none'), effort('moyen', 'medium')],
+            'rules': {}, 'variants': [avec('sous_buts'), avec('plan_sans_raisonnement'), modele('deepseek-v4.1-flash')],
         },
         # Palier 2 (2026-10-09, A/B de modele) : forme jamais demandee depuis
         # rien (un mur, pas une boite), en pierre, avec une question du joueur
@@ -772,7 +772,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((28, 6), (30, 28))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((28, 6), (30, 28)) for i in range(5)]),
-            'rules': {}, 'variants': [modele('deepseek-v4.1-flash'), effort('aucun', 'none'), effort('moyen', 'medium')],
+            'rules': {}, 'variants': [modele('deepseek-v4.1-flash')],
         },
         {
             'name': 'composite/cabin-change-of-mind',
@@ -785,7 +785,7 @@ def base_levels():
             'leaves': [box for (x, z) in COMPOSITE_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
-            'rules': {}, 'variants': [modele('deepseek-v4.1-flash'), effort('aucun', 'none'), effort('moyen', 'medium')],
+            'rules': {}, 'variants': [modele('deepseek-v4.1-flash')],
         },
         {
             'name': 'composite/cabin-across-water',
@@ -798,7 +798,7 @@ def base_levels():
             'leaves': [box for (x, z) in ACROSS_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ACROSS_TREES for i in range(5)]),
-            'rules': {}, 'variants': [modele('deepseek-v4.1-flash'), effort('aucun', 'none'), effort('moyen', 'medium')],
+            'rules': {}, 'variants': [modele('deepseek-v4.1-flash')],
         },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
@@ -1699,6 +1699,8 @@ def modele(name):
 
 # Reasoning effort A/B (owner's request, 2026-10-09): plans and chat at
 # another effort (`none` = thinking disabled); the brief keeps its own.
+# Measured on 3 benches (33 pairs each, AGENTS.md): `low` stays; no level
+# carries it now, to spare the Haiku quota.
 def effort(label, value):
     return (f'effort-{label}', {}, {'effort_plan': value, 'effort_chat': value})
 
