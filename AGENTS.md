@@ -130,9 +130,10 @@ GitHub du meme nom), jamais au gateway et jamais en repli : sans cle, l appel
 echoue tel quel. Pour l offre de jetons gratuits contre partage des donnees
 (2,5 M/jour sur les mini : ~1 bras d A/B de 11 niveaux, un banc complet en
 fait ~17 M) ; trafic du banc seulement, partage a activer par le proprietaire
-sur un projet OpenAI dedie. `MODELES_AB` n ajoute `openai/gpt-5.4-mini` et
-`openai/gpt-5-mini` que si `OPENAI_API_KEY` est pose ; `keyCheck` ignore la
-cle `openai`.
+sur un projet OpenAI dedie ; `keyCheck` ignore la cle `openai`. Mesure
+abandonnee (proprietaire, 2026-10-10 : compte OpenAI sans credit, jetons
+gratuits refuses `insufficient_quota`) : plus aucune variante `openai/*` dans
+`MODELES_AB`, la tuyauterie reste pour un lancement manuel (`base_model`).
 `ci/keyprobe.py` sonde la cle avec le modele de plan du banc
 (`PLANNER_MODEL_PLAN` de `ci/models.env`) : un plafond epuise arrete le banc
 au demarrage au lieu de 75 min de niveaux rouges.
