@@ -1863,8 +1863,35 @@ def level_patterns():
     return [p for p in re.split(r'[\s,]+', raw) if p and p.lower() != 'unitaires']
 
 
+# Retired from automatic benches to save model quota (owner, 2026-10-10):
+# simple levels (8 model requests or fewer, 60 s or less) green on all 17
+# healthy full benches of 2026-10-07..10, and A/B variants whose verdict is
+# settled (0/19 without the mode). Kept in the source and still played when a
+# `Banc:` line or `levels` names them exactly (never by a wildcard, variants
+# included). The variants of a retired level go with it.
+RETIRED = frozenset({
+    'build/arch', 'build/big-box', 'build/dirt-box', 'build/planks', 'build/planks-door', 'build/tower',
+    'build/wall', 'chat/chatter-ignored', 'chat/stop-resume', 'craft/from-tree', 'craft/planks',
+    'craft/sticks', 'follow/corner', 'follow/ledge-down', 'follow/stairs', 'follow/stop', 'follow/straight',
+    'gather/dirt', 'gather/flowers-island', 'gather/gravel', 'gather/sand', 'join/buried', 'join/cliff-down',
+    'join/cliff-up', 'join/closed-room', 'join/leaf-pillar', 'join/ravine-detour', 'join/shaft',
+    'join/water-gap', 'route/go-and-back', 'route/three-trips', 'route/two-trips', 'route/under-tree',
+    'terrain/dirt-wall', 'terrain/hedge-pit', 'terrain/pit', 'trees/leaves', 'trees/reachable',
+    # Settled A/B: plans, solver and open goals are needed (0/19 without).
+    'build/windows~sans-plans', 'craft/furnace~sans-solveur', 'craft/iron-pickaxe~sans-solveur',
+    'craft/stone-pickaxe~sans-solveur', 'craft/torches~sans-solveur',
+    'ouvert/recolte-libre~sans-buts_ouverts', 'ouvert/trouver~sans-buts_ouverts',
+})
+
+
+def retired(name):
+    return name in RETIRED or name.split('~')[0] in RETIRED
+
+
 def selected(name):
     patterns = level_patterns()
+    if retired(name):
+        return bool(patterns) and name in patterns
     return patterns is None or any(fnmatch.fnmatchcase(name, p) for p in patterns)
 
 

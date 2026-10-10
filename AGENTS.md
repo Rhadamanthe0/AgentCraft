@@ -467,10 +467,17 @@ dans `docs/journal.md` (section « Les pieges »).
   Pendant le travail, choisir les niveaux que le changement peut toucher ; le
   dernier commit avant fusion n a pas de ligne `Banc:` (banc complet, check
   `banc-complet` vert exige).
+- Niveaux retires des bancs automatiques (proprietaire, 2026-10-10, quota) :
+  `trees.RETIRED`, 38 niveaux simples (8 requetes ou moins, 60 s ou moins)
+  verts sur les 17 bancs complets sains du 2026-10-07 au 10, et les variantes
+  A/B tranchees (`~sans-plans`, `~sans-solveur`, `~sans-buts_ouverts` : 0/19).
+  ~22 % des jetons d un banc complet. Gardes dans le source, joues seulement
+  si `Banc:` ou `levels` les nomme exactement. Un niveau simple qui protege
+  un correctif recent se remet en le retirant de la liste.
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, ~127 niveaux avec variantes) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 143 niveaux avec variantes, 93 joues par defaut) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,

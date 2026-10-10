@@ -26,6 +26,18 @@ class Selection(unittest.TestCase):
         chosen = names('trees/pillar*, craft/planks')
         self.assertEqual(chosen, ['trees/pillar', 'trees/pillar~sans-arbre_fini', 'trees/pillar~avec-acces_unifie', 'craft/planks'])
 
+    def test_retired_only_by_exact_name(self):
+        every = names('')
+        self.assertNotIn('craft/planks', every)
+        self.assertNotIn('build/wall~sans-plans', every)
+        self.assertNotIn('craft/torches~sans-solveur', every)
+        self.assertIn('craft/torches', every)
+        self.assertNotIn('craft/planks', names('craft/*'))
+        self.assertEqual(names('build/wall~sans-plans'), ['build/wall~sans-plans'])
+        with mock.patch.dict(os.environ, {'CI_LEVELS': ''}):
+            known = {level['name'] for level in trees.all_levels_unfiltered()}
+        self.assertTrue(trees.RETIRED <= known)
+
     def test_unit_only(self):
         self.assertEqual(names('unitaires'), [])
         with mock.patch.dict(os.environ, {'CI_LEVELS': 'unitaires'}):
