@@ -160,9 +160,13 @@ au demarrage au lieu de 75 min de niveaux rouges.
   pierre, `each` : chaque objet en inventaire), `composite/bucket` (seau :
   fer, four, cuisson), `composite/big-stone-house` (5x5x3 en pierre avec
   porte), `composite/lit-cabin` (cabane avec torches, `also` : blocs
-  supplementaires comptes). Une ferme a canne a sucre exige des capacites
-  absentes (`culture`, `mecanisme` de `skills.CAPACITES_ABSENTES`) : le bot
-  la refuse, ce n est pas encore un niveau.
+  supplementaires comptes, dans l arene ou une zone qui suit rotation et
+  miroir), `composite/powered-rail-line` (ligne de minecart entre deux
+  laines avec rails accelerateurs : fer, or, redstone, cuisson ; `entities` :
+  minecart present). Ce dernier tombe aujourd hui sous la capacite absente
+  `mecanisme` (rails) : le bot le refuse tant qu une capacite « poser des
+  rails » n existe pas. Une ferme a canne a sucre exige `culture` et
+  `mecanisme` : ce n est pas encore un niveau.
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
   escalier (jamais un puits vertical). Difficulte paisible pour l instant.
 

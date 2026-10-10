@@ -858,6 +858,31 @@ def base_levels():
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
             'rules': {},
         },
+        {
+            # Demande du proprietaire (2026-10-10) : chaine la plus longue du
+            # banc, fer et or cuits, redstone, rails poses entre deux reperes.
+            'name': 'composite/powered-rail-line',
+            'about': 'Inventaire vide, trois arbres, un rocher avec fer, or, redstone et charbon, deux reperes de laine au sol : '
+                     '« Fais-moi une ligne de minecart entre la laine rouge et la laine bleue, avec des rails accelerateurs » : '
+                     'pioches, minerais extraits, four, lingots, rails, rails accelerateurs alimentes, minecart pose.',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Fais-moi une ligne de minecart entre la laine rouge et la laine bleue, avec des rails accelerateurs',
+            'blocks': ['minecraft:rail', 'minecraft:powered_rail'], 'target': 12,
+            'also': {'rails_accelerateurs': (['minecraft:powered_rail'], 2),
+                     'rail_au_depart': (['minecraft:rail', 'minecraft:powered_rail'], 1, (9, 200, 17, 11, 200, 19)),
+                     'rail_a_l_arrivee': (['minecraft:rail', 'minecraft:powered_rail'], 1, (25, 200, 17, 27, 200, 19))},
+            'entities': {'minecart_pose': ('minecraft:minecart', 1)},
+            'terrain': [(10, 199, 18, 10, 199, 18, 'red_wool'), (26, 199, 18, 26, 199, 18, 'blue_wool'),
+                        (20, 200, 26, 31, 202, 33, 'stone'),
+                        *[(x, 202, z, x, 202, z, 'iron_ore') for x in (21, 23, 25, 27) for z in (27, 29, 31, 33)],
+                        *[(x, 201, 26, x, 201, 26, 'gold_ore') for x in (21, 23, 25, 27, 29, 31)],
+                        (22, 201, 26, 22, 201, 26, 'redstone_ore'), (26, 201, 26, 26, 201, 26, 'redstone_ore'),
+                        *[(31, 202, z, 31, 202, z, 'coal_ore') for z in (27, 29, 31, 33)]],
+            'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
+            'rules': {},
+        },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
         # (graine du banc, CI_RANDOM_SEED la rejoue) : un correctif doit valoir
@@ -1067,6 +1092,8 @@ def vary(level, seed, avoid=None):
         out['target'] = (cx, ty, cz)
     if 'loot' in level:
         out['loot'] = [(item, *_cell(dx, dz, turns, mirror)) for item, dx, dz in level['loot']]
+    if 'also' in level:  # zones of extra block counts follow the arena
+        out['also'] = {k: (v[0], v[1], *[_box(z, turns, mirror) for z in v[2:]]) for k, v in level['also'].items()}
     return out
 
 
@@ -1307,9 +1334,19 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         layer_count = lambda y: sum(count(f'{x0} {y} 0 {x0 + SIZE} {y} {SIZE}', b) for b in level['blocks'])
         bottom, top = layer_count(200), layer_count(200 + level['minTop'] - 1)
         checks['forme_ouverte'] = 0 < top and bottom < top
-    for check, (blocks, minimum) in level.get('also', {}).items():
-        # Extra blocks the order names (torches...): counted like the build.
-        checks[check] = sum(count(above, b) for b in blocks) >= minimum
+    for check, (blocks, minimum, *zone) in level.get('also', {}).items():
+        # Extra blocks the order names (torches...): counted like the build,
+        # in the whole arena or in a zone (x0, y0, z0, x1, y1, z1, relative).
+        area = above
+        if zone:
+            a, b0, c, d, e, f = zone[0]
+            area = f'{x0 + a} {b0} {c} {x0 + d} {e} {f}'
+        checks[check] = sum(count(area, b) for b in blocks) >= minimum
+    for check, (entity, minimum) in level.get('entities', {}).items():
+        # Entities the order asks for (a minecart on its rails...).
+        answer = rcon(f'execute if entity @e[type={entity},x={x0},y=200,z=0,dx={SIZE},dy={TOP_Y - 200},dz={SIZE}]')
+        match = re.search(r'count: (\d+)', answer or '')
+        checks[check] = (int(match.group(1)) if match else 0) >= minimum
     if level.get('minTop'):
         # Free-form shape: something must reach that layer (tower, wall).
         layer = 200 + level['minTop'] - 1
