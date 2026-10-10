@@ -79,6 +79,8 @@ resume donnent reussite, duree, appels au modele, degats et compteurs du mode
 mesurable n est pas garde** ; a resultats egaux, on garde la version la plus
 simple. Une paire d un seul banc est du bruit : la decision se prend sur
 plusieurs bancs avec `python3 ci/ab.py <report.json...>` (au moins 6 paires).
+Les variantes comptent dans la limite de 49 niveaux (§5) : une campagne A/B
+les joue par `Banc:` (nom exact), puis elles retournent dans `trees.RETIRED`.
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
 `prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte`,
@@ -467,17 +469,23 @@ dans `docs/journal.md` (section « Les pieges »).
   Pendant le travail, choisir les niveaux que le changement peut toucher ; le
   dernier commit avant fusion n a pas de ligne `Banc:` (banc complet, check
   `banc-complet` vert exige).
-- Niveaux retires des bancs automatiques (proprietaire, 2026-10-10, quota) :
-  `trees.RETIRED`, 38 niveaux simples (8 requetes ou moins, 60 s ou moins)
-  verts sur les 17 bancs complets sains du 2026-10-07 au 10, et les variantes
-  A/B tranchees (`~sans-plans`, `~sans-solveur`, `~sans-buts_ouverts` : 0/19).
-  ~22 % des jetons d un banc complet. Gardes dans le source, joues seulement
-  si `Banc:` ou `levels` les nomme exactement. Un niveau simple qui protege
-  un correctif recent se remet en le retirant de la liste.
+- Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
+  `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
+  `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
+  88 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
+  reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
+  meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
+  un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
+  (`terrain/far-hedge-pit` remplace far-tree, pit et hedge-pit). Un niveau
+  retire se joue seulement si `Banc:` ou `levels` le nomme exactement ; un
+  niveau simple qui protege un correctif recent se remet en le retirant de la
+  liste. Promus bloquants le meme jour (ci/promotion.py) :
+  `composite/stone-hut-from-scratch`, `composite/cabin-across-water`,
+  `ouvert/hors-capacite`, `skill/stone-hut-batir`.
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 143 niveaux avec variantes, 93 joues par defaut) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 144 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,

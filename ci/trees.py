@@ -144,7 +144,8 @@ def _ouvert_hors_capacite():
         'name': 'ouvert/hors-capacite',
         'about': f'« {phrase} » (tire au sort) : capacite absente, refus rapide et dit.',
         'kind': 'gather', 'instruction': phrase, 'items': [], 'tirage': phrase,
-        'expectRefusal': True, 'target': 0, 'leaves': [], 'logs': [], 'rules': {}, 'informative': True,
+        # Bloquant depuis le 2026-10-10 (ci/promotion.py : 17/19).
+        'expectRefusal': True, 'target': 0, 'leaves': [], 'logs': [], 'rules': {}, 'informative': False,
         'features': {'buts_ouverts': True},
     }
 
@@ -326,6 +327,22 @@ def base_levels():
             'start': (10.5, 205, 18.5),
             'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
             'logs': _logs(*trunk3),
+            'rules': {},
+        },
+        # Regroupe terrain/far-tree, terrain/pit et terrain/hedge-pit (retires,
+        # 2026-10-10) : arbre hors du rayon de recherche, au fond d un trou de 5
+        # blocs entoure d une haie. Chercher, ouvrir la haie, descendre sans
+        # chute, couper. Informatif jusqu a trois bancs verts d affilee.
+        {
+            'name': 'terrain/far-hedge-pit',
+            'about': 'Sol releve de 5 blocs ; arbre au coin oppose (~39 blocs, hors du rayon de recherche), au fond '
+                     'd un trou de 5 blocs entoure d une haie de feuilles : le chercher, ouvrir la haie, descendre sans chute.',
+            'terrain': [(0, 200, 0, SIZE - 1, 203, SIZE - 1, 'dirt'), (0, 204, 0, SIZE - 1, 204, SIZE - 1, 'grass_block'),
+                        (27, 200, 27, 33, 204, 33, 'air'),
+                        (25, 205, 25, 35, 206, 35, LEAVES), (26, 205, 26, 34, 206, 34, 'air')],
+            'start': (2.5, 205, 2.5), 'informative': True,
+            'leaves': [(28, 203, 28, 32, 204, 32)],
+            'logs': _logs(*[(30, 200 + i, 30) for i in range(3)]),
             'rules': {},
         },
         # Chat levels (tour 2): a silent probe player talks to the bot through the
@@ -748,7 +765,8 @@ def base_levels():
             'name': 'composite/stone-hut-from-scratch',
             'about': 'Inventaire vide, deux arbres et un rocher, « Construis-moi une maison en pierre de 3 par 3 par 3 » : '
                      'bois, etabli, pioche en bois, pierre extraite puis posee, sans etape donnee.',
-            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            # Bloquant depuis le 2026-10-10 (ci/promotion.py : 17/19, serie de 3 avec son jumeau).
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': False,
             'instruction': 'Construis-moi une maison en pierre de 3 par 3 par 3',
             'blocks': ['minecraft:cobblestone'], 'target': 20, 'minTop': 3,
             'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
@@ -791,7 +809,8 @@ def base_levels():
             'name': 'composite/cabin-across-water',
             'about': 'Inventaire vide, un fosse d eau de 2 de large coupe l arene, tous les arbres de l autre cote : '
                      '« Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte ».',
-            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            # Bloquant depuis le 2026-10-10 (ci/promotion.py : 17/19, serie de 3 avec son jumeau).
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': False,
             'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte',
             'blocks': ['#minecraft:planks'], 'target': 40, 'door': True,
             'terrain': [(16, 199, 0, 17, 199, SIZE, 'water')],
@@ -958,7 +977,8 @@ def base_levels():
         {
             'name': 'skill/stone-hut-batir',
             'about': 'Script batir : inventaire vide, deux arbres et un rocher, maison en pierre 3x3x3 : pioche puis pierre, par le code.',
-            'kind': 'build', 'cap': 1500, 'informative': True, 'features': {'sous_buts': True},
+            # Bloquant depuis le 2026-10-10 (ci/promotion.py : 19/19).
+            'kind': 'build', 'cap': 1500, 'informative': False, 'features': {'sous_buts': True},
             'instruction': 'Construis-moi une maison en pierre de 3 par 3 par 3',
             'blocks': ['minecraft:cobblestone'], 'target': 20, 'minTop': 3,
             'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
@@ -1881,7 +1901,61 @@ RETIRED = frozenset({
     'build/windows~sans-plans', 'craft/furnace~sans-solveur', 'craft/iron-pickaxe~sans-solveur',
     'craft/stone-pickaxe~sans-solveur', 'craft/torches~sans-solveur',
     'ouvert/recolte-libre~sans-buts_ouverts', 'ouvert/trouver~sans-buts_ouverts',
+    # Second cut (owner, 2026-10-10: fewer than MAX_LEVELS). Each one is played
+    # inside a harder level kept (COVERED_BY).
+    'trees/pillar', 'join/pit', 'chat/join-then-tree', 'terrain/far-tree', 'gather/flowers',
+    'gather/sand-plateau', 'craft/table', 'craft/axe', 'craft/door', 'craft/stone-pickaxe', 'craft/torches',
+    'craft/furnace', 'build/door', 'route/around-wall', 'route/under-far-tree', 'skill/tree-reachable',
+    'skill/dirt-box', 'skill/cabin-batir', 'trees/skirted',
+    # A/B variants measured on 19 full benches (verdicts: python3 ci/ab.py);
+    # only the variants of the mode being built (`poser`) stay.
+    'trees/bent~sans-anti_boucle', 'trees/bent~avec-acces_unifie', 'trees/tall~sans-reflexes',
+    'trees/tall~avec-reparer', 'trees/double~sans-recolter', 'trees/double~sans-relance_plan',
+    'trees/double~avec-plan_sans_raisonnement', 'trees/skirted~sans-arbre_fini', 'trees/skirted~avec-reparer',
+    'terrain/plateau~avec-nav_creuse', 'terrain/plateau~avec-acces_unifie', 'terrain/moat~avec-acces_unifie',
+    'gather/sand-walled~avec-nav_creuse', 'gather/sand-walled~avec-acces_unifie',
+    'craft/iron-pickaxe~avec-sous_buts', 'build/no-materials~avec-sous_buts', 'build/no-materials~avec-reparer',
+    'composite/cabin-from-scratch~sans-ouvrir_porte', 'composite/cabin-from-scratch~avec-sous_buts',
+    'composite/cabin-from-scratch~avec-reparer', 'composite/stone-hut-from-scratch~avec-sous_buts',
+    'composite/stone-hut-from-scratch~avec-plan_sans_raisonnement', 'skill/tree-pillar~avec-acces_unifie',
+    'skill/sand-walled~avec-acces_unifie',
 })
+
+# Owner's limit (2026-10-10): a full bench plays fewer than 50 tests (levels,
+# variants, twins and navigation scenarios). A new level comes with the
+# retirement of a simpler one, played inside a harder level kept.
+MAX_LEVELS = 49
+
+# Where each retired level's situation is still played (owner: the hardest
+# levels include the simplest ones removed). Variants are not listed: they
+# measure a mode, not a situation.
+COVERED_BY = {
+    'build/arch': 'build/windows', 'build/big-box': 'composite/big-stone-house', 'build/dirt-box': 'build/windows',
+    'build/planks': 'build/no-materials', 'build/planks-door': 'composite/cabin-from-scratch',
+    'build/tower': 'composite/big-stone-house', 'build/wall': 'composite/stone-wall-question',
+    'build/door': 'composite/cabin-from-scratch', 'chat/chatter-ignored': 'chat/question-keeps-mission',
+    'chat/stop-resume': 'chat/stop-tree', 'chat/join-then-tree': 'chat/replace-and-join',
+    'craft/from-tree': 'craft/iron-pickaxe', 'craft/planks': 'build/no-materials', 'craft/sticks': 'craft/iron-pickaxe',
+    'craft/table': 'craft/iron-pickaxe', 'craft/stone-pickaxe': 'craft/iron-pickaxe', 'craft/furnace': 'craft/iron-pickaxe',
+    'craft/axe': 'composite/stone-toolkit', 'craft/door': 'composite/cabin-from-scratch',
+    'craft/torches': 'composite/lit-cabin',
+    'follow/corner': 'follow/winding', 'follow/ledge-down': 'follow/winding', 'follow/stairs': 'follow/winding',
+    'follow/stop': 'chat/stop-tree', 'follow/straight': 'follow/winding',
+    'gather/dirt': 'gather/sand-walled', 'gather/sand': 'gather/sand-walled', 'gather/gravel': 'gather/sand-walled',
+    'gather/flowers': 'ouvert/recolte-libre', 'gather/flowers-island': 'ouvert/recolte-libre',
+    'gather/sand-plateau': 'terrain/plateau',
+    'join/buried': 'join/tall-cliff', 'join/cliff-down': 'join/tall-cliff', 'join/cliff-up': 'join/tall-cliff',
+    'join/closed-room': 'chat/replace-and-join', 'join/leaf-pillar': 'join/tall-cliff', 'join/pit': 'join/tall-cliff',
+    'join/ravine-detour': 'join/tall-cliff', 'join/shaft': 'join/tall-cliff', 'join/water-gap': 'composite/cabin-across-water',
+    'route/go-and-back': 'route/wait-and-back', 'route/three-trips': 'route/wait-and-back',
+    'route/two-trips': 'route/wait-and-back', 'route/under-tree': 'route/wait-and-back',
+    'route/around-wall': 'route/wait-and-back', 'route/under-far-tree': 'route/wait-and-back',
+    'terrain/dirt-wall': 'terrain/plateau', 'terrain/hedge-pit': 'terrain/far-hedge-pit',
+    'terrain/pit': 'terrain/far-hedge-pit', 'terrain/far-tree': 'terrain/far-hedge-pit',
+    'trees/leaves': 'trees/double', 'trees/reachable': 'trees/double', 'trees/pillar': 'trees/tall',
+    'skill/tree-reachable': 'skill/tree-pillar', 'skill/dirt-box': 'skill/stone-hut-batir',
+    'skill/cabin-batir': 'skill/stone-hut-batir', 'trees/skirted': 'trees/tall',
+}
 
 
 def retired(name):

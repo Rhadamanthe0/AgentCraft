@@ -19,24 +19,37 @@ class Selection(unittest.TestCase):
     def test_everything_by_default(self):
         every = names('')
         self.assertEqual(every, names('tout'))
-        self.assertIn('trees/pillar', every)
-        self.assertIn('trees/pillar~sans-arbre_fini', every)
+        self.assertIn('trees/tall', every)
+        self.assertIn('composite/lit-cabin~avec-poser', every)
 
     def test_patterns_take_variants(self):
-        chosen = names('trees/pillar*, craft/planks')
-        self.assertEqual(chosen, ['trees/pillar', 'trees/pillar~sans-arbre_fini', 'trees/pillar~avec-acces_unifie', 'craft/planks'])
+        chosen = names('composite/lit-cabin*, craft/planks')
+        self.assertCountEqual(chosen, ['craft/planks', 'composite/lit-cabin', 'composite/lit-cabin~avec-poser',
+                                       'composite/lit-cabin~aleatoire'])
 
     def test_retired_only_by_exact_name(self):
         every = names('')
         self.assertNotIn('craft/planks', every)
         self.assertNotIn('build/wall~sans-plans', every)
         self.assertNotIn('craft/torches~sans-solveur', every)
-        self.assertIn('craft/torches', every)
+        self.assertIn('craft/iron-pickaxe', every)
         self.assertNotIn('craft/planks', names('craft/*'))
         self.assertEqual(names('build/wall~sans-plans'), ['build/wall~sans-plans'])
         with mock.patch.dict(os.environ, {'CI_LEVELS': ''}):
             known = {level['name'] for level in trees.all_levels_unfiltered()}
         self.assertTrue(trees.RETIRED <= known)
+
+    def test_full_bench_under_the_owner_limit(self):
+        played = names('')
+        self.assertLessEqual(len(played) + len(trees.NAVIGATION_NAMES), trees.MAX_LEVELS)
+
+    def test_each_retired_level_is_covered_by_a_played_one(self):
+        played = set(names(''))
+        for name in trees.RETIRED:
+            if '~' in name:
+                continue
+            self.assertIn(name, trees.COVERED_BY, name)
+            self.assertIn(trees.COVERED_BY[name], played, name)
 
     def test_unit_only(self):
         self.assertEqual(names('unitaires'), [])
