@@ -122,6 +122,15 @@ LongCat 2.5 et Step 5 (gratuits) 5/22 et 0/22, MiMo V2.6 Flash 5/22 : la
 sonde a faible charge passe (MiMo 8/8), mais sous 16 bots le gateway se tait
 (« planificateur indisponible », 100 a 150 s d attente par niveau) ; ne pas
 les reessayer sans signe que leur service a change.
+Modeles OpenAI en direct (2026-10-10) : `openai/<modele>` (plan, brief,
+chat) part a l API OpenAI (`OPENAI_BASE_URL`, cle `OPENAI_API_KEY`, secret
+GitHub du meme nom), jamais au gateway et jamais en repli : sans cle, l appel
+echoue tel quel. Pour l offre de jetons gratuits contre partage des donnees
+(2,5 M/jour sur les mini : ~1 bras d A/B de 11 niveaux, un banc complet en
+fait ~17 M) ; trafic du banc seulement, partage a activer par le proprietaire
+sur un projet OpenAI dedie. `MODELES_AB` n ajoute `openai/gpt-5.4-mini` et
+`openai/gpt-5-mini` que si `OPENAI_API_KEY` est pose ; `keyCheck` ignore la
+cle `openai`.
 `ci/keyprobe.py` sonde la cle avec le modele de plan du banc
 (`PLANNER_MODEL_PLAN` de `ci/models.env`) : un plafond epuise arrete le banc
 au demarrage au lieu de 75 min de niveaux rouges.
@@ -475,6 +484,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | --- | --- | --- |
 | `PLANNER_BASE_URL` | vide (compose : gateway Go) | sans elle, aucun cerveau : les missions echouent en le disant |
 | `PLANNER_API_KEY` / `OPENCODE_SECONDARY_API_KEY` | vide | cles primary / secondary du gateway Go |
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | vide / `https://api.openai.com/v1` | modeles `openai/<modele>` seulement (A/B), jamais un repli |
 | `PLANNER_KEY_FIRST` | `primary` | cle essayee d abord ; l autre sur 429/401-403 |
 | `PLANNER_MODEL[_PLAN/_BRIEF/_CHAT/_COMPACT]` | `PLANNER_MODEL` | un modele par usage (une liste ne garde que sa tete) |
 | `PLANNER_REASONING_EFFORT[_<USAGE>]` | vide | `reasoning_effort` (ou `reasoning.effort`) |

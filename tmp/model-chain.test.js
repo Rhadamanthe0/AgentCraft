@@ -11,7 +11,7 @@ const PLANNER_PATH = require.resolve('../bot/planner')
 const KEYS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_MODEL_PLAN', 'PLANNER_MODEL_CHAT', 'PLANNER_MODEL_BRIEF',
   'PLANNER_MODEL_REPAIR', 'PLANNER_API_KEY', 'PLANNER_THINKING', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN',
   'PLANNER_REASONING_EFFORT_BRIEF', 'PLANNER_REASONING_EFFORT_REPAIR', 'PLANNER_TIMEOUT_MS_BRIEF', 'OPENCODE_SECONDARY_API_KEY', 'PLANNER_KEY_FIRST',
-  'BOT_USERNAME']
+  'BOT_USERNAME', 'OPENAI_API_KEY', 'OPENAI_BASE_URL']
 const saved = Object.fromEntries(KEYS.map(k => [k, process.env[k]]))
 const origCall = llm.call
 afterEach(() => {
@@ -179,6 +179,8 @@ test('A/B de modele : setOverrides remplace le modele d un usage jusqu au reset'
     assert.equal(mc.modelFor('interpretMessage').model, 'claude-haiku-5-5')
     assert.equal(mc.modelFor('readBrief').model, 'deepseek-v4.1-flash')
     assert.equal(mc.modelFor('plan', { PLANNER_MODEL: 'z' }).model, 'z', 'un env explicite n est pas touche')
+    assert.deepEqual(mc.setOverrides({ brief: 'openai/gpt-5.4-mini', chat: 'autre/x' }),
+      { plan: 'claude-haiku-5-5', brief: 'openai/gpt-5.4-mini', chat: 'claude-haiku-5-5' }, 'seul le prefixe openai/ est admis')
     assert.deepEqual(mc.setOverrides({ reset: true }), {})
     assert.equal(mc.modelFor('plan').model, 'deepseek-v4.1-flash')
   } finally {
@@ -209,4 +211,28 @@ test('effort none : le plan part avec thinking disabled et sans effort', async (
   await p.plan({}, 'recolte', 'harvest')
   assert.deepEqual(sent[0].thinking, { type: 'disabled' })
   assert.equal(sent[0].reasoningEffort ?? null, null)
+})
+
+test('openai/<modele> : API OpenAI en direct avec OPENAI_API_KEY, sans en-tetes Zen ni bascule de cle', async () => {
+  const seen = []
+  llm.call = async (s, u, o) => { seen.push(o); return { content: plan, usage: null, ms: 1 } }
+  const p = load({ PLANNER_MODEL: 'claude-haiku-5-5', PLANNER_MODEL_PLAN: 'openai/gpt-5.4-mini', OPENAI_API_KEY: 'k-openai', OPENCODE_SECONDARY_API_KEY: 'k-go2' })
+  await p.plan({}, 'recolte', 'harvest')
+  assert.equal(seen[0].baseUrl, 'https://api.openai.com/v1')
+  assert.equal(seen[0].apiKey, 'k-openai')
+  assert.equal(seen[0].model, 'gpt-5.4-mini')
+  assert.equal(seen[0].headers, null)
+  assert.equal(p.stats.cle_servie, 'openai')
+  seen.length = 0
+  await p.interpretMessage('salut', {}).catch(() => {})
+  assert.equal(seen[0].baseUrl, 'https://opencode.ai/zen/go/v1', 'les autres usages restent sur Go')
+  assert.equal(seen[0].apiKey, 'k-test')
+})
+
+test('openai/<modele> sans OPENAI_API_KEY : refus remonte, jamais la cle Go', async () => {
+  const seen = []
+  llm.call = async (s, u, o) => { seen.push(o.apiKey); throw httpErr(401, 'Incorrect API key') }
+  const p = load({ PLANNER_MODEL: 'openai/gpt-5-mini' })
+  await assert.rejects(p.plan({}, 'recolte', 'harvest'))
+  assert.deepEqual([...new Set(seen)], [''])
 })

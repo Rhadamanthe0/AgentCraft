@@ -42,6 +42,9 @@ const config = require('./config')
 
 const BASE_URL = (process.env.PLANNER_BASE_URL || '').replace(/\/+$/, '')
 const API_KEY = process.env.PLANNER_API_KEY || ''
+const OPENAI_PREFIX = 'openai/'
+const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '')
+const isOpenAiModel = model => String(model ?? '').startsWith(OPENAI_PREFIX)
 // Modele par defaut quand PLANNER_MODEL est vide : Muse, servi sur `/responses`
 // (llm.js choisit l endpoint d apres le nom). Le compose et le banc posent
 // PLANNER_MODEL (deepseek-v4.1-flash) et un modele par usage (model-chain.js).
@@ -414,7 +417,9 @@ async function callWithProfileOnce (system, user, opts = {}) {
   // Repli de CLE seulement (PLANNER_KEY_FIRST) : meme modele, autre cle.
   // Sans aucune cle (base locale type Ollama) : un appel sans cle, comme avant.
   const configured = modelChain.keyOrder(process.env)
-  const keys = configured.length ? keyState.order(configured) : [{ name: 'aucune', key: '' }]
+  const keys = isOpenAiModel(entry.model)
+    ? [{ name: 'openai', key: process.env.OPENAI_API_KEY || '' }]
+    : configured.length ? keyState.order(configured) : [{ name: 'aucune', key: '' }]
   for (const [i, k] of keys.entries()) {
     try {
       const res = await callSingle(system, user, { ...opts, model: entry.model, apiKey: k.key })
@@ -439,10 +444,13 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
   const EFFORT = effortAsked === 'none' ? null : effortAsked
   if (effortAsked === 'none') sansRaisonnement = true
   // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
-  const base = BASE_URL
-  const key = apiKey ?? API_KEY
-  const zen = /opencode\.ai\/zen/i.test(base)
   const target0 = forced ?? effectiveModel()
+  // `openai/<modele>` : API OpenAI en direct (OPENAI_API_KEY), pour l offre de
+  // jetons gratuits contre partage des donnees (2026-10-10) ; jamais un repli.
+  const openai = isOpenAiModel(target0)
+  const base = openai ? OPENAI_BASE_URL : BASE_URL
+  const key = apiKey ?? API_KEY
+  const zen = !openai && /opencode\.ai\/zen/i.test(base)
   const proto0 = target0 === PILOT_MODEL ? 'responses' : 'chat'
   const zenHeaders = () => zen
     ? { 'user-agent': USER_AGENT, 'x-opencode-session': currentSession() }
@@ -469,7 +477,7 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     // accepte reasoning_effort) : jamais les deux dans le meme appel.
     const thinking = !effort && proto === 'chat' && (sansRaisonnement || THINKING === 'disabled') && !thinkingOff.has(model) ? { type: 'disabled' } : null
     const plain = {
-      baseUrl: base, apiKey: key, model, temperature, maxTokens: budget, timeoutMs: timeLeft(),
+      baseUrl: base, apiKey: key, model: openai ? model.slice(OPENAI_PREFIX.length) : model, temperature, maxTokens: budget, timeoutMs: timeLeft(),
       keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null, headers, image, signal, protocol: proto,
       // The transport's own retry (transient 5xx/429/400) is a request too.
       onRetry: () => { stats.tentatives += 1 }

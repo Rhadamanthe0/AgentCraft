@@ -98,6 +98,9 @@ jobs:
         env:
           OPENCODE_PRIMARY_API_KEY: ${{ secrets.OPENCODE_PRIMARY_API_KEY }}
           OPENCODE_SECONDARY_API_KEY: ${{ secrets.OPENCODE_SECONDARY_API_KEY }}
+          # Modeles openai/* de l A/B de modele seulement (API OpenAI en direct,
+          # jamais un repli) ; absent, ces variantes ne se jouent pas.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CI_ENDPOINT_MODE: ip
           # Pool adaptatif (ci/capacity.py) : admissions sous 75 % de l enveloppe
           # (450 % sur 600 %) et 4 Gio de reserve CI + hote ; sans mesures

@@ -26,6 +26,9 @@ PRICES = {
     'mimo-v2.6-flash': (0.14, 0.0028, 0.14, 0.28),
     'longcat-2.5-preview-free': (0, 0, 0, 0),
     'step-5-preview-free': (0, 0, 0, 0),
+    # OpenAI data-sharing offer: free within its daily allowance.
+    'openai/gpt-5.4-mini': (0, 0, 0, 0),
+    'openai/gpt-5-mini': (0, 0, 0, 0),
 }
 # Model of the level as written (ci/models.env since 2026-10-09); --base to change.
 BASE_MODEL = 'claude-haiku-5-5'

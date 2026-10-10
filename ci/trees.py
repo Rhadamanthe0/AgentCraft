@@ -1694,7 +1694,7 @@ def avec(mode):
 # for plans, brief and chat (POST /api/models, reset after the level). Same
 # efforts as ci/models.env; informative like every variant.
 def modele(name):
-    return (f'modele-{name}', {}, {'plan': name, 'brief': name, 'chat': name})
+    return (f"modele-{name.replace('/', '-')}", {}, {'plan': name, 'brief': name, 'chat': name})
 
 
 # Models measured against the bench's (ci/models.env) on the levels that
@@ -1702,7 +1702,10 @@ def modele(name):
 # 2026-10-09 it matched Claude Haiku 5.5 (19/22 against 20/22) for ~30 % less;
 # LongCat 2.5, Step 5 (free) and MiMo V2.6 Flash dropped (5, 0 and 5 of 22:
 # gateway silent under 16 bots, 100 to 150 s of wait per level).
-MODELES_AB = [modele('gpt-6-luna')]
+# openai/<model> goes to the OpenAI API directly (OPENAI_API_KEY, free daily
+# tokens of the data-sharing offer, 2026-10-10): played only when the key is set.
+MODELES_AB = [modele('gpt-6-luna')] + ([modele('openai/gpt-5.4-mini'), modele('openai/gpt-5-mini')]
+                                       if os.environ.get('OPENAI_API_KEY') else [])
 
 
 # Reasoning effort A/B (owner's request, 2026-10-09): plans and chat at
