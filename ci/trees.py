@@ -2145,6 +2145,21 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             except Exception:
                 pass
 
+    def wait_spawned(bot, budget_s=60):
+        # A bot kicked during the previous level (keepalive « Timed out »)
+        # reconnects by itself: the next level waits for its spawn instead of
+        # failing on a world that does not exist yet (06d881f: terrain/plateau
+        # and trees/tall red on /api/status before the spawn).
+        deadline = time.monotonic() + budget_s
+        while time.monotonic() < deadline:
+            try:
+                if bot_api(bot, '/api/status').get('spawned'):
+                    return True
+            except Exception:
+                pass
+            time.sleep(1)
+        return False
+
     def planner_calls(bot):
         # (plan calls, model requests): `appels` counts parsed plans only;
         # `tentatives` counts every transport, failed and relaunched ones included.
@@ -2172,6 +2187,7 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
         level = all_levels[index]
         if not first:
             reset(worker.bot)
+            wait_spawned(worker.bot)
         print(f'{level["name"]} ({worker.username}) started', flush=True)
         calls_before = requests_before = tokens_before = None
         mission_before = None

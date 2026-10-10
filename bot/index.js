@@ -1891,6 +1891,14 @@ function startRuntime () {
   if (watchdogTimer) return { app, server }
   config.logEffectiveConfig()
   watchdogTimer = setInterval(watchdogTick, 1000)
+  // Boucle d evenements bloquee : le serveur expulse le bot (« Timed out »)
+  // au-dela de ~30 s sans keep-alive. Le journal dit quand et combien.
+  let tic = Date.now()
+  setInterval(() => {
+    const retard = Date.now() - tic - 1000
+    tic = Date.now()
+    if (retard >= 3000) console.log(`[lent] boucle d evenements bloquee ${(retard / 1000).toFixed(1)} s`)
+  }, 1000).unref()
   server = app.listen(API_PORT, '0.0.0.0', () => {
     console.log(`[api] Web controller listening on port ${API_PORT}`)
   })

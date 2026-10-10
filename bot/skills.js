@@ -1320,7 +1320,7 @@ const ETAT_ENV_CHAMPS = new Set([
 const ETAT_NAV_SOUS_CHAMPS = new Set(['cible', 'distance', 'angle', 'a_portee', 'combien'])
 
 const ETAT_SOUS_CHAMPS = {
-  consigne: new Set(['texte', 'demandeur', 'type', 'matiere', 'repere', 'porte_demandee', 'dimensions', 'fabrication_cible', 'fabrication_quantite', 'poses']),
+  consigne: new Set(['texte', 'demandeur', 'type', 'matiere', 'repere', 'porte_demandee', 'dimensions', 'fabrication_cible', 'fabrication_quantite', 'fabrications_suivantes', 'poses']),
   progression: new Set(['etapes_effectuees', 'blocs_casses', 'objets_recoltes', 'unites_recoltees', 'dirt_secondaire', 'temps_ecoule_s', 'fabrication_produits', 'fabrication_visee']),
   bot: new Set(['position', 'vie', 'dans_liquide', 'en_deplacement', 'orientation']),
   inventaire: new Set([

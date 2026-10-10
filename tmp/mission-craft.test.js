@@ -42,7 +42,7 @@ function fakeBot (stock = {}, extraItems = []) {
   const itemsByName = {}
   for (const name of [...Object.keys(state), ...extraItems,
     'oak_log', 'oak_planks', 'stick', 'crafting_table',
-    'wooden_axe', 'stone_axe', 'oak_door', 'torch']) {
+    'wooden_axe', 'stone_axe', 'oak_door', 'torch', 'stone_pickaxe', 'stone_sword', 'cobblestone']) {
     itemsByName[name] = { id: name, name }
   }
   return {
@@ -503,6 +503,38 @@ test('recolte dont l outil reste a fabriquer : la recolte faisable est visee', a
     assert.match(r.resultat, /objet\(s\) de pierre/)
   } finally {
     acquirePlan.planAcquire = orig
+    restorePlanner()
+    restoreCraft()
+  }
+})
+
+test('plusieurs objets demandes : un a la fois, fin apres le dernier seulement', async () => {
+  const makeCalls = []
+  try {
+    const brief = realShapeBrief({
+      kind: 'recolte', resource: 'pierre',
+      fabrication: 'stone_pickaxe', fabricationQuantite: 1,
+      fabricationSuite: ['stone_axe', 'stone_sword', 'stone_axe'],
+      _texte: 'fabrique-toi une pioche, une hache et une epee en pierre'
+    })
+    const stub = async (bot, target, wanted) => {
+      makeCalls.push(target)
+      bot._stock[target] = (bot._stock[target] ?? 0) + 1
+      return { item: target, produced: 1, wanted, usedTable: true }
+    }
+    // Le modele dit terminer apres la pioche : refuse, la hache puis l epee
+    // deviennent la cible tour a tour.
+    const { status, captured } = await runMission({
+      brief,
+      stock: { cobblestone: 9, stick: 6, stone_pickaxe: 0, stone_axe: 0, stone_sword: 0 },
+      plans: ['fabriquer:stone_pickaxe:1', 'terminer', 'fabriquer:stone_axe:1', 'fabriquer:stone_sword:1', 'terminer'],
+      makeStub: stub
+    })
+    assert.equal(status.etat, 'done', status.raison)
+    assert.deepEqual(makeCalls, ['stone_pickaxe', 'stone_axe', 'stone_sword'])
+    assert.deepEqual(captured[0].consigne.fabrications_suivantes, ['stone_axe', 'stone_sword'])
+    assert.ok(captured.some(c => c.consigne.fabrication_cible === 'stone_sword'))
+  } finally {
     restorePlanner()
     restoreCraft()
   }

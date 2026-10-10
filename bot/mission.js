@@ -2322,6 +2322,29 @@ function createMissionRunner (host, injected = {}) {
     }
   }
 
+  // Cible atteinte et d autres objets demandes : le suivant devient la cible,
+  // son stock du debut de mission comme initial. Vrai si la cible a change.
+  function fabricationSuivante () {
+    if (!mission?.fabricationCible || !mission.fabricationSuite?.length) return false
+    if (fabricationProduced() < (mission.fabricationQuantite ?? 1)) return false
+    const fait = mission.fabricationCible
+    const suivant = mission.fabricationSuite.shift()
+    mission.fabricationCible = suivant.objet
+    mission.fabricationQuantite = 1
+    mission.fabricationInitial = suivant.initial ?? 0
+    mission.fabricationLastError = null
+    mission.fabricationsFaites = [...(mission.fabricationsFaites ?? []), fait]
+    console.log(`[mission] ${fait} fabrique(s) : cible suivante ${suivant.objet}` +
+      (mission.fabricationSuite.length ? `, puis ${mission.fabricationSuite.map(f => f.objet).join(', ')}` : ''))
+    return true
+  }
+
+  // Plusieurs objets demandes : un arret avant le dernier est refuse et
+  // reinjecte comme une quantite explicite, pas clos en echec.
+  function plusieursFabrications () {
+    return Boolean(mission?.fabricationSuite?.length || mission?.fabricationsFaites?.length)
+  }
+
   // Avancement du chantier, relu dans le monde plutot que compte a l aveugle :
   // un bloc pose puis casse doit redevenir « a faire ».
   // Besoins TOTAUX d un chantier en survie, calcules par le code (le modele ne
@@ -2969,7 +2992,20 @@ function createMissionRunner (host, injected = {}) {
     }
   }
 
+  // Diagnostic des « Timed out » du banc (2026-10-10) : un bot dont la boucle
+  // d evenements se bloque plus de ~30 s est expulse par le serveur. Un etat
+  // long a construire (solveur, recherches de blocs) se dit dans le journal.
   function buildState () {
+    const debut = Date.now()
+    try {
+      return buildStateMesure()
+    } finally {
+      const ms = Date.now() - debut
+      if (ms >= 1000) console.log(`[lent] etat de mission construit en ${ms} ms`)
+    }
+  }
+
+  function buildStateMesure () {
     const bot = host.getBot()
     const position = bot.entity.position
     const block = findTargetBlock()
@@ -3082,6 +3118,8 @@ function createMissionRunner (host, injected = {}) {
           : `${dims.width} x ${dims.depth} x ${dims.height}`,
         fabrication_cible: mission.fabricationCible ?? null,
         fabrication_quantite: mission.fabricationCible ? (mission.fabricationQuantite ?? 1) : null,
+        // Objets demandes ensuite, un a la fois, dans l ordre du joueur.
+        fabrications_suivantes: mission.fabricationSuite?.length ? mission.fabricationSuite.map(f => f.objet) : null,
         // Objets a poser dans le monde (A/B `poser`), comptes par le code.
         poses: mission.poses?.length
           ? mission.poses.map(p => ({ objet: p.objet, voulues: p.quantite ?? 1, posees: mission.posesFaites?.[p.objet] ?? 0 }))
@@ -6266,6 +6304,9 @@ function createMissionRunner (host, injected = {}) {
           why: `${produits} ${mission.fabricationCible} fabrique(s) sur ${visee} demande(s) : fabriquer la cible ou recolter ce qui manque (recettes du jeu font foi)${manque}`
         }
       }
+      if (mission.fabricationSuite?.length) {
+        return { ok: false, why: `encore a fabriquer : ${mission.fabricationSuite.map(f => f.objet).join(', ')}` }
+      }
     }
     // Objets a poser (A/B `poser`) : chaque objet demande, pose et verifie
     // dans le monde, autant de fois que dit (au moins une).
@@ -6627,6 +6668,7 @@ function createMissionRunner (host, injected = {}) {
       // Sinon le plan anticipe, calcule avant le craft, passait encore
       // (craft/door cabbdfcd : 3 portes faites, puis « planches » sans buche,
       // echec et 10 s de plus). Avec un don demande, le modele livre d abord.
+      while (fabricationSuivante()) { /* objets deja en poche : le suivant */ }
       if (mission.kind === 'recolte' && mission.fabricationCible && !livraisonDemandee(mission) && !arbreOuvert &&
         fabricationProduced() >= (mission.fabricationQuantite ?? 1)) {
         finish('done', `${mission.fabricationCible} fabrique(s) en inventaire (${fabricationProduced()}/${mission.fabricationQuantite ?? 1})`)
@@ -6697,7 +6739,7 @@ function createMissionRunner (host, injected = {}) {
         // fini : meme refus reinjecte que pour `fini` (3 au plus), au lieu de
         // clore la mission en echec (chat/replace-and-join 73b4876 : plan
         // « ramasser -> terminer » avec 2 buches encore sur l arbre).
-        if (!allowed.ok && (arbreOuvert || ((mission.quotaExplicite || mission.wholeTree || mission.poses?.length > 0) && mission.finishRefused < REFUSALS_BEFORE_YIELD))) {
+        if (!allowed.ok && (arbreOuvert || ((mission.quotaExplicite || mission.wholeTree || mission.poses?.length > 0 || plusieursFabrications()) && mission.finishRefused < REFUSALS_BEFORE_YIELD))) {
           mission.finishRefused += 1
           mission.refusalNote = allowed.why
           mission.queue = []
@@ -7117,6 +7159,20 @@ function createMissionRunner (host, injected = {}) {
           : fabricationWanted(text, briefFabQty)
       }
     }
+    // Plusieurs objets demandes (« une pioche, une hache et une epee en
+    // pierre ») : les suivants viennent apres la cible, un a la fois, chacun
+    // valide au registre (vu sur composite/stone-toolkit : seule la pioche
+    // etait visee, la mission close apres elle).
+    const suiteBrute = Array.isArray(brief.fabricationSuite) ? brief.fabricationSuite
+      : (!briefFabRaw && Array.isArray(opts.revisionOf?.fabricationSuite) ? opts.revisionOf.fabricationSuite.map(f => f?.objet) : [])
+    const fabricationSuite = []
+    for (const brut of suiteBrute) {
+      let objet = null
+      try { objet = resolveFabricationCible(host.getBot(), brut) } catch (_) {}
+      if (objet && objet !== fabricationCible && !fabricationSuite.some(f => f.objet === objet)) {
+        fabricationSuite.push({ objet, initial: 0 })
+      }
+    }
     const livraisonAnnulee = opts.revisionOf && livraisonDemandee(opts.revisionOf) &&
       !livraisonDemandee({ objective: text, requester })
     // Un objectif reformule remplace aussi ses dons : « donne-moi 2 buches »
@@ -7209,6 +7265,8 @@ function createMissionRunner (host, injected = {}) {
       fabricationQuantite,
       fabricationInitial: 0,
       fabricationLastError: null,
+      fabricationSuite,
+      fabricationsFaites: [],
       poses,
       posesFaites: { ...(opts.revisionOf?.posesFaites ?? {}) },
 
@@ -7320,6 +7378,11 @@ function createMissionRunner (host, injected = {}) {
       } else if (mission.fabricationCible) {
         mission.fabricationInitial = countFabricationItems(host.getBot(), mission.fabricationCible)
       }
+      for (const f of mission.fabricationSuite) {
+        const garde = opts.revisionOf?.fabricationSuite?.find?.(g => g?.objet === f.objet)
+        f.initial = Number.isFinite(Number(garde?.initial)) ? Math.max(0, Math.round(Number(garde.initial)))
+          : countFabricationItems(host.getBot(), f.objet)
+      }
     } catch (_) {
       mission.fabricationInitial = 0
     }
@@ -7360,7 +7423,8 @@ function createMissionRunner (host, injected = {}) {
       `matiere ${resource} (${mission.resourceConfidence}), repere ${landmark}, ` +
       `porte ${mission.wantsDoor ? 'oui' : (brief.door ? 'non (non demandee)' : 'non')}, ${dimensions.width}x${dimensions.depth}x${dimensions.height} ` +
       `(${dimensions.source}), ${known} bloc(s) connu(s), approvisionnement ${SUPPLY}` +
-      (mission.fabricationCible ? `, fabrication ${mission.fabricationCible} x${mission.fabricationQuantite} (stock initial ${mission.fabricationInitial})` : '')
+      (mission.fabricationCible ? `, fabrication ${mission.fabricationCible} x${mission.fabricationQuantite} (stock initial ${mission.fabricationInitial})` : '') +
+      (mission.fabricationSuite.length ? `, puis ${mission.fabricationSuite.map(f => f.objet).join(', ')}` : '')
     )
 
     // Un geste ou une question n a pas d « objectif accepte » a annoncer : le

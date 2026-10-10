@@ -118,6 +118,16 @@ function schemaReprise ({ landmarks = {}, defaultQuota = 16, craftMin = 1, craft
       lire: v => Number.isFinite(Number(v)) && v !== null ? Math.max(craftMin, Math.min(craftMax, Math.round(Number(v)))) : 1,
       ecrire: v => v ?? null
     },
+    // Objets a fabriquer apres la cible, avec leur stock du debut.
+    fabricationSuite: {
+      lire: v => Array.isArray(v) ? v.filter(f => typeof f?.objet === 'string')
+        .map(f => ({ objet: f.objet, initial: Number.isFinite(Number(f.initial)) ? Math.max(0, Math.round(Number(f.initial))) : 0 })) : [],
+      ecrire: v => v ?? []
+    },
+    fabricationsFaites: {
+      lire: v => Array.isArray(v) ? v.filter(f => typeof f === 'string') : [],
+      ecrire: v => v ?? []
+    },
     // Objets a poser (A/B `poser`) et poses verifiees par objet.
     poses: {
       lire: v => Array.isArray(v) ? v.filter(p => typeof p?.objet === 'string')

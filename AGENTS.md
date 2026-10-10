@@ -264,6 +264,12 @@ au demarrage au lieu de 75 min de niveaux rouges.
   pendant 30 s une coupure reseau : toleres (`MISSION_PLANNER_OUTAGE_MS`,
   relance du brief), ils ne doivent plus tuer de mission ; un echec
   `skill/*` est toujours un bug du code.
+- Expulsions « lost connection: Timed out » (0 sur main, 4 a 12 par banc
+  complet depuis le palier 3, 2026-10-10) : la boucle d evenements d un bot
+  s est bloquee ~30 s. `[lent]` dans `containers.log` dit quand (boucle
+  bloquee, etat de mission long a construire) ; un bot expulse se reconnecte
+  seul et le niveau suivant attend son spawn (`wait_spawned`, ci/trees.py),
+  `/api/status` repond `spawned: false` sans monde au lieu d un 500.
 - Sur un banc partiel (ligne `Banc:`), `banc-complet` est rouge par
   construction : un seul commentaire de PR l explique, pas un par banc.
 - `tmp/*` est ignore par git sauf `*.js` (et les exceptions de
@@ -303,7 +309,10 @@ Flux d une demande (details : ARCHITECTURE.md) :
 2. **Brief** (`planner.readBrief`, une fois par mission) : type (recolte,
    construction, deplacement, geste), matiere, repere, porte, parcours. Le
    code lit dimensions et quantites dans le texte (`build.parseDimensions`,
-   `parseQuota`) ; la porte n est gardee que si le joueur en parle.
+   `parseQuota`) ; la porte n est gardee que si le joueur en parle. Plusieurs
+   objets a fabriquer : `fabrication` en liste, le premier est la cible, les
+   suivants (`fabricationSuite`) le deviennent un a un, la fin attend le
+   dernier.
 3. **Boucle de mission** (`mission.js`) : un plan JSON de 1 a
    `PLANNER_PLAN_MAX` actions par appel, 6 a 10 s de jeu vises ; le premier
    echec vide la file ; l appel suivant part pendant la derniere etape

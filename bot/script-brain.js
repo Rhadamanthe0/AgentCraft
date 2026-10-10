@@ -45,7 +45,9 @@ function lireBrief (brief = {}) {
     clearanceLimit: brief.degagement === 1 ? 1 : 0,
     needsTransfer: brief.livraison === true,
     needsWeb: false,
-    fabrication: typeof brief.fabrication === 'string' ? brief.fabrication : null,
+    fabrication: typeof brief.fabrication === 'string' ? brief.fabrication
+      : (Array.isArray(brief.fabrication) ? brief.fabrication[0] ?? null : null),
+    fabricationSuite: Array.isArray(brief.fabrication) ? brief.fabrication.slice(1) : [],
     fabricationQuantite: Number.isFinite(Number(brief.fabrication_quantite)) && brief.fabrication_quantite !== null
       ? Number(brief.fabrication_quantite)
       : null,
