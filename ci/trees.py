@@ -800,6 +800,64 @@ def base_levels():
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ACROSS_TREES for i in range(5)]),
             'rules': {}, 'variants': [*MODELES_AB],
         },
+        # Palier 3 (2026-10-10, demande du proprietaire) : taches qu un vrai
+        # joueur donnerait, plus longues que les cabanes, depuis un inventaire
+        # vide. Informatifs, sans variante (modele unique : Haiku effort low).
+        {
+            'name': 'composite/stone-toolkit',
+            'about': 'Inventaire vide, deux arbres et un rocher, « Equipe-toi : fabrique-toi une pioche, une hache et une epee en pierre » : '
+                     'bois, etabli, pioche en bois, pierre, puis les trois outils en pierre en inventaire.',
+            'kind': 'gather', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Equipe-toi : fabrique-toi une pioche, une hache et une epee en pierre',
+            'items': ['stone_pickaxe', 'stone_axe', 'stone_sword'], 'target': 3, 'each': True,
+            'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
+            'leaves': [box for (x, z) in ((4, 6), (30, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
+            'rules': {},
+        },
+        {
+            'name': 'composite/bucket',
+            'about': 'Inventaire vide, deux arbres et un rocher avec trois minerais de fer, « Fabrique-moi un seau » : '
+                     'bois, pioches en bois puis en pierre, fer extrait, four, cuisson, seau en inventaire.',
+            'kind': 'gather', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Fabrique-moi un seau',
+            'items': ['bucket'], 'target': 1,
+            'terrain': [(20, 200, 24, 26, 202, 30, 'stone'), (22, 202, 26, 22, 202, 26, 'iron_ore'),
+                        (23, 202, 26, 23, 202, 26, 'iron_ore'), (24, 202, 27, 24, 202, 27, 'iron_ore')],
+            'leaves': [box for (x, z) in ((4, 6), (30, 6))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6)) for i in range(5)]),
+            'rules': {},
+        },
+        {
+            'name': 'composite/big-stone-house',
+            'about': 'Inventaire vide, deux arbres et un grand rocher, « Construis-moi une maison en pierre de 5 par 5 par 3 avec une porte » : '
+                     'pioche, une quarantaine de pierres extraites, porte en bois fabriquee, maison posee.',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Construis-moi une maison en pierre de 5 par 5 par 3 avec une porte',
+            'blocks': ['minecraft:cobblestone'], 'target': 40, 'door': True, 'minTop': 3,
+            'terrain': [(20, 200, 2, 32, 203, 10, 'stone')],
+            'leaves': [box for (x, z) in ((4, 6), (30, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
+            'rules': {},
+        },
+        {
+            'name': 'composite/lit-cabin',
+            'about': 'Inventaire vide, trois arbres et un rocher avec du charbon, « Construis-moi une cabane en bois de 4 par 4 par 3 '
+                     'avec une porte, et eclaire-la avec des torches » : cabane, porte, charbon extrait, torches fabriquees et posees.',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 3 avec une porte, et eclaire-la avec des torches',
+            'blocks': ['#minecraft:planks'], 'target': 30, 'door': True,
+            'also': {'torches_posees': (['minecraft:torch', 'minecraft:wall_torch'], 2)},
+            'terrain': [(22, 200, 22, 27, 201, 27, 'stone'), (24, 201, 24, 24, 201, 24, 'coal_ore'),
+                        (25, 201, 24, 25, 201, 24, 'coal_ore')],
+            'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
+            'rules': {},
+        },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
         # (graine du banc, CI_RANDOM_SEED la rejoue) : un correctif doit valoir
@@ -1249,6 +1307,9 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         layer_count = lambda y: sum(count(f'{x0} {y} 0 {x0 + SIZE} {y} {SIZE}', b) for b in level['blocks'])
         bottom, top = layer_count(200), layer_count(200 + level['minTop'] - 1)
         checks['forme_ouverte'] = 0 < top and bottom < top
+    for check, (blocks, minimum) in level.get('also', {}).items():
+        # Extra blocks the order names (torches...): counted like the build.
+        checks[check] = sum(count(above, b) for b in blocks) >= minimum
     if level.get('minTop'):
         # Free-form shape: something must reach that layer (tower, wall).
         layer = 200 + level['minTop'] - 1
@@ -1285,12 +1346,15 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     timeline = []
     answer = instruct(level, bot, bot_api, level['instruction'], probe_name)
 
-    def held():
-        total = 0
+    def held_each():
+        found = {}
         for item in level['items']:
             match = re.search(r'Found (\d+)', rcon(f'clear {username} minecraft:{item} 0'))
-            total += int(match.group(1)) if match else 0
-        return total
+            found[item] = int(match.group(1)) if match else 0
+        return found
+
+    def held():
+        return sum(held_each().values())
 
     lowest, seen, count, end_reason = 200.0, False, 0, f'plafond de {GATHER_CAP_S} s'
     last_count_at = 0
@@ -1327,7 +1391,9 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     final = bot_api(bot, '/api/status')
     if final.get('missionRunning'):
         bot_api(bot, '/api/stop', {})
+    each = held_each() if level.get('each') else {}
     checks = {'quantite_en_inventaire': count >= level['target'],
+              **({'chaque_objet': all(each.values())} if level.get('each') else {}),
               # Feet on the floor block (199) at worst: one dug block, never a pit.
               'pas_de_puits': lowest >= 198.9, 'aucun_degat': damage == 0,
               # The bot must know it is done, not run until the cap.
@@ -1702,7 +1768,9 @@ def modele(name):
 # 2026-10-09 it matched Claude Haiku 5.5 (19/22 against 20/22) for ~30 % less;
 # LongCat 2.5, Step 5 (free) and MiMo V2.6 Flash dropped (5, 0 and 5 of 22:
 # gateway silent under 16 bots, 100 to 150 s of wait per level).
-MODELES_AB = [modele('gpt-6-luna')]
+# Owner's choice (2026-10-10): Haiku effort low for every use, no model A/B
+# left on the bench (quota spared); modele() stays for a manual measure.
+MODELES_AB = []
 
 
 # Reasoning effort A/B (owner's request, 2026-10-09): plans and chat at

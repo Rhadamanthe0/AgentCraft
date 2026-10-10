@@ -155,6 +155,14 @@ au demarrage au lieu de 75 min de niveaux rouges.
   l arene stable est du benchmaxing.
 - Composites lances en premier ; plafond 45 min par scenario ; la duree
   (`elapsedS`) est suivie d un banc a l autre et doit baisser.
+- Palier 3 (2026-10-10, proprietaire) : taches qu un vrai joueur donnerait,
+  informatives, sans variante : `composite/stone-toolkit` (trois outils en
+  pierre, `each` : chaque objet en inventaire), `composite/bucket` (seau :
+  fer, four, cuisson), `composite/big-stone-house` (5x5x3 en pierre avec
+  porte), `composite/lit-cabin` (cabane avec torches, `also` : blocs
+  supplementaires comptes). Une ferme a canne a sucre exige des capacites
+  absentes (`culture`, `mecanisme` de `skills.CAPACITES_ABSENTES`) : le bot
+  la refuse, ce n est pas encore un niveau.
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
   escalier (jamais un puits vertical). Difficulte paisible pour l instant.
 
@@ -207,7 +215,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
 | `approcher`, ancien `explorer` (GoalNearXZ) | 2026-09-22 | pathfinder 26.1 peu fiable ; remplaces par le navigateur partage |
 | Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
 | Escalade sur blocage (appel en effort high, puis fin) | ecarte 2026-10-02 | les 15 missions emballees des bancs du 2026-10-01 avaient toutes une cause d ACCES (tronc haut, no_path) : un modele qui raisonne plus n y peut rien ; traite par `reparer` et le moteur d acces |
-| Brief en effort low | ecarte 2026-10-02 | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py`. La relance du brief, ecartee le meme jour, est remise le 2026-10-08 (`PLANNER_RELAUNCH_MS_BRIEF`, a confirmer par le proprietaire) : sur 3 bancs complets, 16 a 19 briefs relances dont 13 a 16 repondus, briefs sans reponse 2 a 4 par banc au lieu de 11 |
+| Brief en effort low | ecarte 2026-10-02, remis 2026-10-10 par le proprietaire (Haiku low partout) | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py`. La relance du brief, ecartee le meme jour, est remise le 2026-10-08 (`PLANNER_RELAUNCH_MS_BRIEF`, a confirmer par le proprietaire) : sur 3 bancs complets, 16 a 19 briefs relances dont 13 a 16 repondus, briefs sans reponse 2 a 4 par banc au lieu de 11 |
 | Bibliotheque de savoir-faire appris, code genere par le modele (Voyager) | ecarte 2026-10-02 | apprendrait le banc ; code genere = risque (commandes `/`), lent ; les primitives generiques et les arbres de buts couvrent le besoin |
 
 ### Conduite d une session d agent (2026-10-02)
@@ -310,8 +318,11 @@ transport `bot/llm.js` : `/chat/completions`, `/responses` (muse, gpt-*) et
 | --- | --- | --- | --- |
 | PLAN (actions) | claude-haiku-5-5 (`/messages`) | low | 20 s |
 | CHAT | claude-haiku-5-5 | low | 20 s |
-| BRIEF (lecture d objectif) | claude-haiku-5-5 | high | 30 s, rejouee une fois |
-| COMPACT (resume memoire) | muse-spark-1.3-contributor (`/responses`) | high | 90 s |
+| BRIEF (lecture d objectif) | claude-haiku-5-5 | low | 30 s, rejouee une fois |
+| COMPACT (resume memoire) | claude-haiku-5-5 | low | 90 s |
+
+Haiku effort low pour TOUS les usages (choix du proprietaire, 2026-10-10) ;
+plus aucune variante de modele au banc (`MODELES_AB = []`, quota epargne).
 
 Seuls rejeux admis, toujours le MEME modele : reponse tronquee (budget
 double), panne passagere du gateway (silence, reseau coupe, 5xx, 429, 400
