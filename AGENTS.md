@@ -420,6 +420,9 @@ dans `docs/journal.md` (section « Les pieges »).
    au serveur une fenetre perimee (hache jamais fabriquee, sans consommation).
 9. **Un bloc casse sans le bon outil ne lache rien** : `harvestCheck` avant
    CHAQUE bloc d une rafale (la matiere visee peut changer en cours de route).
+   Une matiere a plusieurs blocs (minerai) ne vise que ceux que les outils en
+   poche font lacher (`blockIdsFor`) : sinon l or le plus proche etait casse
+   en boucle avec une pioche en pierre, le fer a cote.
 10. **`findTargetBlock` ne vise que des blocs VISIBLES** et jamais le bloc qui
     porte le bot ni plus d un bloc sous ses pieds (sinon puits) ; `anyHeight`
     pour se deplacer seulement.

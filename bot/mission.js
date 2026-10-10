@@ -678,12 +678,18 @@ function createMissionRunner (host, injected = {}) {
     if (!bot?.registry || !resource) return []
 
     const names = ressource(resource)?.blocks ?? []
-    const ids = []
-    for (const name of names) {
-      const block = bot.registry.blocksByName[name]
-      if (block) ids.push(block.id)
-    }
-    return ids
+    const blocks = names.map(name => bot.registry.blocksByName[name]).filter(Boolean)
+    // Une matiere a plusieurs blocs (minerai : fer, or, redstone...) : seuls
+    // ceux que les outils en poche font lacher, s il y en a. Vu sur
+    // composite/powered-rail-line (06d881f) : pioche en pierre en main, fer en
+    // vue, le bot visait l or le plus proche (« ne lache rien sans pioche en
+    // fer ») pendant 20 min. Sans aucun bloc faisable, tous restent vises :
+    // l echec dit l outil a fabriquer.
+    if (blocks.length < 2) return blocks.map(block => block.id)
+    const faisables = blocks.filter(block => {
+      try { return craft.harvestCheck(bot, block).ok } catch (_) { return true }
+    })
+    return (faisables.length > 0 ? faisables : blocks).map(block => block.id)
   }
 
   function targetBlockIds () {
