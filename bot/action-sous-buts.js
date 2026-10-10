@@ -141,7 +141,13 @@ function createSousButs (deps) {
     // pose, porte.
     batir: () => conduire('batir', () => prochainGesteChantier(etatChantier())),
     // Objet du solveur (fabrication demandee, ou outil exige par la matiere).
-    obtenir: () => conduire('obtenir', () => prochainGesteSolveur(planSolveur(), recolteFaisable))
+    // `demande()` (optionnel) : l objet et le manque nommes par le modele,
+    // relus a chaque tour ; null = obtenu.
+    obtenir: (demande = null) => conduire('obtenir', () => {
+      if (!demande) return prochainGesteSolveur(planSolveur(), recolteFaisable)
+      const d = demande()
+      return d ? prochainGesteSolveur(planSolveur(d), recolteFaisable) : { fini: true }
+    })
   }
 }
 

@@ -48,7 +48,7 @@ mission), jamais un seul cas. La regle vaut pour toute action, ajoutee par
 une session d agent ou creee par le bot lui-meme en production si cela
 existe un jour : une action qui ne sert qu un objet ou qu un lieu est
 refusee. Mise en conformite des actions existantes : trois lots
-(1 `poser` et `obtenir {objet, quantite}` ; 2 `objet`/`vers` sur casser,
+(1 `poser` et `obtenir {objet, quantite}`, fait le 2026-10-10 ; 2 `objet`/`vers` sur casser,
 recolter, ramasser, avancer, explorer, piler ; 3 `utiliser` et `poser`
 remplacent `ouvrir_porte` et `poser_porte`, `emplacement` sur fabriquer et
 cuire), chacun mesure en A/B.
@@ -106,7 +106,15 @@ au modele avec `bloc_refuse` (`readBrief`, `opts.blocConnu`) ; un
 deplacement vers un tel bloc est clos par le code des qu il est a portee ; et
 refus immediat d une capacite absente, identifiant de
 `skills.CAPACITES_ABSENTES`, jamais un texte libre ; niveaux `ouvert/*`,
-`avec(...)` sur gather/flowers et craft/axe pour voir les faux refus).
+`avec(...)` sur gather/flowers et craft/axe pour voir les faux refus) ;
+`poser` (eteint, 2026-10-10 : action `poser {objet, quantite, de, vers}`,
+`bot/action-poser.js` : un objet devant soi, a cote d un bloc nomme, SUR lui
+pour un objet-entite (minecart, bateau : `activateBlock` puis entite
+mesuree), ou une ligne au sol d un bloc nomme a l autre ; le brief liste les
+objets a poser (`pose`, cle de prompt `brief|pose`), `consigne.poses` les
+sert, le solveur vise le premier qui manque en poche, `finishAllowed` exige
+chaque pose verifiee (`mission.posesFaites`) ; `avec(...)` sur
+composite/lit-cabin et composite/powered-rail-line ; tmp/poser.test.js).
 
 A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
 liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)
@@ -179,10 +187,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
   supplementaires comptes, dans l arene ou une zone qui suit rotation et
   miroir), `composite/powered-rail-line` (ligne de minecart entre deux
   laines avec rails accelerateurs : fer, or, redstone, cuisson ; `entities` :
-  minecart present). Ce dernier tombe aujourd hui sous la capacite absente
-  `mecanisme` (rails) : le bot le refuse tant qu une capacite « poser des
-  rails » n existe pas. Une ferme a canne a sucre exige `culture` et
-  `mecanisme` : ce n est pas encore un niveau.
+  minecart present) ; ces deux derniers se mesurent avec `poser` (variante
+  `~avec-poser`). Une ferme a canne a sucre exige `culture` et `mecanisme`
+  (circuits) : ce n est pas encore un niveau.
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
   escalier (jamais un puits vertical). Difficulte paisible pour l instant.
 
@@ -309,9 +316,9 @@ Flux d une demande (details : ARCHITECTURE.md) :
    deux fois a l identique n est pas rejouee (`anti_boucle`). Preconditions
    et effets des actions : `CONTRATS` (mission.js). Un champ persiste se
    declare dans `mission-state.js`, nulle part ailleurs.
-4. **Actions** (`skills.ACTIONS`, 26) : `casser`, `recolter`, `ramasser`,
+4. **Actions** (`skills.ACTIONS`, 27 hors sous-buts) : `casser`, `recolter`, `ramasser`,
    `donner`, `cuire`, `fabriquer`, `avancer`, `explorer`, `choisir_terrain`,
-   `piler`, `construire`, `poser_porte`, `ouvrir_porte`, `sortir`, `attendre`, `terminer`,
+   `piler`, `construire`, `poser` (A/B), `poser_porte`, `ouvrir_porte`, `sortir`, `attendre`, `terminer`,
    `dire`, `regarder`, `sauter`, `appuyer`, `regarder_autour`, `pivoter`,
    `memoriser`, `oublier`, `rejoindre_demandeur`, `tourner_vers_demandeur`.
    Chacune est parametree (duree, distance, quantite, objet...) ; le modele
@@ -565,7 +572,8 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/mission-state.js` | etat persiste declare une fois (lecture = ecriture) |
 | `bot/trace.js` | trace structuree de mission |
 | `bot/action-gestes.js` | gestes, attente, fin, memoire (premier module d actions) |
-| `bot/action-sous-buts.js` | sous-buts `batir` et `obtenir` (A/B `sous_buts`) : un geste mesure a la fois jusqu au but |
+| `bot/action-sous-buts.js` | sous-buts `batir` et `obtenir {objet, quantite}` (A/B `sous_buts`) : un geste mesure a la fois jusqu au but ; `obtenir` nomme fait de l objet la cible du solveur le temps du sous-but (`mission.demandeObtenir`) |
+| `bot/action-poser.js` | action `poser` (A/B `poser`) : cases (devant, voisines, ligne au sol), pose verifiee par le monde, objets-entites |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
 | `bot/script-brain.js` | cerveau scripte du banc de competences (`skill/*`, `MISSION_SCRIPT=1`) |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |

@@ -24,6 +24,7 @@ const perception = require('./perception')
 const missionState = require('./mission-state')
 const missionTrace = require('./trace')
 const { createGestes } = require('./action-gestes')
+const { createPoser } = require('./action-poser')
 const { createSousButs, prochainGesteSolveur } = require('./action-sous-buts')
 const {
   PILER_DIRT, scaffoldingStock, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
@@ -313,6 +314,22 @@ function fabricationWanted (text, briefQty) {
 // Validation registre de la cible brute du brief : alias FR (craft.TARGETS)
 // ou item reel (itemsByName). Inconnu => null (legacy recolte inchange).
 // Aucune regex de phrase ici : le modele a extrait, le code valide.
+// Objets a poser lus dans le brief : [{ objet, quantite }] au registre des
+// objets, six au plus, quantite 1 a 64 ou null (au moins un).
+function posesDuBrief (bot, brut) {
+  if (!Array.isArray(brut)) return []
+  const vus = new Set()
+  const out = []
+  for (const p of brut.slice(0, 6)) {
+    const objet = resolveFabricationCible(bot, typeof p === 'string' ? p : p?.objet)
+    if (!objet || vus.has(objet) || (bot?.registry?.itemsByName && !bot.registry.itemsByName[objet])) continue
+    vus.add(objet)
+    const q = Number(p?.quantite)
+    out.push({ objet, quantite: p?.quantite !== null && Number.isFinite(q) ? Math.max(1, Math.min(64, Math.round(q))) : null })
+  }
+  return out
+}
+
 function resolveFabricationCible (bot, raw) {
   const norm = fabTargetName(raw)
   if (!norm) return null
@@ -694,6 +711,18 @@ function createMissionRunner (host, injected = {}) {
   // rien a la main (composite/stone-hut-from-scratch be9e866 : 45 min, 0 bloc,
   // « pas de pioche, il faut du bois » a chaque plan). Nul sinon.
   const TOOL_TIERS = ['wooden', 'golden', 'stone', 'copper', 'iron', 'diamond', 'netherite']
+  // Objets a poser pas encore tous poses : voulus, poses (verifies), en poche,
+  // et le manque a obtenir avant de poser le reste.
+  function posesManquantes () {
+    const items = host.getBot()?.inventory?.items() ?? []
+    return (mission?.poses ?? []).map(p => {
+      const voulues = p.quantite ?? 1
+      const posees = mission.posesFaites?.[p.objet] ?? 0
+      const enPoche = items.filter(i => i.name === p.objet).reduce((n, i) => n + i.count, 0)
+      return { objet: p.objet, voulues, posees, enPoche, manque: Math.max(0, voulues - posees - enPoche) }
+    }).filter(p => p.posees < p.voulues)
+  }
+
   function outilManquant (bot) {
     if (!mission || mission.fabricationCible || !['construction', 'recolte'].includes(mission.kind) ||
       mission.supply !== 'harvest') return null
@@ -712,7 +741,9 @@ function createMissionRunner (host, injected = {}) {
     return noms.sort((a, b) => TOOL_TIERS.indexOf(a.split('_')[0]) - TOOL_TIERS.indexOf(b.split('_')[0]))[0] ?? null
   }
 
-  function acquisition () {
+  // `demande` : objet et manque nommes par le modele (`obtenir {objet,
+  // quantite}`), a la place de la cible de la mission.
+  function acquisition (demande = mission?.demandeObtenir ?? null) {
     // Interrupteur A/B `solveur` : coupe, la mission retombe sur la seule
     // matiere du brief et le modele remonte seul la chaine.
     if (!mission || !featureOn('solveur')) return null
@@ -720,7 +751,9 @@ function createMissionRunner (host, injected = {}) {
     if (!bot?.entity) return null
     // Cible du plan : l objet a fabriquer, sinon l outil qu exige la matiere
     // de la mission (le plan disparait des qu il est en poche).
-    const cible = mission.fabricationCible ?? outilManquant(bot)
+    // Puis le premier objet a poser qui manque en poche (A/B `poser`).
+    const aPoser = demande ?? (mission.fabricationCible || outilManquant(bot) ? null : posesManquantes().find(p => p.manque > 0))
+    const cible = demande?.objet ?? mission.fabricationCible ?? outilManquant(bot) ?? aPoser?.objet
     if (!cible) return null
     const registry = craft.getDataset(bot)
     if (!registry?.itemsByName) return null
@@ -756,12 +789,12 @@ function createMissionRunner (host, injected = {}) {
       } catch (_) { /* chunk absent */ }
     }
     if (mission.essenceVue) prefer.push(mission.essenceVue, mission.essenceVue.replace(/_log$/, '_planks'))
-    const key = JSON.stringify([cible, mission.fabricationQuantite, inv, tableNearby, furnaceNearby, prefer])
+    const key = JSON.stringify([cible, mission.fabricationQuantite, aPoser?.manque ?? null, inv, tableNearby, furnaceNearby, prefer])
     if (cache?.key === key) return cache.plan
     // Alias FR (pioche, hache...) : le candidat au plan le plus court.
     const alias = craft.TARGETS[cible]
     const candidates = alias ? alias.resolve(bot) : [cible]
-    const wanted = mission.fabricationCible ? Math.max(1, (mission.fabricationQuantite ?? 1) - fabricationProduced()) : 1
+    const wanted = !demande && mission.fabricationCible ? Math.max(1, (mission.fabricationQuantite ?? 1) - fabricationProduced()) : (aPoser?.manque ?? 1)
     let best = null
     for (const target of candidates) {
       let plan
@@ -3048,7 +3081,11 @@ function createMissionRunner (host, injected = {}) {
           ? `${mission.plan.width} x ${mission.plan.depth} x ${mission.plan.height} (chantier choisi, ${mission.plan.blocks.length} blocs)`
           : `${dims.width} x ${dims.depth} x ${dims.height}`,
         fabrication_cible: mission.fabricationCible ?? null,
-        fabrication_quantite: mission.fabricationCible ? (mission.fabricationQuantite ?? 1) : null
+        fabrication_quantite: mission.fabricationCible ? (mission.fabricationQuantite ?? 1) : null,
+        // Objets a poser dans le monde (A/B `poser`), comptes par le code.
+        poses: mission.poses?.length
+          ? mission.poses.map(p => ({ objet: p.objet, voulues: p.quantite ?? 1, posees: mission.posesFaites?.[p.objet] ?? 0 }))
+          : null
       },
       quota_par_defaut: DEFAULT_QUOTA,
       // La quantite reellement visee (lue dans la consigne, sinon le defaut).
@@ -3619,12 +3656,34 @@ function createMissionRunner (host, injected = {}) {
   }
 
   const gestes = createGestes({ host, getMission: () => mission, findTargetBlock, scaled })
+  // Poser un objet (A/B `poser`) : l objet et le lieu sont des parametres
+  // (regle immuable, AGENTS.md) ; chaque pose verifiee est comptee par objet.
+  const poserObjet = createPoser({
+    getBot: () => host.getBot(),
+    resoudreObjet: texte => {
+      const bot = host.getBot()
+      const nom = resolveFabricationCible(bot, texte)
+      if (!nom) return null
+      if (bot?.registry?.itemsByName?.[nom]) return nom
+      // Alias de famille (porte, hache) : le membre en poche.
+      const candidats = craft.TARGETS[nom]?.resolve?.(bot) ?? []
+      return candidats.find(c => bot?.inventory?.items().some(i => i.name === c)) ?? candidats[0] ?? null
+    },
+    enInventaire: objet => host.getBot()?.inventory?.items().find(i => i.name === objet && i.count > 0) ?? null,
+    rejoindre: async stand => (await host.navigateToPosition(stand, {
+      signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.35, timeoutMs: 8000
+    }))?.reached === true,
+    signal: () => mission?.navigationAbort?.signal,
+    compter: (objet, n) => {
+      mission.posesFaites = { ...(mission.posesFaites ?? {}), [objet]: (mission.posesFaites?.[objet] ?? 0) + n }
+    }
+  })
   // Sous-buts (A/B sous_buts) : chantier et objet du solveur conduits jusqu au
   // bout par le code, guides par les besoins et le plan qu il mesure deja.
   const sousButs = createSousButs({
     getMission: () => mission,
     actions: () => ACTIONS,
-    planSolveur: () => acquisition(),
+    planSolveur: demande => acquisition(demande ?? undefined),
     recolteFaisable,
     // Remedes mesures d un geste rate, joues une fois par le sous-but :
     // la meme table que la boucle de mission (remedesMesures).
@@ -5524,8 +5583,38 @@ function createMissionRunner (host, injected = {}) {
 
     // Gestes de bas niveau, attente, fin et memoire : bot/action-gestes.js.
     ...gestes,
+    async poser (scale, params = {}) {
+      await quitterPilier('poser')
+      return poserObjet.poser(params)
+    },
     async batir () { return sousButs.batir() },
-    async obtenir () { return sousButs.obtenir() },
+    async obtenir (scale, params = {}) {
+      // Objet nomme par le modele (regle immuable : l objet est un parametre),
+      // sinon la cible de la mission. Deja en poche en quantite : rien a faire.
+      if (params.objet) {
+        const bot = host.getBot()
+        const objet = resolveFabricationCible(bot, params.objet)
+        if (!objet || (bot?.registry?.itemsByName && !bot.registry.itemsByName[objet] && !craft.TARGETS[objet])) {
+          return { resultat: `objet inconnu : « ${params.objet} »`, echec: true, code: 'objet_inconnu' }
+        }
+        const voulu = Number.isFinite(Number(params.quantite)) ? Math.max(1, Math.min(64, Math.round(Number(params.quantite)))) : 1
+        const enPoche = () => (host.getBot()?.inventory?.items() ?? []).filter(i => i.name === objet).reduce((n, i) => n + i.count, 0)
+        if (enPoche() >= voulu) return { resultat: `${enPoche()} ${objet} deja en poche` }
+        // Le temps du sous-but, l objet demande est LA cible du solveur :
+        // recolte, prerequis et etat suivent le meme plan.
+        mission.demandeObtenir = { objet, manque: voulu - enPoche() }
+        try {
+          return await sousButs.obtenir(() => {
+            const manque = voulu - enPoche()
+            mission.demandeObtenir = manque > 0 ? { objet, manque } : null
+            return mission.demandeObtenir
+          })
+        } finally {
+          if (mission) mission.demandeObtenir = null
+        }
+      }
+      return sousButs.obtenir()
+    },
 
     // Chercher la matiere hors de vue sans marcher a l aveugle : le code
     // choisit, parmi huit caps, le point debout le plus lointain et le moins
@@ -5642,7 +5731,8 @@ function createMissionRunner (host, injected = {}) {
       inventaire: items.map(i => `${i.name}:${i.count}`).sort().join(','),
       objets: items.reduce((n, i) => n + (i.count ?? 0), 0),
       casses: mission?.broken ?? 0,
-      poses: mission?.plan ? buildProgress().done : 0
+      poses: mission?.plan ? buildProgress().done : 0,
+      objetsPoses: Object.values(mission?.posesFaites ?? {}).reduce((n, k) => n + k, 0)
     }
   }
   const deplace = (a, b) => Boolean(a.position && b.position && a.position.distanceTo(b.position) >= 0.5)
@@ -5657,7 +5747,8 @@ function createMissionRunner (host, injected = {}) {
     avancer: deplace,
     explorer: deplace,
     batir: (a, b) => b.poses > a.poses || b.inventaire !== a.inventaire,
-    obtenir: (a, b) => b.inventaire !== a.inventaire
+    obtenir: (a, b) => b.inventaire !== a.inventaire,
+    poser: (a, b) => b.objetsPoses > a.objetsPoses
   }
 
   const CONTRATS = {
@@ -5672,7 +5763,8 @@ function createMissionRunner (host, injected = {}) {
     avancer: { effet: EFFETS.avancer },
     explorer: { effet: EFFETS.explorer },
     batir: { effet: EFFETS.batir },
-    obtenir: { effet: EFFETS.obtenir }
+    obtenir: { effet: EFFETS.obtenir },
+    poser: { effet: EFFETS.poser }
   }
 
   for (const [nom, contrat] of Object.entries(CONTRATS)) {
@@ -6175,6 +6267,12 @@ function createMissionRunner (host, injected = {}) {
         }
       }
     }
+    // Objets a poser (A/B `poser`) : chaque objet demande, pose et verifie
+    // dans le monde, autant de fois que dit (au moins une).
+    const aPoser = posesManquantes()[0]
+    if (aPoser) {
+      return { ok: false, why: `${aPoser.posees} ${aPoser.objet} pose(s) sur ${aPoser.voulues} : ${aPoser.enPoche > 0 ? 'poser' : 'obtenir puis poser'} le reste` }
+    }
     // Un geste n a ni quota ni chantier a verifier : le planificateur decide seul
     // quand la demande est satisfaite — mais pas avant d avoir agi. Un petit
     // modele declare volontiers « fini » a 0 etape pour ne rien faire.
@@ -6199,7 +6297,7 @@ function createMissionRunner (host, injected = {}) {
         : { ok: false, why: 'le bot n est pas encore arrive aupres de sa cible' }
     }
 
-    if (mission.wholeTree || mission.fabricationCible || dons.length > 0) return { ok: true }
+    if (mission.wholeTree || mission.fabricationCible || dons.length > 0 || mission.poses?.length > 0) return { ok: true }
 
     // Quantite dite par le joueur : jugee sur l inventaire, pas sur les blocs
     // casses (des fleurs cassees mais laissees au sol ne sont pas cueillies).
@@ -6535,6 +6633,14 @@ function createMissionRunner (host, injected = {}) {
         return
       }
 
+      // Objets a poser (A/B `poser`) : tous poses et verifies dans le monde,
+      // la mission se clot ; le modele ne compte pas.
+      if (mission.kind === 'recolte' && mission.poses?.length > 0 && !livraisonDemandee(mission) && !arbreOuvert &&
+        posesManquantes().length === 0 && finishAllowed(buildState()).ok) {
+        finish('done', `objets poses : ${mission.poses.map(p => `${mission.posesFaites?.[p.objet] ?? 0} ${p.objet}`).join(', ')}`)
+        return
+      }
+
       // Bloc hors catalogue a rejoindre (buts_ouverts) : l arrivee a portee se
       // mesure et clot. Vu au banc : « Trouve une cloche pour le joueur »,
       // cloche atteinte trois fois, le modele repartait la « rapporter ».
@@ -6591,7 +6697,7 @@ function createMissionRunner (host, injected = {}) {
         // fini : meme refus reinjecte que pour `fini` (3 au plus), au lieu de
         // clore la mission en echec (chat/replace-and-join 73b4876 : plan
         // « ramasser -> terminer » avec 2 buches encore sur l arbre).
-        if (!allowed.ok && (arbreOuvert || ((mission.quotaExplicite || mission.wholeTree) && mission.finishRefused < REFUSALS_BEFORE_YIELD))) {
+        if (!allowed.ok && (arbreOuvert || ((mission.quotaExplicite || mission.wholeTree || mission.poses?.length > 0) && mission.finishRefused < REFUSALS_BEFORE_YIELD))) {
           mission.finishRefused += 1
           mission.refusalNote = allowed.why
           mission.queue = []
@@ -6881,6 +6987,10 @@ function createMissionRunner (host, injected = {}) {
         console.log(`[mission] fabrication "${target}" detectee, type geste -> recolte (pas de cloture en un plan)`)
         value = { ...value, kind: 'recolte' }
       }
+      if (featureOn('poser', false) && Array.isArray(value.pose) && value.pose.length > 0 && value.kind === 'geste' && !value.route) {
+        console.log('[mission] objets a poser, type geste -> recolte (obtenir puis poser)')
+        value = { ...value, kind: 'recolte', incompleteGesture: false }
+      }
       if (value.incompleteGesture && value.kind === 'geste' && !value.route) {
         throw new Error('brief de geste incomplet : parcours ou geste_libre requis')
       }
@@ -6889,7 +6999,7 @@ function createMissionRunner (host, injected = {}) {
     const blocConnu = nom => !!skills.ressourceLibre(nom, host.getBot()?.registry)
     let brief
     const debutBrief = Date.now()
-    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), blocConnu, relance: featureOn('relance_plan') }))
+    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), pose: featureOn('poser', false), blocConnu, relance: featureOn('relance_plan') }))
     try {
       try {
         brief = await lireBrief()
@@ -7023,6 +7133,11 @@ function createMissionRunner (host, injected = {}) {
         else ledger.cancelled = true
       }
     }
+    // Objets a poser dans le monde (A/B `poser`) : noms du brief valides au
+    // registre, quantite dite ou au moins un. La revision garde les siens.
+    let poses = featureOn('poser', false) ? posesDuBrief(host.getBot(), brief.pose) : []
+    if (poses.length === 0 && Array.isArray(opts.revisionOf?.poses)) poses = opts.revisionOf.poses
+    if (poses.length > 0 && !brief.route && kind !== 'construction') kind = 'recolte'
     // Bloc ouvert qui ne lache rien (spawner) ou incassable : il se rejoint,
     // il ne se recolte pas. Une « recolte » de ce bloc devient un deplacement
     // mesure (bloc cible a portee), plutot qu un quota jamais atteignable.
@@ -7094,6 +7209,8 @@ function createMissionRunner (host, injected = {}) {
       fabricationQuantite,
       fabricationInitial: 0,
       fabricationLastError: null,
+      poses,
+      posesFaites: { ...(opts.revisionOf?.posesFaites ?? {}) },
 
       supply: SUPPLY,
       // Cerveau de cette mission : le planificateur, ou un script (banc de
