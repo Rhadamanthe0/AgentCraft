@@ -92,7 +92,8 @@ refus immediat d une capacite absente, identifiant de
 `skills.CAPACITES_ABSENTES`, jamais un texte libre ; niveaux `ouvert/*`,
 `avec(...)` sur gather/flowers et craft/axe pour voir les faux refus).
 
-A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py)
+A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
+liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)
 qui remplace le modele des usages plan, brief et chat pendant le niveau
 (`POST /api/models`, remis a zero apres ; `bot/model-chain.js` `setOverrides`).
 Le resultat porte `models` et `plannerTokens` (jetons par usage : entree,
@@ -100,7 +101,8 @@ cache lu, cache ecrit, sortie) ; `python3 ci/ab_modele.py <report.json...>`
 donne reussite, duree, attente et cout par bras aux prix OpenCode Go. Les
 modeles `claude-*` passent par `/messages` (format Anthropic, seul servi par
 le gateway Go pour Claude) : ni temperature ni `response_format`, systeme
-marque `cache_control`. Plafond Go de Claude Haiku 5.5 : 15 $/mois (60 $ pour
+marque `cache_control`. Les modeles `gpt-*` passent par `/responses`, sans
+temperature, effort en `reasoning.effort`. Plafond Go de Claude Haiku 5.5 : 15 $/mois (60 $ pour
 DeepSeek V4.1 Flash). Mesure du 2026-10-09 (6 bancs, 33 paires, 11
 niveaux dont 4 composites) : Haiku 29/33 contre 27/33, duree mediane 189 s
 contre 334 s, attente du modele 11 s contre 90 s par niveau, cout 0,21 $
@@ -112,6 +114,25 @@ l epuise (banc complet du 2026-10-09 rouge, 1284 x 429 « 5 hour »). Effort de 
 29/33 en 221 s, sans gain de cout : `low` reste. Le proprietaire a choisi Haiku pour plan, brief et chat
 (2026-10-09) ; les variantes `~modele-deepseek-v4.1-flash` gardent la mesure
 (`ci/ab_modele.py`, `--base deepseek-v4.1-flash` pour les rapports d avant).
+Modeles Go bon marche contre Haiku (2026-10-09, 2 bancs, 22 paires) :
+GPT 6 Luna 19/22 contre 20/22, duree 179 s contre 158 s, attente 27 s
+contre 10 s, ~30 % moins cher (meme prix au jeton, moins de jetons) : seule
+alternative credible, gardee dans `MODELES_AB`. Le plafond Go n est PAS par
+modele (2026-10-10) : Haiku epuise, Luna est refusee aussi (meme 429
+`GoUsageLimitError` monthly/weekly).
+LongCat 2.5 et Step 5 (gratuits) 5/22 et 0/22, MiMo V2.6 Flash 5/22 : la
+sonde a faible charge passe (MiMo 8/8), mais sous 16 bots le gateway se tait
+(« planificateur indisponible », 100 a 150 s d attente par niveau) ; ne pas
+les reessayer sans signe que leur service a change.
+Modeles OpenAI en direct (2026-10-10) : `openai/<modele>` (plan, brief,
+chat) part a l API OpenAI (`OPENAI_BASE_URL`, cle `OPENAI_API_KEY`, secret
+GitHub du meme nom), jamais au gateway et jamais en repli : sans cle, l appel
+echoue tel quel. Pour l offre de jetons gratuits contre partage des donnees
+(2,5 M/jour sur les mini : ~1 bras d A/B de 11 niveaux, un banc complet en
+fait ~17 M) ; trafic du banc seulement, partage a activer par le proprietaire
+sur un projet OpenAI dedie. `MODELES_AB` n ajoute `openai/gpt-5.4-mini` et
+`openai/gpt-5-mini` que si `OPENAI_API_KEY` est pose ; `keyCheck` ignore la
+cle `openai`.
 `ci/keyprobe.py` sonde la cle avec le modele de plan du banc
 (`PLANNER_MODEL_PLAN` de `ci/models.env`) : un plafond epuise arrete le banc
 au demarrage au lieu de 75 min de niveaux rouges.
@@ -281,7 +302,7 @@ Connaissances calculees par le code, servies au modele dans l etat :
   relative), `outil_necessaire` (outil minimal nomme), indices de navigation.
 
 Modeles (un par usage, `bot/model-chain.js`, banc : `ci/models.env` ;
-transport `bot/llm.js` : `/chat/completions`, `/responses` (muse) et
+transport `bot/llm.js` : `/chat/completions`, `/responses` (muse, gpt-*) et
 `/messages` (claude-*)) :
 
 | Usage | Banc | Effort | Delai banc |
@@ -386,7 +407,12 @@ dans `docs/journal.md` (section « Les pieges »).
   `Banc: composite/cabin-from-scratch* trees/pillar*` (motifs sur le nom
   complet, variantes comprises ; un composite entraine son jumeau),
   `Banc: unitaires` pour les tests unitaires seuls (ni serveur ni modele) ;
-  **sans ligne `Banc:`, banc complet**. Lancement manuel : entree `levels`.
+  **sans ligne `Banc:`, banc complet**. Lancement manuel : entree `levels`,
+  et `base_model` (2026-10-10) qui remplace le modele de plan, brief et chat de
+  `ci/models.env` le temps du lancement (A/B quand le modele du banc est sans
+  quota ; `keyprobe` sonde ce modele ; `openai/<modele>` : sonde et cle
+  OpenAI seules, aucune cle OpenCode aux bots) ; `banc-complet` reste alors rouge,
+  jamais de fusion sur un autre modele que celui de `ci/models.env`.
   Pendant le travail, choisir les niveaux que le changement peut toucher ; le
   dernier commit avant fusion n a pas de ligne `Banc:` (banc complet, check
   `banc-complet` vert exige).
@@ -465,6 +491,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | --- | --- | --- |
 | `PLANNER_BASE_URL` | vide (compose : gateway Go) | sans elle, aucun cerveau : les missions echouent en le disant |
 | `PLANNER_API_KEY` / `OPENCODE_SECONDARY_API_KEY` | vide | cles primary / secondary du gateway Go |
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | vide / `https://api.openai.com/v1` | modeles `openai/<modele>` seulement (A/B), jamais un repli |
 | `PLANNER_KEY_FIRST` | `primary` | cle essayee d abord ; l autre sur 429/401-403 |
 | `PLANNER_MODEL[_PLAN/_BRIEF/_CHAT/_COMPACT]` | `PLANNER_MODEL` | un modele par usage (une liste ne garde que sa tete) |
 | `PLANNER_REASONING_EFFORT[_<USAGE>]` | vide | `reasoning_effort` (ou `reasoning.effort`) |

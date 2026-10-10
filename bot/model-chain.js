@@ -51,7 +51,7 @@ function setOverrides (changes = {}) {
   }
   for (const [key, value] of Object.entries(changes ?? {})) {
     const task = OVERRIDE_TASKS[key]
-    if (task && typeof value === 'string' && /^[a-z0-9][a-z0-9.-]{0,63}$/i.test(value)) overrides[task] = value
+    if (task && typeof value === 'string' && /^(openai\/)?[a-z0-9][a-z0-9.-]{0,63}$/i.test(value)) overrides[task] = value
     const effortTask = key.startsWith('effort_') ? OVERRIDE_TASKS[key.slice(7)] : null
     if (effortTask && EFFORTS.has(value)) effortOverrides[effortTask] = value
   }

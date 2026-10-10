@@ -828,7 +828,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 # servie, ou une bascule, rend le banc non conforme.
                 expected = PLANNER_KEY.get('chosen') or os.environ.get('CI_EXPECT_KEY')
                 if expected:
-                    served = report['plannerSummary']['cles_servies']
+                    # The OpenAI key serves only openai/* model variants: not an OpenCode key.
+                    served = [k for k in report['plannerSummary']['cles_servies'] if k != 'openai' or expected == 'openai']
                     switches = report['plannerSummary']['bascules_cle']
                     ok = served == [expected] and not switches
                     report['keyCheck'] = {'expected': expected, 'served': served, 'switches': switches, 'ok': ok}
