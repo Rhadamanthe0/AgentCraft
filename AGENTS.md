@@ -37,6 +37,22 @@ jamais une cible a optimiser (pas de « benchmaxing ») :
   banc (`vary`, ci/trees.py). Un niveau qui ne passe qu avec un correctif
   dedie signale un manque de generalite a corriger ailleurs.
 
+### Actions generiques, tout en parametres (2026-10-10, regle IMMUABLE)
+
+Une action est un geste general ; **le type d objet, le nombre, la distance,
+les emplacements (bloc vise, ancre, etabli, four...) sont des parametres**,
+jamais figes dans l action. Pas de `poser_porte`, `ouvrir_porte`,
+`poser_rail` : `poser {objet, ...}`, `utiliser {objet, ...}`. Sans parametre,
+une action garde au plus un defaut mesure par le code (la matiere de la
+mission), jamais un seul cas. La regle vaut pour toute action, ajoutee par
+une session d agent ou creee par le bot lui-meme en production si cela
+existe un jour : une action qui ne sert qu un objet ou qu un lieu est
+refusee. Mise en conformite des actions existantes : trois lots
+(1 `poser` et `obtenir {objet, quantite}` ; 2 `objet`/`vers` sur casser,
+recolter, ramasser, avancer, explorer, piler ; 3 `utiliser` et `poser`
+remplacent `ouvrir_porte` et `poser_porte`, `emplacement` sur fabriquer et
+cuire), chacun mesure en A/B.
+
 ### Arbre commence, arbre fini (2026-09-29)
 
 Le bot ne laisse jamais un arbre partiellement coupe : des la premiere buche
