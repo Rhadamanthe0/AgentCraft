@@ -66,6 +66,7 @@ def probe(key, urlopen=urllib.request.urlopen, model=None):
     """One call; never returns or raises anything holding the key."""
     model = model or MODEL
     claude = model.startswith('claude-')
+    gpt = model.startswith('gpt-')
     headers = {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
                'User-Agent': 'minecraft-bot/1.0', 'x-opencode-session': 'minebot-ci-keyprobe'}
     if claude:
@@ -73,10 +74,15 @@ def probe(key, urlopen=urllib.request.urlopen, model=None):
         headers.update({'x-api-key': key, 'anthropic-version': '2023-06-01'})
         body = {'model': model, 'max_tokens': 200, 'thinking': {'type': 'disabled'},
                 'messages': [{'role': 'user', 'content': PROMPT}]}
+    elif gpt:
+        # GPT is served on /responses only (bot/llm.js): no temperature, least effort.
+        body = {'model': model, 'max_output_tokens': 200, 'reasoning': {'effort': 'low'},
+                'input': [{'role': 'user', 'content': PROMPT}]}
     else:
         body = {'model': model, 'temperature': 0, 'max_tokens': 200, 'thinking': {'type': 'disabled'},
                 'messages': [{'role': 'user', 'content': PROMPT}]}
-    request = urllib.request.Request(BASE + '/messages' if claude else URL, data=json.dumps(body).encode(),
+    url = BASE + '/messages' if claude else BASE + '/responses' if gpt else URL
+    request = urllib.request.Request(url, data=json.dumps(body).encode(),
                                      method='POST', headers=headers)
     started = time.monotonic()
     result = {'status': None}
@@ -86,6 +92,10 @@ def probe(key, urlopen=urllib.request.urlopen, model=None):
             data = json.load(response)
         if claude:
             answer = ''.join(c.get('text') or '' for c in data.get('content') or [] if c.get('type') == 'text')
+        elif gpt:
+            answer = data.get('output_text') or ''.join(
+                c.get('text') or '' for item in data.get('output') or [] for c in item.get('content') or []
+                if c.get('type') == 'output_text')
         else:
             answer = ((data.get('choices') or [{}])[0].get('message') or {}).get('content') or ''
         result['answer'] = answer.strip()[:80]

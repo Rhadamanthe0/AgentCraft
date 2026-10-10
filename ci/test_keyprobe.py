@@ -61,7 +61,9 @@ class Probe(unittest.TestCase):
             sent['x-api-key'] = request.get_header('X-api-key')
             if status != 200:
                 raise urllib.error.HTTPError(request.full_url, status, 'x', {}, io.BytesIO(b'{"error":"Invalid credential"}'))
-            if request.full_url.endswith('/messages'):
+            if request.full_url.endswith('/responses'):
+                data = {'output': [{'type': 'reasoning'}, {'type': 'message', 'content': [{'type': 'output_text', 'text': content}]}]}
+            elif request.full_url.endswith('/messages'):
                 data = {'content': [{'type': 'thinking', 'thinking': ''}, {'type': 'text', 'text': content}]}
             else:
                 data = {'choices': [{'message': {'content': content}}]}
@@ -83,6 +85,15 @@ class Probe(unittest.TestCase):
         self.assertEqual(sent['x-api-key'], 'k-1')
         self.assertNotIn('temperature', sent['body'])
         self.assertEqual(sent['body']['thinking'], {'type': 'disabled'})
+        self.assertNotIn('k-1', json.dumps(result))
+
+    def test_gpt_on_responses(self):
+        sent, urlopen = self.reply()
+        result = keyprobe.probe('k-1', urlopen, model='gpt-6-luna')
+        self.assertTrue(result['ok'])
+        self.assertTrue(sent['url'].endswith('/v1/responses'))
+        self.assertNotIn('temperature', sent['body'])
+        self.assertEqual(sent['body']['input'][0]['content'], keyprobe.PROMPT)
         self.assertNotIn('k-1', json.dumps(result))
 
     def test_prompt_without_reasoning(self):

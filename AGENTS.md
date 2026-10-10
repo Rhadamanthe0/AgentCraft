@@ -405,7 +405,11 @@ dans `docs/journal.md` (section « Les pieges »).
   `Banc: composite/cabin-from-scratch* trees/pillar*` (motifs sur le nom
   complet, variantes comprises ; un composite entraine son jumeau),
   `Banc: unitaires` pour les tests unitaires seuls (ni serveur ni modele) ;
-  **sans ligne `Banc:`, banc complet**. Lancement manuel : entree `levels`.
+  **sans ligne `Banc:`, banc complet**. Lancement manuel : entree `levels`,
+  et `base_model` (2026-10-10) qui remplace le modele de plan, brief et chat de
+  `ci/models.env` le temps du lancement (A/B quand le modele du banc est sans
+  quota ; `keyprobe` sonde ce modele) ; `banc-complet` reste alors rouge,
+  jamais de fusion sur un autre modele que celui de `ci/models.env`.
   Pendant le travail, choisir les niveaux que le changement peut toucher ; le
   dernier commit avant fusion n a pas de ligne `Banc:` (banc complet, check
   `banc-complet` vert exige).
