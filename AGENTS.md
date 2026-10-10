@@ -116,8 +116,10 @@ l epuise (banc complet du 2026-10-09 rouge, 1284 x 429 « 5 hour »). Effort de 
 (`ci/ab_modele.py`, `--base deepseek-v4.1-flash` pour les rapports d avant).
 Modeles Go bon marche contre Haiku (2026-10-09, 2 bancs, 22 paires) :
 GPT 6 Luna 19/22 contre 20/22, duree 179 s contre 158 s, attente 27 s
-contre 10 s, ~30 % moins cher (meme prix au jeton, moins de jetons), plafond
-Go a part (15 $) : seule alternative credible, gardee dans `MODELES_AB`.
+contre 10 s, ~30 % moins cher (meme prix au jeton, moins de jetons) : seule
+alternative credible, gardee dans `MODELES_AB`. Le plafond Go n est PAS par
+modele (2026-10-10) : Haiku epuise, Luna est refusee aussi (meme 429
+`GoUsageLimitError` monthly/weekly).
 LongCat 2.5 et Step 5 (gratuits) 5/22 et 0/22, MiMo V2.6 Flash 5/22 : la
 sonde a faible charge passe (MiMo 8/8), mais sous 16 bots le gateway se tait
 (« planificateur indisponible », 100 a 150 s d attente par niveau) ; ne pas
@@ -408,7 +410,8 @@ dans `docs/journal.md` (section « Les pieges »).
   **sans ligne `Banc:`, banc complet**. Lancement manuel : entree `levels`,
   et `base_model` (2026-10-10) qui remplace le modele de plan, brief et chat de
   `ci/models.env` le temps du lancement (A/B quand le modele du banc est sans
-  quota ; `keyprobe` sonde ce modele) ; `banc-complet` reste alors rouge,
+  quota ; `keyprobe` sonde ce modele ; `openai/<modele>` : sonde et cle
+  OpenAI seules, aucune cle OpenCode aux bots) ; `banc-complet` reste alors rouge,
   jamais de fusion sur un autre modele que celui de `ci/models.env`.
   Pendant le travail, choisir les niveaux que le changement peut toucher ; le
   dernier commit avant fusion n a pas de ligne `Banc:` (banc complet, check

@@ -96,6 +96,22 @@ class Probe(unittest.TestCase):
         self.assertEqual(sent['body']['input'][0]['content'], keyprobe.PROMPT)
         self.assertNotIn('k-1', json.dumps(result))
 
+    def test_openai_bench_model(self):
+        sent, urlopen = self.reply()
+        old = keyprobe.MODEL
+        keyprobe.MODEL = 'openai/gpt-5.4-mini'
+        try:
+            result = keyprobe.select({**ENV, 'OPENAI_API_KEY': 'k-openai'},
+                                     probe_fn=lambda k: keyprobe.probe(k, urlopen))
+            self.assertEqual(result['chosen'], 'openai')
+            self.assertTrue(sent['url'].startswith('https://api.openai.com/v1/responses'))
+            self.assertEqual(sent['body']['model'], 'gpt-5.4-mini')
+            self.assertEqual(sent['auth'], 'Bearer k-openai')
+            self.assertEqual(keyprobe.bot_env(dict(ENV, OTHER='x'), 'openai', ENV), {'OTHER': 'x'})
+            self.assertIsNone(keyprobe.select(ENV, probe_fn=lambda k: {'ok': True})['chosen'], 'sans cle OpenAI')
+        finally:
+            keyprobe.MODEL = old
+
     def test_prompt_without_reasoning(self):
         sent, urlopen = self.reply()
         result = keyprobe.probe('k-1', urlopen, model='deepseek-v4.1-flash')

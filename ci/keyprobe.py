@@ -2,8 +2,11 @@
 
 At start, a tiny prompt without reasoning goes, with each key, to the model
 the bots plan with (PLANNER_MODEL_PLAN of ci/models.env, 2026-10-09: each
-model has its own Go quota, and a DeepSeek probe let a bench with Haiku's
-5-hour quota spent play 75 min of red levels). Both answer: primary. One answers: that one. None: the bench fails.
+model was thought to have its own Go quota, and a DeepSeek probe let a bench
+with Haiku's 5-hour quota spent play 75 min of red levels; 2026-10-10: a spent
+Go limit refuses every model). Both answer: primary. One answers: that one. None: the bench fails.
+An `openai/<model>` bench model (manual run, input base_model) is probed with
+OPENAI_API_KEY at the OpenAI API instead, and no OpenCode key reaches the bots.
 Only the chosen key then reaches the bots, so no switch can happen mid-bench
 (report.keyCheck). A key is never printed, logged or put in the report.
 """
@@ -46,6 +49,8 @@ SOURCES = {'primary': ('OPENCODE_PRIMARY_API_KEY', 'PLANNER_API_KEY'),
 # Variable the bot reads for each key (bot/model-chain.js KEY_VARS).
 BOT_VARS = {'primary': 'PLANNER_API_KEY', 'secondary': 'OPENCODE_SECONDARY_API_KEY'}
 ORDER = ('primary', 'secondary')
+OPENAI_PREFIX = 'openai/'
+OPENAI_BASE = (os.environ.get('OPENAI_BASE_URL') or 'https://api.openai.com/v1').rstrip('/')
 
 
 def key_value(name, environ=None):
@@ -65,6 +70,9 @@ def plain(text):
 def probe(key, urlopen=urllib.request.urlopen, model=None):
     """One call; never returns or raises anything holding the key."""
     model = model or MODEL
+    openai = model.startswith(OPENAI_PREFIX)
+    if openai:
+        model = model[len(OPENAI_PREFIX):]
     claude = model.startswith('claude-')
     gpt = model.startswith('gpt-')
     headers = {'Authorization': f'Bearer {key}', 'Content-Type': 'application/json',
@@ -81,7 +89,7 @@ def probe(key, urlopen=urllib.request.urlopen, model=None):
     else:
         body = {'model': model, 'temperature': 0, 'max_tokens': 200, 'thinking': {'type': 'disabled'},
                 'messages': [{'role': 'user', 'content': PROMPT}]}
-    url = BASE + '/messages' if claude else BASE + '/responses' if gpt else URL
+    url = (OPENAI_BASE if openai else BASE) + ('/messages' if claude else '/responses' if gpt else '/chat/completions')
     request = urllib.request.Request(url, data=json.dumps(body).encode(),
                                      method='POST', headers=headers)
     started = time.monotonic()
@@ -121,6 +129,11 @@ def choose(results):
 
 def select(environ=None, probe_fn=probe):
     """{'chosen': name or None, 'probes': {name: result}} for the keys present."""
+    if MODEL.startswith(OPENAI_PREFIX):
+        key = ((os.environ if environ is None else environ).get('OPENAI_API_KEY') or '').strip()
+        result = probe_fn(key) if key else {'ok': False, 'error': 'secret absent'}
+        return {'model': MODEL, 'prompt': PROMPT, 'chosen': 'openai' if result.get('ok') else None,
+                'probes': {'openai': result}}
     keys = {name: key_value(name, environ) for name in ORDER}
     results = {name: {'ok': False, 'error': 'secret absent'} for name, key in keys.items() if not key}
     present = [name for name, key in keys.items() if key]
@@ -136,6 +149,6 @@ def bot_env(env, chosen, environ=None):
     for name in ORDER:
         for var in (*SOURCES[name], BOT_VARS[name]):
             env.pop(var, None)
-    if chosen:
+    if chosen in BOT_VARS:
         env[BOT_VARS[chosen]] = key_value(chosen, environ)
     return env

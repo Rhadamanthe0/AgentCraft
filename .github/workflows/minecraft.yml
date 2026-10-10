@@ -95,18 +95,19 @@ jobs:
           echo "Niveaux : $levels (suite $suite)"
           echo "levels=$levels" >> "$GITHUB_OUTPUT"
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
-      # Lancement manuel seulement : remplace le modele de plan, brief et chat
-      # de ci/models.env dans ce checkout (sonde de cle et bots compris).
+      # Lancement manuel seulement : remplace les modeles de ci/models.env dans
+      # ce checkout (sonde de cle et bots compris). openai/<modele> : cle
+      # OPENAI_API_KEY seule, aucune cle OpenCode ne va aux bots.
       - name: Override the bench model for this run
         if: github.event_name == 'workflow_dispatch' && inputs.base_model != ''
         env:
           BASE_MODEL: ${{ inputs.base_model }}
         run: |
-          if ! printf '%s' "$BASE_MODEL" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$'; then
+          if ! printf '%s' "$BASE_MODEL" | grep -Eq '^(openai/)?[A-Za-z0-9][A-Za-z0-9.-]{0,63}$'; then
             echo "Modele illisible : $BASE_MODEL" >&2
             exit 1
           fi
-          sed -i -E "s#^(PLANNER_MODEL|PLANNER_MODEL_PLAN|PLANNER_MODEL_BRIEF|PLANNER_MODEL_CHAT)=.*#\1=$BASE_MODEL#" ci/models.env
+          sed -i -E "s#^(PLANNER_MODEL|PLANNER_MODEL_PLAN|PLANNER_MODEL_BRIEF|PLANNER_MODEL_CHAT|PLANNER_MODEL_COMPACT)=.*#\1=$BASE_MODEL#" ci/models.env
           grep -E '^PLANNER_MODEL' ci/models.env
       - name: Run unit regressions and real Minecraft tests
         # Une seule cle par banc, choisie au demarrage (ci/keyprobe.py) : mini
