@@ -72,6 +72,8 @@ jobs:
           REF: ${{ github.ref }}
           EVENT: ${{ github.event_name }}
           INPUT_LEVELS: ${{ inputs.levels }}
+          # Les variantes openai/* n existent que si la cle est posee (ci/trees.py).
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           if [ "$EVENT" = workflow_dispatch ]; then
             levels=${INPUT_LEVELS:-tout}
