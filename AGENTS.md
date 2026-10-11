@@ -424,7 +424,11 @@ dans `docs/journal.md` (section « Les pieges »).
    `GoalLookAtBlock` seul : ce dernier mesure la portee jusqu a 1,6 bloc
    AU-DESSUS du bloc, et une buche a deux blocs au-dessus des pieds n etait a
    portee d aucun poste (A* jusqu au delai, « Took to long », rendu `no_path`
-   jusqu au 2026-10-11, terrain/far-hedge-pit ; tmp/but-bloc.test.js). Le pathfinder
+   jusqu au 2026-10-11, terrain/far-hedge-pit ; tmp/but-bloc.test.js). Le
+   niveau reste rouge au banc (no_path en < 5 s) alors que le meme A* trouve
+   hors ligne un chemin sur l instantane : un echec du trajet qui creuse
+   journalise `[creuse]` (depart, but, derniers calculs de l A*, remises du
+   trajet) pour trancher. Le pathfinder
    planifie parfois une montee d un bloc sous un plafond de deux (impossible,
    la tete touche) et replanifie sans fin : trois `stuck` sur place arretent
    le trajet (code `stuck`). Il tient aussi toute porte pour un mur (il

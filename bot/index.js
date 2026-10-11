@@ -527,6 +527,16 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
   const goal = block
     ? new GoalBlocEnVue(block, bot.world, { reach: DIG_LOOK_REACH })
     : new goals.GoalNear(position.x, position.y, position.z, range)
+  // Diagnostic d un echec (2026-10-11, terrain/far-hedge-pit : no_path au
+  // banc, chemin trouve hors ligne sur le meme monde) : derniers calculs de
+  // l A* et remises a zero du trajet, journalises si le trajet echoue.
+  const calculs = []
+  const remises = {}
+  const onUpdate = r => { calculs.push(`${r.status}:${r.visitedNodes}n/${Math.round(r.time ?? 0)}ms/${r.path?.length ?? 0}p`); if (calculs.length > 6) calculs.shift() }
+  const onRemise = raison => { remises[raison] = (remises[raison] ?? 0) + 1 }
+  bot.on('path_update', onUpdate)
+  bot.on('path_reset', onRemise)
+  const depart = bot.entity.position.floored()
   const settleGate = bot.pathfinder.goto(goal).then(
     value => ({ ok: true, value }),
     error => ({ ok: false, error })
@@ -574,6 +584,7 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     }
     if (!settle.ok) {
       const message = String(settle.error?.message ?? settle.error)
+      console.log(`[creuse] echec depuis ${depart} vers ${block ?? position} : ${message.slice(0, 80)} ; A* ${calculs.join(' ') || 'aucun calcul'} ; remises ${JSON.stringify(remises)}`)
       // « Took to long to decide path » : l A* a epuise son temps, pas les
       // chemins ; no_path a tort egarait le diagnostic (far-hedge-pit).
       const code = /annule/.test(message) ? 'cancelled' : /Took to long|timeout/i.test(message) ? 'timeout' : 'no_path'
@@ -593,6 +604,8 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     return { reached: false, code, travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: message.slice(0, 120) }
   } finally {
     clearTimeout(timer)
+    bot.removeListener('path_update', onUpdate)
+    bot.removeListener('path_reset', onRemise)
     if (onAbort) signal?.removeEventListener?.('abort', onAbort)
     if (onReset) bot.removeListener('path_reset', onReset)
     stopPathfinding()
