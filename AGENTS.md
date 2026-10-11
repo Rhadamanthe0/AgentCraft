@@ -443,7 +443,10 @@ dans `docs/journal.md` (section « Les pieges »).
    trajet, trois premiers noeuds, position et commandes a chaque stuck,
    recalages du serveur `forcedMove`). `skill/hedge-pit` (retire, `Banc:`)
    joue ce trajet sans modele, donc meme quota epuise. Banc b8db857 : A* en succes (7 pas),
-   le bot ne rejoint jamais le premier noeud (3 stuck) alors que
+   le bot ne rejoint jamais le premier noeud (3 stuck, ~200 recalages
+   `forcedMove` par trajet, toutes casses confirmees : piege 19 ecarte ; le
+   `[creuse]` donne la position du client et celle imposee aux premiers
+   recalages) alors que
    `tmp/creuse-repro.js` (meme instantane, vrai pathfinder, physique simulee)
    arrive : la cause est dans l execution sur le vrai serveur. Le pathfinder
    planifie parfois une montee d un bloc sous un plafond de deux (impossible,
@@ -515,9 +518,11 @@ dans `docs/journal.md` (section « Les pieges »).
     attendre le serveur** (prediction envoyee avec la fin de casse). Depuis
     1.19 un serveur qui refuse la casse ne renvoie pas le bloc (il acquitte la
     sequence, le client doit annuler sa prediction, mineflayer ne le fait
-    pas) : le client voit une case vide, le serveur un bloc, et chaque pas a
-    travers est refuse (skill/hedge-pit 58c0689 : 210 recalages `forcedMove`,
-    trois `stuck` au premier noeud). `bot/casse.js` (plugin) n accepte une
+    pas) : le client verrait une case vide, le serveur un bloc, et chaque pas
+    a travers serait refuse. Soupconne sur skill/hedge-pit (58c0689 : 210
+    recalages `forcedMove`, trois `stuck` au premier noeud), ecarte par le
+    banc f3898a3 (aucune casse refusee, memes recalages), garde comme
+    protection. `bot/casse.js` (plugin) n accepte une
     casse que si le serveur envoie l etat de la case dans
     `CASSE_CONFIRMATION_MS` (1500) ; sinon le bloc est remis cote client, la
     casse echoue et `[casse] refusee par le serveur` est journalise.

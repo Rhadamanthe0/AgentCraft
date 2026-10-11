@@ -556,9 +556,20 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     }
   }
   const onRecalage = () => { recalages += 1 }
+  // Position du client juste avant chaque recalage et position imposee :
+  // le sens du pas refuse (skill/hedge-pit f3898a3 : 200 recalages par
+  // trajet, casses toutes confirmees par le serveur).
+  const ecarts = []
+  const avantRecalage = packet => {
+    if (ecarts.length >= 4 || !bot.entity) return
+    const c = bot.entity.position
+    const rel = typeof packet.flags === 'object' ? ['x', 'y', 'z'].filter(k => packet.flags[k]).join('') : ''
+    ecarts.push(`${c.x.toFixed(2)},${c.y.toFixed(2)},${c.z.toFixed(2)}>${Number(packet.x).toFixed(2)},${Number(packet.y).toFixed(2)},${Number(packet.z).toFixed(2)}${rel ? ` rel ${rel}` : ''}`)
+  }
   bot.on('path_update', onUpdate)
   bot.on('path_reset', onRemise)
   bot.on('forcedMove', onRecalage)
+  bot._client?.prependListener?.('position', avantRecalage)
   const depart = bot.entity.position.floored()
   const settleGate = bot.pathfinder.goto(goal).then(
     value => ({ ok: true, value }),
@@ -608,7 +619,7 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     if (!settle.ok) {
       const message = String(settle.error?.message ?? settle.error)
       console.log(`[creuse] echec depuis ${depart} vers ${block ?? position} : ${message.slice(0, 80)} ; A* ${calculs.join(' ') || 'aucun calcul'} ; ` +
-        `remises ${JSON.stringify(remises)} ; chemin ${premiers || '-'} ; au stuck ${auStuck.join(' | ') || '-'} ; recalages serveur ${recalages}`)
+        `remises ${JSON.stringify(remises)} ; chemin ${premiers || '-'} ; au stuck ${auStuck.join(' | ') || '-'} ; recalages serveur ${recalages}${ecarts.length ? ` (client>serveur ${ecarts.join(' | ')})` : ''}`)
       // « Took to long to decide path » : l A* a epuise son temps, pas les
       // chemins ; no_path a tort egarait le diagnostic (far-hedge-pit).
       const code = /annule/.test(message) ? 'cancelled' : /Took to long|timeout/i.test(message) ? 'timeout' : 'no_path'
@@ -631,6 +642,7 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     bot.removeListener('path_update', onUpdate)
     bot.removeListener('path_reset', onRemise)
     bot.removeListener('forcedMove', onRecalage)
+    bot._client?.removeListener?.('position', avantRecalage)
     if (onAbort) signal?.removeEventListener?.('abort', onAbort)
     if (onReset) bot.removeListener('path_reset', onReset)
     stopPathfinding()
