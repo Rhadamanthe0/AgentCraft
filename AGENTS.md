@@ -511,6 +511,18 @@ dans `docs/journal.md` (section « Les pieges »).
     `tmp/etat-bench.js` (monde reel par sections, `MISSION_ETAT_LENT_MS=0`
     journalise chaque etat) : pierre 907 -> 23 ms, pioche en fer 1069 -> 22 ms.
 
+19. **`bot.dig` de mineflayer 4.39 met le bloc a l air cote client sans
+    attendre le serveur** (prediction envoyee avec la fin de casse). Depuis
+    1.19 un serveur qui refuse la casse ne renvoie pas le bloc (il acquitte la
+    sequence, le client doit annuler sa prediction, mineflayer ne le fait
+    pas) : le client voit une case vide, le serveur un bloc, et chaque pas a
+    travers est refuse (skill/hedge-pit 58c0689 : 210 recalages `forcedMove`,
+    trois `stuck` au premier noeud). `bot/casse.js` (plugin) n accepte une
+    casse que si le serveur envoie l etat de la case dans
+    `CASSE_CONFIRMATION_MS` (1500) ; sinon le bloc est remis cote client, la
+    casse echoue et `[casse] refusee par le serveur` est journalise.
+    Test : tmp/casse.test.js.
+
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
 - Declenche par tout push sur `main` ou `claude/**` (workflow
@@ -650,6 +662,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `RESCUE_COOLDOWN_MS` | 25000 | repos apres sauvetage (piege 7) |
 | `JEV_DONE_THRESHOLD` / `JEV_MIN_CONFIDENCE` / `JEV_DOOR_THRESHOLD` | 0.75 / 0.6 / 0.6 | seuils (noms historiques) |
 | `MEMORY_*` | voir memory.js | plafonds de la memoire (travail / long terme) |
+| `CASSE_CONFIRMATION_MS` | 1500 | attente de la confirmation d une casse par le serveur (piege 19 ; 0 : aucune verification) |
 | `MISSION_ETAT_LENT_MS` | 1000 | etat de mission journalise `[lent]` au-dela (0 : chaque etat) |
 | `LOG_FILE`, `LOG_DEDUP_MS`, `LOG_CHAT_MAX_PER_MIN` | `/data/bot.log`, 30000, 5 | erreurs et warnings au fichier ET au chat |
 | `BUILD_DEBUG`, `PATH_DEBUG`, `PLANNER_DEBUG` | vide | traces de diagnostic |
@@ -680,6 +693,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/craft.js` | fabrication, etabli, four (`smelt`), outils (`harvestCheck`) |
 | `bot/build.js` | plans (boite, plans libres compiles), postes de tir, pose |
 | `bot/navigation.js` / `bot/motion-trace.js` | navigateur partage (options `dig` et `place` : casse et pose planifiees par A*) ; traces de trajet |
+| `bot/casse.js` | casse confirmee par le serveur, bloc remis cote client sinon (piege 19) |
 | `bot/but-bloc.js` | but « bloc en vue, a portee des yeux » du trajet qui creuse (corrige `GoalLookAtBlock`, piege 6) |
 | `bot/pose.js` | gestes de pose partages : tour (pose sous soi au sommet du saut), pose contre une face, verifies par le monde |
 | `bot/movement-task.js` / `bot/tree-position.js` | parcours declaratifs ; placement sous un arbre |
