@@ -240,6 +240,120 @@
    "variants": []
   },
   {
+   "name": "skill/hedge-pit",
+   "about": "Script recolter : arbre au fond d un trou de 5 blocs entoure d une haie, depart au coin de la haie.",
+   "start": [
+    23.5,
+    205,
+    23.5
+   ],
+   "terrain": [
+    [
+     0,
+     200,
+     0,
+     35,
+     203,
+     35,
+     "dirt"
+    ],
+    [
+     0,
+     204,
+     0,
+     35,
+     204,
+     35,
+     "grass_block"
+    ],
+    [
+     27,
+     200,
+     27,
+     33,
+     204,
+     33,
+     "air"
+    ],
+    [
+     25,
+     205,
+     25,
+     35,
+     206,
+     35,
+     "oak_leaves[persistent=true]"
+    ],
+    [
+     26,
+     205,
+     26,
+     34,
+     206,
+     34,
+     "air"
+    ]
+   ],
+   "leaves": [
+    [
+     28,
+     203,
+     28,
+     32,
+     204,
+     32
+    ]
+   ],
+   "logs": [
+    [
+     [
+      30,
+      200,
+      30
+     ],
+     "oak_log"
+    ],
+    [
+     [
+      30,
+      201,
+      30
+     ],
+     "oak_log"
+    ],
+    [
+     [
+      30,
+      202,
+      30
+     ],
+     "oak_log"
+    ]
+   ],
+   "rules": {},
+   "skill": {
+    "brief": {
+     "type": "recolte",
+     "matiere": "bois"
+    },
+    "script": [
+     {
+      "action": "recolter",
+      "quantite": 3,
+      "repeter": 4
+     },
+     {
+      "action": "ramasser",
+      "quantite": 3,
+      "repeter": 2
+     }
+    ]
+   },
+   "instruction": "coupe moi un arbre",
+   "leavesBlock": "oak_leaves[persistent=true]",
+   "variants": []
+  },
+  {
    "name": "skill/sand-walled",
    "about": "Script recolter : sable enferme dans un mur de terre de 3 de haut, 4 sable en inventaire, pas de puits.",
    "kind": "gather",

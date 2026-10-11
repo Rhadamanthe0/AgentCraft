@@ -954,6 +954,23 @@ def base_levels():
             'skill': {'brief': {'type': 'construction', 'matiere': 'terre'},
                       'script': [{'action': 'choisir_terrain'}, {'action': 'construire', 'quantite': 12, 'repeter': 6}]},
         },
+        # Trajet qui creuse de terrain/far-hedge-pit sans modele (2026-10-11) :
+        # meme trou entoure d une haie, depart au coin, hors du banc complet,
+        # joue par `Banc:` meme quand le quota du gateway est epuise.
+        {
+            'name': 'skill/hedge-pit',
+            'about': 'Script recolter : arbre au fond d un trou de 5 blocs entoure d une haie, depart au coin de la haie.',
+            'terrain': [(0, 200, 0, SIZE - 1, 203, SIZE - 1, 'dirt'), (0, 204, 0, SIZE - 1, 204, SIZE - 1, 'grass_block'),
+                        (27, 200, 27, 33, 204, 33, 'air'),
+                        (25, 205, 25, 35, 206, 35, LEAVES), (26, 205, 26, 34, 206, 34, 'air')],
+            'start': (23.5, 205, 23.5),
+            'leaves': [(28, 203, 28, 32, 204, 32)],
+            'logs': _logs(*[(30, 200 + i, 30) for i in range(3)]),
+            'rules': {},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'bois'},
+                      'script': [{'action': 'recolter', 'quantite': 3, 'repeter': 4},
+                                 {'action': 'ramasser', 'quantite': 3, 'repeter': 2}]},
+        },
         {
             'name': 'skill/sand-walled',
             'about': 'Script recolter : sable enferme dans un mur de terre de 3 de haut, 4 sable en inventaire, pas de puits.',
@@ -1913,7 +1930,7 @@ RETIRED = frozenset({
     'trees/pillar', 'join/pit', 'chat/join-then-tree', 'terrain/far-tree', 'gather/flowers',
     'gather/sand-plateau', 'craft/table', 'craft/axe', 'craft/door', 'craft/stone-pickaxe', 'craft/torches',
     'craft/furnace', 'build/door', 'route/around-wall', 'route/under-far-tree', 'skill/tree-reachable',
-    'skill/dirt-box', 'skill/cabin-batir', 'trees/skirted',
+    'skill/dirt-box', 'skill/cabin-batir', 'trees/skirted', 'skill/hedge-pit',
     # A/B variants measured on 19 full benches (verdicts: python3 ci/ab.py);
     # only the variants of the mode being built (`poser`) stay.
     'trees/bent~sans-anti_boucle', 'trees/bent~avec-acces_unifie', 'trees/tall~sans-reflexes',
@@ -1964,6 +1981,7 @@ COVERED_BY = {
     'route/around-wall': 'route/wait-and-back', 'route/under-far-tree': 'route/wait-and-back',
     'terrain/dirt-wall': 'terrain/plateau', 'terrain/hedge-pit': 'terrain/far-hedge-pit',
     'terrain/pit': 'terrain/far-hedge-pit', 'terrain/far-tree': 'terrain/far-hedge-pit',
+    'skill/hedge-pit': 'terrain/far-hedge-pit',
     'trees/leaves': 'trees/double', 'trees/reachable': 'trees/double', 'trees/pillar': 'trees/tall',
     'skill/tree-reachable': 'skill/tree-pillar', 'skill/dirt-box': 'skill/stone-hut-batir',
     'skill/cabin-batir': 'skill/stone-hut-batir', 'trees/skirted': 'trees/tall',

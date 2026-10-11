@@ -441,7 +441,8 @@ dans `docs/journal.md` (section « Les pieges »).
    hors ligne un chemin sur l instantane : un echec du trajet qui creuse
    journalise `[creuse]` (depart, but, derniers calculs de l A*, remises du
    trajet, trois premiers noeuds, position et commandes a chaque stuck,
-   recalages du serveur `forcedMove`). Banc b8db857 : A* en succes (7 pas),
+   recalages du serveur `forcedMove`). `skill/hedge-pit` (retire, `Banc:`)
+   joue ce trajet sans modele, donc meme quota epuise. Banc b8db857 : A* en succes (7 pas),
    le bot ne rejoint jamais le premier noeud (3 stuck) alors que
    `tmp/creuse-repro.js` (meme instantane, vrai pathfinder, physique simulee)
    arrive : la cause est dans l execution sur le vrai serveur. Le pathfinder
@@ -521,6 +522,9 @@ dans `docs/journal.md` (section « Les pieges »).
   `Banc: composite/cabin-from-scratch* trees/pillar*` (motifs sur le nom
   complet, variantes comprises ; un composite entraine son jumeau),
   `Banc: unitaires` pour les tests unitaires seuls (ni serveur ni modele) ;
+  une ligne qui ne nomme que des niveaux `skill/*` (scripts, aucun appel au
+  modele) se joue sans cle ni sonde, meme quota epuise (`SCRIPTED_ONLY`,
+  ci/run.py) ;
   **sans ligne `Banc:`, banc complet**. Lancement manuel : entree `levels`,
   et `base_model` (2026-10-10) qui remplace le modele de plan, brief et chat de
   `ci/models.env` le temps du lancement (A/B quand le modele du banc est sans
@@ -533,7 +537,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  88 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
+  89 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
   reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -546,7 +550,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 144 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 145 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
@@ -588,7 +592,8 @@ Banc de competences hors ligne (2026-10-02) : un niveau `skill/*` se joue en
 local en quelques secondes, vraie mission scriptee, vrai A* 2.4.5 et vraie
 physique sur un serveur simule (`tmp/sim-server.js` : casse avec outil exige,
 objets qui tombent et se ramassent comme au serveur, pose refusee dans le
-corps du bot). A lancer AVANT de pousser un changement d action ou de
+corps du bot ; trajet qui creuse par le vrai pathfinder comme au banc,
+`SIM_CREUSE=pathfinder`, le navigateur avec `nav_creuse`). A lancer AVANT de pousser un changement d action ou de
 navigation ; le banc ne sert plus qu a confirmer. Hors champ : fabrication et
 four (`skill/*-batir` restent au banc).
 
