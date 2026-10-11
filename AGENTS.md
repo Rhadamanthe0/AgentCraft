@@ -272,7 +272,8 @@ au demarrage au lieu de 75 min de niveaux rouges.
 - Expulsions « lost connection: Timed out » (0 sur main, 4 a 12 par banc
   complet depuis le palier 3, 2026-10-10) : la boucle d evenements d un bot
   s est bloquee ~30 s. `[lent]` dans `containers.log` dit quand (boucle
-  bloquee, etat de mission long a construire) ; un bot expulse se reconnecte
+  bloquee, etat de mission long a construire, avec ses trois parties les plus
+  longues : `chrono` dans mission.js) ; un bot expulse se reconnecte
   seul et le niveau suivant attend son spawn (`wait_spawned`, ci/trees.py),
   `/api/status` repond `spawned: false` sans monde au lieu d un 500. Cause
   trouvee le 2026-10-11 (piege 17) : 628 etats de mission de 1 a 13,6 s sur
