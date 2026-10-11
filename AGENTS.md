@@ -446,7 +446,7 @@ dans `docs/journal.md` (section « Les pieges »).
    le bot ne rejoint jamais le premier noeud (3 stuck, ~200 recalages
    `forcedMove` par trajet, toutes casses confirmees : piege 19 ecarte ; le
    `[creuse]` donne la position du client et celle imposee aux premiers
-   recalages) alors que
+   recalages ; cause : piege 20) alors que
    `tmp/creuse-repro.js` (meme instantane, vrai pathfinder, physique simulee)
    arrive : la cause est dans l execution sur le vrai serveur. Le pathfinder
    planifie parfois une montee d un bloc sous un plafond de deux (impossible,
@@ -527,6 +527,17 @@ dans `docs/journal.md` (section « Les pieges »).
     `CASSE_CONFIRMATION_MS` (1500) ; sinon le bloc est remis cote client, la
     casse echoue et `[casse] refusee par le serveur` est journalise.
     Test : tmp/casse.test.js.
+
+20. **Le serveur refuse un pas au contact exact d une paroi** : la physique de
+    mineflayer arrete la boite du bot pile sur la face d un bloc (bord a
+    26.000 contre une feuille en z = 26) ; Paper 26.1 renvoie le bot a sa
+    derniere position acceptee, a quelques centiemes. En glissant le long
+    d une face (coin de haie, terrain/far-hedge-pit) chaque pas etait
+    refuse : ~200 recalages `forcedMove` par trajet, trois `stuck`, blocs
+    identiques cote client et serveur (`pleinsServeur` des instantanes du
+    banc, releve RCON). `bot/paroi.js` (plugin) ecarte le bot de
+    `PAROI_ECART` (1 mm) apres chaque pas de physique en contact horizontal.
+    Test : tmp/paroi.test.js.
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
@@ -668,6 +679,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `JEV_DONE_THRESHOLD` / `JEV_MIN_CONFIDENCE` / `JEV_DOOR_THRESHOLD` | 0.75 / 0.6 / 0.6 | seuils (noms historiques) |
 | `MEMORY_*` | voir memory.js | plafonds de la memoire (travail / long terme) |
 | `CASSE_CONFIRMATION_MS` | 1500 | attente de la confirmation d une casse par le serveur (piege 19 ; 0 : aucune verification) |
+| `PAROI_ECART` | 0.001 | ecart a une paroi touchee apres chaque pas de physique (piege 20 ; 0 : coupe) |
 | `MISSION_ETAT_LENT_MS` | 1000 | etat de mission journalise `[lent]` au-dela (0 : chaque etat) |
 | `LOG_FILE`, `LOG_DEDUP_MS`, `LOG_CHAT_MAX_PER_MIN` | `/data/bot.log`, 30000, 5 | erreurs et warnings au fichier ET au chat |
 | `BUILD_DEBUG`, `PATH_DEBUG`, `PLANNER_DEBUG` | vide | traces de diagnostic |
@@ -699,6 +711,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/build.js` | plans (boite, plans libres compiles), postes de tir, pose |
 | `bot/navigation.js` / `bot/motion-trace.js` | navigateur partage (options `dig` et `place` : casse et pose planifiees par A*) ; traces de trajet |
 | `bot/casse.js` | casse confirmee par le serveur, bloc remis cote client sinon (piege 19) |
+| `bot/paroi.js` | jamais au contact exact d une paroi, pas refuse par le serveur sinon (piege 20) |
 | `bot/but-bloc.js` | but « bloc en vue, a portee des yeux » du trajet qui creuse (corrige `GoalLookAtBlock`, piege 6) |
 | `bot/pose.js` | gestes de pose partages : tour (pose sous soi au sommet du saut), pose contre une face, verifies par le monde |
 | `bot/movement-task.js` / `bot/tree-position.js` | parcours declaratifs ; placement sous un arbre |

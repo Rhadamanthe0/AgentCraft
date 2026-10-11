@@ -15,6 +15,7 @@ const { createNavigator } = require('./navigation')
 const { GoalBlocEnVue } = require('./but-bloc')
 const perception = require('./perception')
 const casse = require('./casse')
+const paroi = require('./paroi')
 const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText, parseArbitrationChoice } = require('./conversation')
 const { createExecutor, awaitPhysicalWithTimeout, createControlLease, runPhysicalOrThrow } = require('./executor')
 const { createStateStore } = require('./state-store')
@@ -619,7 +620,7 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     if (!settle.ok) {
       const message = String(settle.error?.message ?? settle.error)
       console.log(`[creuse] echec depuis ${depart} vers ${block ?? position} : ${message.slice(0, 80)} ; A* ${calculs.join(' ') || 'aucun calcul'} ; ` +
-        `remises ${JSON.stringify(remises)} ; chemin ${premiers || '-'} ; au stuck ${auStuck.join(' | ') || '-'} ; casses ${bot.casse ? `${bot.casse.confirmees} confirmees, ${bot.casse.refusees} refusees` : 'non verifiees'} ; recalages serveur ${recalages}${ecarts.length ? ` (client>serveur ${ecarts.join(' | ')})` : ''}`)
+        `remises ${JSON.stringify(remises)} ; chemin ${premiers || '-'} ; au stuck ${auStuck.join(' | ') || '-'} ; casses ${bot.casse ? `${bot.casse.confirmees} confirmees, ${bot.casse.refusees} refusees` : 'non verifiees'} ; ecarts de paroi ${bot.paroi?.ecartes ?? '-'} ; recalages serveur ${recalages}${ecarts.length ? ` (client>serveur ${ecarts.join(' | ')})` : ''}`)
       // « Took to long to decide path » : l A* a epuise son temps, pas les
       // chemins ; no_path a tort egarait le diagnostic (far-hedge-pit).
       const code = /annule/.test(message) ? 'cancelled' : /Took to long|timeout/i.test(message) ? 'timeout' : 'no_path'
@@ -1716,6 +1717,8 @@ function connectBot () {
     bot.loadPlugin(perception.brancherRecherche)
     // Casse tenue pour faite seulement si le serveur la confirme (piege 19).
     bot.loadPlugin(casse.brancherCasse)
+    // Jamais au contact exact d une paroi : le serveur refuse le pas (piege 20).
+    bot.loadPlugin(paroi.brancherParoi)
     craft.trackWindowStateIds(bot)
     // Le logger publie dans le chat des qu une instance est joignable.
     logger.attach(bot)
