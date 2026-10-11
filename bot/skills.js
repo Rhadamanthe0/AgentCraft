@@ -242,6 +242,13 @@ const ACTIONS = {
     // Le planificateur donne une valeur NUMERIQUE : il dit « casse pendant 5
     // secondes » et le code execute exactement cela.
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint) : la cible
+      // est un parametre ; sans lui, la matiere de la mission (mesuree).
+      objet: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Quel bloc ou quelle matiere casser (nom Minecraft) ? Sans lui, la matiere de la mission'
+      },
       duree: {
         json: { kind: 'number', min: 1, max: 15 },
         question: 'Combien de secondes casser sans relacher ?'
@@ -264,6 +271,13 @@ const ACTIONS = {
     secondes: 3,
     intent: "Obtenir N objets de la matiere visee en une seule action : le code rejoint le bloc le plus proche, le casse, ramasse ce qui tombe et recommence jusqu a N (60 s au plus). Rend la main au premier obstacle (outil manquant, cible trop haute, aucun chemin) en le disant : piler, fabriquer ou avancer ensuite. Prefere-la a avancer + casser + ramasser pour toute recolte",
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint) : la cible
+      // est un parametre ; sans lui, la matiere de la mission (mesuree).
+      objet: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Quel bloc ou quelle matiere recolter (nom Minecraft) ? Sans lui, la matiere de la mission'
+      },
       quantite: {
         json: { kind: 'number', min: 1, max: 16 },
         question: 'Combien d objets de la matiere obtenir ?'
@@ -279,6 +293,13 @@ const ACTIONS = {
     secondes: 0.8,
     intent: "Des objets sont tombes au sol a proximite : aller marcher dessus pour les mettre dans l inventaire. Un bloc casse n entre pas tout seul en inventaire s il est tombe plus loin. En mission bois, la dirt cassee pour un pilier compte aussi : si elle entre en inventaire, c est un succes, pas un echec",
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint) : la cible
+      // est un parametre ; sans lui, la matiere de la mission (mesuree).
+      objet: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Quel objet au sol ramasser (nom Minecraft) ? Sans lui, la matiere de la mission et tout ce qui est proche'
+      },
       quantite: {
         json: { kind: 'number', min: 1, max: 6 },
         question: 'Combien d objets au sol aller chercher ?'
@@ -373,6 +394,12 @@ const ACTIONS = {
     secondes: 0.15,
     intent: "Avec un bloc cible repere, calculer automatiquement un chemin autour des obstacles vers une position visible a portee de ce bloc. Distance est le budget du trajet : arret possible avant le budget si la cible est accessible, ou progression partielle a poursuivre apres lecture du resultat. Aucun pivoter ou appuyer prealable. Sur no_path ou stuck, signale le blocage ou change d objectif autorise, sans repeter aveuglement ni improviser des touches. Sans cible, avancer droit devant dans le cap actuel. Le resultat mesure le deplacement reel",
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint).
+      vers: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Vers quel bloc aller (nom Minecraft) ? Sans lui, la matiere de la mission'
+      },
       distance: {
         json: { kind: 'number', min: 1, max: 40 },
         question: 'Quel budget de distance parcourir en blocs ?'
@@ -391,6 +418,12 @@ const ACTIONS = {
     secondes: 0.4,
     intent: "Rien de la matiere visee n est en vue (regarder_autour ou recolter disent « rien ») : le code choisit le cap le moins explore, y va par un chemin calcule, regarde, et recommence (4 trajets, 45 s au plus) jusqu a voir la matiere ou le repere. Remplace pivoter + avancer sans cible pour chercher",
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint).
+      vers: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Quel bloc chercher (nom Minecraft) ? Sans lui, la matiere de la mission'
+      },
       distance: {
         json: { kind: 'number', min: 8, max: 32 },
         question: 'Longueur de chaque trajet de recherche, en blocs ?'
@@ -420,6 +453,12 @@ const ACTIONS = {
     secondes: 1.5,
     intent: "Une cible proche est TROP HAUTE (environnement.cible_haute), ou environnement.acces_par_montee mesure une hauteur_min qui rend la cible masquee accessible : monter en pilier avec dirt/coarse_dirt en priorite puis planches solides du registre. Utiliser hauteur_min pour acces_par_montee, sinon denivele - 1 au plus ; inventaire.echafaudage.materiaux detaille le stock. Stock court : l action obtient elle-meme la terre manquante (pilier defait puis refait, terre prise a cote), meme perche. Sable, gravier et feuilles exclus. Chaque montee impose une reobservation avant la suite ; une pose partielle reste un echec mesure. Ne pile pas quand bloc_cible_a_portee est vrai (casse directement), ni dans un liquide, ni sans cible_haute ou acces_par_montee. Cet indice n autorise pas a casser des feuilles",
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint).
+      vers: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Vers quel bloc haut monter (nom Minecraft) ? Sans lui, la matiere de la mission'
+      },
       hauteur: {
         json: { kind: 'number', min: 1, max: 6 },
         question: 'De combien de blocs monter en pilier ?'
@@ -1120,7 +1159,8 @@ function actionsFor (kind, supply) {
 function jsonParamsFor (action) {
   const params = ACTIONS[action]?.params
   if (!params) return null
-  const jsonish = Object.entries(params).filter(([, d]) => d.json)
+  // Un parametre a interrupteur (`feature`) suit son mode, comme une action.
+  const jsonish = Object.entries(params).filter(([, d]) => d.json && !(d.feature && disabledFeatures.has(d.feature)))
   return jsonish.length > 0 ? Object.fromEntries(jsonish) : null
 }
 

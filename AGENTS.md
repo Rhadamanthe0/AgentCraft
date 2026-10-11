@@ -49,7 +49,8 @@ une session d agent ou creee par le bot lui-meme en production si cela
 existe un jour : une action qui ne sert qu un objet ou qu un lieu est
 refusee. Mise en conformite des actions existantes : trois lots
 (1 `poser` et `obtenir {objet, quantite}`, fait le 2026-10-10 ; 2 `objet`/`vers` sur casser,
-recolter, ramasser, avancer, explorer, piler ; 3 `utiliser` et `poser`
+recolter, ramasser, avancer, explorer, piler, fait le 2026-10-11 derriere
+l interrupteur `objet_vers` ; 3 `utiliser` et `poser`
 remplacent `ouvrir_porte` et `poser_porte`, `emplacement` sur fabriquer et
 cuire), chacun mesure en A/B.
 
@@ -116,7 +117,15 @@ mesuree), ou une ligne au sol d un bloc nomme a l autre ; le brief liste les
 objets a poser (`pose`, cle de prompt `brief|pose`), `consigne.poses` les
 sert, le solveur vise le premier qui manque en poche, `finishAllowed` exige
 chaque pose verifiee (`mission.posesFaites`) ; `avec(...)` sur
-composite/lit-cabin et composite/powered-rail-line ; tmp/poser.test.js).
+composite/lit-cabin et composite/powered-rail-line ; tmp/poser.test.js) ;
+`objet_vers` (eteint, 2026-10-11, lot 2 des actions generiques : `objet` sur
+casser, recolter, ramasser et `vers` sur avancer, explorer, piler, servis au
+modele seulement avec le mode (parametre a `feature` dans skills.js) ; le nom
+devient la matiere figee de l etape (`matiereDe` : catalogue, bloc ou objet
+compte, sinon bloc du registre), refus `objet_inconnu`, arbre commence
+prioritaire ; `avec(...)` sur craft/iron-pickaxe et les composites cabane et
+maison en pierre, retires du banc complet (`Banc:` pour la campagne) ;
+tmp/objet-vers.test.js).
 
 A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
 liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)

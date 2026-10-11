@@ -131,6 +131,11 @@ function setFeatures (changes = {}) {
 function syncActionFeatures () {
   for (const spec of Object.values(skills.ACTIONS)) {
     if (spec.feature) skills.setFeatureEnabled(spec.feature, featureOn(spec.feature, spec.featureDefault ?? true))
+    // Parametres a interrupteur : eteints par defaut (un nouveau parametre se
+    // mesure en A/B avant d etre servi).
+    for (const d of Object.values(spec.params ?? {})) {
+      if (d.feature) skills.setFeatureEnabled(d.feature, featureOn(d.feature, false))
+    }
   }
 }
 syncActionFeatures()
@@ -4072,15 +4077,18 @@ function createMissionRunner (host, injected = {}) {
         ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
         : scaled(scale, 1, 16)
       const arbreEnCours = Boolean(arbreInacheve())
-      const suite = arbreEnCours ? null : rienARecolter()
+      // Objet nomme par le modele (`objet`) : il decide, le code mesure ; les
+      // raccourcis du plan (tout en poche, outil a fabriquer) ne s appliquent pas.
+      const explicite = Boolean(mission.objetExplicite)
+      const suite = arbreEnCours || explicite ? null : rienARecolter()
       // Pas un echec : rien n a rate, la file continue (plan anticipe perime).
       if (suite) {
         return (await etapeSuivanteAuLieu('rien a recolter : tout est en poche')) ??
           { resultat: `rien a recolter : tout est en poche, etape suivante du plan : ${suite}`, code: 'plan' }
       }
-      const assez = arbreEnCours ? null : materiauSuffisant()
+      const assez = arbreEnCours || explicite ? null : materiauSuffisant()
       if (assez) return { resultat: `rien a recolter : ${assez}` }
-      const enAttente = recolteEnAttenteOutil()
+      const enAttente = explicite ? null : recolteEnAttenteOutil()
       if (enAttente) {
         const r = await etapeSuivanteAuLieu(`${enAttente.bloc ?? enAttente.matiere} exige ${enAttente.outil}, encore a fabriquer`)
         if (r) return r
@@ -4182,7 +4190,14 @@ function createMissionRunner (host, injected = {}) {
       // (trees/tall 5f0545a : buches tombees de +5, ramasser 0/1 deux fois,
       // bot reste perche).
       await waitItemsSettled()
-      const items = nearbyItems()
+      // Objet nomme (`objet`) : seulement ce qu il compte.
+      const vise = mission.objetExplicite ? ressource(harvestResource())?.items : null
+      const items = nearbyItems().filter(e => {
+        if (!vise) return true
+        let nom = null
+        try { nom = e.getDroppedItem?.()?.name ?? null } catch (_) {}
+        return !nom || vise.test(nom)
+      })
       // Rien au sol : rien a faire, pas un echec. Le modele planifie souvent
       // « ramasser -> recolter » avant la coupe (19 fois au banc 453d7f4) ;
       // en echec, ce ramasser vide jetait la recolte qui suivait. Une boucle
@@ -5855,6 +5870,60 @@ function createMissionRunner (host, injected = {}) {
     ACTIONS[nom] = async function (scale, params) {
       const manque = contrat.pre.find(pre => !pre.vrai())
       return manque ? manque.echec() : corps(scale, params)
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Cible en parametre (lot 2 des actions generiques, A/B `objet_vers`,
+  // regle du proprietaire du 2026-10-10) : `objet` ou `vers` nomme le bloc,
+  // la matiere ou l objet vise le temps de l etape ; sans lui, la matiere de
+  // la mission (harvestResource). Un seul mecanisme pour toutes : la matiere
+  // figee, que lisent deja la recherche de cible, le compte et la recolte.
+  // -------------------------------------------------------------------------
+
+  // Matiere d un nom donne par le modele : cle du catalogue (nom, bloc ou
+  // objet qu elle compte), sinon bloc du registre (`libre:<bloc>`), sinon null.
+  function matiereDe (nom) {
+    const registry = host.getBot()?.registry
+    const brut = String(nom ?? '').trim().toLowerCase().replace(/^minecraft:/, '').replace(/\s+/g, '_')
+    if (!brut) return null
+    const cle = skills.resolveResource(brut)
+    if (cle && cle !== 'aucune') return cle
+    const catalogue = Object.entries(skills.RESOURCES).filter(([k]) => k !== 'aucune')
+    const parBloc = catalogue.find(([, spec]) => spec.blocks.includes(brut))
+    if (parBloc) return parBloc[0]
+    const parObjet = catalogue.find(([, spec]) => spec.items?.test(brut))
+    if (parObjet) return parObjet[0]
+    return skills.ressourceLibre(brut, registry)
+  }
+
+  const CIBLAGE = { casser: 'objet', recolter: 'objet', ramasser: 'objet', avancer: 'vers', explorer: 'vers', piler: 'vers' }
+  for (const [nom, param] of Object.entries(CIBLAGE)) {
+    const corps = ACTIONS[nom]
+    if (typeof corps !== 'function') continue
+    ACTIONS[nom] = async function (scale, params = {}) {
+      const nomme = params?.[param]
+      if (!nomme || !featureOn('objet_vers', false)) return corps(scale, params)
+      const matiere = matiereDe(nomme)
+      if (!matiere || !ressource(matiere)) {
+        return { resultat: `${param} inconnu : « ${nomme} » n est ni une matiere ni un bloc du jeu`, echec: true, code: 'objet_inconnu' }
+      }
+      // Arbre commence, arbre fini : aucune autre cible avant sa derniere buche.
+      if (nom !== 'ramasser' && matiere !== 'bois' && arbreInacheve()) {
+        const ouvert = arbreInacheve()
+        return { resultat: `arbre commence : ${ouvert.length} buche(s) encore debout, le finir avant de viser ${nomme}`, echec: true, code: 'arbre_inacheve' }
+      }
+      const avant = { figee: mission.matiereFigee, explicite: mission.objetExplicite }
+      mission.matiereFigee = matiere
+      mission.objetExplicite = true
+      try {
+        return await corps(scale, params)
+      } finally {
+        if (mission) {
+          mission.matiereFigee = avant.figee
+          mission.objetExplicite = avant.explicite
+        }
+      }
     }
   }
 
