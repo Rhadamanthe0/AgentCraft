@@ -12,6 +12,7 @@ const memory = require('./memory')
 const { createMissionRunner } = require('./mission')
 const { createApi } = require('./api')
 const { createNavigator } = require('./navigation')
+const { GoalBlocEnVue } = require('./but-bloc')
 const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText, parseArbitrationChoice } = require('./conversation')
 const { createExecutor, awaitPhysicalWithTimeout, createControlLease, runPhysicalOrThrow } = require('./executor')
 const { createStateStore } = require('./state-store')
@@ -439,8 +440,8 @@ const BUILT_BLOCK = /(_planks|_door|_trapdoor|glass|glass_pane|chest|_bed|furnac
 // seche bornee a deux blocs pour ne jamais se blesser (degats au-dela de
 // trois), pas de parkour, liquides evites comme ailleurs.
 const DIG_NAV_TIMEOUT_MS = config.positiveInt(process.env.DIG_NAV_TIMEOUT_MS, 45000, 'DIG_NAV_TIMEOUT_MS')
-// Portee du but « bloc en vue » de digToward, sous celle des actions (4, depuis
-// les yeux) : GoalLookAtBlock mesure depuis le coin du noeud, pas les yeux.
+// Portee du but « bloc en vue » de digToward, des yeux au centre du bloc
+// (but-bloc.js), sous celle des actions (4) : marge pour le poste final.
 const DIG_LOOK_REACH = 3.5
 // `stuck` successifs au meme endroit avant d abandonner un trajet qui creuse.
 const DIG_STUCK_MAX = 3
@@ -524,7 +525,7 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
   stopPathfinding()
   bot.pathfinder.setMovements(movements)
   const goal = block
-    ? new goals.GoalLookAtBlock(block, bot.world, { reach: DIG_LOOK_REACH })
+    ? new GoalBlocEnVue(block, bot.world, { reach: DIG_LOOK_REACH })
     : new goals.GoalNear(position.x, position.y, position.z, range)
   const settleGate = bot.pathfinder.goto(goal).then(
     value => ({ ok: true, value }),
@@ -573,7 +574,9 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     }
     if (!settle.ok) {
       const message = String(settle.error?.message ?? settle.error)
-      const code = /annule/.test(message) ? 'cancelled' : 'no_path'
+      // « Took to long to decide path » : l A* a epuise son temps, pas les
+      // chemins ; no_path a tort egarait le diagnostic (far-hedge-pit).
+      const code = /annule/.test(message) ? 'cancelled' : /Took to long|timeout/i.test(message) ? 'timeout' : 'no_path'
       return { reached: false, code, travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: message.slice(0, 120) }
     }
     if (timedOut) {
@@ -586,7 +589,7 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     return { reached: block ? true : distance <= range + 1, code: 'dug', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), distance }
   } catch (err) {
     const message = String(err?.message ?? err)
-    const code = /timeout/.test(message) ? 'timeout' : /annule/.test(message) ? 'cancelled' : /^stuck$/.test(message) ? 'stuck' : 'no_path'
+    const code = /Took to long|timeout/i.test(message) ? 'timeout' : /annule/.test(message) ? 'cancelled' : /^stuck$/.test(message) ? 'stuck' : 'no_path'
     return { reached: false, code, travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: message.slice(0, 120) }
   } finally {
     clearTimeout(timer)

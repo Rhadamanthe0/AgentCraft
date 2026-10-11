@@ -3012,23 +3012,47 @@ function createMissionRunner (host, injected = {}) {
   // Diagnostic des « Timed out » du banc (2026-10-10) : un bot dont la boucle
   // d evenements se bloque plus de ~30 s est expulse par le serveur. Un etat
   // long a construire (solveur, recherches de blocs) se dit dans le journal.
+  // Chaque partie lourde est chronometree ; un etat lent dit ses trois plus
+  // longues (2026-10-11 : 228 etats de 1 a 8 s par banc complet, surtout la
+  // cabane eclairee et la ligne de minecart, cause encore inconnue).
+  let tempsEtat = null
+  function chrono (nom, fn) {
+    if (!tempsEtat) return fn()
+    const t = Date.now()
+    try {
+      return fn()
+    } finally {
+      tempsEtat[nom] = (tempsEtat[nom] ?? 0) + Date.now() - t
+    }
+  }
+
   function buildState () {
     const debut = Date.now()
     const dejaEnCours = memoCibles !== null
-    if (!dejaEnCours) memoCibles = new Map()
+    if (!dejaEnCours) {
+      memoCibles = new Map()
+      tempsEtat = {}
+    }
     try {
       return buildStateMesure()
     } finally {
-      if (!dejaEnCours) memoCibles = null
       const ms = Date.now() - debut
-      if (ms >= 1000) console.log(`[lent] etat de mission construit en ${ms} ms`)
+      if (ms >= 1000 && !dejaEnCours) {
+        const parties = Object.entries(tempsEtat).sort((x, y) => y[1] - x[1]).slice(0, 3)
+          .map(([nom, t]) => `${nom} ${t} ms`).join(', ')
+        console.log(`[lent] etat de mission construit en ${ms} ms (${parties || 'aucune partie mesuree'})`)
+      }
+      if (!dejaEnCours) {
+        memoCibles = null
+        tempsEtat = null
+      }
     }
   }
 
   function buildStateMesure () {
     const bot = host.getBot()
     const position = bot.entity.position
-    const block = findTargetBlock()
+    const block = chrono('cible', () => findTargetBlock())
     // Meme metrique que l indice de navigation : distance horizontale, et
     // portee jugee sur l ecart vertical. La distance 3D d une buche haute ne
     // descend jamais sous sa hauteur : le bot etait juge « pas encore arrive »
@@ -3077,7 +3101,7 @@ function createMissionRunner (host, injected = {}) {
         // Anti-oscillation visible aussi en geste : avancer droit devant sans
         // relief alterne left/right a pile ou face devant le premier mur.
         environnement: {
-          relief_local: reliefLocal(),
+          relief_local: chrono('relief', () => reliefLocal()),
           piste_recente: pisteGeste,
           boussole_secours: boussoleSecours(null, pisteGeste)
         },
@@ -3104,8 +3128,8 @@ function createMissionRunner (host, injected = {}) {
     // Matiere presente mais hors des bornes de casse (fond de trou, haut de
     // falaise) : l indice de navigation la montre quand meme, sinon le modele
     // la croyait absente et marchait a l aveugle.
-    const lointaine = !block && mission.kind === 'recolte' ? findTargetBlock(undefined, { anyHeight: true }) : null
-    const nav = navigationHint(block ?? lointaine)
+    const lointaine = !block && mission.kind === 'recolte' ? chrono('cible_lointaine', () => findTargetBlock(undefined, { anyHeight: true })) : null
+    const nav = chrono('navigation', () => navigationHint(block ?? lointaine))
     const piste = pisteRecente()
     const cibleDeniv = block ??
       (mission.kind === 'construction' && mission.landmarkResource
@@ -3113,9 +3137,9 @@ function createMissionRunner (host, injected = {}) {
         : null)
     // Cible haute (pilier utile) : mesuree une fois, servie deux fois (le champ
     // `cible_haute` et le signal `dirt_secondaire_admise` qui en derive).
-    const cibleHaute = highTargetHint()
+    const cibleHaute = chrono('cible_haute', () => highTargetHint())
     const secondaryAdmitted = dirtSecondaireAdmise(cibleHaute)
-    const secondaryDirt = secondaryDirtFor(block, secondaryAdmitted)
+    const secondaryDirt = chrono('terre_secondaire', () => secondaryDirtFor(block, secondaryAdmitted))
 
     const state = {
       // Le brief complet, a chaque tour : c est ce qui fait que la consigne
@@ -3210,7 +3234,7 @@ function createMissionRunner (host, injected = {}) {
         objets_au_sol_a_proximite: nearbyItems().length,
         // Nom, nombre et hauteur relative (dy) des objets tombes : un minerai
         // tombe sur un rebord (dy >= 2) ne se ramasse pas en marchant.
-        objets_au_sol: objetsAuSol(),
+        objets_au_sol: chrono('objets_au_sol', () => objetsAuSol()),
         // Fix 2 : direction du plus proche objet tombe (pivoter angle puis
         // avancer distance, ou `ramasser` qui s en charge seul). Separe de
         // `navigation` (bloc a casser) pour ne pas faire casser sur un objet.
@@ -3221,7 +3245,7 @@ function createMissionRunner (host, injected = {}) {
         // de choisir `piler` (monter en pilier avec de la dirt) puis de casser
         // depuis le haut. Nul quand tout est a portee ou quand rien ne depasse.
         cible_haute: cibleHaute,
-        acces_par_montee: climbAccessHint(block),
+        acces_par_montee: chrono('acces_par_montee', () => climbAccessHint(block)),
         // Hache recommandee : mission bois sans hache alors qu une fabrication
         // utile existe (la hache, ou planches/batons/etabli vers elle). Le code
         // mesure la faisabilite, le modele decide de l ordre.
@@ -3235,7 +3259,7 @@ function createMissionRunner (host, injected = {}) {
         // chose utile ; `bloque` dit ce que le bot ne sait pas faire
         // (cuisson...). Nul sinon.
         prerequis: (() => {
-          const plan = acquisition()
+          const plan = chrono('solveur', () => acquisition())
           return plan ? { ...acquirePlan.summarize(plan), matiere_a_recolter: harvestResource() } : null
         })(),
         // Dirt secondaire admise : mission bois avec cible_haute et stock de
@@ -3253,10 +3277,10 @@ function createMissionRunner (host, injected = {}) {
         // passer, le denivele dit s il faut contourner, la piste montre une
         // boucle, la boussole donne un cap quand rien n est en vue. Champs
         // nuls si illisibles : jamais d exception sur un chunk non charge.
-        relief_local: reliefLocal(),
-        denivele_cible: deniveleCible(cibleDeniv),
+        relief_local: chrono('relief', () => reliefLocal()),
+        denivele_cible: chrono('denivele', () => deniveleCible(cibleDeniv)),
         piste_recente: piste,
-        boussole_secours: boussoleSecours(nav, piste)
+        boussole_secours: chrono('boussole', () => boussoleSecours(nav, piste))
       },
       dernieres_etapes: mission.history.slice(-4),
       // Ce que les joueurs viennent de dire. Relu a chaque etape, pour qu un
@@ -3342,7 +3366,7 @@ function createMissionRunner (host, injected = {}) {
     }
 
     if (mission.kind === 'construction') {
-      const progress = buildProgress()
+      const progress = chrono('chantier', () => buildProgress())
       const material = buildItem()
 
       state.chantier = {
@@ -3364,7 +3388,7 @@ function createMissionRunner (host, injected = {}) {
         // « fabriquer » plutot que « construire ».
         state.chantier.materiau_manquant = Math.max(0, progress.left - stock)
         state.chantier.porte_en_inventaire = state.inventaire?.porte_en_inventaire ?? 0
-        const besoins = besoinsConstruction(progress, stock)
+        const besoins = chrono('besoins', () => besoinsConstruction(progress, stock))
         if (besoins) state.besoins = besoins
       }
     }
@@ -3379,7 +3403,7 @@ function createMissionRunner (host, injected = {}) {
       mission.reparesCodes?.clear()
     }
 
-    const stuck = detectStuck()
+    const stuck = chrono('blocage', () => detectStuck())
     mission.stuck = stuck.detecte
     mission.stuckWhy = stuck.raison
 
