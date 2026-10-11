@@ -1321,8 +1321,24 @@ registre du jeu (souvent un nom francais ou invente) : rends l identifiant
 anglais exact du meme bloc, ou null si tu ne le connais pas.`
 }
 
-function briefPrompt (ouvert = false) {
-  const key = ouvert ? 'brief|ouvert' : 'brief'
+// Section ajoutee au brief quand l action `poser` existe (A/B `poser`) :
+// les objets que le joueur veut voir POSES dans le monde. Prompt a part
+// (cle `|pose`) : le brief ordinaire et son cache ne bougent pas.
+function briefPose () {
+  return `
+
+"pose" : quand le joueur veut des objets POSES dans le monde hors d un
+chantier de blocs (rails, torches, levier, cloture, minecart, bateau...),
+la liste de ces objets, nom d objet Minecraft en anglais comme dans le jeu,
+avec la quantite si elle est dite : [{"objet": "torch", "quantite": 4}] ;
+sinon null. Chaque objet que la demande fait poser y figure, meme implicite
+(un objet qui roule sur des rails exige ces rails). La mission est alors une
+"recolte" (le bot obtient puis pose), sauf si elle bati aussi un chantier
+("construction"). Ajoute ce champ au JSON : {"pose": null}.`
+}
+
+function briefPrompt (ouvert = false, pose = false) {
+  const key = `brief${ouvert ? '|ouvert' : ''}${pose ? '|pose' : ''}`
   if (!prompts.has(key)) {
     prompts.set(key, `Tu lis l objectif qu un joueur confie a un bot Minecraft et tu en extrais ce qu il faut en retenir.
 
@@ -1337,7 +1353,11 @@ vaut le nombre demande s il est dit, sinon null (le code compte, pas toi).
 Une demande de fabrication est un type "recolte" (le bot recolte puis
 fabrique), JAMAIS un "geste" : "fabrique une hache" -> type recolte,
 fabrication "hache", pas un geste a clore en un plan. Ne mets null que s il
-n y a vraiment aucun objet a fabriquer.
+n y a vraiment aucun objet a fabriquer. Plusieurs objets demandes => une liste,
+dans l ordre dit, chacun avec la matiere dite meme une seule fois pour tous
+("une pioche, une hache et une epee en pierre" -> ["stone_pickaxe",
+"stone_axe", "stone_sword"]) ; "fabrication_quantite" vaut alors pour le
+premier.
 
 Ne reduis jamais la demande a la seule partie que le bot sait executer.
 "livraison" est true si un objet doit etre donne/remis/apporte au joueur, meme
@@ -1395,7 +1415,7 @@ une entree ou un acces dans ce qui doit etre construit.
 "confiance" : de 0 a 1, ta certitude sur le type et la matiere.
 
 Tu ne rends aucune dimension et aucun nombre de blocs : le code les lit
-lui-meme dans la phrase.${ouvert ? briefOuvert() : ''}`)
+lui-meme dans la phrase.${ouvert ? briefOuvert() : ''}${pose ? briefPose() : ''}`)
   }
   return prompts.get(key)
 }
@@ -1451,7 +1471,7 @@ async function readBrief (objective, opts = {}) {
   if (!isEnabled()) return null
 
   const relanceMs = opts.relance === false ? 0 : BRIEF_RELAUNCH_MS
-  const response = await call(briefPrompt(opts.ouvert === true), JSON.stringify({ objectif: objective }), null, { ...opts, relanceMs, task: 'readBrief' })
+  const response = await call(briefPrompt(opts.ouvert === true, opts.pose === true), JSON.stringify({ objectif: objective }), null, { ...opts, relanceMs, task: 'readBrief' })
   const parsed = parseJson(response.content)
   // Mode ouvert : un "bloc" absent du registre (un nom francais, invente)
   // est renvoye UNE fois au modele avec le nom refuse ; le code verifie
@@ -1459,7 +1479,7 @@ async function readBrief (objective, opts = {}) {
   let ms = response.ms
   if (opts.ouvert === true && typeof parsed?.bloc === 'string' && typeof opts.blocConnu === 'function' && !opts.blocConnu(parsed.bloc)) {
     const refuse = parsed.bloc.slice(0, 60)
-    const second = await call(briefPrompt(true), JSON.stringify({ objectif: objective, bloc_refuse: refuse }), null, { ...opts, relanceMs, task: 'readBrief' })
+    const second = await call(briefPrompt(true, opts.pose === true), JSON.stringify({ objectif: objective, bloc_refuse: refuse }), null, { ...opts, relanceMs, task: 'readBrief' })
     ms = (ms ?? 0) + (second.ms ?? 0)
     const bloc = parseJson(second.content)?.bloc
     parsed.bloc = typeof bloc === 'string' && opts.blocConnu(bloc) ? bloc : null
@@ -1490,9 +1510,12 @@ async function readBrief (objective, opts = {}) {
   // Cible de fabrication (generique, sans regex de phrase) : le brut du modele
   // ("hache", "minecraft:torch", "batons"...), la validation registre + la
   // quantite relevant du code (mission.js). Quantite LLM indicative seulement.
-  const fabRaw = parsed?.fabrication === null || parsed?.fabrication === undefined
-    ? null
-    : String(parsed.fabrication).trim().slice(0, 40) || null
+  // Plusieurs objets (liste) : le premier est la cible, les suivants
+  // viennent apres lui, un a la fois (mission.fabricationSuite).
+  const fabListe = (Array.isArray(parsed?.fabrication) ? parsed.fabrication : [parsed?.fabrication])
+    .filter(f => f !== null && f !== undefined)
+    .map(f => String(f).trim().slice(0, 40)).filter(Boolean).slice(0, 6)
+  const fabRaw = fabListe[0] ?? null
   // Quantite indicative du modele seulement ; absente => null (le code lit le
   // chiffre dans la phrase, sinon 1). Number(null) valant 0, tester l absence
   // d abord pour ne pas transformer un silence en quantite 1 forcee ici.
@@ -1511,6 +1534,7 @@ async function readBrief (objective, opts = {}) {
     needsWeb: parsed?.recherche_web === true,
     fabrication: fabRaw,
     fabricationQuantite: fabQty,
+    fabricationSuite: fabListe.slice(1),
     kind,
     kindConfidence: confidence,
     resource: pick(parsed?.matiere, resources, 'aucune'),
@@ -1527,6 +1551,8 @@ async function readBrief (objective, opts = {}) {
     horsCapacites: opts.ouvert === true && Object.prototype.hasOwnProperty.call(skills.CAPACITES_ABSENTES, parsed?.hors_capacites)
       ? parsed.hors_capacites
       : null,
+    // Objets a poser (A/B `poser`) : bruts du modele, valides par le code.
+    pose: opts.pose === true && Array.isArray(parsed?.pose) ? parsed.pose.slice(0, 6) : null,
     usage: response.usage ?? null,
     ms
   }

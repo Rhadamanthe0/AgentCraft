@@ -164,7 +164,7 @@ UNIT = ['attendre-chunks.test.js', 'navigation.test.js', 'navigation-drop.test.j
         'place-direct.test.js', 'craft-table-reuse.test.js',
         # Ajoutes le 2026-09-27 (revue : 1 a 11 s chacun, regressions a bas cout).
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
-        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'navigation-place.test.js', 'sous-buts.test.js', 'skill-sim.test.js', 'construire-trou.test.js', 'reparer.test.js', 'buts-ouverts.test.js', 'arbitrage-options.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
+        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'navigation-place.test.js', 'sous-buts.test.js', 'skill-sim.test.js', 'construire-trou.test.js', 'reparer.test.js', 'poser.test.js', 'minerai-faisable.test.js', 'trouver-blocs.test.js', 'buts-ouverts.test.js', 'arbitrage-options.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
         'delivery.test.js', 'planner-profile.test.js', 'planner-relaunch.test.js', 'planner-outage.test.js','llm.test.js', 'executor.test.js', 'objective-controller.test.js',
         'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js', 'ouvrir-porte.test.js', 'enclosure.test.js',
         'physical-exclusive.test.js', 'execution-envelope.test.js', 'objective-failed.test.js',
@@ -350,6 +350,16 @@ def main():
 
     def compose(*argv, **kwargs):
         return command(base + list(argv), **kwargs)
+
+    def read_ops(tries=3):
+        # ops.json du serveur (preuve de survie) ; trois essais de 90 s.
+        for attempt in range(tries):
+            try:
+                return json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json', timeout=90).stdout)
+            except subprocess.TimeoutExpired:
+                if attempt == tries - 1:
+                    raise
+                time.sleep(5)
 
     # Direct RCON over the loopback port published by compose: one TCP
     # connection shared by all level threads (lock), instead of one
@@ -669,7 +679,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             elif started_up.returncode:
                 raise RuntimeError(f'Command failed ({started_up.returncode}): docker compose up harness; see commands.log')
             load_endpoints()
-            ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
+            ops = read_ops()
             mode = rcon('data get entity TestProbe1 playerGameType')
             if ops or not re.search(r':\s*0\s*$', mode):
                 raise RuntimeError('Expected empty ops.json and survival mode: ' + mode)
@@ -718,7 +728,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             nav_thread.start()
         if trees_wanted:
             if planner_key_present():
-                ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
+                ops = read_ops()
                 if ops:
                     raise RuntimeError('Expected empty ops.json: ' + json.dumps(ops))
                 # Footprint all through the levels: one `docker stats` sample
@@ -791,7 +801,14 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 phase('levels', levels_started)
                 levels_done.set()
                 sampler.join(90)
-                ops = json.loads(compose('exec', '-T', 'minecraft', 'cat', '/data/ops.json').stdout)
+                # Machine saturee en fin de banc : un `exec` a depasse 60 s et
+                # l exception perdait tous les resultats des niveaux (run
+                # 38089012969, essai 3). Rejoue, puis erreur dite sans rien perdre.
+                try:
+                    ops = read_ops()
+                except Exception as error:
+                    ops = None
+                    report['errors'].append('ops.json illisible en fin de banc : ' + str(error)[:300])
                 report['botSurvivalProof'] = {'ops': ops, 'playerGameType': report['pool'].pop('survival', {})}
                 if ops:
                     report['errors'].append('ops.json non vide en fin de banc : ' + json.dumps(ops))

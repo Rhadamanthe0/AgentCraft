@@ -84,7 +84,19 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
       bot.heldItem = owned
     },
     unequip: async () => { bot.heldItem = null },
-    activateBlock: async () => {},
+    // Objet-entite tenu (minecart, bateau...) utilise sur un bloc : l entite
+    // apparait dessus, l objet est consomme, comme au serveur.
+    activateBlock: async block => {
+      const tenu = bot.heldItem && bot.heldItem.count > 0 ? bot.heldItem : null
+      if (!tenu || registry.blocksByName[tenu.name] || !registry.entitiesByName?.[tenu.name]) return
+      const entity = { id: nextId++, uuid: `sim-${nextId}`, name: tenu.name, type: 'other',
+        position: block.position.offset(0.5, 0.1, 0.5), velocity: new Vec3(0, 0, 0) }
+      bot.entities[entity.id] = entity
+      tenu.count -= 1
+      if (tenu.count <= 0) bot.heldItem = null
+      journal.places.push(tenu.name)
+      bot.emit('entitySpawn', entity)
+    },
     canDigBlock: block => Boolean(block && block.diggable !== false),
     digTime: () => 50,
     stopDigging () {},

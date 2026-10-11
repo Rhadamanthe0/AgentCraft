@@ -59,9 +59,22 @@ function createApi (rt, deps) {
   app.use(express.json({ limit: '16kb' }))
   app.use(express.static(path.join(__dirname, 'public')))
 
+  // Entre une deconnexion et le spawn suivant, le monde de mineflayer n existe
+  // pas (`getBlock` de undefined) : l etat dit « pas encore apparu » au lieu
+  // d un HTTP 500 qui faisait echouer le niveau suivant du banc (06d881f :
+  // terrain/plateau et trees/tall rouges apres un « Timed out »).
   app.get('/api/status', (req, res) => {
+    try {
+      res.json(etatComplet())
+    } catch (err) {
+      if (rt.spawned) throw err
+      res.json({ ok: true, connected: Boolean(rt.bot), spawned: false, username: rt.bot?.username ?? BOT_USERNAME, mondeAbsent: err.message })
+    }
+  })
+
+  function etatComplet () {
     const position = rt.bot?.entity?.position
-    res.json({
+    return {
       ok: true,
       connected: Boolean(rt.bot),
       spawned: rt.spawned,
@@ -139,8 +152,8 @@ function createApi (rt, deps) {
       supply: missionRunner.SUPPLY,
       inventory: rt.bot?.inventory ? craft.snapshot(rt.bot) : null,
       heldItem: rt.bot?.heldItem?.name ?? null
-    })
-  })
+    }
+  }
 
   // La table des commandes et le resultat de l audit, pour verifier sans lire le
   // code que chat, catalogue et handlers parlent bien de la meme chose.
@@ -647,7 +660,9 @@ function createApi (rt, deps) {
       return res.status(err.statusCode || err.status || 400).json({ ok: false, error: err.message })
     }
 
-    console.error('[api] erreur non geree :', err.message)
+    // Les trois premiers cadres de la pile : sans eux, une erreur d un
+    // accesseur partage (`getBlock`) ne dit pas qui l a levee.
+    console.error('[api] erreur non geree :', err.message, String(err.stack ?? '').split('\n').slice(1, 4).map(l => l.trim()).join(' < '))
     res.status(500).json({ ok: false, error: err.message })
   })
 

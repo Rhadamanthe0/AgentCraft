@@ -45,7 +45,9 @@ function lireBrief (brief = {}) {
     clearanceLimit: brief.degagement === 1 ? 1 : 0,
     needsTransfer: brief.livraison === true,
     needsWeb: false,
-    fabrication: typeof brief.fabrication === 'string' ? brief.fabrication : null,
+    fabrication: typeof brief.fabrication === 'string' ? brief.fabrication
+      : (Array.isArray(brief.fabrication) ? brief.fabrication[0] ?? null : null),
+    fabricationSuite: Array.isArray(brief.fabrication) ? brief.fabrication.slice(1) : [],
     fabricationQuantite: Number.isFinite(Number(brief.fabrication_quantite)) && brief.fabrication_quantite !== null
       ? Number(brief.fabrication_quantite)
       : null,
@@ -59,6 +61,8 @@ function lireBrief (brief = {}) {
     // Mode ouvert (A/B buts_ouverts) : bloc du registre, capacite absente.
     blocRegistre: typeof brief.bloc === 'string' ? brief.bloc : null,
     horsCapacites: typeof brief.hors_capacites === 'string' ? brief.hors_capacites : null,
+    // Objets a poser (A/B poser).
+    pose: Array.isArray(brief.pose) ? brief.pose : null,
     door: brief.porte === true,
     doorProbability: brief.porte === true ? 1 : 0,
     usage: null,

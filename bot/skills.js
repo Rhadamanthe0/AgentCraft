@@ -465,10 +465,20 @@ const ACTIONS = {
     kinds: ['recolte', 'construction'],
     feature: 'sous_buts',
     featureDefault: false,
-    summary: 'obtenir l objet du solveur (fabrication demandee ou outil manquant)',
-    scale: 'sans effet',
+    summary: 'obtenir un objet nomme (ou celui du solveur) par toute sa chaine',
+    scale: 'nombre d objets voulus en poche, de 1 a 64',
     secondes: 45,
-    intent: "prerequis (etat) liste une chaine (recolter, fabriquer, cuire) : le code la deroule jusqu a l objet, sur l inventaire reel. Rend la main objet en poche, ou au premier echec avec son code et ses remedes"
+    intent: "Avoir un objet en poche : le code calcule et deroule sa chaine (recolter, fabriquer, cuire) sur l inventaire reel. Sans objet : celui du solveur (prerequis, fabrication demandee ou outil manquant). Rend la main objet en poche, ou au premier echec avec son code et ses remedes",
+    params: {
+      objet: {
+        json: { kind: 'text', max: 40 },
+        question: 'Quel objet obtenir (nom d objet Minecraft, optionnel) ?'
+      },
+      quantite: {
+        json: { kind: 'number', min: 1, max: 64 },
+        question: 'Combien en avoir en poche ?'
+      }
+    }
   },
 
   poser_porte: {
@@ -477,6 +487,36 @@ const ACTIONS = {
     scale: 'sans effet',
     secondes: 2,
     intent: "Les murs sont montes, le joueur a demande une porte et une porte est en inventaire : la poser dans l ouverture laissee a cet effet"
+  },
+
+  // Poser un objet (A/B `poser`, regle immuable du proprietaire : l objet et
+  // le lieu sont des parametres, AGENTS.md). bot/action-poser.js.
+  poser: {
+    kinds: ['recolte', 'deplacement', 'construction', 'geste'],
+    feature: 'poser',
+    featureDefault: false,
+    summary: 'poser un objet de l inventaire dans le monde, ou une ligne d objets',
+    scale: 'nombre d objets poses, de 1 a 40',
+    secondes: 1.5,
+    intent: "Poser un objet en poche hors du plan de chantier (rail, torche, levier, cloture, bloc isole ; minecart ou bateau). Sans lieu : devant le bot. `de` seul : a cote du bloc nomme le plus proche (un objet qui n est pas un bloc, comme un minecart, se pose SUR ce bloc). `de` et `vers` : une ligne de cases au sol d un bloc nomme a l autre, droite ou en L, cases deja prises sautees. Blocs nommes en anglais comme dans le jeu, jamais de coordonnees. Le code ne compte que les poses que le monde montre",
+    params: {
+      objet: {
+        json: { kind: 'text', max: 40 },
+        question: 'Quel objet poser (nom d objet Minecraft) ?'
+      },
+      quantite: {
+        json: { kind: 'number', min: 1, max: 40 },
+        question: 'Combien en poser (ligne : toutes ses cases libres par defaut) ?'
+      },
+      de: {
+        json: { kind: 'text', max: 40 },
+        question: 'A cote de quel bloc, ou depuis quel bloc pour une ligne (nom de bloc, optionnel) ?'
+      },
+      vers: {
+        json: { kind: 'text', max: 40 },
+        question: 'Jusqu a quel bloc tirer la ligne (nom de bloc, optionnel) ?'
+      }
+    }
   },
 
   sortir: {
@@ -914,7 +954,7 @@ function resourceSpec (key, registry) {
 const CAPACITES_ABSENTES = {
   conteneur: 'ouvrir un coffre, un tonneau, un entonnoir ou un autre conteneur pour y deposer ou en retirer des objets (la cuisson au four, elle, existe)',
   animal: 'agir sur un animal : le nourrir, le faire se reproduire, le tondre, le traire, le mener en laisse, l attirer ou l enfermer',
-  mecanisme: 'faire de la redstone ou des mecanismes : entonnoirs relies, pistons, rails, leviers, circuits, fermes automatiques',
+  mecanisme: 'concevoir un circuit de redstone ou un mecanisme automatique : entonnoirs relies, pistons, portes logiques, fermes automatiques (poser un rail, une torche ou un minecart n en est pas un)',
   culture: 'semer, planter, labourer ou faire pousser des cultures',
   combat: 'combattre ou chasser des creatures',
   dimension: 'aller dans le Nether ou l End',
@@ -1176,6 +1216,11 @@ const ACTION_EXEMPLES = {
   choisir_terrain: ['chantier.emplacement_choisi faux -> choisir_terrain avant toute pose'],
   construire: ['chantier.materiau_en_inventaire > 0 -> {"action":"construire","quantite":30,"objet":"oak_planks"} (rafales longues : la borne de rafale coupe, pas la quantite)'],
   poser_porte: ['murs montes et porte en inventaire -> poser_porte'],
+  poser: [
+    'consigne.poses liste torch et torches en poche -> {"action":"poser","objet":"torch","de":"oak_planks"}',
+    'cloture demandee d un arbre a l autre, oak_fence en poche -> {"action":"poser","objet":"oak_fence","de":"oak_log","vers":"birch_log"}',
+    'objet a poser absent de l inventaire -> fabriquer ou recolter d abord (environnement.prerequis), puis poser'
+  ],
   sortir: ['bot.dans_liquide vrai -> sortir avant tout le reste'],
   ouvrir_porte: ['avancer ou recolter -> no_path et bot dans un batiment a porte en bois -> ouvrir_porte, puis reprendre le trajet'],
   attendre: ['une action longue est deja en cours -> attendre, mais preferer regarder_autour si on ne sait pas quoi faire'],
@@ -1275,7 +1320,7 @@ const ETAT_ENV_CHAMPS = new Set([
 const ETAT_NAV_SOUS_CHAMPS = new Set(['cible', 'distance', 'angle', 'a_portee', 'combien'])
 
 const ETAT_SOUS_CHAMPS = {
-  consigne: new Set(['texte', 'demandeur', 'type', 'matiere', 'repere', 'porte_demandee', 'dimensions', 'fabrication_cible', 'fabrication_quantite']),
+  consigne: new Set(['texte', 'demandeur', 'type', 'matiere', 'repere', 'porte_demandee', 'dimensions', 'fabrication_cible', 'fabrication_quantite', 'fabrications_suivantes', 'poses']),
   progression: new Set(['etapes_effectuees', 'blocs_casses', 'objets_recoltes', 'unites_recoltees', 'dirt_secondaire', 'temps_ecoule_s', 'fabrication_produits', 'fabrication_visee']),
   bot: new Set(['position', 'vie', 'dans_liquide', 'en_deplacement', 'orientation']),
   inventaire: new Set([

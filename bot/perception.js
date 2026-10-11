@@ -66,13 +66,138 @@ function estLiquide (nom) {
 // through). La face du dessous ne se voit que d en dessous : sous les pieds du
 // bot, elle ne compte pas (vu sur craft/stone-pickaxe : dessous de la couche de
 // pierre sous l arene, a l air libre, vise puis creuse vers le bas).
-function blocExpose (bot, pos, feetLevel) {
+const FACES = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
+const VOISIN = new Vec3(0, 0, 0)
+// `lire(x, y, z)` (lecteur d etats de trouverBlocs, colonne gardee) evite la
+// recherche de colonne a chaque face.
+function blocExpose (bot, pos, feetLevel, lire = null) {
+  if (typeof lire !== 'function') lire = null // appele par Array.filter : (pos, indice)
+  if (lire || (typeof bot.world?.getBlockStateId === 'function' && bot.registry?.blocksByStateId)) {
+    // Chemin rapide (recherches sur tout un rayon) : numeros d etat, aucun
+    // objet Block ni Vec3 par face.
+    for (const [x, y, z] of FACES) {
+      if (y === -1 && pos.y < feetLevel) continue
+      let etat
+      if (lire) etat = lire(pos.x + x, pos.y + y, pos.z + z)
+      else {
+        VOISIN.x = pos.x + x; VOISIN.y = pos.y + y; VOISIN.z = pos.z + z
+        etat = bot.world.getBlockStateId(VOISIN)
+      }
+      if (laisseVoir(bot.registry, etat)) return true
+    }
+    return false
+  }
   const see = p => {
     const b = bot.blockAt(p)
     return !b || b.boundingBox !== 'block' || /_leaves$|glass/.test(b.name)
   }
-  return [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]
-    .some(([x, y, z]) => !(y === -1 && pos.y < feetLevel) && see(pos.offset(x, y, z)))
+  return FACES.some(([x, y, z]) => !(y === -1 && pos.y < feetLevel) && see(pos.offset(x, y, z)))
+}
+
+// Meme regle que `see` de blocExpose, lue sur le numero d etat : aucun objet
+// Block construit (un bloc absent ou une case non chargee laisse voir).
+const VUE = new WeakMap() // registry -> Uint8Array par numero d etat : 0 inconnu, 1 masque, 2 laisse voir
+function laisseVoir (registry, stateId) {
+  let table = VUE.get(registry)
+  if (!table) VUE.set(registry, table = new Uint8Array(1 << 16))
+  if (!(stateId >= 0 && stateId < table.length)) {
+    const def = registry.blocksByStateId[stateId]
+    return !def || def.boundingBox !== 'block' || /_leaves$|glass/.test(def.name)
+  }
+  if (table[stateId] === 0) {
+    const def = registry.blocksByStateId[stateId]
+    table[stateId] = !def || def.boundingBox !== 'block' || /_leaves$|glass/.test(def.name) ? 2 : 1
+  }
+  return table[stateId] === 2
+}
+
+// Recherche de blocs par numero d etat, sans objet Block (2026-10-11). Le
+// `findBlocks` de mineflayer avec un filtre en fonction construit un Block pour
+// CHAQUE case de chaque section qui contient la matiere : la pierre est dans
+// toutes les sections du sous-sol, ~400 000 Block par recherche, 2 a 13 s de
+// boucle bloquee par etat de mission au banc (expulsions « Timed out »). Ici :
+// numeros d etat des `ids`, sections triees par distance, filtre sur la
+// position seule ; meme resultat (les `count` plus proches retenues par le
+// filtre, triees). Le filtre recoit `(pos, lire)` : `lire(x, y, z)` donne
+// l etat d une case sans chercher sa colonne (blocExpose s en sert). Sans
+// monde par sections (bots simules), repli sur `findBlocks`.
+function trouverBlocs (bot, { ids, filtre = null, maxDistance, count = 1, point = null }) {
+  const centre = (point ?? bot.entity.position).floored()
+  const world = bot.world
+  const registry = bot.registry
+  const minY = bot.game?.minY
+  if (typeof world?.getColumn !== 'function' || typeof world.getBlockStateId !== 'function' ||
+      !registry?.blocks || !Number.isFinite(minY) || !Number.isFinite(bot.game?.height)) {
+    const opts = { matching: ids, maxDistance, count, point: centre }
+    if (filtre) opts.useExtraInfo = b => filtre(b.position)
+    return bot.findBlocks(opts)
+  }
+  const etats = new Set()
+  for (const id of [].concat(ids)) {
+    const def = registry.blocks[id]
+    if (def) for (let e = def.minStateId; e <= def.maxStateId; e++) etats.add(e)
+  }
+  if (etats.size === 0) return []
+  const nbSections = bot.game.height >> 4
+  const rayon = Math.ceil((maxDistance + 8) / 16)
+  const sx = Math.floor(centre.x / 16)
+  const sy = Math.floor(centre.y / 16)
+  const sz = Math.floor(centre.z / 16)
+  // Distance minimale du centre a chaque section : on s arrete des que la
+  // section suivante est plus loin que le dernier bloc retenu.
+  const sections = []
+  for (let dx = -rayon; dx <= rayon; dx++) {
+    for (let dy = -rayon; dy <= rayon; dy++) {
+      for (let dz = -rayon; dz <= rayon; dz++) {
+        const x = sx + dx; const y = sy + dy; const z = sz + dz
+        const ecart = (c, lo) => Math.max(lo - c, 0, c - (lo + 15))
+        const d = Math.hypot(ecart(centre.x, x * 16), ecart(centre.y, y * 16), ecart(centre.z, z * 16))
+        if (d <= maxDistance) sections.push({ x, y, z, d })
+      }
+    }
+  }
+  sections.sort((a, b) => a.d - b.d)
+  // Lecteur d etats a colonne gardee (une case non chargee est de l air,
+  // comme world.getBlockStateId).
+  const local = new Vec3(0, 0, 0)
+  let cle = null
+  let col = null
+  const lire = (x, y, z) => {
+    const cx = x >> 4; const cz = z >> 4
+    if (cle === null || cle[0] !== cx || cle[1] !== cz) { cle = [cx, cz]; col = world.getColumn(cx, cz) }
+    if (!col) return 0
+    local.x = x & 15; local.y = y; local.z = z & 15
+    return col.getBlockStateId(local)
+  }
+  const trouves = []
+  for (const sec of sections) {
+    if (trouves.length >= count) {
+      trouves.sort((a, b) => a.dist - b.dist)
+      trouves.length = count
+      if (sec.d > trouves[count - 1].dist) break
+    }
+    const indice = sec.y - (minY >> 4)
+    if (indice < 0 || indice >= nbSections) continue
+    const colonne = world.getColumn(sec.x, sec.z)
+    const section = colonne?.sections?.[indice]
+    if (!section) continue
+    if (Array.isArray(section.palette) && !section.palette.some(e => etats.has(e))) continue
+    const x0 = sec.x * 16; const y0 = sec.y * 16; const z0 = sec.z * 16
+    for (let x = x0; x < x0 + 16; x++) {
+      for (let y = y0; y < y0 + 16; y++) {
+        for (let z = z0; z < z0 + 16; z++) {
+          if (!etats.has(lire(x, y, z))) continue
+          const dist = Math.hypot(x - centre.x, y - centre.y, z - centre.z)
+          if (dist > maxDistance) continue
+          const pos = new Vec3(x, y, z)
+          if (filtre && !filtre(pos, lire)) continue
+          trouves.push({ pos, dist })
+        }
+      }
+    }
+  }
+  trouves.sort((a, b) => a.dist - b.dist)
+  return trouves.slice(0, count).map(t => t.pos)
 }
 
 // Columns under the bot's 0.6-wide hitbox at height y.
@@ -403,7 +528,7 @@ function lireInstantane (snap) {
 
 module.exports = {
   REACH, PILER_MAX, MAX_REACH_UP, PILER_DIRT, scaffoldingStock,
-  SONDE_DIRS, estAir, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
+  SONDE_DIRS, estAir, estLiquide, estSolide, blocExpose, laisseVoir, trouverBlocs, colonnesSousHitbox, peutSauter,
   JUMP_LOOKAHEAD, marcheDevant, CHUTE_MAX, videDevant, sondeAlentours, capDepuisVecteur, CASE_PAR_CAP,
   choisirCoteContournement, dansEmprise, hauteurDePilier, postesDePilier, instantane, lireInstantane
 }

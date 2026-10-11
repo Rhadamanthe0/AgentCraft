@@ -74,7 +74,9 @@ test('ancien descripteur : coupe sans identifiant confirmee par le compte, spawn
 test('schema de reprise : bornes et valeurs par defaut, aller-retour', () => {
   const schema = missionState.schemaReprise({ landmarks: { ici: {}, arbre: {} }, defaultQuota: 16, craftMin: 1, craftMax: 16 })
   const m = { kind: 'recolte', resource: 'bois', landmark: 'arbre', quota: 5, quotaExplicite: true, wholeTree: false,
-    pendingJoin: true, fabricationCible: 'hache', fabricationQuantite: 2, fabricationInitial: 1 }
+    pendingJoin: true, fabricationCible: 'hache', fabricationQuantite: 2, fabricationInitial: 1,
+    poses: [{ objet: 'rail', quantite: null }, { objet: 'torch', quantite: 4 }], posesFaites: { rail: 3 },
+    fabricationSuite: [{ objet: 'stone_sword', initial: 0 }], fabricationsFaites: ['stone_pickaxe'] }
   assert.deepEqual(missionState.restaurer(schema, JSON.parse(JSON.stringify(missionState.serialiser(schema, m)))), m)
   const borne = missionState.restaurer(schema, { kind: 'recolte', resource: 'bois', landmark: 'lune', quota: 'x',
     fabricationQuantite: 99, fabricationInitial: -3 })
@@ -84,4 +86,10 @@ test('schema de reprise : bornes et valeurs par defaut, aller-retour', () => {
   assert.equal(borne.fabricationInitial, 0)
   assert.equal(borne.fabricationCible, null)
   assert.equal(borne.pendingJoin, false)
+  assert.deepEqual(borne.fabricationSuite, [])
+  assert.deepEqual(missionState.restaurer(schema, { fabricationSuite: [{ objet: 'stone_axe', initial: -2 }, { initial: 1 }], fabricationsFaites: ['a', 3] }).fabricationSuite, [{ objet: 'stone_axe', initial: 0 }])
+  assert.deepEqual(borne.poses, [])
+  assert.deepEqual(missionState.restaurer(schema, { poses: [{ objet: 'rail', quantite: 2.5 }, { quantite: 3 }], posesFaites: { rail: -1, torch: 2 } }).poses,
+    [{ objet: 'rail', quantite: null }])
+  assert.deepEqual(missionState.restaurer(schema, { posesFaites: { rail: -1, torch: 2 } }).posesFaites, { torch: 2 })
 })

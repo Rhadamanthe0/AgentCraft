@@ -43,6 +43,15 @@ const REMEDES = {
   obtenir_bloque: ['explorer', 'recolter'],
   obtenir_sans_progres: ['recolter', 'fabriquer', 'explorer'],
   obtenir_borne: ['obtenir', 'fabriquer'],
+  // Poser un objet (action-poser.js)
+  objet_inconnu: [],
+  objet_absent: ['obtenir', 'fabriquer', 'cuire', 'recolter'],
+  ancre_inconnue: [],
+  ancre_absente: ['explorer', 'regarder_autour', 'avancer'],
+  aucune_case: ['avancer', 'casser'],
+  pose_hors_portee: ['avancer', 'sortir'],
+  pose_refusee: ['avancer', 'sortir'],
+  enfermement: ['sortir', 'avancer'],
   // Dons
   invalid_item: ['donner'],
   invalid_count: ['donner'],
@@ -74,6 +83,7 @@ const REMEDES_PAR_ACTION = {
   piler: ['casser', 'fabriquer', 'avancer'],
   construire: ['choisir_terrain', 'recolter', 'fabriquer', 'sortir'],
   poser_porte: ['fabriquer', 'construire', 'sortir'],
+  poser: ['avancer', 'fabriquer', 'sortir'],
   ouvrir_porte: ['sortir', 'avancer'],
   sortir: ['casser', 'piler'],
   choisir_terrain: ['avancer', 'explorer'],

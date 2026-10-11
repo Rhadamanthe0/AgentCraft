@@ -261,6 +261,19 @@ describe('profil pilote : budget distinct et reessai troncature (D37 live)', () 
     assert.equal(brief.fabricationQuantite, 1)
     assert.equal(brief.kind, 'recolte')
     assert.equal(seen.length, 1)
+    assert.deepEqual(brief.fabricationSuite, [])
+  })
+
+  it('readBrief fabrication : plusieurs objets, le premier est la cible, la suite gardee', async () => {
+    const planner = loadPlanner({ PLANNER_MODEL: undefined })
+    mockLlm(async () => ({
+      content: '{"type":"recolte","matiere":"pierre","repere":"ici","porte":0,"confiance":0.9,"parcours":null,"fabrication":["stone_pickaxe","stone_axe",null,"stone_sword"],"fabrication_quantite":null}',
+      usage: null,
+      ms: 1
+    }))
+    const brief = await planner.readBrief('fabrique-toi une pioche, une hache et une epee en pierre')
+    assert.equal(brief.fabrication, 'stone_pickaxe')
+    assert.deepEqual(brief.fabricationSuite, ['stone_axe', 'stone_sword'])
   })
 })
 

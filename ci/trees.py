@@ -144,7 +144,8 @@ def _ouvert_hors_capacite():
         'name': 'ouvert/hors-capacite',
         'about': f'« {phrase} » (tire au sort) : capacite absente, refus rapide et dit.',
         'kind': 'gather', 'instruction': phrase, 'items': [], 'tirage': phrase,
-        'expectRefusal': True, 'target': 0, 'leaves': [], 'logs': [], 'rules': {}, 'informative': True,
+        # Bloquant depuis le 2026-10-10 (ci/promotion.py : 17/19).
+        'expectRefusal': True, 'target': 0, 'leaves': [], 'logs': [], 'rules': {}, 'informative': False,
         'features': {'buts_ouverts': True},
     }
 
@@ -326,6 +327,22 @@ def base_levels():
             'start': (10.5, 205, 18.5),
             'leaves': [(TX-2, 203, TZ-2, TX+2, 204, TZ+2)],
             'logs': _logs(*trunk3),
+            'rules': {},
+        },
+        # Regroupe terrain/far-tree, terrain/pit et terrain/hedge-pit (retires,
+        # 2026-10-10) : arbre hors du rayon de recherche, au fond d un trou de 5
+        # blocs entoure d une haie. Chercher, ouvrir la haie, descendre sans
+        # chute, couper. Informatif jusqu a trois bancs verts d affilee.
+        {
+            'name': 'terrain/far-hedge-pit',
+            'about': 'Sol releve de 5 blocs ; arbre au coin oppose (~39 blocs, hors du rayon de recherche), au fond '
+                     'd un trou de 5 blocs entoure d une haie de feuilles : le chercher, ouvrir la haie, descendre sans chute.',
+            'terrain': [(0, 200, 0, SIZE - 1, 203, SIZE - 1, 'dirt'), (0, 204, 0, SIZE - 1, 204, SIZE - 1, 'grass_block'),
+                        (27, 200, 27, 33, 204, 33, 'air'),
+                        (25, 205, 25, 35, 206, 35, LEAVES), (26, 205, 26, 34, 206, 34, 'air')],
+            'start': (2.5, 205, 2.5), 'informative': True,
+            'leaves': [(28, 203, 28, 32, 204, 32)],
+            'logs': _logs(*[(30, 200 + i, 30) for i in range(3)]),
             'rules': {},
         },
         # Chat levels (tour 2): a silent probe player talks to the bot through the
@@ -748,7 +765,8 @@ def base_levels():
             'name': 'composite/stone-hut-from-scratch',
             'about': 'Inventaire vide, deux arbres et un rocher, « Construis-moi une maison en pierre de 3 par 3 par 3 » : '
                      'bois, etabli, pioche en bois, pierre extraite puis posee, sans etape donnee.',
-            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            # Bloquant depuis le 2026-10-10 (ci/promotion.py : 17/19, serie de 3 avec son jumeau).
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': False,
             'instruction': 'Construis-moi une maison en pierre de 3 par 3 par 3',
             'blocks': ['minecraft:cobblestone'], 'target': 20, 'minTop': 3,
             'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
@@ -791,7 +809,8 @@ def base_levels():
             'name': 'composite/cabin-across-water',
             'about': 'Inventaire vide, un fosse d eau de 2 de large coupe l arene, tous les arbres de l autre cote : '
                      '« Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte ».',
-            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            # Bloquant depuis le 2026-10-10 (ci/promotion.py : 17/19, serie de 3 avec son jumeau).
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': False,
             'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 4 avec une porte',
             'blocks': ['#minecraft:planks'], 'target': 40, 'door': True,
             'terrain': [(16, 199, 0, 17, 199, SIZE, 'water')],
@@ -799,6 +818,89 @@ def base_levels():
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ACROSS_TREES for i in range(5)]),
             'rules': {}, 'variants': [*MODELES_AB],
+        },
+        # Palier 3 (2026-10-10, demande du proprietaire) : taches qu un vrai
+        # joueur donnerait, plus longues que les cabanes, depuis un inventaire
+        # vide. Informatifs, sans variante (modele unique : Haiku effort low).
+        {
+            'name': 'composite/stone-toolkit',
+            'about': 'Inventaire vide, deux arbres et un rocher, « Equipe-toi : fabrique-toi une pioche, une hache et une epee en pierre » : '
+                     'bois, etabli, pioche en bois, pierre, puis les trois outils en pierre en inventaire.',
+            'kind': 'gather', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Equipe-toi : fabrique-toi une pioche, une hache et une epee en pierre',
+            'items': ['stone_pickaxe', 'stone_axe', 'stone_sword'], 'target': 3, 'each': True,
+            'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
+            'leaves': [box for (x, z) in ((4, 6), (30, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
+            'rules': {},
+        },
+        {
+            'name': 'composite/bucket',
+            'about': 'Inventaire vide, deux arbres et un rocher avec trois minerais de fer, « Fabrique-moi un seau » : '
+                     'bois, pioches en bois puis en pierre, fer extrait, four, cuisson, seau en inventaire.',
+            'kind': 'gather', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Fabrique-moi un seau',
+            'items': ['bucket'], 'target': 1,
+            'terrain': [(20, 200, 24, 26, 202, 30, 'stone'), (22, 202, 26, 22, 202, 26, 'iron_ore'),
+                        (23, 202, 26, 23, 202, 26, 'iron_ore'), (24, 202, 27, 24, 202, 27, 'iron_ore')],
+            'leaves': [box for (x, z) in ((4, 6), (30, 6))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6)) for i in range(5)]),
+            'rules': {},
+        },
+        {
+            'name': 'composite/big-stone-house',
+            'about': 'Inventaire vide, deux arbres et un grand rocher, « Construis-moi une maison en pierre de 5 par 5 par 3 avec une porte » : '
+                     'pioche, une quarantaine de pierres extraites, porte en bois fabriquee, maison posee.',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Construis-moi une maison en pierre de 5 par 5 par 3 avec une porte',
+            'blocks': ['minecraft:cobblestone'], 'target': 40, 'door': True, 'minTop': 3,
+            'terrain': [(20, 200, 2, 32, 203, 10, 'stone')],
+            'leaves': [box for (x, z) in ((4, 6), (30, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
+            'rules': {},
+        },
+        {
+            'name': 'composite/lit-cabin',
+            'about': 'Inventaire vide, trois arbres et un rocher avec du charbon, « Construis-moi une cabane en bois de 4 par 4 par 3 '
+                     'avec une porte, et eclaire-la avec des torches » : cabane, porte, charbon extrait, torches fabriquees et posees.',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 3 avec une porte, et eclaire-la avec des torches',
+            'blocks': ['#minecraft:planks'], 'target': 30, 'door': True,
+            'also': {'torches_posees': (['minecraft:torch', 'minecraft:wall_torch'], 2)},
+            'terrain': [(22, 200, 22, 27, 201, 27, 'stone'), (24, 201, 24, 24, 201, 24, 'coal_ore'),
+                        (25, 201, 24, 25, 201, 24, 'coal_ore')],
+            'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
+            'rules': {}, 'variants': [avec('poser')],
+        },
+        {
+            # Demande du proprietaire (2026-10-10) : chaine la plus longue du
+            # banc, fer et or cuits, redstone, rails poses entre deux reperes.
+            'name': 'composite/powered-rail-line',
+            'about': 'Inventaire vide, trois arbres, un rocher avec fer, or, redstone et charbon, deux reperes de laine au sol : '
+                     '« Fais-moi une ligne de minecart entre la laine rouge et la laine bleue, avec des rails accelerateurs » : '
+                     'pioches, minerais extraits, four, lingots, rails, rails accelerateurs alimentes, minecart pose.',
+            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'instruction': 'Fais-moi une ligne de minecart entre la laine rouge et la laine bleue, avec des rails accelerateurs',
+            'blocks': ['minecraft:rail', 'minecraft:powered_rail'], 'target': 12,
+            'also': {'rails_accelerateurs': (['minecraft:powered_rail'], 2),
+                     'rail_au_depart': (['minecraft:rail', 'minecraft:powered_rail'], 1, (9, 200, 17, 11, 200, 19)),
+                     'rail_a_l_arrivee': (['minecraft:rail', 'minecraft:powered_rail'], 1, (25, 200, 17, 27, 200, 19))},
+            'entities': {'minecart_pose': ('minecraft:minecart', 1)},
+            'terrain': [(10, 199, 18, 10, 199, 18, 'red_wool'), (26, 199, 18, 26, 199, 18, 'blue_wool'),
+                        (20, 200, 26, 31, 202, 33, 'stone'),
+                        *[(x, 202, z, x, 202, z, 'iron_ore') for x in (21, 23, 25, 27) for z in (27, 29, 31, 33)],
+                        *[(x, 201, 26, x, 201, 26, 'gold_ore') for x in (21, 23, 25, 27, 29, 31)],
+                        (22, 201, 26, 22, 201, 26, 'redstone_ore'), (26, 201, 26, 26, 201, 26, 'redstone_ore'),
+                        *[(31, 202, z, 31, 202, z, 'coal_ore') for z in (27, 29, 31, 33)]],
+            'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
+            'rules': {}, 'variants': [avec('poser')],
         },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
@@ -875,7 +977,8 @@ def base_levels():
         {
             'name': 'skill/stone-hut-batir',
             'about': 'Script batir : inventaire vide, deux arbres et un rocher, maison en pierre 3x3x3 : pioche puis pierre, par le code.',
-            'kind': 'build', 'cap': 1500, 'informative': True, 'features': {'sous_buts': True},
+            # Bloquant depuis le 2026-10-10 (ci/promotion.py : 19/19).
+            'kind': 'build', 'cap': 1500, 'informative': False, 'features': {'sous_buts': True},
             'instruction': 'Construis-moi une maison en pierre de 3 par 3 par 3',
             'blocks': ['minecraft:cobblestone'], 'target': 20, 'minTop': 3,
             'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
@@ -1009,6 +1112,8 @@ def vary(level, seed, avoid=None):
         out['target'] = (cx, ty, cz)
     if 'loot' in level:
         out['loot'] = [(item, *_cell(dx, dz, turns, mirror)) for item, dx, dz in level['loot']]
+    if 'also' in level:  # zones of extra block counts follow the arena
+        out['also'] = {k: (v[0], v[1], *[_box(z, turns, mirror) for z in v[2:]]) for k, v in level['also'].items()}
     return out
 
 
@@ -1249,6 +1354,19 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         layer_count = lambda y: sum(count(f'{x0} {y} 0 {x0 + SIZE} {y} {SIZE}', b) for b in level['blocks'])
         bottom, top = layer_count(200), layer_count(200 + level['minTop'] - 1)
         checks['forme_ouverte'] = 0 < top and bottom < top
+    for check, (blocks, minimum, *zone) in level.get('also', {}).items():
+        # Extra blocks the order names (torches...): counted like the build,
+        # in the whole arena or in a zone (x0, y0, z0, x1, y1, z1, relative).
+        area = above
+        if zone:
+            a, b0, c, d, e, f = zone[0]
+            area = f'{x0 + a} {b0} {c} {x0 + d} {e} {f}'
+        checks[check] = sum(count(area, b) for b in blocks) >= minimum
+    for check, (entity, minimum) in level.get('entities', {}).items():
+        # Entities the order asks for (a minecart on its rails...).
+        answer = rcon(f'execute if entity @e[type={entity},x={x0},y=200,z=0,dx={SIZE},dy={TOP_Y - 200},dz={SIZE}]')
+        match = re.search(r'count: (\d+)', answer or '')
+        checks[check] = (int(match.group(1)) if match else 0) >= minimum
     if level.get('minTop'):
         # Free-form shape: something must reach that layer (tower, wall).
         layer = 200 + level['minTop'] - 1
@@ -1285,12 +1403,15 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     timeline = []
     answer = instruct(level, bot, bot_api, level['instruction'], probe_name)
 
-    def held():
-        total = 0
+    def held_each():
+        found = {}
         for item in level['items']:
             match = re.search(r'Found (\d+)', rcon(f'clear {username} minecraft:{item} 0'))
-            total += int(match.group(1)) if match else 0
-        return total
+            found[item] = int(match.group(1)) if match else 0
+        return found
+
+    def held():
+        return sum(held_each().values())
 
     lowest, seen, count, end_reason = 200.0, False, 0, f'plafond de {GATHER_CAP_S} s'
     last_count_at = 0
@@ -1327,7 +1448,9 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     final = bot_api(bot, '/api/status')
     if final.get('missionRunning'):
         bot_api(bot, '/api/stop', {})
+    each = held_each() if level.get('each') else {}
     checks = {'quantite_en_inventaire': count >= level['target'],
+              **({'chaque_objet': all(each.values())} if level.get('each') else {}),
               # Feet on the floor block (199) at worst: one dug block, never a pit.
               'pas_de_puits': lowest >= 198.9, 'aucun_degat': damage == 0,
               # The bot must know it is done, not run until the cap.
@@ -1702,10 +1825,9 @@ def modele(name):
 # 2026-10-09 it matched Claude Haiku 5.5 (19/22 against 20/22) for ~30 % less;
 # LongCat 2.5, Step 5 (free) and MiMo V2.6 Flash dropped (5, 0 and 5 of 22:
 # gateway silent under 16 bots, 100 to 150 s of wait per level).
-# openai/<model> goes to the OpenAI API directly (OPENAI_API_KEY, free daily
-# tokens of the data-sharing offer, 2026-10-10): played only when the key is set.
-MODELES_AB = [modele('gpt-6-luna')] + ([modele('openai/gpt-5.4-mini'), modele('openai/gpt-5-mini')]
-                                       if os.environ.get('OPENAI_API_KEY') else [])
+# Owner's choice (2026-10-10): Haiku effort low for every use, no model A/B
+# left on the bench (quota spared); modele() stays for a manual measure.
+MODELES_AB = []
 
 
 # Reasoning effort A/B (owner's request, 2026-10-09): plans and chat at
@@ -1761,8 +1883,89 @@ def level_patterns():
     return [p for p in re.split(r'[\s,]+', raw) if p and p.lower() != 'unitaires']
 
 
+# Retired from automatic benches to save model quota (owner, 2026-10-10):
+# simple levels (8 model requests or fewer, 60 s or less) green on all 17
+# healthy full benches of 2026-10-07..10, and A/B variants whose verdict is
+# settled (0/19 without the mode). Kept in the source and still played when a
+# `Banc:` line or `levels` names them exactly (never by a wildcard, variants
+# included). The variants of a retired level go with it.
+RETIRED = frozenset({
+    'build/arch', 'build/big-box', 'build/dirt-box', 'build/planks', 'build/planks-door', 'build/tower',
+    'build/wall', 'chat/chatter-ignored', 'chat/stop-resume', 'craft/from-tree', 'craft/planks',
+    'craft/sticks', 'follow/corner', 'follow/ledge-down', 'follow/stairs', 'follow/stop', 'follow/straight',
+    'gather/dirt', 'gather/flowers-island', 'gather/gravel', 'gather/sand', 'join/buried', 'join/cliff-down',
+    'join/cliff-up', 'join/closed-room', 'join/leaf-pillar', 'join/ravine-detour', 'join/shaft',
+    'join/water-gap', 'route/go-and-back', 'route/three-trips', 'route/two-trips', 'route/under-tree',
+    'terrain/dirt-wall', 'terrain/hedge-pit', 'terrain/pit', 'trees/leaves', 'trees/reachable',
+    # Settled A/B: plans, solver and open goals are needed (0/19 without).
+    'build/windows~sans-plans', 'craft/furnace~sans-solveur', 'craft/iron-pickaxe~sans-solveur',
+    'craft/stone-pickaxe~sans-solveur', 'craft/torches~sans-solveur',
+    'ouvert/recolte-libre~sans-buts_ouverts', 'ouvert/trouver~sans-buts_ouverts',
+    # Second cut (owner, 2026-10-10: fewer than MAX_LEVELS). Each one is played
+    # inside a harder level kept (COVERED_BY).
+    'trees/pillar', 'join/pit', 'chat/join-then-tree', 'terrain/far-tree', 'gather/flowers',
+    'gather/sand-plateau', 'craft/table', 'craft/axe', 'craft/door', 'craft/stone-pickaxe', 'craft/torches',
+    'craft/furnace', 'build/door', 'route/around-wall', 'route/under-far-tree', 'skill/tree-reachable',
+    'skill/dirt-box', 'skill/cabin-batir', 'trees/skirted',
+    # A/B variants measured on 19 full benches (verdicts: python3 ci/ab.py);
+    # only the variants of the mode being built (`poser`) stay.
+    'trees/bent~sans-anti_boucle', 'trees/bent~avec-acces_unifie', 'trees/tall~sans-reflexes',
+    'trees/tall~avec-reparer', 'trees/double~sans-recolter', 'trees/double~sans-relance_plan',
+    'trees/double~avec-plan_sans_raisonnement', 'trees/skirted~sans-arbre_fini', 'trees/skirted~avec-reparer',
+    'terrain/plateau~avec-nav_creuse', 'terrain/plateau~avec-acces_unifie', 'terrain/moat~avec-acces_unifie',
+    'gather/sand-walled~avec-nav_creuse', 'gather/sand-walled~avec-acces_unifie',
+    'craft/iron-pickaxe~avec-sous_buts', 'build/no-materials~avec-sous_buts', 'build/no-materials~avec-reparer',
+    'composite/cabin-from-scratch~sans-ouvrir_porte', 'composite/cabin-from-scratch~avec-sous_buts',
+    'composite/cabin-from-scratch~avec-reparer', 'composite/stone-hut-from-scratch~avec-sous_buts',
+    'composite/stone-hut-from-scratch~avec-plan_sans_raisonnement', 'skill/tree-pillar~avec-acces_unifie',
+    'skill/sand-walled~avec-acces_unifie',
+})
+
+# Owner's limit (2026-10-10): a full bench plays fewer than 50 tests (levels,
+# variants, twins and navigation scenarios). A new level comes with the
+# retirement of a simpler one, played inside a harder level kept.
+MAX_LEVELS = 49
+
+# Where each retired level's situation is still played (owner: the hardest
+# levels include the simplest ones removed). Variants are not listed: they
+# measure a mode, not a situation.
+COVERED_BY = {
+    'build/arch': 'build/windows', 'build/big-box': 'composite/big-stone-house', 'build/dirt-box': 'build/windows',
+    'build/planks': 'build/no-materials', 'build/planks-door': 'composite/cabin-from-scratch',
+    'build/tower': 'composite/big-stone-house', 'build/wall': 'composite/stone-wall-question',
+    'build/door': 'composite/cabin-from-scratch', 'chat/chatter-ignored': 'chat/question-keeps-mission',
+    'chat/stop-resume': 'chat/stop-tree', 'chat/join-then-tree': 'chat/replace-and-join',
+    'craft/from-tree': 'craft/iron-pickaxe', 'craft/planks': 'build/no-materials', 'craft/sticks': 'craft/iron-pickaxe',
+    'craft/table': 'craft/iron-pickaxe', 'craft/stone-pickaxe': 'craft/iron-pickaxe', 'craft/furnace': 'craft/iron-pickaxe',
+    'craft/axe': 'composite/stone-toolkit', 'craft/door': 'composite/cabin-from-scratch',
+    'craft/torches': 'composite/lit-cabin',
+    'follow/corner': 'follow/winding', 'follow/ledge-down': 'follow/winding', 'follow/stairs': 'follow/winding',
+    'follow/stop': 'chat/stop-tree', 'follow/straight': 'follow/winding',
+    'gather/dirt': 'gather/sand-walled', 'gather/sand': 'gather/sand-walled', 'gather/gravel': 'gather/sand-walled',
+    'gather/flowers': 'ouvert/recolte-libre', 'gather/flowers-island': 'ouvert/recolte-libre',
+    'gather/sand-plateau': 'terrain/plateau',
+    'join/buried': 'join/tall-cliff', 'join/cliff-down': 'join/tall-cliff', 'join/cliff-up': 'join/tall-cliff',
+    'join/closed-room': 'chat/replace-and-join', 'join/leaf-pillar': 'join/tall-cliff', 'join/pit': 'join/tall-cliff',
+    'join/ravine-detour': 'join/tall-cliff', 'join/shaft': 'join/tall-cliff', 'join/water-gap': 'composite/cabin-across-water',
+    'route/go-and-back': 'route/wait-and-back', 'route/three-trips': 'route/wait-and-back',
+    'route/two-trips': 'route/wait-and-back', 'route/under-tree': 'route/wait-and-back',
+    'route/around-wall': 'route/wait-and-back', 'route/under-far-tree': 'route/wait-and-back',
+    'terrain/dirt-wall': 'terrain/plateau', 'terrain/hedge-pit': 'terrain/far-hedge-pit',
+    'terrain/pit': 'terrain/far-hedge-pit', 'terrain/far-tree': 'terrain/far-hedge-pit',
+    'trees/leaves': 'trees/double', 'trees/reachable': 'trees/double', 'trees/pillar': 'trees/tall',
+    'skill/tree-reachable': 'skill/tree-pillar', 'skill/dirt-box': 'skill/stone-hut-batir',
+    'skill/cabin-batir': 'skill/stone-hut-batir', 'trees/skirted': 'trees/tall',
+}
+
+
+def retired(name):
+    return name in RETIRED or name.split('~')[0] in RETIRED
+
+
 def selected(name):
     patterns = level_patterns()
+    if retired(name):
+        return bool(patterns) and name in patterns
     return patterns is None or any(fnmatch.fnmatchcase(name, p) for p in patterns)
 
 
@@ -2043,6 +2246,21 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             except Exception:
                 pass
 
+    def wait_spawned(bot, budget_s=60):
+        # A bot kicked during the previous level (keepalive « Timed out »)
+        # reconnects by itself: the next level waits for its spawn instead of
+        # failing on a world that does not exist yet (06d881f: terrain/plateau
+        # and trees/tall red on /api/status before the spawn).
+        deadline = time.monotonic() + budget_s
+        while time.monotonic() < deadline:
+            try:
+                if bot_api(bot, '/api/status').get('spawned'):
+                    return True
+            except Exception:
+                pass
+            time.sleep(1)
+        return False
+
     def planner_calls(bot):
         # (plan calls, model requests): `appels` counts parsed plans only;
         # `tentatives` counts every transport, failed and relaunched ones included.
@@ -2070,6 +2288,7 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
         level = all_levels[index]
         if not first:
             reset(worker.bot)
+            wait_spawned(worker.bot)
         print(f'{level["name"]} ({worker.username}) started', flush=True)
         calls_before = requests_before = tokens_before = None
         mission_before = None

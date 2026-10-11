@@ -96,7 +96,7 @@ test('buts_ouverts : une capacite absente est refusee tout de suite, en le disan
     script: [{ action: 'attendre', duree: 1 }]
   })
   assert.equal(r.started.ok, false)
-  assert.match(r.started.error, /je ne sais pas encore faire de la redstone/)
+  assert.match(r.started.error, /je ne sais pas encore concevoir un circuit de redstone/)
   const sans = await jouer(false, {
     blocks: {},
     objectif: 'Fais-moi une ferme a oeufs automatique avec des entonnoirs',

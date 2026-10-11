@@ -37,6 +37,22 @@ jamais une cible a optimiser (pas de « benchmaxing ») :
   banc (`vary`, ci/trees.py). Un niveau qui ne passe qu avec un correctif
   dedie signale un manque de generalite a corriger ailleurs.
 
+### Actions generiques, tout en parametres (2026-10-10, regle IMMUABLE)
+
+Une action est un geste general ; **le type d objet, le nombre, la distance,
+les emplacements (bloc vise, ancre, etabli, four...) sont des parametres**,
+jamais figes dans l action. Pas de `poser_porte`, `ouvrir_porte`,
+`poser_rail` : `poser {objet, ...}`, `utiliser {objet, ...}`. Sans parametre,
+une action garde au plus un defaut mesure par le code (la matiere de la
+mission), jamais un seul cas. La regle vaut pour toute action, ajoutee par
+une session d agent ou creee par le bot lui-meme en production si cela
+existe un jour : une action qui ne sert qu un objet ou qu un lieu est
+refusee. Mise en conformite des actions existantes : trois lots
+(1 `poser` et `obtenir {objet, quantite}`, fait le 2026-10-10 ; 2 `objet`/`vers` sur casser,
+recolter, ramasser, avancer, explorer, piler ; 3 `utiliser` et `poser`
+remplacent `ouvrir_porte` et `poser_porte`, `emplacement` sur fabriquer et
+cuire), chacun mesure en A/B.
+
 ### Arbre commence, arbre fini (2026-09-29)
 
 Le bot ne laisse jamais un arbre partiellement coupe : des la premiere buche
@@ -63,6 +79,8 @@ resume donnent reussite, duree, appels au modele, degats et compteurs du mode
 mesurable n est pas garde** ; a resultats egaux, on garde la version la plus
 simple. Une paire d un seul banc est du bruit : la decision se prend sur
 plusieurs bancs avec `python3 ci/ab.py <report.json...>` (au moins 6 paires).
+Les variantes comptent dans la limite de 49 niveaux (§5) : une campagne A/B
+les joue par `Banc:` (nom exact), puis elles retournent dans `trees.RETIRED`.
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
 `prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte`,
@@ -90,7 +108,15 @@ au modele avec `bloc_refuse` (`readBrief`, `opts.blocConnu`) ; un
 deplacement vers un tel bloc est clos par le code des qu il est a portee ; et
 refus immediat d une capacite absente, identifiant de
 `skills.CAPACITES_ABSENTES`, jamais un texte libre ; niveaux `ouvert/*`,
-`avec(...)` sur gather/flowers et craft/axe pour voir les faux refus).
+`avec(...)` sur gather/flowers et craft/axe pour voir les faux refus) ;
+`poser` (eteint, 2026-10-10 : action `poser {objet, quantite, de, vers}`,
+`bot/action-poser.js` : un objet devant soi, a cote d un bloc nomme, SUR lui
+pour un objet-entite (minecart, bateau : `activateBlock` puis entite
+mesuree), ou une ligne au sol d un bloc nomme a l autre ; le brief liste les
+objets a poser (`pose`, cle de prompt `brief|pose`), `consigne.poses` les
+sert, le solveur vise le premier qui manque en poche, `finishAllowed` exige
+chaque pose verifiee (`mission.posesFaites`) ; `avec(...)` sur
+composite/lit-cabin et composite/powered-rail-line ; tmp/poser.test.js).
 
 A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
 liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)
@@ -130,9 +156,10 @@ GitHub du meme nom), jamais au gateway et jamais en repli : sans cle, l appel
 echoue tel quel. Pour l offre de jetons gratuits contre partage des donnees
 (2,5 M/jour sur les mini : ~1 bras d A/B de 11 niveaux, un banc complet en
 fait ~17 M) ; trafic du banc seulement, partage a activer par le proprietaire
-sur un projet OpenAI dedie. `MODELES_AB` n ajoute `openai/gpt-5.4-mini` et
-`openai/gpt-5-mini` que si `OPENAI_API_KEY` est pose ; `keyCheck` ignore la
-cle `openai`.
+sur un projet OpenAI dedie ; `keyCheck` ignore la cle `openai`. Mesure
+abandonnee (proprietaire, 2026-10-10 : compte OpenAI sans credit, jetons
+gratuits refuses `insufficient_quota`) : plus aucune variante `openai/*` dans
+`MODELES_AB`, la tuyauterie reste pour un lancement manuel (`base_model`).
 `ci/keyprobe.py` sonde la cle avec le modele de plan du banc
 (`PLANNER_MODEL_PLAN` de `ci/models.env`) : un plafond epuise arrete le banc
 au demarrage au lieu de 75 min de niveaux rouges.
@@ -154,6 +181,17 @@ au demarrage au lieu de 75 min de niveaux rouges.
   l arene stable est du benchmaxing.
 - Composites lances en premier ; plafond 45 min par scenario ; la duree
   (`elapsedS`) est suivie d un banc a l autre et doit baisser.
+- Palier 3 (2026-10-10, proprietaire) : taches qu un vrai joueur donnerait,
+  informatives, sans variante : `composite/stone-toolkit` (trois outils en
+  pierre, `each` : chaque objet en inventaire), `composite/bucket` (seau :
+  fer, four, cuisson), `composite/big-stone-house` (5x5x3 en pierre avec
+  porte), `composite/lit-cabin` (cabane avec torches, `also` : blocs
+  supplementaires comptes, dans l arene ou une zone qui suit rotation et
+  miroir), `composite/powered-rail-line` (ligne de minecart entre deux
+  laines avec rails accelerateurs : fer, or, redstone, cuisson ; `entities` :
+  minecart present) ; ces deux derniers se mesurent avec `poser` (variante
+  `~avec-poser`). Une ferme a canne a sucre exige `culture` et `mecanisme`
+  (circuits) : ce n est pas encore un niveau.
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
   escalier (jamais un puits vertical). Difficulte paisible pour l instant.
 
@@ -206,7 +244,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
 | `approcher`, ancien `explorer` (GoalNearXZ) | 2026-09-22 | pathfinder 26.1 peu fiable ; remplaces par le navigateur partage |
 | Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
 | Escalade sur blocage (appel en effort high, puis fin) | ecarte 2026-10-02 | les 15 missions emballees des bancs du 2026-10-01 avaient toutes une cause d ACCES (tronc haut, no_path) : un modele qui raisonne plus n y peut rien ; traite par `reparer` et le moteur d acces |
-| Brief en effort low | ecarte 2026-10-02 | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py`. La relance du brief, ecartee le meme jour, est remise le 2026-10-08 (`PLANNER_RELAUNCH_MS_BRIEF`, a confirmer par le proprietaire) : sur 3 bancs complets, 16 a 19 briefs relances dont 13 a 16 repondus, briefs sans reponse 2 a 4 par banc au lieu de 11 |
+| Brief en effort low | ecarte 2026-10-02, remis 2026-10-10 par le proprietaire (Haiku low partout) | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py`. La relance du brief, ecartee le meme jour, est remise le 2026-10-08 (`PLANNER_RELAUNCH_MS_BRIEF`, a confirmer par le proprietaire) : sur 3 bancs complets, 16 a 19 briefs relances dont 13 a 16 repondus, briefs sans reponse 2 a 4 par banc au lieu de 11 |
 | Bibliotheque de savoir-faire appris, code genere par le modele (Voyager) | ecarte 2026-10-02 | apprendrait le banc ; code genere = risque (commandes `/`), lent ; les primitives generiques et les arbres de buts couvrent le besoin |
 
 ### Conduite d une session d agent (2026-10-02)
@@ -228,6 +266,18 @@ au demarrage au lieu de 75 min de niveaux rouges.
   pendant 30 s une coupure reseau : toleres (`MISSION_PLANNER_OUTAGE_MS`,
   relance du brief), ils ne doivent plus tuer de mission ; un echec
   `skill/*` est toujours un bug du code.
+- Expulsions « lost connection: Timed out » (0 sur main, 4 a 12 par banc
+  complet depuis le palier 3, 2026-10-10) : la boucle d evenements d un bot
+  s est bloquee ~30 s. `[lent]` dans `containers.log` dit quand (boucle
+  bloquee, etat de mission long a construire) ; un bot expulse se reconnecte
+  seul et le niveau suivant attend son spawn (`wait_spawned`, ci/trees.py),
+  `/api/status` repond `spawned: false` sans monde au lieu d un 500. Cause
+  trouvee le 2026-10-11 (piege 17) : 628 etats de mission de 1 a 13,6 s sur
+  un banc complet, tous bots et niveaux confondus.
+- Fin de banc : la lecture de `ops.json` (preuve de survie) est rejouee
+  (`read_ops`, 3 x 90 s) et un echec s ajoute a `report.errors` sans perdre
+  les resultats des niveaux (un `exec` de plus de 60 s sur machine saturee
+  avait efface tout un banc, run 38089012969).
 - Sur un banc partiel (ligne `Banc:`), `banc-complet` est rouge par
   construction : un seul commentaire de PR l explique, pas un par banc.
 - `tmp/*` est ignore par git sauf `*.js` (et les exceptions de
@@ -267,7 +317,10 @@ Flux d une demande (details : ARCHITECTURE.md) :
 2. **Brief** (`planner.readBrief`, une fois par mission) : type (recolte,
    construction, deplacement, geste), matiere, repere, porte, parcours. Le
    code lit dimensions et quantites dans le texte (`build.parseDimensions`,
-   `parseQuota`) ; la porte n est gardee que si le joueur en parle.
+   `parseQuota`) ; la porte n est gardee que si le joueur en parle. Plusieurs
+   objets a fabriquer : `fabrication` en liste, le premier est la cible, les
+   suivants (`fabricationSuite`) le deviennent un a un, la fin attend le
+   dernier.
 3. **Boucle de mission** (`mission.js`) : un plan JSON de 1 a
    `PLANNER_PLAN_MAX` actions par appel, 6 a 10 s de jeu vises ; le premier
    echec vide la file ; l appel suivant part pendant la derniere etape
@@ -280,9 +333,9 @@ Flux d une demande (details : ARCHITECTURE.md) :
    deux fois a l identique n est pas rejouee (`anti_boucle`). Preconditions
    et effets des actions : `CONTRATS` (mission.js). Un champ persiste se
    declare dans `mission-state.js`, nulle part ailleurs.
-4. **Actions** (`skills.ACTIONS`, 26) : `casser`, `recolter`, `ramasser`,
+4. **Actions** (`skills.ACTIONS`, 27 hors sous-buts) : `casser`, `recolter`, `ramasser`,
    `donner`, `cuire`, `fabriquer`, `avancer`, `explorer`, `choisir_terrain`,
-   `piler`, `construire`, `poser_porte`, `ouvrir_porte`, `sortir`, `attendre`, `terminer`,
+   `piler`, `construire`, `poser` (A/B), `poser_porte`, `ouvrir_porte`, `sortir`, `attendre`, `terminer`,
    `dire`, `regarder`, `sauter`, `appuyer`, `regarder_autour`, `pivoter`,
    `memoriser`, `oublier`, `rejoindre_demandeur`, `tourner_vers_demandeur`.
    Chacune est parametree (duree, distance, quantite, objet...) ; le modele
@@ -309,8 +362,11 @@ transport `bot/llm.js` : `/chat/completions`, `/responses` (muse, gpt-*) et
 | --- | --- | --- | --- |
 | PLAN (actions) | claude-haiku-5-5 (`/messages`) | low | 20 s |
 | CHAT | claude-haiku-5-5 | low | 20 s |
-| BRIEF (lecture d objectif) | claude-haiku-5-5 | high | 30 s, rejouee une fois |
-| COMPACT (resume memoire) | muse-spark-1.3-contributor (`/responses`) | high | 90 s |
+| BRIEF (lecture d objectif) | claude-haiku-5-5 | low | 30 s, rejouee une fois |
+| COMPACT (resume memoire) | claude-haiku-5-5 | low | 90 s |
+
+Haiku effort low pour TOUS les usages (choix du proprietaire, 2026-10-10) ;
+plus aucune variante de modele au banc (`MODELES_AB = []`, quota epargne).
 
 Seuls rejeux admis, toujours le MEME modele : reponse tronquee (budget
 double), panne passagere du gateway (silence, reseau coupe, 5xx, 429, 400
@@ -372,6 +428,9 @@ dans `docs/journal.md` (section « Les pieges »).
    au serveur une fenetre perimee (hache jamais fabriquee, sans consommation).
 9. **Un bloc casse sans le bon outil ne lache rien** : `harvestCheck` avant
    CHAQUE bloc d une rafale (la matiere visee peut changer en cours de route).
+   Une matiere a plusieurs blocs (minerai) ne vise que ceux que les outils en
+   poche font lacher (`blockIdsFor`) : sinon l or le plus proche etait casse
+   en boucle avec une pioche en pierre, le fer a cote.
 10. **`findTargetBlock` ne vise que des blocs VISIBLES** et jamais le bloc qui
     porte le bot ni plus d un bloc sous ses pieds (sinon puits) ; `anyHeight`
     pour se deplacer seulement.
@@ -395,6 +454,14 @@ dans `docs/journal.md` (section « Les pieges »).
     `MISSION_BRIEF_NOTICE_MS`) se lit par `config.finiteNumber(..., { min: 0 })`.
     Avant `config.js`, `Number('0' || d)` valait 0 : la conversion du 2026-10-03
     avait rallume ces deux mecanismes en silence.
+17. **`bot.findBlocks` avec `useExtraInfo` en fonction construit un Block par
+    case** de chaque section qui contient la matiere (pierre : tout le
+    sous-sol, ~400 000 Block par recherche, plusieurs recherches par etat de
+    mission) : boucle bloquee 2 a 13 s, expulsions « Timed out ». Toute
+    recherche filtree passe par `perception.trouverBlocs` (numeros d etat,
+    filtre `(pos, lire)`, ~6 fois plus rapide, aucun Block) ; `findTargetBlock`
+    est memorise le temps d un `buildState`. `findBlocks` sans filtre reste
+    permis (tri par palette, rapide). Test : tmp/trouver-blocs.test.js.
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
@@ -416,10 +483,23 @@ dans `docs/journal.md` (section « Les pieges »).
   Pendant le travail, choisir les niveaux que le changement peut toucher ; le
   dernier commit avant fusion n a pas de ligne `Banc:` (banc complet, check
   `banc-complet` vert exige).
+- Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
+  `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
+  `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
+  88 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
+  reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
+  meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
+  un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
+  (`terrain/far-hedge-pit` remplace far-tree, pit et hedge-pit). Un niveau
+  retire se joue seulement si `Banc:` ou `levels` le nomme exactement ; un
+  niveau simple qui protege un correctif recent se remet en le retirant de la
+  liste. Promus bloquants le meme jour (ci/promotion.py) :
+  `composite/stone-hut-from-scratch`, `composite/cabin-across-water`,
+  `ouvert/hors-capacite`, `skill/stone-hut-batir`.
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, ~127 niveaux avec variantes) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 144 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
@@ -533,7 +613,8 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/mission-state.js` | etat persiste declare une fois (lecture = ecriture) |
 | `bot/trace.js` | trace structuree de mission |
 | `bot/action-gestes.js` | gestes, attente, fin, memoire (premier module d actions) |
-| `bot/action-sous-buts.js` | sous-buts `batir` et `obtenir` (A/B `sous_buts`) : un geste mesure a la fois jusqu au but |
+| `bot/action-sous-buts.js` | sous-buts `batir` et `obtenir {objet, quantite}` (A/B `sous_buts`) : un geste mesure a la fois jusqu au but ; `obtenir` nomme fait de l objet la cible du solveur le temps du sous-but (`mission.demandeObtenir`) |
+| `bot/action-poser.js` | action `poser` (A/B `poser`) : cases (devant, voisines, ligne au sol), pose verifiee par le monde, objets-entites |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
 | `bot/script-brain.js` | cerveau scripte du banc de competences (`skill/*`, `MISSION_SCRIPT=1`) |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |
