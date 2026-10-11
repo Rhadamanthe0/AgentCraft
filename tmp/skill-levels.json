@@ -354,6 +354,74 @@
    "variants": []
   },
   {
+   "name": "skill/coal-rock",
+   "about": "Script recolter : pioche en bois en poche, deux charbons au sommet d un rocher de pierre, 2 charbons en inventaire.",
+   "kind": "gather",
+   "instruction": "Ramasse 2 charbons",
+   "terrain": [
+    [
+     22,
+     200,
+     22,
+     27,
+     201,
+     27,
+     "stone"
+    ],
+    [
+     24,
+     201,
+     24,
+     24,
+     201,
+     24,
+     "coal_ore"
+    ],
+    [
+     25,
+     201,
+     24,
+     25,
+     201,
+     24,
+     "coal_ore"
+    ]
+   ],
+   "leaves": [],
+   "logs": [],
+   "give": [
+    [
+     "wooden_pickaxe",
+     1
+    ]
+   ],
+   "rules": {},
+   "target": 2,
+   "items": [
+    "coal"
+   ],
+   "skill": {
+    "brief": {
+     "type": "recolte",
+     "matiere": "minerai"
+    },
+    "script": [
+     {
+      "action": "recolter",
+      "quantite": 2,
+      "repeter": 4
+     }
+    ]
+   },
+   "start": [
+    10.5,
+    200,
+    18.5
+   ],
+   "leavesBlock": "oak_leaves[persistent=true]",
+   "variants": []
+  },
+  {
    "name": "skill/sand-walled",
    "about": "Script recolter : sable enferme dans un mur de terre de 3 de haut, 4 sable en inventaire, pas de puits.",
    "kind": "gather",

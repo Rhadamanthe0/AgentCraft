@@ -1688,6 +1688,49 @@ function createMissionRunner (host, injected = {}) {
     return memoCibles.get(cle)
   }
 
+  // Bloc de la matiere sous les pieds du bot (ou juste a cote, plus bas) :
+  // findTargetBlock l ecarte (casse = chute dans son propre trou). Debout sur
+  // le dernier minerai d un rocher, « aucun bloc en vue » sans fin (skill/
+  // coal-rock, composite/lit-cabin d24b197). Le bot se poste a cote, a la
+  // hauteur du bloc ou plus bas, a portee, puis la recolte reprend.
+  async function posteHorsDessous (stepTokenLocal) {
+    const bot = host.getBot()
+    if (!bot?.entity) return false
+    const here = bot.entity.position
+    const feetY = Math.floor(here.y)
+    const ids = targetBlockIds()
+    if (ids.length === 0) return false
+    let dessous
+    try {
+      dessous = perception.trouverBlocs(bot, { ids, maxDistance: 3, count: 8 })
+        .filter(p => p.y < feetY && Math.hypot(p.x + 0.5 - here.x, p.z + 0.5 - here.z) < 1.5 && !injoignable(p))
+    } catch (_) { return false }
+    if (dessous.length === 0) return false
+    const cible = dessous[0]
+    const centre = cible.offset(0.5, 0.5, 0.5)
+    const postes = []
+    for (let dx = -3; dx <= 3; dx++) {
+      for (let dz = -3; dz <= 3; dz++) {
+        for (let y = cible.y - 1; y <= cible.y + 1; y++) {
+          const x = cible.x + dx
+          const z = cible.z + dz
+          if (y >= cible.y + 1 && Math.hypot(dx, dz) < 1.5) continue // encore au-dessus
+          if (!build.standable(bot, x, y, z)) continue
+          const pied = new Vec3(x + 0.5, y, z + 0.5)
+          if (!blockInReach(bot, pied, centre, REACH)) continue
+          postes.push({ pied, d: pied.distanceTo(here) })
+        }
+      }
+    }
+    postes.sort((a, b) => a.d - b.d)
+    for (const { pied } of postes.slice(0, 3)) {
+      await host.navigateToPosition(pied, { signal: mission.navigationAbort.signal, __owner: stepTokenLocal, radius: 0.4, distanceBudget: 16 })
+      const p = host.getBot()?.entity?.position
+      if (p && Math.floor(p.x) === Math.floor(pied.x) && Math.floor(p.z) === Math.floor(pied.z) && Math.abs(p.y - pied.y) < 0.6) return true
+    }
+    return false
+  }
+
   function findTargetBlockMesure (resource, opts = {}) {
     // Surcharge toleree : findTargetBlock({ yaw }) vaut secteur sur la matiere
     // courante. Rien d autre n utilise cette forme aujourd hui.
@@ -4188,6 +4231,7 @@ function createMissionRunner (host, injected = {}) {
         const etapes = []
         let arret = null
         let rienARamasser = 0
+        let decale = false
         // A tree in progress is cut to the last log, past the quantity asked.
         while (!mission.cancelled && (gagne() < visee || arbreInacheve()) && Date.now() - debut < RECOLTER_MAX_MS) {
           const bot = host.getBot()
@@ -4208,6 +4252,11 @@ function createMissionRunner (host, injected = {}) {
           } else if (cible || findTargetBlock(undefined, { anyHeight: true }) || highTargetHint()) {
             r = await ACTIONS.avancer(null, { distance: 24 })
             etapes.push('avancer')
+          } else if (!decale && await posteHorsDessous(stepToken)) {
+            decale = true
+            etapes.push('avancer')
+            memoCibles?.clear?.()
+            continue
           } else if (arbreInacheve()) {
             const n = arbreInacheve().length
             r = { resultat: `arbre commence, ${n} buche(s) encore debout hors de portee d ici : piler ou changer de poste pour les couper, aucun autre arbre avant`, echec: true, code: 'arbre_inacheve' }

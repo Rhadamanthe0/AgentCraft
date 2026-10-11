@@ -971,6 +971,18 @@ def base_levels():
                       'script': [{'action': 'recolter', 'quantite': 3, 'repeter': 4},
                                  {'action': 'ramasser', 'quantite': 3, 'repeter': 2}]},
         },
+        # Extraction du charbon d un rocher de lit-cabin (2026-10-11), sans
+        # modele : au banc d24b197, « dug_out_of_reach » apres 15 blocs creuses.
+        {
+            'name': 'skill/coal-rock',
+            'about': 'Script recolter : pioche en bois en poche, deux charbons au sommet d un rocher de pierre, 2 charbons en inventaire.',
+            'kind': 'gather', 'give': [('wooden_pickaxe', 1)], 'instruction': 'Ramasse 2 charbons', 'items': ['coal'],
+            'terrain': [(22, 200, 22, 27, 201, 27, 'stone'), (24, 201, 24, 24, 201, 24, 'coal_ore'),
+                        (25, 201, 24, 25, 201, 24, 'coal_ore')],
+            'target': 2, 'leaves': [], 'logs': [], 'rules': {},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'minerai'},
+                      'script': [{'action': 'recolter', 'quantite': 2, 'repeter': 4}]},
+        },
         {
             'name': 'skill/sand-walled',
             'about': 'Script recolter : sable enferme dans un mur de terre de 3 de haut, 4 sable en inventaire, pas de puits.',
@@ -1930,7 +1942,7 @@ RETIRED = frozenset({
     'trees/pillar', 'join/pit', 'chat/join-then-tree', 'terrain/far-tree', 'gather/flowers',
     'gather/sand-plateau', 'craft/table', 'craft/axe', 'craft/door', 'craft/stone-pickaxe', 'craft/torches',
     'craft/furnace', 'build/door', 'route/around-wall', 'route/under-far-tree', 'skill/tree-reachable',
-    'skill/dirt-box', 'skill/cabin-batir', 'trees/skirted', 'skill/hedge-pit',
+    'skill/dirt-box', 'skill/cabin-batir', 'trees/skirted', 'skill/hedge-pit', 'skill/coal-rock',
     # A/B variants measured on 19 full benches (verdicts: python3 ci/ab.py);
     # only the variants of the mode being built (`poser`) stay.
     'trees/bent~sans-anti_boucle', 'trees/bent~avec-acces_unifie', 'trees/tall~sans-reflexes',
@@ -1981,7 +1993,7 @@ COVERED_BY = {
     'route/around-wall': 'route/wait-and-back', 'route/under-far-tree': 'route/wait-and-back',
     'terrain/dirt-wall': 'terrain/plateau', 'terrain/hedge-pit': 'terrain/far-hedge-pit',
     'terrain/pit': 'terrain/far-hedge-pit', 'terrain/far-tree': 'terrain/far-hedge-pit',
-    'skill/hedge-pit': 'terrain/far-hedge-pit',
+    'skill/hedge-pit': 'terrain/far-hedge-pit', 'skill/coal-rock': 'composite/lit-cabin',
     'trees/leaves': 'trees/double', 'trees/reachable': 'trees/double', 'trees/pillar': 'trees/tall',
     'skill/tree-reachable': 'skill/tree-pillar', 'skill/dirt-box': 'skill/stone-hut-batir',
     'skill/cabin-batir': 'skill/stone-hut-batir', 'trees/skirted': 'trees/tall',

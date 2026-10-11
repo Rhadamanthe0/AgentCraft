@@ -474,7 +474,9 @@ dans `docs/journal.md` (section « Les pieges »).
    en boucle avec une pioche en pierre, le fer a cote.
 10. **`findTargetBlock` ne vise que des blocs VISIBLES** et jamais le bloc qui
     porte le bot ni plus d un bloc sous ses pieds (sinon puits) ; `anyHeight`
-    pour se deplacer seulement.
+    pour se deplacer seulement. Quand la seule matiere restante est sous ses
+    pieds (dernier minerai d un rocher), `recolter` le poste a cote, a la
+    hauteur du bloc ou plus bas (`posteHorsDessous`, skill/coal-rock).
 11. **Modele a raisonnement** : ses jetons de raisonnement comptent dans
     `PLANNER_MAX_TOKENS` ; trop bas => contenu vide (`finish=length`).
 12. **Prompt systeme = partie mise en cache** : jamais d horodatage ni de
@@ -565,7 +567,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  89 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
+  90 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
   reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -578,7 +580,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 145 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 146 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
