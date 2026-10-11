@@ -121,7 +121,20 @@ function laisseVoir (registry, stateId) {
 // filtre, triees). Le filtre recoit `(pos, lire)` : `lire(x, y, z)` donne
 // l etat d une case sans chercher sa colonne (blocExpose s en sert). Sans
 // monde par sections (bots simules), repli sur `findBlocks`.
-function trouverBlocs (bot, { ids, filtre = null, maxDistance, count = 1, point = null }) {
+//
+// Palette d une section : la liste des etats presents, ou null s il faut la
+// parcourir. Une section uniforme (tout air, toute pierre) arrive du serveur en
+// conteneur a valeur unique, SANS `palette` : le `findBlocks` de mineflayer la
+// croit en palette globale et construit un Block pour ses 4096 cases, meme
+// pour des ids (piege 18 : etabli, four, porte, buches cherches dans chaque
+// section d air au-dessus du sol, ~1 s par etat de mission).
+function paletteSection (section) {
+  if (Array.isArray(section?.palette)) return section.palette
+  const valeur = section?.data?.value
+  return Number.isInteger(valeur) ? [valeur] : null
+}
+
+function trouverBlocs (bot, { ids, filtre = null, maxDistance, count = 1, point = null, repli = null }) {
   const centre = (point ?? bot.entity.position).floored()
   const world = bot.world
   const registry = bot.registry
@@ -130,7 +143,7 @@ function trouverBlocs (bot, { ids, filtre = null, maxDistance, count = 1, point 
       !registry?.blocks || !Number.isFinite(minY) || !Number.isFinite(bot.game?.height)) {
     const opts = { matching: ids, maxDistance, count, point: centre }
     if (filtre) opts.useExtraInfo = b => filtre(b.position)
-    return bot.findBlocks(opts)
+    return (repli ?? bot.findBlocks)(opts)
   }
   const etats = new Set()
   for (const id of [].concat(ids)) {
@@ -181,7 +194,8 @@ function trouverBlocs (bot, { ids, filtre = null, maxDistance, count = 1, point 
     const colonne = world.getColumn(sec.x, sec.z)
     const section = colonne?.sections?.[indice]
     if (!section) continue
-    if (Array.isArray(section.palette) && !section.palette.some(e => etats.has(e))) continue
+    const palette = paletteSection(section)
+    if (palette && !palette.some(e => etats.has(e))) continue
     const x0 = sec.x * 16; const y0 = sec.y * 16; const z0 = sec.z * 16
     for (let x = x0; x < x0 + 16; x++) {
       for (let y = y0; y < y0 + 16; y++) {
@@ -198,6 +212,26 @@ function trouverBlocs (bot, { ids, filtre = null, maxDistance, count = 1, point 
   }
   trouves.sort((a, b) => a.dist - b.dist)
   return trouves.slice(0, count).map(t => t.pos)
+}
+
+// Branche sur un bot mineflayer (a sa creation) : toute recherche par ids
+// (`findBlocks`, et `findBlock` qui s en sert) passe par trouverBlocs. Les
+// recherches a fonction ou `useExtraInfo` gardent l original.
+function brancherRecherche (bot) {
+  const original = bot.findBlocks
+  if (typeof original !== 'function' || original.brancheTrouverBlocs) return
+  const recherche = (options = {}) => {
+    if (typeof options.matching === 'function' || options.useExtraInfo) return original(options)
+    return trouverBlocs(bot, {
+      ids: options.matching,
+      maxDistance: options.maxDistance || 16,
+      count: options.count || 1,
+      point: options.point ?? null,
+      repli: original
+    })
+  }
+  recherche.brancheTrouverBlocs = true
+  bot.findBlocks = recherche
 }
 
 // Columns under the bot's 0.6-wide hitbox at height y.
@@ -528,7 +562,7 @@ function lireInstantane (snap) {
 
 module.exports = {
   REACH, PILER_MAX, MAX_REACH_UP, PILER_DIRT, scaffoldingStock,
-  SONDE_DIRS, estAir, estLiquide, estSolide, blocExpose, laisseVoir, trouverBlocs, colonnesSousHitbox, peutSauter,
+  SONDE_DIRS, estAir, estLiquide, estSolide, blocExpose, laisseVoir, trouverBlocs, paletteSection, brancherRecherche, colonnesSousHitbox, peutSauter,
   JUMP_LOOKAHEAD, marcheDevant, CHUTE_MAX, videDevant, sondeAlentours, capDepuisVecteur, CASE_PAR_CAP,
   choisirCoteContournement, dansEmprise, hauteurDePilier, postesDePilier, instantane, lireInstantane
 }

@@ -242,6 +242,13 @@ const ACTIONS = {
     // Le planificateur donne une valeur NUMERIQUE : il dit « casse pendant 5
     // secondes » et le code execute exactement cela.
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint) : la cible
+      // est un parametre ; sans lui, la matiere de la mission (mesuree).
+      objet: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Quel bloc ou quelle matiere casser (nom Minecraft) ? Sans lui, la matiere de la mission'
+      },
       duree: {
         json: { kind: 'number', min: 1, max: 15 },
         question: 'Combien de secondes casser sans relacher ?'
@@ -264,6 +271,13 @@ const ACTIONS = {
     secondes: 3,
     intent: "Obtenir N objets de la matiere visee en une seule action : le code rejoint le bloc le plus proche, le casse, ramasse ce qui tombe et recommence jusqu a N (60 s au plus). Rend la main au premier obstacle (outil manquant, cible trop haute, aucun chemin) en le disant : piler, fabriquer ou avancer ensuite. Prefere-la a avancer + casser + ramasser pour toute recolte",
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint) : la cible
+      // est un parametre ; sans lui, la matiere de la mission (mesuree).
+      objet: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Quel bloc ou quelle matiere recolter (nom Minecraft) ? Sans lui, la matiere de la mission'
+      },
       quantite: {
         json: { kind: 'number', min: 1, max: 16 },
         question: 'Combien d objets de la matiere obtenir ?'
@@ -279,6 +293,13 @@ const ACTIONS = {
     secondes: 0.8,
     intent: "Des objets sont tombes au sol a proximite : aller marcher dessus pour les mettre dans l inventaire. Un bloc casse n entre pas tout seul en inventaire s il est tombe plus loin. En mission bois, la dirt cassee pour un pilier compte aussi : si elle entre en inventaire, c est un succes, pas un echec",
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint) : la cible
+      // est un parametre ; sans lui, la matiere de la mission (mesuree).
+      objet: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Quel objet au sol ramasser (nom Minecraft) ? Sans lui, la matiere de la mission et tout ce qui est proche'
+      },
       quantite: {
         json: { kind: 'number', min: 1, max: 6 },
         question: 'Combien d objets au sol aller chercher ?'
@@ -329,6 +350,12 @@ const ACTIONS = {
       quantite: {
         json: { kind: 'number', min: 1, max: 16 },
         question: 'Combien en cuire ?'
+      },
+      // Lot 3 des actions generiques (A/B `utiliser`) : le poste est un parametre.
+      emplacement: {
+        feature: 'utiliser',
+        json: { kind: 'text', max: 40 },
+        question: 'Sur quel poste cuire : furnace (defaut), smoker (nourriture) ou blast_furnace (minerais, deux fois plus vite) ?'
       }
     }
   },
@@ -373,6 +400,12 @@ const ACTIONS = {
     secondes: 0.15,
     intent: "Avec un bloc cible repere, calculer automatiquement un chemin autour des obstacles vers une position visible a portee de ce bloc. Distance est le budget du trajet : arret possible avant le budget si la cible est accessible, ou progression partielle a poursuivre apres lecture du resultat. Aucun pivoter ou appuyer prealable. Sur no_path ou stuck, signale le blocage ou change d objectif autorise, sans repeter aveuglement ni improviser des touches. Sans cible, avancer droit devant dans le cap actuel. Le resultat mesure le deplacement reel",
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint).
+      vers: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Vers quel bloc aller (nom Minecraft) ? Sans lui, la matiere de la mission'
+      },
       distance: {
         json: { kind: 'number', min: 1, max: 40 },
         question: 'Quel budget de distance parcourir en blocs ?'
@@ -391,6 +424,12 @@ const ACTIONS = {
     secondes: 0.4,
     intent: "Rien de la matiere visee n est en vue (regarder_autour ou recolter disent « rien ») : le code choisit le cap le moins explore, y va par un chemin calcule, regarde, et recommence (4 trajets, 45 s au plus) jusqu a voir la matiere ou le repere. Remplace pivoter + avancer sans cible pour chercher",
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint).
+      vers: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Quel bloc chercher (nom Minecraft) ? Sans lui, la matiere de la mission'
+      },
       distance: {
         json: { kind: 'number', min: 8, max: 32 },
         question: 'Longueur de chaque trajet de recherche, en blocs ?'
@@ -420,6 +459,12 @@ const ACTIONS = {
     secondes: 1.5,
     intent: "Une cible proche est TROP HAUTE (environnement.cible_haute), ou environnement.acces_par_montee mesure une hauteur_min qui rend la cible masquee accessible : monter en pilier avec dirt/coarse_dirt en priorite puis planches solides du registre. Utiliser hauteur_min pour acces_par_montee, sinon denivele - 1 au plus ; inventaire.echafaudage.materiaux detaille le stock. Stock court : l action obtient elle-meme la terre manquante (pilier defait puis refait, terre prise a cote), meme perche. Sable, gravier et feuilles exclus. Chaque montee impose une reobservation avant la suite ; une pose partielle reste un echec mesure. Ne pile pas quand bloc_cible_a_portee est vrai (casse directement), ni dans un liquide, ni sans cible_haute ou acces_par_montee. Cet indice n autorise pas a casser des feuilles",
     params: {
+      // Lot 2 des actions generiques (A/B `objet_vers`, eteint).
+      vers: {
+        feature: 'objet_vers',
+        json: { kind: 'text', max: 40 },
+        question: 'Vers quel bloc haut monter (nom Minecraft) ? Sans lui, la matiere de la mission'
+      },
       hauteur: {
         json: { kind: 'number', min: 1, max: 6 },
         question: 'De combien de blocs monter en pilier ?'
@@ -481,8 +526,11 @@ const ACTIONS = {
     }
   },
 
+  // Lot 3 des actions generiques (A/B `utiliser`) : `poser {objet: porte}`
+  // la remplace.
   poser_porte: {
     kinds: ['construction'],
+    masqueePar: 'utiliser',
     summary: 'poser la porte dans l ouverture',
     scale: 'sans effet',
     secondes: 2,
@@ -493,12 +541,13 @@ const ACTIONS = {
   // le lieu sont des parametres, AGENTS.md). bot/action-poser.js.
   poser: {
     kinds: ['recolte', 'deplacement', 'construction', 'geste'],
-    feature: 'poser',
+    // Servie avec l un ou l autre mode (le lot 3 remplace poser_porte par elle).
+    feature: ['poser', 'utiliser'],
     featureDefault: false,
     summary: 'poser un objet de l inventaire dans le monde, ou une ligne d objets',
     scale: 'nombre d objets poses, de 1 a 40',
     secondes: 1.5,
-    intent: "Poser un objet en poche hors du plan de chantier (rail, torche, levier, cloture, bloc isole ; minecart ou bateau). Sans lieu : devant le bot. `de` seul : a cote du bloc nomme le plus proche (un objet qui n est pas un bloc, comme un minecart, se pose SUR ce bloc). `de` et `vers` : une ligne de cases au sol d un bloc nomme a l autre, droite ou en L, cases deja prises sautees. Blocs nommes en anglais comme dans le jeu, jamais de coordonnees. Le code ne compte que les poses que le monde montre",
+    intent: "Poser un objet en poche hors du plan de chantier (rail, torche, levier, cloture, bloc isole ; minecart ou bateau ; une porte va dans l ouverture laissee par le chantier s il en a une). Sans lieu : devant le bot. `de` seul : a cote du bloc nomme le plus proche (un objet qui n est pas un bloc, comme un minecart, se pose SUR ce bloc). `de` et `vers` : une ligne de cases au sol d un bloc nomme a l autre, droite ou en L, cases deja prises sautees. Blocs nommes en anglais comme dans le jeu, jamais de coordonnees. Le code ne compte que les poses que le monde montre",
     params: {
       objet: {
         json: { kind: 'text', max: 40 },
@@ -533,10 +582,30 @@ const ACTIONS = {
   ouvrir_porte: {
     kinds: ['recolte', 'deplacement', 'construction', 'geste'],
     feature: 'ouvrir_porte',
+    masqueePar: 'utiliser',
     summary: 'ouvrir la porte en bois la plus proche et la franchir',
     scale: 'sans effet',
     secondes: 3,
     intent: "Le bot est dans une piece fermee par une porte en bois (par exemple la cabane qu il vient de construire) ou une porte barre son chemin : la rejoindre, l ouvrir et passer de l autre cote (porte a 8 blocs au plus). Une porte de fer ne s ouvre pas a la main"
+  },
+
+  // Actionner un bloc nomme (lot 3 des actions generiques, A/B `utiliser`,
+  // regle immuable du proprietaire : l objet est un parametre). Remplace
+  // ouvrir_porte ; un passage (porte, portillon) est franchi apres ouverture.
+  utiliser: {
+    kinds: ['recolte', 'deplacement', 'construction', 'geste'],
+    feature: 'utiliser',
+    featureDefault: false,
+    summary: 'actionner le bloc nomme le plus proche (porte, portillon, trappe, levier, bouton)',
+    scale: 'sans effet',
+    secondes: 3,
+    intent: "Actionner un bloc a 8 blocs au plus, comme un clic droit : le rejoindre a portee de main puis l actionner. Une porte ou un portillon ferme est ouvert puis franchi (bot enferme dans une piece, passage barre) ; une porte de fer ne s ouvre pas a la main. Nom de bloc en anglais comme dans le jeu (oak_door, lever...), ou sa famille (door, fence_gate, button)",
+    params: {
+      objet: {
+        json: { kind: 'text', max: 40 },
+        question: 'Quel bloc actionner (nom de bloc Minecraft) ?'
+      }
+    }
   },
 
   attendre: {
@@ -1106,7 +1175,10 @@ function setFeatureEnabled (feature, enabled) {
 function availableFor (kind, supply = 'harvest') {
   return Object.entries(ACTIONS).filter(([, spec]) => {
     if (kind && !spec.kinds.includes(kind)) return false
-    if (spec.feature && disabledFeatures.has(spec.feature)) return false
+    // Plusieurs interrupteurs : servie si l un d eux est allume.
+    if (spec.feature && [].concat(spec.feature).every(f => disabledFeatures.has(f))) return false
+    // Remplacee par une action generique quand son mode est allume.
+    if (spec.masqueePar && !disabledFeatures.has(spec.masqueePar)) return false
     if (supply === 'creative' && kind === 'construction' && spec.harvesting) return false
     return true
   })
@@ -1120,7 +1192,8 @@ function actionsFor (kind, supply) {
 function jsonParamsFor (action) {
   const params = ACTIONS[action]?.params
   if (!params) return null
-  const jsonish = Object.entries(params).filter(([, d]) => d.json)
+  // Un parametre a interrupteur (`feature`) suit son mode, comme une action.
+  const jsonish = Object.entries(params).filter(([, d]) => d.json && !(d.feature && disabledFeatures.has(d.feature)))
   return jsonish.length > 0 ? Object.fromEntries(jsonish) : null
 }
 
@@ -1219,10 +1292,15 @@ const ACTION_EXEMPLES = {
   poser: [
     'consigne.poses liste torch et torches en poche -> {"action":"poser","objet":"torch","de":"oak_planks"}',
     'cloture demandee d un arbre a l autre, oak_fence en poche -> {"action":"poser","objet":"oak_fence","de":"oak_log","vers":"birch_log"}',
-    'objet a poser absent de l inventaire -> fabriquer ou recolter d abord (environnement.prerequis), puis poser'
+    'objet a poser absent de l inventaire -> fabriquer ou recolter d abord (environnement.prerequis), puis poser',
+    'chantier.blocs_restants 0, porte demandee et une porte en poche -> {"action":"poser","objet":"spruce_door"} (dans l ouverture du chantier)'
   ],
   sortir: ['bot.dans_liquide vrai -> sortir avant tout le reste'],
   ouvrir_porte: ['avancer ou recolter -> no_path et bot dans un batiment a porte en bois -> ouvrir_porte, puis reprendre le trajet'],
+  utiliser: [
+    'avancer ou recolter -> no_path et bot dans une piece fermee par une porte en bois -> {"action":"utiliser","objet":"door"}, puis reprendre le trajet',
+    'levier a actionner pres du bot -> {"action":"utiliser","objet":"lever"}'
+  ],
   attendre: ['une action longue est deja en cours -> attendre, mais preferer regarder_autour si on ne sait pas quoi faire'],
   terminer: ['objectif atteint et rien d utile ne reste -> terminer'],
   dire: ['signal de blocage -> {"action":"dire","texte":"coince : plus de bois"}'],

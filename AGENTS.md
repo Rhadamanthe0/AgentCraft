@@ -49,9 +49,14 @@ une session d agent ou creee par le bot lui-meme en production si cela
 existe un jour : une action qui ne sert qu un objet ou qu un lieu est
 refusee. Mise en conformite des actions existantes : trois lots
 (1 `poser` et `obtenir {objet, quantite}`, fait le 2026-10-10 ; 2 `objet`/`vers` sur casser,
-recolter, ramasser, avancer, explorer, piler ; 3 `utiliser` et `poser`
-remplacent `ouvrir_porte` et `poser_porte`, `emplacement` sur fabriquer et
-cuire), chacun mesure en A/B.
+recolter, ramasser, avancer, explorer, piler, fait le 2026-10-11 derriere
+l interrupteur `objet_vers` ; 3 `utiliser` et `poser` remplacent
+`ouvrir_porte` et `poser_porte`, `emplacement` sur cuire, fait le 2026-10-11
+derriere l interrupteur `utiliser` ; reste `emplacement` sur fabriquer, qui
+n a qu un poste de fabrication en jeu, l etabli), chacun mesure en A/B. Une
+action remplacee reste dans la table (le code s en sert, `poser` d une porte
+appelle `poser_porte`) mais n est plus servie au modele (`masqueePar` dans
+skills.js) ; elle part quand l A/B tranche.
 
 ### Arbre commence, arbre fini (2026-09-29)
 
@@ -116,7 +121,23 @@ mesuree), ou une ligne au sol d un bloc nomme a l autre ; le brief liste les
 objets a poser (`pose`, cle de prompt `brief|pose`), `consigne.poses` les
 sert, le solveur vise le premier qui manque en poche, `finishAllowed` exige
 chaque pose verifiee (`mission.posesFaites`) ; `avec(...)` sur
-composite/lit-cabin et composite/powered-rail-line ; tmp/poser.test.js).
+composite/lit-cabin et composite/powered-rail-line ; tmp/poser.test.js) ;
+`objet_vers` (eteint, 2026-10-11, lot 2 des actions generiques : `objet` sur
+casser, recolter, ramasser et `vers` sur avancer, explorer, piler, servis au
+modele seulement avec le mode (parametre a `feature` dans skills.js) ; le nom
+devient la matiere figee de l etape (`matiereDe` : catalogue, bloc ou objet
+compte, sinon bloc du registre), refus `objet_inconnu`, arbre commence
+prioritaire ; `avec(...)` sur craft/iron-pickaxe et les composites cabane et
+maison en pierre, retires du banc complet (`Banc:` pour la campagne) ;
+tmp/objet-vers.test.js) ; `utiliser` (eteint, 2026-10-11, lot 3 :
+action `utiliser {objet}` qui actionne le bloc nomme le plus proche, nom du
+registre ou famille (`door`, `button`), un passage ferme etant ouvert puis
+franchi (`actionnerBloc`, partage avec ouvrir_porte) ; `poser` servie aussi
+par ce mode, une porte posee sur un chantier qui en prevoit une va dans
+l ouverture ; `emplacement` de cuire parmi `craft.POSTES_CUISSON` ;
+`ouvrir_porte` et `poser_porte` masquees ; `avec(...)` sur craft/iron-pickaxe
+et composite/cabin-from-scratch, retires du banc complet ;
+tmp/utiliser.test.js).
 
 A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
 liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)
@@ -275,9 +296,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
   bloquee, etat de mission long a construire, avec ses trois parties les plus
   longues : `chrono` dans mission.js) ; un bot expulse se reconnecte
   seul et le niveau suivant attend son spawn (`wait_spawned`, ci/trees.py),
-  `/api/status` repond `spawned: false` sans monde au lieu d un 500. Cause
-  trouvee le 2026-10-11 (piege 17) : 628 etats de mission de 1 a 13,6 s sur
-  un banc complet, tous bots et niveaux confondus.
+  `/api/status` repond `spawned: false` sans monde au lieu d un 500. Causes
+  trouvees le 2026-10-11 (pieges 17 et 18) : 628 puis 390 etats de mission de
+  1 a 13,6 s par banc complet, tous bots et niveaux confondus.
 - Fin de banc : la lecture de `ops.json` (preuve de survie) est rejouee
   (`read_ops`, 3 x 90 s) et un echec s ajoute a `report.errors` sans perdre
   les resultats des niveaux (un `exec` de plus de 60 s sur machine saturee
@@ -337,9 +358,9 @@ Flux d une demande (details : ARCHITECTURE.md) :
    deux fois a l identique n est pas rejouee (`anti_boucle`). Preconditions
    et effets des actions : `CONTRATS` (mission.js). Un champ persiste se
    declare dans `mission-state.js`, nulle part ailleurs.
-4. **Actions** (`skills.ACTIONS`, 27 hors sous-buts) : `casser`, `recolter`, `ramasser`,
+4. **Actions** (`skills.ACTIONS`, 28 hors sous-buts) : `casser`, `recolter`, `ramasser`,
    `donner`, `cuire`, `fabriquer`, `avancer`, `explorer`, `choisir_terrain`,
-   `piler`, `construire`, `poser` (A/B), `poser_porte`, `ouvrir_porte`, `sortir`, `attendre`, `terminer`,
+   `piler`, `construire`, `poser` (A/B), `poser_porte`, `ouvrir_porte`, `utiliser` (A/B), `sortir`, `attendre`, `terminer`,
    `dire`, `regarder`, `sauter`, `appuyer`, `regarder_autour`, `pivoter`,
    `memoriser`, `oublier`, `rejoindre_demandeur`, `tourner_vers_demandeur`.
    Chacune est parametree (duree, distance, quantite, objet...) ; le modele
@@ -415,7 +436,11 @@ dans `docs/journal.md` (section « Les pieges »).
    `GoalLookAtBlock` seul : ce dernier mesure la portee jusqu a 1,6 bloc
    AU-DESSUS du bloc, et une buche a deux blocs au-dessus des pieds n etait a
    portee d aucun poste (A* jusqu au delai, « Took to long », rendu `no_path`
-   jusqu au 2026-10-11, terrain/far-hedge-pit ; tmp/but-bloc.test.js). Le pathfinder
+   jusqu au 2026-10-11, terrain/far-hedge-pit ; tmp/but-bloc.test.js). Le
+   niveau reste rouge au banc (no_path en < 5 s) alors que le meme A* trouve
+   hors ligne un chemin sur l instantane : un echec du trajet qui creuse
+   journalise `[creuse]` (depart, but, derniers calculs de l A*, remises du
+   trajet) pour trancher. Le pathfinder
    planifie parfois une montee d un bloc sous un plafond de deux (impossible,
    la tete touche) et replanifie sans fin : trois `stuck` sur place arretent
    le trajet (code `stuck`). Il tient aussi toute porte pour un mur (il
@@ -468,8 +493,18 @@ dans `docs/journal.md` (section « Les pieges »).
     mission) : boucle bloquee 2 a 13 s, expulsions « Timed out ». Toute
     recherche filtree passe par `perception.trouverBlocs` (numeros d etat,
     filtre `(pos, lire)`, ~6 fois plus rapide, aucun Block) ; `findTargetBlock`
-    est memorise le temps d un `buildState`. `findBlocks` sans filtre reste
-    permis (tri par palette, rapide). Test : tmp/trouver-blocs.test.js.
+    est memorise le temps d un `buildState`. Test : tmp/trouver-blocs.test.js.
+18. **`findBlocks` de mineflayer parcourt toute section uniforme**, meme par
+    ids : une section toute d air (ou toute de pierre) arrive en conteneur a
+    valeur unique, sans `palette`, et mineflayer la croit en palette globale
+    (un Block par case). Etabli, four, porte, buches cherches dans chaque
+    section d air au-dessus du sol : ~1 s par etat de mission des qu un four
+    ou un etabli manque (recolte de pierre, pioche en fer). `perception.
+    brancherRecherche` (plugin charge a la creation du bot) fait passer toute
+    recherche par ids par `trouverBlocs` (`paletteSection` lit la valeur
+    unique) ; une recherche a fonction garde l original. Mesure hors ligne :
+    `tmp/etat-bench.js` (monde reel par sections, `MISSION_ETAT_LENT_MS=0`
+    journalise chaque etat) : pierre 907 -> 23 ms, pioche en fer 1069 -> 22 ms.
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
@@ -541,6 +576,10 @@ node --check bot/mission.js
 
 Hors liste : `runtime-objectives` (S5 saute en root).
 
+Duree de l etat de mission (piege 18) : `NODE_PATH=$PWD/bot/node_modules node
+tmp/etat-bench.js [bois|pierre|cabane|pioche_fer]` (ajouter `--cpu-prof` pour
+un profil) ; chaque etat doit rester sous ~50 ms.
+
 Banc de competences hors ligne (2026-10-02) : un niveau `skill/*` se joue en
 local en quelques secondes, vraie mission scriptee, vrai A* 2.4.5 et vraie
 physique sur un serveur simule (`tmp/sim-server.js` : casse avec outil exige,
@@ -602,6 +641,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `RESCUE_COOLDOWN_MS` | 25000 | repos apres sauvetage (piege 7) |
 | `JEV_DONE_THRESHOLD` / `JEV_MIN_CONFIDENCE` / `JEV_DOOR_THRESHOLD` | 0.75 / 0.6 / 0.6 | seuils (noms historiques) |
 | `MEMORY_*` | voir memory.js | plafonds de la memoire (travail / long terme) |
+| `MISSION_ETAT_LENT_MS` | 1000 | etat de mission journalise `[lent]` au-dela (0 : chaque etat) |
 | `LOG_FILE`, `LOG_DEDUP_MS`, `LOG_CHAT_MAX_PER_MIN` | `/data/bot.log`, 30000, 5 | erreurs et warnings au fichier ET au chat |
 | `BUILD_DEBUG`, `PATH_DEBUG`, `PLANNER_DEBUG` | vide | traces de diagnostic |
 
@@ -639,6 +679,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/objective-controller.js`, `executor.js`, `state-store.js`, `activity.js`, `delivery.js` | objectifs durables, slot physique, persistance, activite, dons |
 | `bot/logger.js`, `bot/screenshot.js` | journal ; mini-carte PNG (`MISSION_SCREENSHOT`, eteinte) |
 | `ci/` | banc (run.py, trees.py, pool.py, capacity.py, harness, sondes) ; `ci/attendre-chunks.js` : attente des chunks du harness rejouee (un rejet non attrape tuait tout le banc) |
+| `tmp/etat-bench.js` | duree de l etat de mission sur un monde reel par sections (piege 18) |
 | `tmp/*.test.js` | tests unitaires ; `tmp/sim-world.js` monde simule partage ; `tmp/replay-snapshot.js` rejeu d un instantane de blocage ; `tmp/probe-bot.js` harness multi-bots |
 | `tmp/sim-server.js`, `tmp/skill-sim.js`, `tmp/skill-levels.json` | banc de competences hors ligne : serveur simule (vrai A*, vraie physique), joueur de niveau `skill/*`, niveaux exportes par `ci/trees.py --export-skills` |
 | `ci/promotion.py` | taux de reussite des niveaux informatifs sur N bancs, serie avec le jumeau |

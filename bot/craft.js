@@ -1009,24 +1009,29 @@ const FUELS = [
 ]
 const SMELT_TICK_MS = 10000 // 200 ticks par objet
 
-function furnaceBlock (bot, radius = TABLE_REUSE_RADIUS) {
-  const id = bot.registry?.blocksByName?.furnace?.id
+// Postes de cuisson du jeu (fenetre de four) : le four, le fumoir (nourriture)
+// et le haut fourneau (minerais), deux fois plus rapides.
+const POSTES_CUISSON = ['furnace', 'smoker', 'blast_furnace']
+
+function furnaceBlock (bot, radius = TABLE_REUSE_RADIUS, poste = 'furnace') {
+  const id = bot.registry?.blocksByName?.[poste]?.id
   if (!id || typeof bot.findBlock !== 'function') return null
   try { return bot.findBlock({ matching: id, maxDistance: radius }) } catch (_) { return null }
 }
 
 // Un four a portee : celui qui traine (24 blocs), sinon celui de l inventaire
 // pose a cote. Sans four, erreur `missing` : le solveur le fait fabriquer.
-async function ensureFurnace (bot, { move = null } = {}) {
-  let four = furnaceBlock(bot)
+async function ensureFurnace (bot, { move = null, poste = 'furnace' } = {}) {
+  let four = furnaceBlock(bot, TABLE_REUSE_RADIUS, poste)
   if (!four) {
-    if (!findItem(bot, 'furnace')) {
-      throw Object.assign(new Error('pas de four (8 cobblestone sur un etabli)'), { code: 'missing', missing: [{ name: 'furnace', count: 1 }] })
+    if (!findItem(bot, poste)) {
+      const aide = poste === 'furnace' ? ' (8 cobblestone sur un etabli)' : ''
+      throw Object.assign(new Error(`pas de ${poste}${aide}`), { code: 'missing', missing: [{ name: poste, count: 1 }] })
     }
-    await placeNear(bot, 'furnace')
+    await placeNear(bot, poste)
     await sleep(350)
-    four = furnaceBlock(bot, 6)
-    if (!four) throw new Error('four pose mais introuvable')
+    four = furnaceBlock(bot, 6, poste)
+    if (!four) throw new Error(`${poste} pose mais introuvable`)
   }
   if (bot.entity.position.distanceTo(four.position) > 3.5) {
     const vantage = build.findVantage(bot, four.position)
@@ -1046,7 +1051,7 @@ async function ensureFurnace (bot, { move = null } = {}) {
 // Cuit `wanted` `output` (iron_ingot, charcoal, glass...). L entree vient de
 // la table SMELT (acquire-plan) ; une autre essence de buche fait l affaire
 // pour le charbon de bois. Mesure le produit REEL en inventaire.
-async function smelt (bot, output, wanted = 1, { move = null, input = null, timeoutMs = null } = {}) {
+async function smelt (bot, output, wanted = 1, { move = null, input = null, timeoutMs = null, poste = 'furnace' } = {}) {
   const { SMELT } = require('./acquire-plan')
   const n = Math.max(1, Math.round(Number(wanted) || 1))
   const raw = input ?? SMELT[output]
@@ -1082,7 +1087,7 @@ async function smelt (bot, output, wanted = 1, { move = null, input = null, time
       { code: 'missing', missing: [{ name: 'oak_planks', count: Math.ceil((aCuire - capacite) / 1.5) }] })
   }
   const avant = countOf(bot, new RegExp(`^${escapeRegExp(output)}$`))
-  const four = await ensureFurnace(bot, { move })
+  const four = await ensureFurnace(bot, { move, poste })
   const fenetre = await bot.openFurnace(four)
   let pris = 0
   const brules = new Map()
@@ -1142,6 +1147,7 @@ async function smelt (bot, output, wanted = 1, { move = null, input = null, time
 
 module.exports = {
   smelt,
+  POSTES_CUISSON,
   trackWindowStateIds,
   ensureFurnace,
   furnaceBlock,

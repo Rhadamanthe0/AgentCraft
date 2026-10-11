@@ -1333,7 +1333,11 @@ avec la quantite si elle est dite : [{"objet": "torch", "quantite": 4}] ;
 sinon null. Chaque objet que la demande fait poser y figure, meme implicite
 (un objet qui roule sur des rails exige ces rails). La mission est alors une
 "recolte" (le bot obtient puis pose), sauf si elle bati aussi un chantier
-("construction"). Ajoute ce champ au JSON : {"pose": null}.`
+("construction") : la pose s ajoute alors au chantier, elle ne le remplace
+pas. "pose un levier a cote de la porte" -> pose [{"objet": "lever",
+"quantite": 1}] ; "entoure le puits d une cloture" -> pose [{"objet":
+"oak_fence"}]. Une fabrication de ces objets ne suffit jamais : sans "pose",
+le bot les fabrique et s arrete sans les poser.`
 }
 
 function briefPrompt (ouvert = false, pose = false) {
@@ -1342,7 +1346,7 @@ function briefPrompt (ouvert = false, pose = false) {
     prompts.set(key, `Tu lis l objectif qu un joueur confie a un bot Minecraft et tu en extrais ce qu il faut en retenir.
 
 Tu recois {"objectif": "<la phrase du joueur>"} et tu rends du JSON, rien d autre :
-{"type": "<...>", "matiere": "<...>", "repere": "<...>", "porte": 0.0, "confiance": 0.0, "parcours": null, "geste_libre": false, "degagement": 0, "livraison": false, "recherche_web": false, "fabrication": null, "fabrication_quantite": null}
+{"type": "<...>", "matiere": "<...>", "repere": "<...>", "porte": 0.0, "confiance": 0.0, "parcours": null, "geste_libre": false, "degagement": 0, "livraison": false, "recherche_web": false, "fabrication": null, "fabrication_quantite": null${pose ? ', "pose": null' : ''}}
 
 "fabrication" nomme l OBJET a fabriquer quand le joueur demande un craft
 ("fabrique une hache", "fais-moi des planches", "craft une torche") : nom

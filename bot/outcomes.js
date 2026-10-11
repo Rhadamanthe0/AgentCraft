@@ -85,6 +85,7 @@ const REMEDES_PAR_ACTION = {
   poser_porte: ['fabriquer', 'construire', 'sortir'],
   poser: ['avancer', 'fabriquer', 'sortir'],
   ouvrir_porte: ['sortir', 'avancer'],
+  utiliser: ['sortir', 'avancer'],
   sortir: ['casser', 'piler'],
   choisir_terrain: ['avancer', 'explorer'],
   rejoindre_demandeur: ['avancer', 'explorer'],

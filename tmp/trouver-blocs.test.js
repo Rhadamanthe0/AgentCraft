@@ -118,3 +118,47 @@ test('bot sans monde par sections : repli sur findBlocks avec le filtre', () => 
   assert.strictEqual(recu.maxDistance, 8)
   assert.ok(recu.useExtraInfo({ position: new Vec3(1, 0, 0) }))
 })
+
+// Bot mineflayer (plugin des blocs reel) sur le monde de test.
+function mineflayerBot (world) {
+  const EventEmitter = require('events')
+  const bot = new EventEmitter()
+  bot._client = new EventEmitter()
+  bot.registry = registry
+  bot.version = '26.1'
+  require('mineflayer/lib/plugins/blocks.js')(bot, { version: '26.1', hideErrors: true })
+  bot.game = { minY: MIN_Y, height: HEIGHT }
+  bot.world = world
+  bot.entity = { position: new Vec3(0.5, 65, 0.5) }
+  return bot
+}
+
+test('section uniforme (air, pierre) : palette a valeur unique lue, pas de parcours', () => {
+  const world = monde()
+  const section = world.getColumn(0, 0).sections[(80 >> 4) - (MIN_Y >> 4)]
+  assert.ok(section && !Array.isArray(section.palette), 'section d air en conteneur a valeur unique')
+  assert.deepStrictEqual(perception.paletteSection(section), [0])
+  assert.strictEqual(perception.paletteSection(null), null)
+})
+
+test('findBlocks branche : les plus proches par ids, aucun Block pour une matiere absente', () => {
+  const world = monde()
+  const bot = mineflayerBot(world)
+  perception.brancherRecherche(bot)
+  perception.brancherRecherche(bot) // idempotent
+  const ids = ['iron_ore', 'grass_block'].map(n => registry.blocksByName[n].id)
+  const c = bot.entity.position.floored()
+  const dist = l => l.map(p => p.distanceTo(c))
+  // Exact, la ou mineflayer s arrete a la premiere couche de sections pleine.
+  assert.deepStrictEqual(dist(bot.findBlocks({ matching: ids, maxDistance: 20, count: 10 })), exhaustif(bot, ids, null, 20, 10))
+  assert.strictEqual(bot.findBlock({ matching: registry.blocksByName.iron_ore.id, maxDistance: 32 }).name, 'iron_ore')
+  // Four absent : mineflayer construisait un Block par case de chaque section
+  // d air du rayon (piege 18) ; branche, aucun.
+  let construits = 0
+  const blockAt = bot.blockAt
+  bot.blockAt = (...a) => { construits++; return blockAt(...a) }
+  assert.strictEqual(bot.findBlock({ matching: registry.blocksByName.furnace.id, maxDistance: 24 }), null)
+  assert.strictEqual(construits, 0)
+  // Une recherche a fonction garde l original.
+  assert.ok(bot.findBlocks({ matching: b => b?.name === 'iron_ore', maxDistance: 8, count: 1 }).length <= 1)
+})
