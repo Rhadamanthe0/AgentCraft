@@ -271,7 +271,13 @@ au demarrage au lieu de 75 min de niveaux rouges.
   s est bloquee ~30 s. `[lent]` dans `containers.log` dit quand (boucle
   bloquee, etat de mission long a construire) ; un bot expulse se reconnecte
   seul et le niveau suivant attend son spawn (`wait_spawned`, ci/trees.py),
-  `/api/status` repond `spawned: false` sans monde au lieu d un 500.
+  `/api/status` repond `spawned: false` sans monde au lieu d un 500. Cause
+  trouvee le 2026-10-11 (piege 17) : 628 etats de mission de 1 a 13,6 s sur
+  un banc complet, tous bots et niveaux confondus.
+- Fin de banc : la lecture de `ops.json` (preuve de survie) est rejouee
+  (`read_ops`, 3 x 90 s) et un echec s ajoute a `report.errors` sans perdre
+  les resultats des niveaux (un `exec` de plus de 60 s sur machine saturee
+  avait efface tout un banc, run 38089012969).
 - Sur un banc partiel (ligne `Banc:`), `banc-complet` est rouge par
   construction : un seul commentaire de PR l explique, pas un par banc.
 - `tmp/*` est ignore par git sauf `*.js` (et les exceptions de
@@ -448,6 +454,14 @@ dans `docs/journal.md` (section « Les pieges »).
     `MISSION_BRIEF_NOTICE_MS`) se lit par `config.finiteNumber(..., { min: 0 })`.
     Avant `config.js`, `Number('0' || d)` valait 0 : la conversion du 2026-10-03
     avait rallume ces deux mecanismes en silence.
+17. **`bot.findBlocks` avec `useExtraInfo` en fonction construit un Block par
+    case** de chaque section qui contient la matiere (pierre : tout le
+    sous-sol, ~400 000 Block par recherche, plusieurs recherches par etat de
+    mission) : boucle bloquee 2 a 13 s, expulsions « Timed out ». Toute
+    recherche filtree passe par `perception.trouverBlocs` (numeros d etat,
+    filtre `(pos, lire)`, ~6 fois plus rapide, aucun Block) ; `findTargetBlock`
+    est memorise le temps d un `buildState`. `findBlocks` sans filtre reste
+    permis (tri par palette, rapide). Test : tmp/trouver-blocs.test.js.
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 

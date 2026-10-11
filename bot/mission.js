@@ -1669,7 +1669,19 @@ function createMissionRunner (host, injected = {}) {
     return { x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, z0: Math.min(...zs) - 1, z1: Math.max(...zs) + 1, y: Math.min(...ys) }
   }
 
+  // Un etat de mission se construit d un trait (synchrone, le monde ne bouge
+  // pas entre-temps) mais cherche plusieurs fois la meme cible : memo le temps
+  // d un buildState.
+  let memoCibles = null
   function findTargetBlock (resource, opts = {}) {
+    if (!memoCibles) return findTargetBlockMesure(resource, opts)
+    let cle
+    try { cle = JSON.stringify([resource ?? null, opts]) } catch (_) { return findTargetBlockMesure(resource, opts) }
+    if (!memoCibles.has(cle)) memoCibles.set(cle, findTargetBlockMesure(resource, opts))
+    return memoCibles.get(cle)
+  }
+
+  function findTargetBlockMesure (resource, opts = {}) {
     // Surcharge toleree : findTargetBlock({ yaw }) vaut secteur sur la matiere
     // courante. Rien d autre n utilise cette forme aujourd hui.
     if (resource && typeof resource === 'object' && !Array.isArray(resource) &&
@@ -1695,17 +1707,16 @@ function createMissionRunner (host, injected = {}) {
     // introuvable pour casser, en boucle (vu : craft/stone-pickaxe, 90 etapes,
     // les 32 plus proches etant toutes sous le sol de l arene).
     const feetLevel = Math.floor(bot.entity.position.y)
-    const exposed = pos => blocExpose(bot, pos, feetLevel)
+    const exposed = (pos, lire) => blocExpose(bot, pos, feetLevel, lire)
     let positions
     try {
       // Filtre PENDANT la recherche : sous une arene ou un sol de pierre, des
       // milliers de blocs enfouis sont plus proches que le rocher visible (vu :
-      // les 256 plus proches toutes enfouies, « pierre introuvable »). La
-      // `useExtraInfo` en fonction = filtre applique aux seuls blocs de la
-      // matiere (mineflayer garde le tri rapide par palette sur `ids`).
-      positions = bot.findBlocks({
-        matching: ids, useExtraInfo: block => exposed(block.position), maxDistance: SEARCH_RADIUS, count: 64
-      }).filter(exposed).slice(0, 32)
+      // les 256 plus proches toutes enfouies, « pierre introuvable »).
+      // perception.trouverBlocs lit les numeros d etat sans construire de
+      // Block : le `findBlocks` de mineflayer avec filtre coutait des secondes.
+      positions = perception.trouverBlocs(bot, { ids, filtre: exposed, maxDistance: SEARCH_RADIUS, count: 64 })
+        .filter(exposed).slice(0, 32)
     } catch (err) {
       return null
     }
@@ -2728,10 +2739,10 @@ function createMissionRunner (host, injected = {}) {
     // the house being built is not a resource to climb to, and its placed
     // blocks must not fill the result cap.
     const emprise = empriseChantier()
-    const admis = pos => !dansEmprise(emprise, pos) && blocExpose(bot, pos, feetY)
+    const admis = (pos, lire) => !dansEmprise(emprise, pos) && blocExpose(bot, pos, feetY, lire)
     let positions
     try {
-      positions = bot.findBlocks({ matching: ids, useExtraInfo: block => admis(block.position), maxDistance: SEARCH_RADIUS, count: 32 })
+      positions = perception.trouverBlocs(bot, { ids, filtre: admis, maxDistance: SEARCH_RADIUS, count: 32 })
         .filter(admis)
     } catch (_) {
       return null
@@ -3003,9 +3014,12 @@ function createMissionRunner (host, injected = {}) {
   // long a construire (solveur, recherches de blocs) se dit dans le journal.
   function buildState () {
     const debut = Date.now()
+    const dejaEnCours = memoCibles !== null
+    if (!dejaEnCours) memoCibles = new Map()
     try {
       return buildStateMesure()
     } finally {
+      if (!dejaEnCours) memoCibles = null
       const ms = Date.now() - debut
       if (ms >= 1000) console.log(`[lent] etat de mission construit en ${ms} ms`)
     }
