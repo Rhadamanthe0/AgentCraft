@@ -350,6 +350,12 @@ const ACTIONS = {
       quantite: {
         json: { kind: 'number', min: 1, max: 16 },
         question: 'Combien en cuire ?'
+      },
+      // Lot 3 des actions generiques (A/B `utiliser`) : le poste est un parametre.
+      emplacement: {
+        feature: 'utiliser',
+        json: { kind: 'text', max: 40 },
+        question: 'Sur quel poste cuire : furnace (defaut), smoker (nourriture) ou blast_furnace (minerais, deux fois plus vite) ?'
       }
     }
   },
@@ -520,8 +526,11 @@ const ACTIONS = {
     }
   },
 
+  // Lot 3 des actions generiques (A/B `utiliser`) : `poser {objet: porte}`
+  // la remplace.
   poser_porte: {
     kinds: ['construction'],
+    masqueePar: 'utiliser',
     summary: 'poser la porte dans l ouverture',
     scale: 'sans effet',
     secondes: 2,
@@ -532,12 +541,13 @@ const ACTIONS = {
   // le lieu sont des parametres, AGENTS.md). bot/action-poser.js.
   poser: {
     kinds: ['recolte', 'deplacement', 'construction', 'geste'],
-    feature: 'poser',
+    // Servie avec l un ou l autre mode (le lot 3 remplace poser_porte par elle).
+    feature: ['poser', 'utiliser'],
     featureDefault: false,
     summary: 'poser un objet de l inventaire dans le monde, ou une ligne d objets',
     scale: 'nombre d objets poses, de 1 a 40',
     secondes: 1.5,
-    intent: "Poser un objet en poche hors du plan de chantier (rail, torche, levier, cloture, bloc isole ; minecart ou bateau). Sans lieu : devant le bot. `de` seul : a cote du bloc nomme le plus proche (un objet qui n est pas un bloc, comme un minecart, se pose SUR ce bloc). `de` et `vers` : une ligne de cases au sol d un bloc nomme a l autre, droite ou en L, cases deja prises sautees. Blocs nommes en anglais comme dans le jeu, jamais de coordonnees. Le code ne compte que les poses que le monde montre",
+    intent: "Poser un objet en poche hors du plan de chantier (rail, torche, levier, cloture, bloc isole ; minecart ou bateau ; une porte va dans l ouverture laissee par le chantier s il en a une). Sans lieu : devant le bot. `de` seul : a cote du bloc nomme le plus proche (un objet qui n est pas un bloc, comme un minecart, se pose SUR ce bloc). `de` et `vers` : une ligne de cases au sol d un bloc nomme a l autre, droite ou en L, cases deja prises sautees. Blocs nommes en anglais comme dans le jeu, jamais de coordonnees. Le code ne compte que les poses que le monde montre",
     params: {
       objet: {
         json: { kind: 'text', max: 40 },
@@ -572,10 +582,30 @@ const ACTIONS = {
   ouvrir_porte: {
     kinds: ['recolte', 'deplacement', 'construction', 'geste'],
     feature: 'ouvrir_porte',
+    masqueePar: 'utiliser',
     summary: 'ouvrir la porte en bois la plus proche et la franchir',
     scale: 'sans effet',
     secondes: 3,
     intent: "Le bot est dans une piece fermee par une porte en bois (par exemple la cabane qu il vient de construire) ou une porte barre son chemin : la rejoindre, l ouvrir et passer de l autre cote (porte a 8 blocs au plus). Une porte de fer ne s ouvre pas a la main"
+  },
+
+  // Actionner un bloc nomme (lot 3 des actions generiques, A/B `utiliser`,
+  // regle immuable du proprietaire : l objet est un parametre). Remplace
+  // ouvrir_porte ; un passage (porte, portillon) est franchi apres ouverture.
+  utiliser: {
+    kinds: ['recolte', 'deplacement', 'construction', 'geste'],
+    feature: 'utiliser',
+    featureDefault: false,
+    summary: 'actionner le bloc nomme le plus proche (porte, portillon, trappe, levier, bouton)',
+    scale: 'sans effet',
+    secondes: 3,
+    intent: "Actionner un bloc a 8 blocs au plus, comme un clic droit : le rejoindre a portee de main puis l actionner. Une porte ou un portillon ferme est ouvert puis franchi (bot enferme dans une piece, passage barre) ; une porte de fer ne s ouvre pas a la main. Nom de bloc en anglais comme dans le jeu (oak_door, lever...), ou sa famille (door, fence_gate, button)",
+    params: {
+      objet: {
+        json: { kind: 'text', max: 40 },
+        question: 'Quel bloc actionner (nom de bloc Minecraft) ?'
+      }
+    }
   },
 
   attendre: {
@@ -1145,7 +1175,10 @@ function setFeatureEnabled (feature, enabled) {
 function availableFor (kind, supply = 'harvest') {
   return Object.entries(ACTIONS).filter(([, spec]) => {
     if (kind && !spec.kinds.includes(kind)) return false
-    if (spec.feature && disabledFeatures.has(spec.feature)) return false
+    // Plusieurs interrupteurs : servie si l un d eux est allume.
+    if (spec.feature && [].concat(spec.feature).every(f => disabledFeatures.has(f))) return false
+    // Remplacee par une action generique quand son mode est allume.
+    if (spec.masqueePar && !disabledFeatures.has(spec.masqueePar)) return false
     if (supply === 'creative' && kind === 'construction' && spec.harvesting) return false
     return true
   })
@@ -1259,10 +1292,15 @@ const ACTION_EXEMPLES = {
   poser: [
     'consigne.poses liste torch et torches en poche -> {"action":"poser","objet":"torch","de":"oak_planks"}',
     'cloture demandee d un arbre a l autre, oak_fence en poche -> {"action":"poser","objet":"oak_fence","de":"oak_log","vers":"birch_log"}',
-    'objet a poser absent de l inventaire -> fabriquer ou recolter d abord (environnement.prerequis), puis poser'
+    'objet a poser absent de l inventaire -> fabriquer ou recolter d abord (environnement.prerequis), puis poser',
+    'chantier.blocs_restants 0, porte demandee et une porte en poche -> {"action":"poser","objet":"spruce_door"} (dans l ouverture du chantier)'
   ],
   sortir: ['bot.dans_liquide vrai -> sortir avant tout le reste'],
   ouvrir_porte: ['avancer ou recolter -> no_path et bot dans un batiment a porte en bois -> ouvrir_porte, puis reprendre le trajet'],
+  utiliser: [
+    'avancer ou recolter -> no_path et bot dans une piece fermee par une porte en bois -> {"action":"utiliser","objet":"door"}, puis reprendre le trajet',
+    'levier a actionner pres du bot -> {"action":"utiliser","objet":"lever"}'
+  ],
   attendre: ['une action longue est deja en cours -> attendre, mais preferer regarder_autour si on ne sait pas quoi faire'],
   terminer: ['objectif atteint et rien d utile ne reste -> terminer'],
   dire: ['signal de blocage -> {"action":"dire","texte":"coince : plus de bois"}'],

@@ -710,7 +710,7 @@ def base_levels():
             # de cuisson en plus. Bloquant (4 bancs reussis d affilee au
             # 2026-09-28, 230-326 s).
             'kind': 'gather', 'instruction': 'Fabrique une pioche en fer', 'items': ['iron_pickaxe'],
-            'target': 1, 'cap': 480, 'variants': [sans('solveur'), avec('sous_buts'), avec('objet_vers'), *MODELES_AB],
+            'target': 1, 'cap': 480, 'variants': [sans('solveur'), avec('sous_buts'), avec('objet_vers'), avec('utiliser'), *MODELES_AB],
             'terrain': [(20, 200, 26, 24, 201, 30, 'stone'), (22, 201, 26, 22, 201, 26, 'iron_ore'),
                         (23, 201, 26, 23, 201, 26, 'iron_ore'), (24, 201, 27, 24, 201, 27, 'iron_ore')],
             'leaves': [(6, 204, 6, 10, 205, 10)], 'logs': _logs(*[(8, 200 + i, 8) for i in range(4)]), 'rules': {},
@@ -761,7 +761,7 @@ def base_levels():
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
             # A/B: the model picks sub-goals (batir, obtenir) the code runs to the end.
-            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts'), avec('reparer'), avec('objet_vers'), *MODELES_AB],
+            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts'), avec('reparer'), avec('objet_vers'), avec('utiliser'), *MODELES_AB],
         },
         # Palier 2 (2026-09-28) : chaine plus longue, imprevu, terrain hostile.
         # Informatifs jusqu a trois bancs reussis d affilee.
@@ -1930,6 +1930,7 @@ RETIRED = frozenset({
     # de la campagne A/B, jamais au banc complet (quota).
     'craft/iron-pickaxe~avec-objet_vers', 'composite/cabin-from-scratch~avec-objet_vers',
     'composite/stone-hut-from-scratch~avec-objet_vers',
+    'craft/iron-pickaxe~avec-utiliser', 'composite/cabin-from-scratch~avec-utiliser',
 })
 
 # Owner's limit (2026-10-10): a full bench plays fewer than 50 tests (levels,

@@ -50,9 +50,13 @@ existe un jour : une action qui ne sert qu un objet ou qu un lieu est
 refusee. Mise en conformite des actions existantes : trois lots
 (1 `poser` et `obtenir {objet, quantite}`, fait le 2026-10-10 ; 2 `objet`/`vers` sur casser,
 recolter, ramasser, avancer, explorer, piler, fait le 2026-10-11 derriere
-l interrupteur `objet_vers` ; 3 `utiliser` et `poser`
-remplacent `ouvrir_porte` et `poser_porte`, `emplacement` sur fabriquer et
-cuire), chacun mesure en A/B.
+l interrupteur `objet_vers` ; 3 `utiliser` et `poser` remplacent
+`ouvrir_porte` et `poser_porte`, `emplacement` sur cuire, fait le 2026-10-11
+derriere l interrupteur `utiliser` ; reste `emplacement` sur fabriquer, qui
+n a qu un poste de fabrication en jeu, l etabli), chacun mesure en A/B. Une
+action remplacee reste dans la table (le code s en sert, `poser` d une porte
+appelle `poser_porte`) mais n est plus servie au modele (`masqueePar` dans
+skills.js) ; elle part quand l A/B tranche.
 
 ### Arbre commence, arbre fini (2026-09-29)
 
@@ -125,7 +129,15 @@ devient la matiere figee de l etape (`matiereDe` : catalogue, bloc ou objet
 compte, sinon bloc du registre), refus `objet_inconnu`, arbre commence
 prioritaire ; `avec(...)` sur craft/iron-pickaxe et les composites cabane et
 maison en pierre, retires du banc complet (`Banc:` pour la campagne) ;
-tmp/objet-vers.test.js).
+tmp/objet-vers.test.js) ; `utiliser` (eteint, 2026-10-11, lot 3 :
+action `utiliser {objet}` qui actionne le bloc nomme le plus proche, nom du
+registre ou famille (`door`, `button`), un passage ferme etant ouvert puis
+franchi (`actionnerBloc`, partage avec ouvrir_porte) ; `poser` servie aussi
+par ce mode, une porte posee sur un chantier qui en prevoit une va dans
+l ouverture ; `emplacement` de cuire parmi `craft.POSTES_CUISSON` ;
+`ouvrir_porte` et `poser_porte` masquees ; `avec(...)` sur craft/iron-pickaxe
+et composite/cabin-from-scratch, retires du banc complet ;
+tmp/utiliser.test.js).
 
 A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
 liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)
@@ -346,9 +358,9 @@ Flux d une demande (details : ARCHITECTURE.md) :
    deux fois a l identique n est pas rejouee (`anti_boucle`). Preconditions
    et effets des actions : `CONTRATS` (mission.js). Un champ persiste se
    declare dans `mission-state.js`, nulle part ailleurs.
-4. **Actions** (`skills.ACTIONS`, 27 hors sous-buts) : `casser`, `recolter`, `ramasser`,
+4. **Actions** (`skills.ACTIONS`, 28 hors sous-buts) : `casser`, `recolter`, `ramasser`,
    `donner`, `cuire`, `fabriquer`, `avancer`, `explorer`, `choisir_terrain`,
-   `piler`, `construire`, `poser` (A/B), `poser_porte`, `ouvrir_porte`, `sortir`, `attendre`, `terminer`,
+   `piler`, `construire`, `poser` (A/B), `poser_porte`, `ouvrir_porte`, `utiliser` (A/B), `sortir`, `attendre`, `terminer`,
    `dire`, `regarder`, `sauter`, `appuyer`, `regarder_autour`, `pivoter`,
    `memoriser`, `oublier`, `rejoindre_demandeur`, `tourner_vers_demandeur`.
    Chacune est parametree (duree, distance, quantite, objet...) ; le modele

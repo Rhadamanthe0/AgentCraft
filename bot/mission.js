@@ -130,7 +130,7 @@ function setFeatures (changes = {}) {
 // validation du planificateur suivent featureOn.
 function syncActionFeatures () {
   for (const spec of Object.values(skills.ACTIONS)) {
-    if (spec.feature) skills.setFeatureEnabled(spec.feature, featureOn(spec.feature, spec.featureDefault ?? true))
+    for (const f of [].concat(spec.feature ?? [])) skills.setFeatureEnabled(f, featureOn(f, spec.featureDefault ?? true))
     // Parametres a interrupteur : eteints par defaut (un nouveau parametre se
     // mesure en A/B avant d etre servi).
     for (const d of Object.values(spec.params ?? {})) {
@@ -3802,6 +3802,81 @@ function createMissionRunner (host, injected = {}) {
     }
   })
 
+  // Ids des blocs d un nom du registre, ou de sa famille (« door » : toutes les
+  // portes, « button » : tous les boutons).
+  function blocsNommes (registry, nom) {
+    const defs = Object.values(registry?.blocksByName ?? {})
+    const exact = defs.filter(b => b.name === nom)
+    return (exact.length ? exact : defs.filter(b => b.name.endsWith(`_${nom}`))).map(b => b.id)
+  }
+
+  const estPassage = nom => /_door$|_fence_gate$/.test(nom ?? '')
+
+  // Actionner le bloc des `ids` le plus proche (8 blocs) comme un clic droit :
+  // le rejoindre a portee de main, l actionner ; un passage (porte, portillon)
+  // n est actionne que ferme, puis franchi (case voisine sur son axe, la plus
+  // eloignee du bot). Une porte de fer ne s ouvre pas a la main : constat.
+  async function actionnerBloc (ids, { absent, codeAbsent, libelle }) {
+    const bot = host.getBot()
+    let bloc = ids.length ? bot.findBlock({ matching: ids, maxDistance: 8 }) : null
+    if (!bloc) return { resultat: absent, echec: true, ...(codeAbsent ? { code: codeAbsent } : {}) }
+    // Une porte = deux blocs : on agit sur la moitie basse.
+    const below = bot.blockAt(bloc.position.offset(0, -1, 0))
+    if (below && /_door$/.test(bloc.name) && below.name === bloc.name) bloc = below
+    const centre = bloc.position.offset(0.5, 0.5, 0.5)
+    // Chaque moitie ouvre la porte, comme en jeu. Depuis l interieur, tout
+    // contre elle, le regard vers le centre de la moitie basse traverse la
+    // moitie haute (fermee, pleine sur sa tranche) : la basse seule etait
+    // « hors de portee » (banc 8090c3b, composite/cabin-from-scratch).
+    const haut = bot.blockAt(bloc.position.offset(0, 1, 0))
+    const moities = [bloc.position, ...(/_door$/.test(bloc.name) && haut?.name === bloc.name ? [haut.position] : [])]
+    const prise = b => b?.entity && moities.find(p => blockInReach(b, b.entity.position, p.offset(0.5, 0.5, 0.5), REACH))
+    let saisie = prise(bot)
+    if (!saisie) {
+      const r = await host.navigateToPosition(centre, {
+        signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, timeoutMs: 10000, distanceBudget: 16
+      })
+      saisie = prise(host.getBot())
+      if (!saisie) {
+        return { resultat: `${libelle} en ${bloc.position.x} ${bloc.position.y} ${bloc.position.z} hors de portee (${r?.code ?? 'trajet impossible'})`, echec: true }
+      }
+    }
+    const live = host.getBot()
+    const passage = estPassage(bloc.name)
+    if (!passage || doorClosed(live.blockAt(bloc.position))) {
+      try {
+        await withTimeout(live.activateBlock(live.blockAt(saisie)), 4000, 'action trop longue')
+      } catch (err) {
+        return { resultat: `${libelle} refuse(e) : ${err.message}`, echec: true }
+      }
+      await sleep(200)
+      if (passage && doorClosed(live.blockAt(bloc.position))) return { resultat: `${libelle} toujours ferme(e) apres l avoir actionne(e)`, echec: true }
+      if (!passage) return { resultat: `${bloc.name} actionne en ${bloc.position.x} ${bloc.position.y} ${bloc.position.z}` }
+    }
+    // L autre cote : la case voisine du passage, sur son axe, la plus
+    // eloignee du bot.
+    const facing = String(live.blockAt(bloc.position)?.getProperties?.()?.facing ?? 'north')
+    const axe = facing === 'east' || facing === 'west' ? [new Vec3(1, 0, 0), new Vec3(-1, 0, 0)] : [new Vec3(0, 0, 1), new Vec3(0, 0, -1)]
+    const here = live.entity.position
+    let cote = axe.map(d => bloc.position.plus(d).offset(0.5, 0, 0.5))
+      .sort((a, b) => b.distanceTo(here) - a.distanceTo(here))[0]
+    // A la hauteur du passage, cette case peut etre en l air (piece a
+    // plancher : porte une marche au-dessus du sol du dehors). Le
+    // navigateur n y arrive jamais (ecart vertical) : on vise la case ou
+    // l on tient debout, trois blocs de chute au plus (maxDropDown).
+    for (let chute = 0; chute < 3 && !estSolide(live.blockAt(cote.offset(0, -1, 0))); chute++) {
+      cote = cote.offset(0, -1, 0)
+    }
+    const r = await host.navigateToPosition(cote, {
+      signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.6, timeoutMs: 8000, distanceBudget: 12
+    })
+    const pos = host.getBot()?.entity?.position
+    const ou = pos ? `${pos.x.toFixed(1)} ${pos.y.toFixed(1)} ${pos.z.toFixed(1)}` : '?'
+    return r?.reached
+      ? { resultat: `${libelle} ouverte et franchie, maintenant en ${ou}` }
+      : { resultat: `${libelle} ouverte, passage impossible (${r?.code ?? 'trajet'}), en ${ou}`, echec: true }
+  }
+
   const ACTIONS = {
     // Il y avait ici `approcher`, qui deleguait au pathfinder (GoalNearXZ). Le
     // pathfinder est casse au-dela de quelques blocs sur cette version (arret a
@@ -4385,8 +4460,16 @@ function createMissionRunner (host, injected = {}) {
         const r = await etapeSuivanteAuLieu(`${objet} deja cuit(s)`)
         if (r) return r
       }
+      // Poste nomme (A/B `utiliser`) : un poste de cuisson du jeu, sinon refus.
+      const poste = featureOn('utiliser', false) && params.emplacement
+        ? String(params.emplacement).trim().toLowerCase().replace(/^minecraft:/, '')
+        : 'furnace'
+      if (!craft.POSTES_CUISSON.includes(poste)) {
+        return { resultat: `« ${poste} » n est pas un poste de cuisson (${craft.POSTES_CUISSON.join(', ')})`, echec: true, code: 'objet_inconnu' }
+      }
       try {
         const r = await craft.smelt(bot, objet, quantite, {
+          poste,
           move: async stand => (await host.navigateToPosition(stand, {
             signal: mission.navigationAbort.signal, __owner: stepToken, radius: 1, timeoutMs: 20000, distanceBudget: 48
           }))?.reached === true
@@ -5623,61 +5706,18 @@ function createMissionRunner (host, injected = {}) {
       const bot = host.getBot()
       if (!bot?.entity) return { resultat: 'bot absent du monde', echec: true }
       const ids = Object.values(bot.registry.blocksByName).filter(b => isWoodDoor(b.name)).map(b => b.id)
-      let door = ids.length ? bot.findBlock({ matching: ids, maxDistance: 8 }) : null
-      if (!door) return { resultat: 'aucune porte en bois a moins de 8 blocs', echec: true }
-      // Une porte = deux blocs : on agit sur la moitie basse.
-      const below = bot.blockAt(door.position.offset(0, -1, 0))
-      if (below && isWoodDoor(below.name)) door = below
-      const centre = door.position.offset(0.5, 0.5, 0.5)
-      // Chaque moitie ouvre la porte, comme en jeu. Depuis l interieur, tout
-      // contre elle, le regard vers le centre de la moitie basse traverse la
-      // moitie haute (fermee, pleine sur sa tranche) : la basse seule etait
-      // « hors de portee » (banc 8090c3b, composite/cabin-from-scratch).
-      const haut = bot.blockAt(door.position.offset(0, 1, 0))
-      const moities = [door.position, ...(haut && isWoodDoor(haut.name) ? [haut.position] : [])]
-      const prise = b => b?.entity && moities.find(p => blockInReach(b, b.entity.position, p.offset(0.5, 0.5, 0.5), REACH))
-      let saisie = prise(bot)
-      if (!saisie) {
-        const r = await host.navigateToPosition(centre, {
-          signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, timeoutMs: 10000, distanceBudget: 16
-        })
-        saisie = prise(host.getBot())
-        if (!saisie) {
-          return { resultat: `porte en ${door.position.x} ${door.position.y} ${door.position.z} hors de portee (${r?.code ?? 'trajet impossible'})`, echec: true }
-        }
-      }
-      const live = host.getBot()
-      if (doorClosed(live.blockAt(door.position))) {
-        try {
-          await withTimeout(live.activateBlock(live.blockAt(saisie)), 4000, 'ouverture trop longue')
-        } catch (err) {
-          return { resultat: `porte refusee : ${err.message}`, echec: true }
-        }
-        await sleep(200)
-        if (doorClosed(live.blockAt(door.position))) return { resultat: 'porte toujours fermee apres l avoir actionnee', echec: true }
-      }
-      // L autre cote : la case voisine de la porte, sur son axe, la plus
-      // eloignee du bot.
-      const facing = String(live.blockAt(door.position)?.getProperties?.()?.facing ?? 'north')
-      const axe = facing === 'east' || facing === 'west' ? [new Vec3(1, 0, 0), new Vec3(-1, 0, 0)] : [new Vec3(0, 0, 1), new Vec3(0, 0, -1)]
-      const here = live.entity.position
-      let cote = axe.map(d => door.position.plus(d).offset(0.5, 0, 0.5))
-        .sort((a, b) => b.distanceTo(here) - a.distanceTo(here))[0]
-      // A la hauteur de la porte, cette case peut etre en l air (piece a
-      // plancher : porte une marche au-dessus du sol du dehors). Le
-      // navigateur n y arrive jamais (ecart vertical) : on vise la case ou
-      // l on tient debout, trois blocs de chute au plus (maxDropDown).
-      for (let chute = 0; chute < 3 && !estSolide(live.blockAt(cote.offset(0, -1, 0))); chute++) {
-        cote = cote.offset(0, -1, 0)
-      }
-      const r = await host.navigateToPosition(cote, {
-        signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.6, timeoutMs: 8000, distanceBudget: 12
-      })
-      const pos = host.getBot()?.entity?.position
-      const ou = pos ? `${pos.x.toFixed(1)} ${pos.y.toFixed(1)} ${pos.z.toFixed(1)}` : '?'
-      return r?.reached
-        ? { resultat: `porte ouverte et franchie, maintenant en ${ou}` }
-        : { resultat: `porte ouverte, passage impossible (${r?.code ?? 'trajet'}), en ${ou}`, echec: true }
+      return actionnerBloc(ids, { absent: 'aucune porte en bois a moins de 8 blocs', libelle: 'porte' })
+    },
+
+    // Lot 3 des actions generiques (A/B `utiliser`) : le bloc est un parametre.
+    async utiliser (_scale, params = {}) {
+      const bot = host.getBot()
+      if (!bot?.entity) return { resultat: 'bot absent du monde', echec: true }
+      const nom = String(params.objet ?? '').trim().toLowerCase().replace(/^minecraft:/, '').replace(/\s+/g, '_')
+      if (!nom) return { resultat: 'utiliser : nommer le bloc a actionner (objet)', echec: true, code: 'objet_inconnu' }
+      const ids = blocsNommes(bot.registry, nom)
+      if (ids.length === 0) return { resultat: `« ${nom} » n est pas un bloc du jeu (nom anglais du registre attendu)`, echec: true, code: 'objet_inconnu' }
+      return actionnerBloc(ids, { absent: `aucun bloc ${nom} a moins de 8 blocs`, codeAbsent: 'ancre_absente', libelle: nom })
     },
 
     // Gestes de bas niveau, attente, fin et memoire : bot/action-gestes.js.
@@ -5873,6 +5913,16 @@ function createMissionRunner (host, injected = {}) {
       const manque = contrat.pre.find(pre => !pre.vrai())
       return manque ? manque.echec() : corps(scale, params)
     }
+  }
+
+  // Une porte posee sur un chantier qui en prevoit une va dans l ouverture
+  // laissee par le plan (lot 3 des actions generiques : `poser {objet}`
+  // remplace poser_porte, contrats compris).
+  const poserSansPorte = ACTIONS.poser
+  ACTIONS.poser = async function (scale, params = {}) {
+    const objet = String(params?.objet ?? '').trim().toLowerCase().replace(/^minecraft:/, '')
+    if (/(^|_)door$/.test(objet) && mission?.plan?.door && !doorPlaced()) return ACTIONS.poser_porte(scale, params)
+    return poserSansPorte(scale, params)
   }
 
   // -------------------------------------------------------------------------
