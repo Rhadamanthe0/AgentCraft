@@ -19,7 +19,7 @@ const { Vec3 } = require('vec3')
 
 const FIXTURES = JSON.parse(fs.readFileSync(path.join(__dirname, 'skill-levels.json'), 'utf8'))
 // Fabrication et four : fenetres non simulees.
-const HORS_CHAMP = /batir/
+const HORS_CHAMP = /batir|craft-on/
 
 function trouver (nom) {
   for (const level of FIXTURES.levels) {

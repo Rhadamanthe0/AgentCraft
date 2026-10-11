@@ -983,6 +983,19 @@ def base_levels():
             'skill': {'brief': {'type': 'recolte', 'matiere': 'minerai'},
                       'script': [{'action': 'recolter', 'quantite': 2, 'repeter': 4}]},
         },
+        # Etabli pose puis fabrication sur le rocher de powered-rail-line
+        # (2026-10-11), sans modele : au banc d24b197, « poste de tir
+        # injoignable a pied : trajet trop long » en boucle.
+        {
+            'name': 'skill/craft-on-rock',
+            'about': 'Script fabriquer : debout sur un rocher de pierre, planches, batons et lingots en poche, etabli pose puis pioche en fer.',
+            'kind': 'gather', 'give': [('oak_planks', 8), ('stick', 2), ('iron_ingot', 3)],
+            'instruction': 'Fabrique-moi une pioche en fer', 'items': ['iron_pickaxe'],
+            'terrain': [(20, 200, 26, 31, 202, 33, 'stone')], 'start': (25.5, 203, 29.5),
+            'target': 1, 'leaves': [], 'logs': [], 'rules': {},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'fer', 'fabrication': 'iron_pickaxe'},
+                      'script': [{'action': 'fabriquer', 'objet': 'iron_pickaxe', 'repeter': 3}]},
+        },
         {
             'name': 'skill/sand-walled',
             'about': 'Script recolter : sable enferme dans un mur de terre de 3 de haut, 4 sable en inventaire, pas de puits.',
@@ -1942,7 +1955,7 @@ RETIRED = frozenset({
     'trees/pillar', 'join/pit', 'chat/join-then-tree', 'terrain/far-tree', 'gather/flowers',
     'gather/sand-plateau', 'craft/table', 'craft/axe', 'craft/door', 'craft/stone-pickaxe', 'craft/torches',
     'craft/furnace', 'build/door', 'route/around-wall', 'route/under-far-tree', 'skill/tree-reachable',
-    'skill/dirt-box', 'skill/cabin-batir', 'trees/skirted', 'skill/hedge-pit', 'skill/coal-rock',
+    'skill/dirt-box', 'skill/cabin-batir', 'trees/skirted', 'skill/hedge-pit', 'skill/coal-rock', 'skill/craft-on-rock',
     # A/B variants measured on 19 full benches (verdicts: python3 ci/ab.py);
     # only the variants of the mode being built (`poser`) stay.
     'trees/bent~sans-anti_boucle', 'trees/bent~avec-acces_unifie', 'trees/tall~sans-reflexes',
@@ -1994,6 +2007,7 @@ COVERED_BY = {
     'terrain/dirt-wall': 'terrain/plateau', 'terrain/hedge-pit': 'terrain/far-hedge-pit',
     'terrain/pit': 'terrain/far-hedge-pit', 'terrain/far-tree': 'terrain/far-hedge-pit',
     'skill/hedge-pit': 'terrain/far-hedge-pit', 'skill/coal-rock': 'composite/lit-cabin',
+    'skill/craft-on-rock': 'composite/powered-rail-line',
     'trees/leaves': 'trees/double', 'trees/reachable': 'trees/double', 'trees/pillar': 'trees/tall',
     'skill/tree-reachable': 'skill/tree-pillar', 'skill/dirt-box': 'skill/stone-hut-batir',
     'skill/cabin-batir': 'skill/stone-hut-batir', 'trees/skirted': 'trees/tall',

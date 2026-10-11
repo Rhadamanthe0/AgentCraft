@@ -422,6 +422,65 @@
    "variants": []
   },
   {
+   "name": "skill/craft-on-rock",
+   "about": "Script fabriquer : debout sur un rocher de pierre, planches, batons et lingots en poche, etabli pose puis pioche en fer.",
+   "kind": "gather",
+   "instruction": "Fabrique-moi une pioche en fer",
+   "start": [
+    25.5,
+    203,
+    29.5
+   ],
+   "terrain": [
+    [
+     20,
+     200,
+     26,
+     31,
+     202,
+     33,
+     "stone"
+    ]
+   ],
+   "leaves": [],
+   "logs": [],
+   "give": [
+    [
+     "oak_planks",
+     8
+    ],
+    [
+     "stick",
+     2
+    ],
+    [
+     "iron_ingot",
+     3
+    ]
+   ],
+   "rules": {},
+   "target": 1,
+   "items": [
+    "iron_pickaxe"
+   ],
+   "skill": {
+    "brief": {
+     "type": "recolte",
+     "matiere": "fer",
+     "fabrication": "iron_pickaxe"
+    },
+    "script": [
+     {
+      "action": "fabriquer",
+      "objet": "iron_pickaxe",
+      "repeter": 3
+     }
+    ]
+   },
+   "leavesBlock": "oak_leaves[persistent=true]",
+   "variants": []
+  },
+  {
    "name": "skill/sand-walled",
    "about": "Script recolter : sable enferme dans un mur de terre de 3 de haut, 4 sable en inventaire, pas de puits.",
    "kind": "gather",
