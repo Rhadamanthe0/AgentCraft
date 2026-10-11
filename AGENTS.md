@@ -159,8 +159,8 @@ en Go Plus : 60 $ contre 120 $. Un banc complet coute ~0,33 $ en Haiku, soit
 l epuise (banc complet du 2026-10-09 rouge, 1284 x 429 « 5 hour »). Effort de Haiku pour plan et chat (variante `effort(...)`, 3 bancs,
 33 paires par bras) : `low` 32/33 en 201 s, `none` 30/33 en 230 s, `medium`
 29/33 en 221 s, sans gain de cout : `low` reste. Le proprietaire a choisi Haiku pour plan, brief et chat
-(2026-10-09) ; les variantes `~modele-deepseek-v4.1-flash` gardent la mesure
-(`ci/ab_modele.py`, `--base deepseek-v4.1-flash` pour les rapports d avant).
+(2026-10-09), puis DeepSeek au banc et Haiku en prod (2026-10-11, §3) ; les variantes `~modele-deepseek-v4.1-flash` gardent la mesure
+(`ci/ab_modele.py`, base DeepSeek ; `--base claude-haiku-5-5` pour les rapports du 2026-10-09 au 2026-10-11).
 Modeles Go bon marche contre Haiku (2026-10-09, 2 bancs, 22 paires) :
 GPT 6 Luna 19/22 contre 20/22, duree 179 s contre 158 s, attente 27 s
 contre 10 s, ~30 % moins cher (meme prix au jeton, moins de jetons) : seule
@@ -385,12 +385,18 @@ transport `bot/llm.js` : `/chat/completions`, `/responses` (muse, gpt-*) et
 
 | Usage | Banc | Effort | Delai banc |
 | --- | --- | --- | --- |
-| PLAN (actions) | claude-haiku-5-5 (`/messages`) | low | 20 s |
-| CHAT | claude-haiku-5-5 | low | 20 s |
-| BRIEF (lecture d objectif) | claude-haiku-5-5 | low | 30 s, sans relance |
-| COMPACT (resume memoire) | claude-haiku-5-5 | low | 90 s |
+| PLAN (actions) | deepseek-v4.1-flash | low | 20 s |
+| CHAT | deepseek-v4.1-flash | low | 20 s |
+| BRIEF (lecture d objectif) | deepseek-v4.1-flash | low | 30 s, sans relance |
+| COMPACT (resume memoire) | deepseek-v4.1-flash | low | 90 s |
 
-Haiku effort low pour TOUS les usages (choix du proprietaire, 2026-10-10) ;
+**Prod sur Claude Haiku 5.5, dev sur DeepSeek V4.1 Flash** (proprietaire,
+2026-10-11 : Haiku, bon mais plafonne a 15 $/mois en Go, partait trop vite au
+banc). Prod = `compose.yaml` (`PLANNER_MODEL` par defaut `claude-haiku-5-5`) ;
+dev = banc CI et sessions d agent, `ci/models.env`. Ne pas remettre Haiku dans
+`ci/models.env` sans son accord ; un niveau qui ne passe qu avec Haiku se
+mesure par `base_model` (lancement manuel). Effort low pour TOUS les usages
+(choix du proprietaire, 2026-10-10) ;
 plus aucune variante de modele au banc (`MODELES_AB = []`, quota epargne).
 
 Seuls rejeux admis, toujours le MEME modele : reponse tronquee (budget
