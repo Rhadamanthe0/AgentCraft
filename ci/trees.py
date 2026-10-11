@@ -2417,6 +2417,21 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
                     folder.mkdir(parents=True, exist_ok=True)
                     stem = re.sub(r'[^A-Za-z0-9_.-]+', '_', level['name'])
                     names = []
+                    # Blocs vus par le SERVEUR autour du bot au dernier
+                    # blocage (cases non vides) : a comparer au monde du
+                    # client de l instantane (desynchronisation, piege 19).
+                    p = snaps[-1].get('position') or {}
+                    if all(isinstance(p.get(k), (int, float)) for k in 'xyz'):
+                        bx, by, bz = (int(p[k] // 1) for k in 'xyz')
+                        pleins = []
+                        for dx in (-1, 0, 1):
+                            for dz in (-1, 0, 1):
+                                for dy in (-1, 0, 1, 2):
+                                    x, y, z = bx + dx, by + dy, bz + dz
+                                    answer = str(rcon(f'execute unless block {x} {y} {z} #minecraft:air') or '')
+                                    if 'passed' in answer.lower():
+                                        pleins.append(f'{x},{y},{z}')
+                        snaps[-1]['pleinsServeur'] = pleins
                     for i, snap in enumerate(snaps):
                         name = f'{stem}-{i + 1}.json'
                         (folder / name).write_text(json.dumps(snap), encoding='utf-8')

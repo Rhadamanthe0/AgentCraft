@@ -30,6 +30,7 @@ function fauxBot ({ serveur }) {
   bot.dig = async function (block) {
     if (serveur === 'avant') interne(block.position, 0)
     if (serveur === 'apres') setTimeout(() => interne(block.position, 0), 20)
+    if (serveur === 'renvoie') setTimeout(() => interne(block.position, FEUILLES), 20)
     // Prediction de mineflayer 4.39 (digging.js, finishDigging).
     bot._updateBlockState(block.position, 0)
   }
@@ -71,4 +72,12 @@ test('la fonction de prediction est rendue apres la casse', async () => {
   await bot.dig(bloc(bot)).catch(() => {})
   assert.strictEqual(bot._updateBlockState, avant)
   assert.strictEqual(bot.listenerCount('blockUpdate:(5, 205, 5)'), 0)
+})
+
+test('serveur qui renvoie le bloc : casse en echec, bloc du serveur garde', async () => {
+  const { bot, etat } = fauxBot({ serveur: 'renvoie' })
+  brancherCasse(bot, { attenteMs: 500 })
+  await assert.rejects(bot.dig(bloc(bot)), /casse refusee par le serveur/)
+  assert.strictEqual(etat(), FEUILLES)
+  assert.deepStrictEqual(bot.casse, { confirmees: 0, refusees: 1 })
 })

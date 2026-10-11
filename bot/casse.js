@@ -39,9 +39,13 @@ function brancherCasse (bot, { attenteMs = CONFIRMATION_MS } = {}) {
       try { return majOriginale.call(bot, p, etat) } finally { local = false }
     }
     const evenement = `blockUpdate:${pos}`
-    const ecoute = () => {
+    // Etat envoye par le serveur : l etat d avant = casse refusee (bloc
+    // renvoye), tout autre etat = casse faite (air, eau d une glace...).
+    let etatServeur = null
+    const ecoute = (_ancien, neuf) => {
       if (local) return
       confirme = true
+      etatServeur = neuf?.stateId ?? null
       reveil?.()
     }
     bot.on(evenement, ecoute)
@@ -54,18 +58,19 @@ function brancherCasse (bot, { attenteMs = CONFIRMATION_MS } = {}) {
           reveil = () => { clearTimeout(minuterie); resolve() }
         })
       }
-      if (confirme) {
+      const renvoye = confirme && Number.isInteger(avant) && avant !== 0 && etatServeur === avant
+      if (confirme && !renvoye) {
         bot.casse.confirmees += 1
         return
       }
       bot.casse.refusees += 1
       const actuel = bot.blockAt(pos, false)
-      if (Number.isInteger(avant) && avant !== 0 && actuel?.stateId !== avant) majOriginale.call(bot, pos, avant)
+      if (!confirme && Number.isInteger(avant) && avant !== 0 && actuel?.stateId !== avant) majOriginale.call(bot, pos, avant)
       const e = bot.entity
       const yeux = e?.position?.offset?.(0, e.eyeHeight ?? 1.62, 0)
       const distance = yeux ? yeux.distanceTo(pos.offset(0.5, 0.5, 0.5)).toFixed(2) : '?'
       console.log(`[casse] refusee par le serveur : ${block.name ?? '?'} ${pos} a ${distance} des yeux, ` +
-        `${e?.onGround ? 'au sol' : 'en l air'} ; bloc remis dans le monde du client (${bot.casse.refusees} refus)`)
+        `${e?.onGround ? 'au sol' : 'en l air'} ; ${renvoye ? 'bloc renvoye par le serveur' : 'serveur muet, bloc remis dans le monde du client'} (${bot.casse.refusees} refus)`)
       throw new Error(`casse refusee par le serveur : ${block.name ?? 'bloc'} ${pos}`)
     } finally {
       if (bot._updateBlockState !== majOriginale) bot._updateBlockState = majOriginale

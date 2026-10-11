@@ -619,7 +619,7 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     if (!settle.ok) {
       const message = String(settle.error?.message ?? settle.error)
       console.log(`[creuse] echec depuis ${depart} vers ${block ?? position} : ${message.slice(0, 80)} ; A* ${calculs.join(' ') || 'aucun calcul'} ; ` +
-        `remises ${JSON.stringify(remises)} ; chemin ${premiers || '-'} ; au stuck ${auStuck.join(' | ') || '-'} ; recalages serveur ${recalages}${ecarts.length ? ` (client>serveur ${ecarts.join(' | ')})` : ''}`)
+        `remises ${JSON.stringify(remises)} ; chemin ${premiers || '-'} ; au stuck ${auStuck.join(' | ') || '-'} ; casses ${bot.casse ? `${bot.casse.confirmees} confirmees, ${bot.casse.refusees} refusees` : 'non verifiees'} ; recalages serveur ${recalages}${ecarts.length ? ` (client>serveur ${ecarts.join(' | ')})` : ''}`)
       // « Took to long to decide path » : l A* a epuise son temps, pas les
       // chemins ; no_path a tort egarait le diagnostic (far-hedge-pit).
       const code = /annule/.test(message) ? 'cancelled' : /Took to long|timeout/i.test(message) ? 'timeout' : 'no_path'
