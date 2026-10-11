@@ -440,7 +440,11 @@ dans `docs/journal.md` (section « Les pieges »).
    niveau reste rouge au banc (no_path en < 5 s) alors que le meme A* trouve
    hors ligne un chemin sur l instantane : un echec du trajet qui creuse
    journalise `[creuse]` (depart, but, derniers calculs de l A*, remises du
-   trajet) pour trancher. Le pathfinder
+   trajet, trois premiers noeuds, position et commandes a chaque stuck,
+   recalages du serveur `forcedMove`). Banc b8db857 : A* en succes (7 pas),
+   le bot ne rejoint jamais le premier noeud (3 stuck) alors que
+   `tmp/creuse-repro.js` (meme instantane, vrai pathfinder, physique simulee)
+   arrive : la cause est dans l execution sur le vrai serveur. Le pathfinder
    planifie parfois une montee d un bloc sous un plafond de deux (impossible,
    la tete touche) et replanifie sans fin : trois `stuck` sur place arretent
    le trajet (code `stuck`). Il tient aussi toute porte pour un mur (il
@@ -679,6 +683,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/objective-controller.js`, `executor.js`, `state-store.js`, `activity.js`, `delivery.js` | objectifs durables, slot physique, persistance, activite, dons |
 | `bot/logger.js`, `bot/screenshot.js` | journal ; mini-carte PNG (`MISSION_SCREENSHOT`, eteinte) |
 | `ci/` | banc (run.py, trees.py, pool.py, capacity.py, harness, sondes) ; `ci/attendre-chunks.js` : attente des chunks du harness rejouee (un rejet non attrape tuait tout le banc) |
+| `tmp/creuse-repro.js` | trajet qui creuse rejoue sur un instantane de blocage (vrai pathfinder, physique simulee) |
 | `tmp/etat-bench.js` | duree de l etat de mission sur un monde reel par sections (piege 18) |
 | `tmp/*.test.js` | tests unitaires ; `tmp/sim-world.js` monde simule partage ; `tmp/replay-snapshot.js` rejeu d un instantane de blocage ; `tmp/probe-bot.js` harness multi-bots |
 | `tmp/sim-server.js`, `tmp/skill-sim.js`, `tmp/skill-levels.json` | banc de competences hors ligne : serveur simule (vrai A*, vraie physique), joueur de niveau `skill/*`, niveaux exportes par `ci/trees.py --export-skills` |

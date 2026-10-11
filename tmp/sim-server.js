@@ -76,7 +76,14 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
     setControlState: (k, v) => { controls[k] = v },
     getControlState: k => controls[k],
     look: async (yaw, pitch) => { bot.entity.yaw = yaw; bot.entity.pitch = pitch },
-    lookAt: async () => {},
+    // Comme mineflayer : le regard suit le point vise (le pathfinder recule
+    // vers un rebord en se retournant, moveToEdge ; sans cela il reculait a
+    // l aveugle).
+    lookAt: async point => {
+      const d = point.minus(bot.entity.position.offset(0, 1.62, 0))
+      bot.entity.yaw = Math.atan2(-d.x, -d.z)
+      bot.entity.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z))
+    },
     chat () {},
     equip: async item => {
       const owned = stock.find(i => i.name === item?.name && i.count > 0)
