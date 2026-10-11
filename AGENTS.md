@@ -179,7 +179,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
   Le jumeau est informatif, mais un passage ne compte pour la promotion en
   bloquant que si les DEUX passent : un correctif qui ne marche que dans
   l arene stable est du benchmaxing.
-- Composites lances en premier ; plafond 45 min par scenario ; la duree
+- Composites lances en premier ; plafond 45 min par scenario, 20 min pour
+  le palier 3 (`PALIER3_CAP_S`, proprietaire, 2026-10-11 : un echec y brulait
+  45 min et ~370 requetes ; reussite la plus longue 490 s) ; la duree
   (`elapsedS`) est suivie d un banc a l autre et doit baisser.
 - Palier 3 (2026-10-10, proprietaire) : taches qu un vrai joueur donnerait,
   informatives, sans variante : `composite/stone-toolkit` (trois outils en
@@ -244,7 +246,8 @@ au demarrage au lieu de 75 min de niveaux rouges.
 | `approcher`, ancien `explorer` (GoalNearXZ) | 2026-09-22 | pathfinder 26.1 peu fiable ; remplaces par le navigateur partage |
 | Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
 | Escalade sur blocage (appel en effort high, puis fin) | ecarte 2026-10-02 | les 15 missions emballees des bancs du 2026-10-01 avaient toutes une cause d ACCES (tronc haut, no_path) : un modele qui raisonne plus n y peut rien ; traite par `reparer` et le moteur d acces |
-| Brief en effort low | ecarte 2026-10-02, remis 2026-10-10 par le proprietaire (Haiku low partout) | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py`. La relance du brief, ecartee le meme jour, est remise le 2026-10-08 (`PLANNER_RELAUNCH_MS_BRIEF`, a confirmer par le proprietaire) : sur 3 bancs complets, 16 a 19 briefs relances dont 13 a 16 repondus, briefs sans reponse 2 a 4 par banc au lieu de 11 |
+| Brief en effort low | ecarte 2026-10-02, remis 2026-10-10 par le proprietaire (Haiku low partout) | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py`. |
+| Relance de la lecture d objectif (`PLANNER_RELAUNCH_MS_BRIEF`) | retiree 2026-10-11 par le proprietaire | consommait du quota, devenu le facteur limitant ; elle reduisait pourtant les briefs sans reponse de ~11 a 2-4 par banc (3 bancs, 2026-10-08) : un niveau bloquant laisse sans plan est rejoue une fois (`trees.rejouable`) |
 | Bibliotheque de savoir-faire appris, code genere par le modele (Voyager) | ecarte 2026-10-02 | apprendrait le banc ; code genere = risque (commandes `/`), lent ; les primitives generiques et les arbres de buts couvrent le besoin |
 
 ### Conduite d une session d agent (2026-10-02)
@@ -264,7 +267,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
   epars (un bot a la fois, 67 a 122 plans par banc complet au 2026-10-08)
   sont le gateway lent sous 16 bots, et « fetch failed » sur tous les bots
   pendant 30 s une coupure reseau : toleres (`MISSION_PLANNER_OUTAGE_MS`,
-  relance du brief), ils ne doivent plus tuer de mission ; un echec
+  rejeu du brief sur coupure reseau), ils ne doivent plus tuer de mission ; un echec
   `skill/*` est toujours un bug du code.
 - Expulsions « lost connection: Timed out » (0 sur main, 4 a 12 par banc
   complet depuis le palier 3, 2026-10-10) : la boucle d evenements d un bot
@@ -362,7 +365,7 @@ transport `bot/llm.js` : `/chat/completions`, `/responses` (muse, gpt-*) et
 | --- | --- | --- | --- |
 | PLAN (actions) | claude-haiku-5-5 (`/messages`) | low | 20 s |
 | CHAT | claude-haiku-5-5 | low | 20 s |
-| BRIEF (lecture d objectif) | claude-haiku-5-5 | low | 30 s, rejouee une fois |
+| BRIEF (lecture d objectif) | claude-haiku-5-5 | low | 30 s, sans relance |
 | COMPACT (resume memoire) | claude-haiku-5-5 | low | 90 s |
 
 Haiku effort low pour TOUS les usages (choix du proprietaire, 2026-10-10) ;
@@ -577,7 +580,6 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `PLANNER_REASONING_EFFORT[_<USAGE>]` | vide | `reasoning_effort` (ou `reasoning.effort`) |
 | `PLANNER_TIMEOUT_MS[_<USAGE>]` | 12000 | delai d un appel |
 | `PLANNER_RELAUNCH_MS` | 10000 | plan sans reponse apres ce delai : appel coupe et refait une fois avec le temps restant, jamais deux appels en meme temps, delai total inchange (interrupteur `relance_plan`, decision du proprietaire 2026-09-29) |
-| `PLANNER_RELAUNCH_MS_BRIEF` | 15000 | meme relance pour la lecture d objectif, dans son delai de 30 s (meme interrupteur) : deux briefs muets laissaient un niveau sans mission |
 | `MISSION_PLANNER_OUTAGE_MS` | 90000 | serie de pannes passageres du plan (`planner.estPassager` : silence, reseau coupe, 5xx, 429) toleree avant d abandonner la mission ; un refus (403...) arrete au troisieme echec. Lecture d objectif et chat rejouent aussi une coupure reseau dans le budget de deux essais (`rejouerSiPassager`) |
 | `PLANNER_PLAN_MAX` | 5 | actions max par plan |
 | `PLANNER_BUDGET_MIN_S` / `_MAX_S` | 6 / 10 | secondes de jeu visees par plan (consigne du prompt, jamais appliquee) |

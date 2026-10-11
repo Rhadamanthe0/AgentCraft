@@ -57,9 +57,8 @@ const TIMEOUT_MS = config.positiveInt(process.env.PLANNER_TIMEOUT_MS, 12000, 'PL
 // (mission.js).
 // 0 desactive la relance (planner-profile.test.js) : borne basse 0, pas 1.
 const RELAUNCH_MS = config.finiteNumber(process.env.PLANNER_RELAUNCH_MS, 10000, 'PLANNER_RELAUNCH_MS', { min: 0 })
-// Same relaunch for the brief, at its own point (the brief has a longer delay,
-// PLANNER_TIMEOUT_MS_BRIEF). 0 disables it.
-const BRIEF_RELAUNCH_MS = config.finiteNumber(process.env.PLANNER_RELAUNCH_MS_BRIEF, 15000, 'PLANNER_RELAUNCH_MS_BRIEF', { min: 0 })
+// Pas de relance de la lecture d objectif (proprietaire, 2026-10-11) : elle
+// consommait du quota, le facteur limitant ; un brief muet attend son delai.
 // Below this time left, a relaunch has no chance of an answer: no relaunch.
 const RELAUNCH_MIN_LEFT_MS = 1000
 // Models that answered at least once in this process (relaunch only these).
@@ -1470,8 +1469,7 @@ async function designBlueprint (input, opts = {}) {
 async function readBrief (objective, opts = {}) {
   if (!isEnabled()) return null
 
-  const relanceMs = opts.relance === false ? 0 : BRIEF_RELAUNCH_MS
-  const response = await call(briefPrompt(opts.ouvert === true, opts.pose === true), JSON.stringify({ objectif: objective }), null, { ...opts, relanceMs, task: 'readBrief' })
+  const response = await call(briefPrompt(opts.ouvert === true, opts.pose === true), JSON.stringify({ objectif: objective }), null, { ...opts, relanceMs: 0, task: 'readBrief' })
   const parsed = parseJson(response.content)
   // Mode ouvert : un "bloc" absent du registre (un nom francais, invente)
   // est renvoye UNE fois au modele avec le nom refuse ; le code verifie
@@ -1479,7 +1477,7 @@ async function readBrief (objective, opts = {}) {
   let ms = response.ms
   if (opts.ouvert === true && typeof parsed?.bloc === 'string' && typeof opts.blocConnu === 'function' && !opts.blocConnu(parsed.bloc)) {
     const refuse = parsed.bloc.slice(0, 60)
-    const second = await call(briefPrompt(true, opts.pose === true), JSON.stringify({ objectif: objective, bloc_refuse: refuse }), null, { ...opts, relanceMs, task: 'readBrief' })
+    const second = await call(briefPrompt(true, opts.pose === true), JSON.stringify({ objectif: objective, bloc_refuse: refuse }), null, { ...opts, relanceMs: 0, task: 'readBrief' })
     ms = (ms ?? 0) + (second.ms ?? 0)
     const bloc = parseJson(second.content)?.bloc
     parsed.bloc = typeof bloc === 'string' && opts.blocConnu(bloc) ? bloc : null

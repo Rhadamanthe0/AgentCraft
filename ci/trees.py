@@ -48,6 +48,10 @@ GRACE_AFTER_WOOD_S = 10
 LEVEL_CAP_S = 300
 # Scenarios composites : plafond du proprietaire, 45 min par scenario.
 COMPOSITE_CAP_S = 2700
+# Palier 3 (taches de vrai joueur, informatives) : 20 min (proprietaire,
+# 2026-10-11, quota). Reussites les plus longues : 490 s (big-stone-house) ;
+# un echec durait 45 min et ~370 requetes (lit-cabin~aleatoire, banc 30ea585).
+PALIER3_CAP_S = 1200
 
 
 class Plafond:
@@ -826,7 +830,7 @@ def base_levels():
             'name': 'composite/stone-toolkit',
             'about': 'Inventaire vide, deux arbres et un rocher, « Equipe-toi : fabrique-toi une pioche, une hache et une epee en pierre » : '
                      'bois, etabli, pioche en bois, pierre, puis les trois outils en pierre en inventaire.',
-            'kind': 'gather', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'kind': 'gather', 'cap': PALIER3_CAP_S, 'informative': True,
             'instruction': 'Equipe-toi : fabrique-toi une pioche, une hache et une epee en pierre',
             'items': ['stone_pickaxe', 'stone_axe', 'stone_sword'], 'target': 3, 'each': True,
             'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
@@ -839,7 +843,7 @@ def base_levels():
             'name': 'composite/bucket',
             'about': 'Inventaire vide, deux arbres et un rocher avec trois minerais de fer, « Fabrique-moi un seau » : '
                      'bois, pioches en bois puis en pierre, fer extrait, four, cuisson, seau en inventaire.',
-            'kind': 'gather', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'kind': 'gather', 'cap': PALIER3_CAP_S, 'informative': True,
             'instruction': 'Fabrique-moi un seau',
             'items': ['bucket'], 'target': 1,
             'terrain': [(20, 200, 24, 26, 202, 30, 'stone'), (22, 202, 26, 22, 202, 26, 'iron_ore'),
@@ -853,7 +857,7 @@ def base_levels():
             'name': 'composite/big-stone-house',
             'about': 'Inventaire vide, deux arbres et un grand rocher, « Construis-moi une maison en pierre de 5 par 5 par 3 avec une porte » : '
                      'pioche, une quarantaine de pierres extraites, porte en bois fabriquee, maison posee.',
-            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'kind': 'build', 'cap': PALIER3_CAP_S, 'informative': True,
             'instruction': 'Construis-moi une maison en pierre de 5 par 5 par 3 avec une porte',
             'blocks': ['minecraft:cobblestone'], 'target': 40, 'door': True, 'minTop': 3,
             'terrain': [(20, 200, 2, 32, 203, 10, 'stone')],
@@ -866,7 +870,7 @@ def base_levels():
             'name': 'composite/lit-cabin',
             'about': 'Inventaire vide, trois arbres et un rocher avec du charbon, « Construis-moi une cabane en bois de 4 par 4 par 3 '
                      'avec une porte, et eclaire-la avec des torches » : cabane, porte, charbon extrait, torches fabriquees et posees.',
-            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'kind': 'build', 'cap': PALIER3_CAP_S, 'informative': True,
             'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 3 avec une porte, et eclaire-la avec des torches',
             'blocks': ['#minecraft:planks'], 'target': 30, 'door': True,
             'also': {'torches_posees': (['minecraft:torch', 'minecraft:wall_torch'], 2)},
@@ -884,7 +888,7 @@ def base_levels():
             'about': 'Inventaire vide, trois arbres, un rocher avec fer, or, redstone et charbon, deux reperes de laine au sol : '
                      '« Fais-moi une ligne de minecart entre la laine rouge et la laine bleue, avec des rails accelerateurs » : '
                      'pioches, minerais extraits, four, lingots, rails, rails accelerateurs alimentes, minecart pose.',
-            'kind': 'build', 'cap': COMPOSITE_CAP_S, 'informative': True,
+            'kind': 'build', 'cap': PALIER3_CAP_S, 'informative': True,
             'instruction': 'Fais-moi une ligne de minecart entre la laine rouge et la laine bleue, avec des rails accelerateurs',
             'blocks': ['minecraft:rail', 'minecraft:powered_rail'], 'target': 12,
             'also': {'rails_accelerateurs': (['minecraft:powered_rail'], 2),
