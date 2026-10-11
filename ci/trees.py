@@ -876,9 +876,12 @@ def base_levels():
             'also': {'torches_posees': (['minecraft:torch', 'minecraft:wall_torch'], 2)},
             'terrain': [(22, 200, 22, 27, 201, 27, 'stone'), (24, 201, 24, 24, 201, 24, 'coal_ore'),
                         (25, 201, 24, 25, 201, 24, 'coal_ore')],
-            'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
+            # Quatre arbres (2026-10-11) : trois (60 planches) ne couvraient pas
+            # cabane, porte, etabli, pioche et batons (~58) ; au banc 30ea585, le
+            # bois a manque a une planche de la fin (porte 2/3, 41/42 blocs).
+            'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
-            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31)) for i in range(5)]),
             'rules': {}, 'variants': [avec('poser')],
         },
         {
