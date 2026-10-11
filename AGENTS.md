@@ -409,8 +409,12 @@ dans `docs/journal.md` (section « Les pieges »).
    (`navigation.js` : A* pour le calcul, execution physique locale mesuree) ;
    le pathfinder ne sert plus qu a `digToward` (trajet qui creuse), aux
    commandes `!va`/`!viens` et au sauvetage. Pour un bloc a casser,
-   `digToward` vise « bloc en vue et a portee » (`GoalLookAtBlock`) : `GoalNear`
-   arrondit le centre du bloc et creusait un trou au pied du mur. Le pathfinder
+   `digToward` vise « bloc en vue et a portee » (`GoalNear` arrondit le centre
+   du bloc et creusait un trou au pied du mur), par `but-bloc.js` et jamais
+   `GoalLookAtBlock` seul : ce dernier mesure la portee jusqu a 1,6 bloc
+   AU-DESSUS du bloc, et une buche a deux blocs au-dessus des pieds n etait a
+   portee d aucun poste (A* jusqu au delai, « Took to long », rendu `no_path`
+   jusqu au 2026-10-11, terrain/far-hedge-pit ; tmp/but-bloc.test.js). Le pathfinder
    planifie parfois une montee d un bloc sous un plafond de deux (impossible,
    la tete touche) et replanifie sans fin : trois `stuck` sur place arretent
    le trajet (code `stuck`). Il tient aussi toute porte pour un mur (il
@@ -626,6 +630,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/craft.js` | fabrication, etabli, four (`smelt`), outils (`harvestCheck`) |
 | `bot/build.js` | plans (boite, plans libres compiles), postes de tir, pose |
 | `bot/navigation.js` / `bot/motion-trace.js` | navigateur partage (options `dig` et `place` : casse et pose planifiees par A*) ; traces de trajet |
+| `bot/but-bloc.js` | but « bloc en vue, a portee des yeux » du trajet qui creuse (corrige `GoalLookAtBlock`, piege 6) |
 | `bot/pose.js` | gestes de pose partages : tour (pose sous soi au sommet du saut), pose contre une face, verifies par le monde |
 | `bot/movement-task.js` / `bot/tree-position.js` | parcours declaratifs ; placement sous un arbre |
 | `bot/reflexes.js` | reflexes entre deux etapes (A/B `reflexes`) |
