@@ -420,6 +420,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const movementTask = require('./movement-task')
 const activity = require('./activity')
 // 0 coupe l annonce (mission-duration.test.js) : borne basse 0, pas 1.
+// Etat de mission juge lent (ligne [lent]) ; 0 : chaque etat (tmp/etat-bench.js).
+const ETAT_LENT_MS = config.finiteNumber(process.env.MISSION_ETAT_LENT_MS, 1000, 'MISSION_ETAT_LENT_MS', { min: 0 })
 const BRIEF_NOTICE_MS = config.finiteNumber(process.env.MISSION_BRIEF_NOTICE_MS, 3000, 'MISSION_BRIEF_NOTICE_MS', { min: 0 })
 
 // Traduit l ampleur 0..1 (defaut 0,5 : milieu de plage) dans l unite de l action.
@@ -3042,7 +3044,7 @@ function createMissionRunner (host, injected = {}) {
       return buildStateMesure()
     } finally {
       const ms = Date.now() - debut
-      if (ms >= 1000 && !dejaEnCours) {
+      if (ms >= ETAT_LENT_MS && !dejaEnCours) {
         const parties = Object.entries(tempsEtat).sort((x, y) => y[1] - x[1]).slice(0, 3)
           .map(([nom, t]) => `${nom} ${t} ms`).join(', ')
         console.log(`[lent] etat de mission construit en ${ms} ms (${parties || 'aucune partie mesuree'})`)

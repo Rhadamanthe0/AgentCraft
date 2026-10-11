@@ -13,6 +13,7 @@ const { createMissionRunner } = require('./mission')
 const { createApi } = require('./api')
 const { createNavigator } = require('./navigation')
 const { GoalBlocEnVue } = require('./but-bloc')
+const perception = require('./perception')
 const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText, parseArbitrationChoice } = require('./conversation')
 const { createExecutor, awaitPhysicalWithTimeout, createControlLease, runPhysicalOrThrow } = require('./executor')
 const { createStateStore } = require('./state-store')
@@ -1674,6 +1675,9 @@ function connectBot () {
     })
 
     bot.loadPlugin(pathfinder)
+    // Recherche de blocs par ids sans parcourir les sections uniformes (piege
+    // 18) ; plugin charge apres celui des blocs de mineflayer.
+    bot.loadPlugin(perception.brancherRecherche)
     craft.trackWindowStateIds(bot)
     // Le logger publie dans le chat des qu une instance est joignable.
     logger.attach(bot)
