@@ -193,3 +193,17 @@ test('batir : un progres mesure rouvre le remede (second arbre, nouveau tronc ha
   assert.equal(r.echec, undefined, r.resultat)
   assert.equal(pilers, 2)
 })
+
+test('obtenir : objet inaccessible sans etapes produit un echec explicite sans jouer de geste', async () => {
+  const mission = { cancelled: false }
+  let gestes = 0
+  const sb = createSousButs({ getMission: () => mission,
+    actions: () => { gestes += 1; return {} }, etatChantier: () => ({}),
+    planSolveur: () => ({ ok: false, etapes: [], bloque: [{ objet: 'water_bucket', raison: 'aucune source' }] }),
+    recolteFaisable: () => false, empreinte: () => 'inventaire vide' })
+  const r = await sb.obtenir(() => ({ objet: 'water_bucket', manque: 1 }))
+  assert.equal(r.echec, true)
+  assert.equal(r.code, 'obtenir_bloque')
+  assert.match(r.resultat, /water_bucket.*aucune source/)
+  assert.equal(gestes, 0)
+})

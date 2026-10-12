@@ -660,8 +660,8 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/mission-state.js` | etat persiste declare une fois (lecture = ecriture) |
 | `bot/trace.js` | trace structuree de mission |
 | `bot/action-gestes.js` | gestes, attente, fin, memoire (premier module d actions) |
-| `bot/action-sous-buts.js` | sous-buts `batir` et `obtenir {objet, quantite}` (A/B `sous_buts`) : un geste mesure a la fois jusqu au but ; `obtenir` nomme fait de l objet la cible du solveur le temps du sous-but (`mission.demandeObtenir`) |
-| `bot/action-poser.js` | action `poser` (A/B `poser`) : cases (devant, voisines, ligne au sol), pose verifiee par le monde, objets-entites |
+| `bot/action-sous-buts.js` | plan vide bloque/refuse = `obtenir_bloque`, jamais acquisition accomplie ; sous-buts `batir` et `obtenir {objet, quantite}` (A/B `sous_buts`) : un geste mesure a la fois jusqu au but ; `obtenir` nomme fait de l objet la cible du solveur le temps du sous-but (`mission.demandeObtenir`) |
+| `bot/action-poser.js` | action `poser` (A/B `poser`, toujours eteint) : timeout/abort attend le settle physique avant de rendre le writer ; aucune continuation apres equip/regard annule ; objets-entites verifies par nouvelle entite du type demande ET consommation du stock total (pas un mob ni un bloc modifie) |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
 | `bot/script-brain.js` | cerveau scripte du banc de competences (`skill/*`, `MISSION_SCRIPT=1`) |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |
