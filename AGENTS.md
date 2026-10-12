@@ -385,20 +385,21 @@ transport `bot/llm.js` : `/chat/completions`, `/responses` (muse, gpt-*) et
 
 | Usage | Banc | Effort | Delai banc |
 | --- | --- | --- | --- |
-| PLAN (actions) | step-5-preview-free, puis deepseek-v4.1-flash | low | 20 s |
-| CHAT | idem | low | 20 s |
-| BRIEF (lecture d objectif) | idem | low | 30 s, sans relance |
-| COMPACT (resume memoire) | idem | low | 90 s |
+| PLAN (actions) | deepseek-v4.1-flash | low | 20 s |
+| CHAT | deepseek-v4.1-flash | low | 20 s |
+| BRIEF (lecture d objectif) | deepseek-v4.1-flash | low | 30 s, sans relance |
+| COMPACT (resume memoire) | deepseek-v4.1-flash | low | 90 s |
 
-**Prod sur Claude Haiku 5.5, dev sur modeles gratuits puis DeepSeek V4.1
-Flash** (proprietaire, 2026-10-11 et 2026-10-12 : Haiku, bon mais plafonne a
+**Prod sur Claude Haiku 5.5, dev sur DeepSeek V4.1 Flash** (proprietaire, 2026-10-11 et 2026-10-12 : Haiku, bon mais plafonne a
 15 $/mois en Go, partait trop vite au banc). Prod = `compose.yaml`
 (`PLANNER_MODEL` par defaut `claude-haiku-5-5`) ; dev = banc CI et sessions
 d agent, `ci/models.env`. Ne pas remettre Haiku dans `ci/models.env` sans son
 accord ; un niveau qui ne passe qu avec Haiku se mesure par `base_model`
-(lancement manuel). Ordre demande au banc : Step 5 free, « exo free »
-(identifiant introuvable au 2026-10-12 dans `/models` du gateway Go et de Zen,
-en attente du proprietaire), DeepSeek V4.1 Flash. **Cascade sur limite de
+(lancement manuel). Modeles gratuits en tete de chaine (proprietaire,
+2026-10-12) : Step 5 free essaye puis retire le meme jour, 0 reponse sur deux
+bancs cibles (429 « Endpoint is unavailable » a chaque appel, 400 « requires
+Global regions » sur la cle primary avant que le proprietaire autorise
+Global) ; « exo free » abandonne (aucun identifiant). **Cascade sur limite de
 debit seulement** (`bot/model-chain.js`) : une variable `a,b,c` sert `a` ;
 un 429 qui demande plus de 10 s (`Retry-After` ou corps) ou ne dit pas
 combien passe tout de suite a `b` et met `a` de cote le temps demande (60 s si
