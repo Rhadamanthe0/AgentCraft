@@ -26,8 +26,9 @@ MODELS_ENV = Path(__file__).with_name('models.env')
 DEFAULT_MODEL = 'deepseek-v4.1-flash'
 
 
-def bench_model(path=MODELS_ENV):
-    """PLANNER_MODEL_PLAN (else PLANNER_MODEL) of ci/models.env."""
+def bench_models(path=MODELS_ENV):
+    """Models of PLANNER_MODEL_PLAN (else PLANNER_MODEL) of ci/models.env, in
+    order: the bot moves to the next one on a long rate limit (2026-10-12)."""
     values = {}
     try:
         for line in path.read_text(encoding='utf-8').splitlines():
@@ -36,10 +37,17 @@ def bench_model(path=MODELS_ENV):
                 values[name.strip()] = value.strip()
     except OSError:
         pass
-    return values.get('PLANNER_MODEL_PLAN') or values.get('PLANNER_MODEL') or DEFAULT_MODEL
+    text = values.get('PLANNER_MODEL_PLAN') or values.get('PLANNER_MODEL') or DEFAULT_MODEL
+    return [m.strip() for m in text.split(',') if m.strip()] or [DEFAULT_MODEL]
 
 
-MODEL = bench_model()
+def bench_model(path=MODELS_ENV):
+    """First model of the bench's plan chain."""
+    return bench_models(path)[0]
+
+
+MODELS = bench_models()
+MODEL = MODELS[0]
 PROMPT = "Pas de réflexion, répond uniquement 'test validé'"
 TIMEOUT_S = 20
 # GitHub secret(s) holding each key, in order; PLANNER_API_KEY stays accepted
@@ -122,12 +130,25 @@ def probe(key, urlopen=urllib.request.urlopen, model=None):
     return result
 
 
+def probe_chain(key, urlopen=urllib.request.urlopen, models=None):
+    """The chain in order, like the bot: the key passes if one model answers
+    (a free model rate-limited, the next one is tried)."""
+    models = models or MODELS
+    tried = {}
+    for model in models:
+        result = probe(key, urlopen, model=model)
+        tried[model] = {k: result[k] for k in ('status', 'ok', 'ms') if k in result}
+        if result.get('ok'):
+            break
+    return {**result, 'model': model, 'models': tried}
+
+
 def choose(results):
     """primary if it answers, else secondary if it answers, else None."""
     return next((name for name in ORDER if (results.get(name) or {}).get('ok')), None)
 
 
-def select(environ=None, probe_fn=probe):
+def select(environ=None, probe_fn=probe_chain):
     """{'chosen': name or None, 'probes': {name: result}} for the keys present."""
     if MODEL.startswith(OPENAI_PREFIX):
         key = ((os.environ if environ is None else environ).get('OPENAI_API_KEY') or '').strip()

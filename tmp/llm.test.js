@@ -496,3 +496,34 @@ describe('audit : headers proteges, slash, ecoute, typage', () => {
     )
   })
 })
+
+describe('limite de debit (429) : attente lue, modele suivant au-dela de 10 s', () => {
+  const r429 = (headers, text = '{}') => {
+    const res = { ok: false, status: 429, headers: new Map(Object.entries(headers)), text: async () => text }
+    res.clone = () => res
+    return res
+  }
+  it('Retry-After en secondes, en date, ou dans le corps', async () => {
+    assert.equal(await llm.attenteLimite(r429({ 'retry-after': '42' })), 42)
+    const date = await llm.attenteLimite(r429({ 'retry-after': new Date(Date.now() + 30000).toUTCString() }))
+    assert.ok(date > 25 && date <= 30)
+    assert.equal(await llm.attenteLimite(r429({}, '{"error":"rate limited, retry after 7s"}')), 7)
+    assert.equal(await llm.attenteLimite(r429({}, '{"error":"GoUsageLimitError"}')), null)
+  })
+  it('attente longue : aucun nouvel essai du meme modele, attente portee par l erreur', async () => {
+    let n = 0
+    mockFetch(() => { n += 1; return r429({ 'retry-after': '60' }) })
+    const err = await llm.call('s', 'u', { baseUrl: BASE, model: 'step-5-preview-free' }).catch(e => e)
+    assert.equal(n, 1)
+    assert.equal(err.status, 429)
+    assert.equal(err.attenteS, 60)
+  })
+  it('attente courte : un nouvel essai du meme modele apres l attente', async () => {
+    let n = 0
+    mockFetch(() => (n++ === 0 ? r429({ 'retry-after': '0.6' }) : okJson({ choices: [{ message: { content: '{}' } }] })))
+    const t0 = Date.now()
+    await llm.call('s', 'u', { baseUrl: BASE, model: 'step-5-preview-free' })
+    assert.equal(n, 2)
+    assert.ok(Date.now() - t0 >= 550)
+  })
+})

@@ -85,6 +85,10 @@ function extractResponsesText (body) {
 // transport, delai, annulation. Le texte-plan invalide (parseJson, APRES un
 // call reussi) et les contenus "pas de plan" (vide, tronquee, incomplete)
 // restent des erreurs SANS code : jamais une indisponibilite.
+// Au-dela de cette attente (ou si elle n est pas dite), une limite de debit
+// fait passer au modele suivant de l usage (proprietaire, 2026-10-12).
+const LIMITE_ATTENTE_S = 10
+
 function typedError (message, code, status) {
   const err = new Error(message)
   err.code = code
@@ -117,8 +121,32 @@ function joinEndpoint (baseUrl, path) {
   return `${String(baseUrl).replace(/\/+$/, '')}${path}`
 }
 
+// Attente demandee par une limite de debit (429), en secondes : en-tete
+// Retry-After (secondes ou date HTTP), sinon un « retry after N » du corps.
+// null si rien ne la dit.
+async function attenteLimite (response) {
+  const header = response.headers?.get?.('retry-after')
+  if (header) {
+    const s = Number(header)
+    if (Number.isFinite(s)) return Math.max(0, s)
+    const date = Date.parse(header)
+    if (Number.isFinite(date)) return Math.max(0, (date - Date.now()) / 1000)
+  }
+  try {
+    const m = /retry[ _-]?after\D{0,6}(\d+(?:\.\d+)?)\s*(ms|s)?/i.exec(await response.clone().text())
+    if (m) return m[2]?.toLowerCase() === 'ms' ? Number(m[1]) / 1000 : Number(m[1])
+  } catch (_) {}
+  return null
+}
+
 async function isTransient (response) {
-  if (response.status >= 500 || response.status === 429) return true
+  if (response.status >= 500) return true
+  // Limite de debit : un nouvel essai seulement si l attente est courte et dite
+  // (sinon le prochain modele de l usage, bot/model-chain.js).
+  if (response.status === 429) {
+    const attente = await attenteLimite(response)
+    return attente !== null && attente <= LIMITE_ATTENTE_S
+  }
   if (response.status !== 400) return false
   try {
     return /upstream request failed/i.test(await response.clone().text())
@@ -272,8 +300,10 @@ async function call (system, user, options = {}) {
     if (!response.ok && await isTransient(response)) {
       // The pause ends early on abort (delay or caller): the fetch below then
       // throws at once instead of starting after the deadline.
+      // Limite de debit courte : attendre ce qu elle demande (10 s au plus).
+      const pauseMs = response.status === 429 ? Math.max(500, (await attenteLimite(response)) * 1000) : 500
       await new Promise(resolve => {
-        const pause = setTimeout(resolve, 500)
+        const pause = setTimeout(resolve, pauseMs)
         controller.signal.addEventListener('abort', () => { clearTimeout(pause); resolve() }, { once: true })
       })
       if (!controller.signal.aborted) onRetry?.()
@@ -281,8 +311,11 @@ async function call (system, user, options = {}) {
     }
 
     if (!response.ok) {
+      const attente = response.status === 429 ? await attenteLimite(response) : null
       const detail = (await response.text()).slice(0, 200)
-      throw typedError(`HTTP ${response.status} : ${detail}`, 'LLM_HTTP', response.status)
+      const err = typedError(`HTTP ${response.status} : ${detail}`, 'LLM_HTTP', response.status)
+      if (response.status === 429) err.attenteS = attente
+      throw err
     }
 
     try {
@@ -369,4 +402,4 @@ function parseJson (text) {
   }
 }
 
-module.exports = { call, parseJson, resolveProtocol, messagesUsage }
+module.exports = { call, parseJson, resolveProtocol, messagesUsage, attenteLimite, LIMITE_ATTENTE_S }

@@ -158,6 +158,7 @@ function isUpstreamRefusal (err) {
   return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(text) && !/model is unavailable/i.test(text)
 }
 const USER_AGENT = process.env.PLANNER_USER_AGENT || 'minecraft-bot/1.0'
+const modelState = modelChain.createModelState()
 const keyState = modelChain.createKeyState(config.positiveInt(process.env.PLANNER_KEY_COOLDOWN_MS, 600000, 'PLANNER_KEY_COOLDOWN_MS'))
 const DEBUG = process.env.PLANNER_DEBUG === '1'
 
@@ -398,23 +399,41 @@ async function callRelaunched (system, user, opts) {
   }
 }
 
-// Helper UNIQUE (plan, chat, brief, compaction, aide) : le modele de l usage,
-// un appel, jamais d autre modele. Troncature : UN reessai du meme modele a
+// Helper UNIQUE (plan, chat, brief, compaction, aide) : les modeles de
+// l usage dans l ordre (bot/model-chain.js), le premier disponible sert ; une
+// limite de debit longue (429, plus de 10 s ou sans attente dite) passe au
+// suivant et met le modele de cote. Aucun autre repli de modele : silence,
+// 5xx ou refus remontent tels quels. Troncature : UN reessai du meme modele a
 // budget elargi, meme delai et meme signal. Mauvais JSON (apres un call
 // reussi) : ni reessai ni repli ici (voir plan/readBrief : parse hors transport).
 async function callWithProfileOnce (system, user, opts = {}) {
-  const { image = null, signal = null, temperature = TEMPERATURE, task = 'plan' } = opts
-  // UN seul modele par usage (bot/model-chain.js : PLANNER_MODEL_<USAGE>,
-  // sinon PLANNER_MODEL) et AUCUN repli vers un autre modele (demande du
-  // proprietaire, 2026-09-26) : une panne du fournisseur remonte telle quelle.
-  const entry = modelChain.modelFor(task, process.env, MODEL)
-  if (!entry) throw new Error(`aucun modele utilisable pour ${task} (cle absente ?)`)
+  const { signal = null, task = 'plan' } = opts
+  const entries = modelState.order(modelChain.modelsFor(task, process.env, MODEL))
+  if (!entries.length) throw new Error(`aucun modele utilisable pour ${task} (cle absente ?)`)
   // Delai propre a l usage (PLANNER_TIMEOUT_MS_<USAGE>) : un modele qui
   // raisonne plus (muse pour la reflexion) a besoin de plus.
   const taskTimeout = modelChain.timeoutFor(task)
   if (taskTimeout && !opts.fixedTimeout) opts = { ...opts, timeoutMs: Math.max(taskTimeout, opts.timeoutMs ?? 0) }
-  // Repli de CLE seulement (PLANNER_KEY_FIRST) : meme modele, autre cle.
-  // Sans aucune cle (base locale type Ollama) : un appel sans cle, comme avant.
+  for (const [m, entry] of entries.entries()) {
+    const suivant = entries[m + 1]
+    try {
+      return await callModel(system, user, opts, entry, Boolean(suivant))
+    } catch (err) {
+      if (signal?.aborted || !suivant || !modelChain.isRateLimitSwitch(err, llm.LIMITE_ATTENTE_S)) throw err
+      modelState.bench(entry, err.attenteS)
+      stats.bascules_modele = (stats.bascules_modele ?? 0) + 1
+      stats.modeles_de_cote = modelState.status()
+      console.log(`[planner] ${entry.label} limite (${err.attenteS == null ? 'attente non dite' : `${Math.round(err.attenteS)} s`}) : ${suivant.label} pour ${task}`)
+    }
+  }
+}
+
+// Un modele, ses cles dans l ordre. Repli de CLE seulement (PLANNER_KEY_FIRST) :
+// meme modele, autre cle ; une limite de debit longue quand un autre modele
+// suit va droit a ce modele (la cle n est pas en cause).
+// Sans aucune cle (base locale type Ollama) : un appel sans cle, comme avant.
+async function callModel (system, user, opts, entry, autreModele) {
+  const { signal = null, task = 'plan' } = opts
   const configured = modelChain.keyOrder(process.env)
   const keys = isOpenAiModel(entry.model)
     ? [{ name: 'openai', key: process.env.OPENAI_API_KEY || '' }]
@@ -428,6 +447,7 @@ async function callWithProfileOnce (system, user, opts = {}) {
       return res
     } catch (err) {
       if (signal?.aborted || !modelChain.isKeySwitchError(err) || i === keys.length - 1) throw err
+      if (autreModele && modelChain.isRateLimitSwitch(err, llm.LIMITE_ATTENTE_S)) throw err
       keyState.bench(k)
       stats.bascules_cle = (stats.bascules_cle ?? 0) + 1
       stats.cles_de_cote = keyState.status()

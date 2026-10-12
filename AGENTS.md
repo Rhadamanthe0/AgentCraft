@@ -262,7 +262,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
 | `demander_aide`, `reviser_actions`, `bot/repair.js` | 2026-09-27 | reecrivaient la doc des actions, invalidaient le cache, ~20 appels/banc, aucun gain |
 | Overlay de documentation (`/data/actions-doc.json`, `DELETE /api/actions`) | 2026-09-28 | plus aucun auteur depuis repair.js ; un vieux fichier aurait continue d egarer le modele |
 | Reflexion de fond (`planner.strategize`) | 2026-09-27 | A/B cabane sur 5 bancs sans gain ; inventait des etapes (« livrer ») |
-| Chaines de modeles, bascule sur refus/delai, fournisseurs gratuits (Zen anonyme, Groq, Gemini, OpenRouter) | 2026-09-26 | un modele par usage, une panne remonte telle quelle |
+| Chaines de modeles, bascule sur refus/delai, fournisseurs gratuits (Zen anonyme, Groq, Gemini, OpenRouter) | 2026-09-26 | un modele par usage, une panne remonte telle quelle ; seule la cascade sur limite de debit est revenue (proprietaire, 2026-10-12, §3) |
 | Routage double MiMo/Muse, supervisor/, kernel/, bridge/, unlock-service | 2026-09-27 | jamais branches au bot |
 | `approcher`, ancien `explorer` (GoalNearXZ) | 2026-09-22 | pathfinder 26.1 peu fiable ; remplaces par le navigateur partage |
 | Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
@@ -385,21 +385,33 @@ transport `bot/llm.js` : `/chat/completions`, `/responses` (muse, gpt-*) et
 
 | Usage | Banc | Effort | Delai banc |
 | --- | --- | --- | --- |
-| PLAN (actions) | deepseek-v4.1-flash | low | 20 s |
-| CHAT | deepseek-v4.1-flash | low | 20 s |
-| BRIEF (lecture d objectif) | deepseek-v4.1-flash | low | 30 s, sans relance |
-| COMPACT (resume memoire) | deepseek-v4.1-flash | low | 90 s |
+| PLAN (actions) | step-5-preview-free, puis deepseek-v4.1-flash | low | 20 s |
+| CHAT | idem | low | 20 s |
+| BRIEF (lecture d objectif) | idem | low | 30 s, sans relance |
+| COMPACT (resume memoire) | idem | low | 90 s |
 
-**Prod sur Claude Haiku 5.5, dev sur DeepSeek V4.1 Flash** (proprietaire,
-2026-10-11 : Haiku, bon mais plafonne a 15 $/mois en Go, partait trop vite au
-banc). Prod = `compose.yaml` (`PLANNER_MODEL` par defaut `claude-haiku-5-5`) ;
-dev = banc CI et sessions d agent, `ci/models.env`. Ne pas remettre Haiku dans
-`ci/models.env` sans son accord ; un niveau qui ne passe qu avec Haiku se
-mesure par `base_model` (lancement manuel). Effort low pour TOUS les usages
-(choix du proprietaire, 2026-10-10) ;
+**Prod sur Claude Haiku 5.5, dev sur modeles gratuits puis DeepSeek V4.1
+Flash** (proprietaire, 2026-10-11 et 2026-10-12 : Haiku, bon mais plafonne a
+15 $/mois en Go, partait trop vite au banc). Prod = `compose.yaml`
+(`PLANNER_MODEL` par defaut `claude-haiku-5-5`) ; dev = banc CI et sessions
+d agent, `ci/models.env`. Ne pas remettre Haiku dans `ci/models.env` sans son
+accord ; un niveau qui ne passe qu avec Haiku se mesure par `base_model`
+(lancement manuel). Ordre demande au banc : Step 5 free, « exo free »
+(identifiant introuvable au 2026-10-12 dans `/models` du gateway Go et de Zen,
+en attente du proprietaire), DeepSeek V4.1 Flash. **Cascade sur limite de
+debit seulement** (`bot/model-chain.js`) : une variable `a,b,c` sert `a` ;
+un 429 qui demande plus de 10 s (`Retry-After` ou corps) ou ne dit pas
+combien passe tout de suite a `b` et met `a` de cote le temps demande (60 s si
+non dit, 1 h au plus) ; 10 s ou moins : attente puis un nouvel essai du meme
+modele. Un silence, une 5xx ou un refus ne changent PAS de modele (Step 5 se
+taisait sous 16 bots le 2026-10-09 : a surveiller, `bascules_modele` et
+`modeles_de_cote` dans les stats du planificateur). `ci/keyprobe.py` sonde la
+chaine dans le meme ordre. Effort low pour TOUS les usages (choix du
+proprietaire, 2026-10-10) ;
 plus aucune variante de modele au banc (`MODELES_AB = []`, quota epargne).
 
-Seuls rejeux admis, toujours le MEME modele : reponse tronquee (budget
+Seuls rejeux admis, hors cascade sur limite de debit ci-dessus, toujours le
+MEME modele : reponse tronquee (budget
 double), panne passagere du gateway (silence, reseau coupe, 5xx, 429, 400
 « Upstream request failed » : `planner.estPassager`), reaiguillage de session (`x-opencode-session` suffixe `-rN`, apres un delai ou un 400 upstream ; six d affilee SANS reponse au plus, compteur remis a zero a chaque reponse),
 retrait d un champ thinking/effort refuse, et changement de CLE (primary <->
@@ -665,7 +677,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `PLANNER_API_KEY` / `OPENCODE_SECONDARY_API_KEY` | vide | cles primary / secondary du gateway Go |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | vide / `https://api.openai.com/v1` | modeles `openai/<modele>` seulement (A/B), jamais un repli |
 | `PLANNER_KEY_FIRST` | `primary` | cle essayee d abord ; l autre sur 429/401-403 |
-| `PLANNER_MODEL[_PLAN/_BRIEF/_CHAT/_COMPACT]` | `PLANNER_MODEL` | un modele par usage (une liste ne garde que sa tete) |
+| `PLANNER_MODEL[_PLAN/_BRIEF/_CHAT/_COMPACT]` | `PLANNER_MODEL` | modeles par usage, `a,b,c` : le suivant sur limite de debit de plus de 10 s (§3) |
 | `PLANNER_REASONING_EFFORT[_<USAGE>]` | vide | `reasoning_effort` (ou `reasoning.effort`) |
 | `PLANNER_TIMEOUT_MS[_<USAGE>]` | 12000 | delai d un appel |
 | `PLANNER_RELAUNCH_MS` | 10000 | plan sans reponse apres ce delai : appel coupe et refait une fois avec le temps restant, jamais deux appels en meme temps, delai total inchange (interrupteur `relance_plan`, decision du proprietaire 2026-09-29) |
