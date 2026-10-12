@@ -159,8 +159,8 @@ en Go Plus : 60 $ contre 120 $. Un banc complet coute ~0,33 $ en Haiku, soit
 l epuise (banc complet du 2026-10-09 rouge, 1284 x 429 « 5 hour »). Effort de Haiku pour plan et chat (variante `effort(...)`, 3 bancs,
 33 paires par bras) : `low` 32/33 en 201 s, `none` 30/33 en 230 s, `medium`
 29/33 en 221 s, sans gain de cout : `low` reste. Le proprietaire a choisi Haiku pour plan, brief et chat
-(2026-10-09) ; les variantes `~modele-deepseek-v4.1-flash` gardent la mesure
-(`ci/ab_modele.py`, `--base deepseek-v4.1-flash` pour les rapports d avant).
+(2026-10-09), puis DeepSeek au banc et Haiku en prod (2026-10-11, §3) ; les variantes `~modele-deepseek-v4.1-flash` gardent la mesure
+(`ci/ab_modele.py`, base DeepSeek ; `--base claude-haiku-5-5` pour les rapports du 2026-10-09 au 2026-10-11).
 Modeles Go bon marche contre Haiku (2026-10-09, 2 bancs, 22 paires) :
 GPT 6 Luna 19/22 contre 20/22, duree 179 s contre 158 s, attente 27 s
 contre 10 s, ~30 % moins cher (meme prix au jeton, moins de jetons) : seule
@@ -385,12 +385,18 @@ transport `bot/llm.js` : `/chat/completions`, `/responses` (muse, gpt-*) et
 
 | Usage | Banc | Effort | Delai banc |
 | --- | --- | --- | --- |
-| PLAN (actions) | claude-haiku-5-5 (`/messages`) | low | 20 s |
-| CHAT | claude-haiku-5-5 | low | 20 s |
-| BRIEF (lecture d objectif) | claude-haiku-5-5 | low | 30 s, sans relance |
-| COMPACT (resume memoire) | claude-haiku-5-5 | low | 90 s |
+| PLAN (actions) | deepseek-v4.1-flash | low | 20 s |
+| CHAT | deepseek-v4.1-flash | low | 20 s |
+| BRIEF (lecture d objectif) | deepseek-v4.1-flash | low | 30 s, sans relance |
+| COMPACT (resume memoire) | deepseek-v4.1-flash | low | 90 s |
 
-Haiku effort low pour TOUS les usages (choix du proprietaire, 2026-10-10) ;
+**Prod sur Claude Haiku 5.5, dev sur DeepSeek V4.1 Flash** (proprietaire,
+2026-10-11 : Haiku, bon mais plafonne a 15 $/mois en Go, partait trop vite au
+banc). Prod = `compose.yaml` (`PLANNER_MODEL` par defaut `claude-haiku-5-5`) ;
+dev = banc CI et sessions d agent, `ci/models.env`. Ne pas remettre Haiku dans
+`ci/models.env` sans son accord ; un niveau qui ne passe qu avec Haiku se
+mesure par `base_model` (lancement manuel). Effort low pour TOUS les usages
+(choix du proprietaire, 2026-10-10) ;
 plus aucune variante de modele au banc (`MODELES_AB = []`, quota epargne).
 
 Seuls rejeux admis, toujours le MEME modele : reponse tronquee (budget
@@ -440,7 +446,15 @@ dans `docs/journal.md` (section « Les pieges »).
    niveau reste rouge au banc (no_path en < 5 s) alors que le meme A* trouve
    hors ligne un chemin sur l instantane : un echec du trajet qui creuse
    journalise `[creuse]` (depart, but, derniers calculs de l A*, remises du
-   trajet) pour trancher. Le pathfinder
+   trajet, trois premiers noeuds, position et commandes a chaque stuck,
+   recalages du serveur `forcedMove`). `skill/hedge-pit` (retire, `Banc:`)
+   joue ce trajet sans modele, donc meme quota epuise. Banc b8db857 : A* en succes (7 pas),
+   le bot ne rejoint jamais le premier noeud (3 stuck, ~200 recalages
+   `forcedMove` par trajet, toutes casses confirmees : piege 19 ecarte ; le
+   `[creuse]` donne la position du client et celle imposee aux premiers
+   recalages ; cause : piege 20) alors que
+   `tmp/creuse-repro.js` (meme instantane, vrai pathfinder, physique simulee)
+   arrive : la cause est dans l execution sur le vrai serveur. Le pathfinder
    planifie parfois une montee d un bloc sous un plafond de deux (impossible,
    la tete touche) et replanifie sans fin : trois `stuck` sur place arretent
    le trajet (code `stuck`). Il tient aussi toute porte pour un mur (il
@@ -466,7 +480,9 @@ dans `docs/journal.md` (section « Les pieges »).
    en boucle avec une pioche en pierre, le fer a cote.
 10. **`findTargetBlock` ne vise que des blocs VISIBLES** et jamais le bloc qui
     porte le bot ni plus d un bloc sous ses pieds (sinon puits) ; `anyHeight`
-    pour se deplacer seulement.
+    pour se deplacer seulement. Quand la seule matiere restante est sous ses
+    pieds (dernier minerai d un rocher), `recolter` le poste a cote, a la
+    hauteur du bloc ou plus bas (`posteHorsDessous`, skill/coal-rock).
 11. **Modele a raisonnement** : ses jetons de raisonnement comptent dans
     `PLANNER_MAX_TOKENS` ; trop bas => contenu vide (`finish=length`).
 12. **Prompt systeme = partie mise en cache** : jamais d horodatage ni de
@@ -506,6 +522,31 @@ dans `docs/journal.md` (section « Les pieges »).
     `tmp/etat-bench.js` (monde reel par sections, `MISSION_ETAT_LENT_MS=0`
     journalise chaque etat) : pierre 907 -> 23 ms, pioche en fer 1069 -> 22 ms.
 
+19. **`bot.dig` de mineflayer 4.39 met le bloc a l air cote client sans
+    attendre le serveur** (prediction envoyee avec la fin de casse). Depuis
+    1.19 un serveur qui refuse la casse ne renvoie pas le bloc (il acquitte la
+    sequence, le client doit annuler sa prediction, mineflayer ne le fait
+    pas) : le client verrait une case vide, le serveur un bloc, et chaque pas
+    a travers serait refuse. Soupconne sur skill/hedge-pit (58c0689 : 210
+    recalages `forcedMove`, trois `stuck` au premier noeud), ecarte par le
+    banc f3898a3 (aucune casse refusee, memes recalages), garde comme
+    protection. `bot/casse.js` (plugin) n accepte une
+    casse que si le serveur envoie l etat de la case dans
+    `CASSE_CONFIRMATION_MS` (1500) ; sinon le bloc est remis cote client, la
+    casse echoue et `[casse] refusee par le serveur` est journalise.
+    Test : tmp/casse.test.js.
+
+20. **Le serveur refuse un pas au contact exact d une paroi** : la physique de
+    mineflayer arrete la boite du bot pile sur la face d un bloc (bord a
+    26.000 contre une feuille en z = 26) ; Paper 26.1 renvoie le bot a sa
+    derniere position acceptee, a quelques centiemes. En glissant le long
+    d une face (coin de haie, terrain/far-hedge-pit) chaque pas etait
+    refuse : ~200 recalages `forcedMove` par trajet, trois `stuck`, blocs
+    identiques cote client et serveur (`pleinsServeur` des instantanes du
+    banc, releve RCON). `bot/paroi.js` (plugin) ecarte le bot de
+    `PAROI_ECART` (1 mm) apres chaque pas de physique en contact horizontal.
+    Test : tmp/paroi.test.js.
+
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
 - Declenche par tout push sur `main` ou `claude/**` (workflow
@@ -517,6 +558,9 @@ dans `docs/journal.md` (section « Les pieges »).
   `Banc: composite/cabin-from-scratch* trees/pillar*` (motifs sur le nom
   complet, variantes comprises ; un composite entraine son jumeau),
   `Banc: unitaires` pour les tests unitaires seuls (ni serveur ni modele) ;
+  une ligne qui ne nomme que des niveaux `skill/*` (scripts, aucun appel au
+  modele) se joue sans cle ni sonde, meme quota epuise (`SCRIPTED_ONLY`,
+  ci/run.py) ;
   **sans ligne `Banc:`, banc complet**. Lancement manuel : entree `levels`,
   et `base_model` (2026-10-10) qui remplace le modele de plan, brief et chat de
   `ci/models.env` le temps du lancement (A/B quand le modele du banc est sans
@@ -529,7 +573,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  88 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
+  91 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
   reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -542,7 +586,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 144 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 147 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
@@ -584,7 +628,8 @@ Banc de competences hors ligne (2026-10-02) : un niveau `skill/*` se joue en
 local en quelques secondes, vraie mission scriptee, vrai A* 2.4.5 et vraie
 physique sur un serveur simule (`tmp/sim-server.js` : casse avec outil exige,
 objets qui tombent et se ramassent comme au serveur, pose refusee dans le
-corps du bot). A lancer AVANT de pousser un changement d action ou de
+corps du bot ; trajet qui creuse par le vrai pathfinder comme au banc,
+`SIM_CREUSE=pathfinder`, le navigateur avec `nav_creuse`). A lancer AVANT de pousser un changement d action ou de
 navigation ; le banc ne sert plus qu a confirmer. Hors champ : fabrication et
 four (`skill/*-batir` restent au banc).
 
@@ -641,6 +686,8 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `RESCUE_COOLDOWN_MS` | 25000 | repos apres sauvetage (piege 7) |
 | `JEV_DONE_THRESHOLD` / `JEV_MIN_CONFIDENCE` / `JEV_DOOR_THRESHOLD` | 0.75 / 0.6 / 0.6 | seuils (noms historiques) |
 | `MEMORY_*` | voir memory.js | plafonds de la memoire (travail / long terme) |
+| `CASSE_CONFIRMATION_MS` | 1500 | attente de la confirmation d une casse par le serveur (piege 19 ; 0 : aucune verification) |
+| `PAROI_ECART` | 0.001 | ecart a une paroi touchee apres chaque pas de physique (piege 20 ; 0 : coupe) |
 | `MISSION_ETAT_LENT_MS` | 1000 | etat de mission journalise `[lent]` au-dela (0 : chaque etat) |
 | `LOG_FILE`, `LOG_DEDUP_MS`, `LOG_CHAT_MAX_PER_MIN` | `/data/bot.log`, 30000, 5 | erreurs et warnings au fichier ET au chat |
 | `BUILD_DEBUG`, `PATH_DEBUG`, `PLANNER_DEBUG` | vide | traces de diagnostic |
@@ -671,6 +718,8 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/craft.js` | fabrication, etabli, four (`smelt`), outils (`harvestCheck`) |
 | `bot/build.js` | plans (boite, plans libres compiles), postes de tir, pose |
 | `bot/navigation.js` / `bot/motion-trace.js` | navigateur partage (options `dig` et `place` : casse et pose planifiees par A*) ; traces de trajet |
+| `bot/casse.js` | casse confirmee par le serveur, bloc remis cote client sinon (piege 19) |
+| `bot/paroi.js` | jamais au contact exact d une paroi, pas refuse par le serveur sinon (piege 20) |
 | `bot/but-bloc.js` | but « bloc en vue, a portee des yeux » du trajet qui creuse (corrige `GoalLookAtBlock`, piege 6) |
 | `bot/pose.js` | gestes de pose partages : tour (pose sous soi au sommet du saut), pose contre une face, verifies par le monde |
 | `bot/movement-task.js` / `bot/tree-position.js` | parcours declaratifs ; placement sous un arbre |
@@ -679,6 +728,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/objective-controller.js`, `executor.js`, `state-store.js`, `activity.js`, `delivery.js` | objectifs durables, slot physique, persistance, activite, dons |
 | `bot/logger.js`, `bot/screenshot.js` | journal ; mini-carte PNG (`MISSION_SCREENSHOT`, eteinte) |
 | `ci/` | banc (run.py, trees.py, pool.py, capacity.py, harness, sondes) ; `ci/attendre-chunks.js` : attente des chunks du harness rejouee (un rejet non attrape tuait tout le banc) |
+| `tmp/creuse-repro.js` | trajet qui creuse rejoue sur un instantane de blocage (vrai pathfinder, physique simulee) |
 | `tmp/etat-bench.js` | duree de l etat de mission sur un monde reel par sections (piege 18) |
 | `tmp/*.test.js` | tests unitaires ; `tmp/sim-world.js` monde simule partage ; `tmp/replay-snapshot.js` rejeu d un instantane de blocage ; `tmp/probe-bot.js` harness multi-bots |
 | `tmp/sim-server.js`, `tmp/skill-sim.js`, `tmp/skill-levels.json` | banc de competences hors ligne : serveur simule (vrai A*, vraie physique), joueur de niveau `skill/*`, niveaux exportes par `ci/trees.py --export-skills` |

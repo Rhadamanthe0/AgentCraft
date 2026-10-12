@@ -954,6 +954,48 @@ def base_levels():
             'skill': {'brief': {'type': 'construction', 'matiere': 'terre'},
                       'script': [{'action': 'choisir_terrain'}, {'action': 'construire', 'quantite': 12, 'repeter': 6}]},
         },
+        # Trajet qui creuse de terrain/far-hedge-pit sans modele (2026-10-11) :
+        # meme trou entoure d une haie, depart au coin, hors du banc complet,
+        # joue par `Banc:` meme quand le quota du gateway est epuise.
+        {
+            'name': 'skill/hedge-pit',
+            'about': 'Script recolter : arbre au fond d un trou de 5 blocs entoure d une haie, depart au coin de la haie.',
+            'terrain': [(0, 200, 0, SIZE - 1, 203, SIZE - 1, 'dirt'), (0, 204, 0, SIZE - 1, 204, SIZE - 1, 'grass_block'),
+                        (27, 200, 27, 33, 204, 33, 'air'),
+                        (25, 205, 25, 35, 206, 35, LEAVES), (26, 205, 26, 34, 206, 34, 'air')],
+            'start': (23.5, 205, 23.5),
+            'leaves': [(28, 203, 28, 32, 204, 32)],
+            'logs': _logs(*[(30, 200 + i, 30) for i in range(3)]),
+            'rules': {},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'bois'},
+                      'script': [{'action': 'recolter', 'quantite': 3, 'repeter': 4},
+                                 {'action': 'ramasser', 'quantite': 3, 'repeter': 2}]},
+        },
+        # Extraction du charbon d un rocher de lit-cabin (2026-10-11), sans
+        # modele : au banc d24b197, « dug_out_of_reach » apres 15 blocs creuses.
+        {
+            'name': 'skill/coal-rock',
+            'about': 'Script recolter : pioche en bois en poche, deux charbons au sommet d un rocher de pierre, 2 charbons en inventaire.',
+            'kind': 'gather', 'give': [('wooden_pickaxe', 1)], 'instruction': 'Ramasse 2 charbons', 'items': ['coal'],
+            'terrain': [(22, 200, 22, 27, 201, 27, 'stone'), (24, 201, 24, 24, 201, 24, 'coal_ore'),
+                        (25, 201, 24, 25, 201, 24, 'coal_ore')],
+            'target': 2, 'leaves': [], 'logs': [], 'rules': {},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'minerai'},
+                      'script': [{'action': 'recolter', 'quantite': 2, 'repeter': 4}]},
+        },
+        # Etabli pose puis fabrication sur le rocher de powered-rail-line
+        # (2026-10-11), sans modele : au banc d24b197, « poste de tir
+        # injoignable a pied : trajet trop long » en boucle.
+        {
+            'name': 'skill/craft-on-rock',
+            'about': 'Script fabriquer : debout sur un rocher de pierre, planches, batons et lingots en poche, etabli pose puis pioche en fer.',
+            'kind': 'gather', 'give': [('oak_planks', 8), ('stick', 2), ('iron_ingot', 3)],
+            'instruction': 'Fabrique-moi une pioche en fer', 'items': ['iron_pickaxe'],
+            'terrain': [(20, 200, 26, 31, 202, 33, 'stone')], 'start': (25.5, 203, 29.5),
+            'target': 1, 'leaves': [], 'logs': [], 'rules': {},
+            'skill': {'brief': {'type': 'recolte', 'matiere': 'fer', 'fabrication': 'iron_pickaxe'},
+                      'script': [{'action': 'fabriquer', 'objet': 'iron_pickaxe', 'repeter': 3}]},
+        },
         {
             'name': 'skill/sand-walled',
             'about': 'Script recolter : sable enferme dans un mur de terre de 3 de haut, 4 sable en inventaire, pas de puits.',
@@ -1913,7 +1955,7 @@ RETIRED = frozenset({
     'trees/pillar', 'join/pit', 'chat/join-then-tree', 'terrain/far-tree', 'gather/flowers',
     'gather/sand-plateau', 'craft/table', 'craft/axe', 'craft/door', 'craft/stone-pickaxe', 'craft/torches',
     'craft/furnace', 'build/door', 'route/around-wall', 'route/under-far-tree', 'skill/tree-reachable',
-    'skill/dirt-box', 'skill/cabin-batir', 'trees/skirted',
+    'skill/dirt-box', 'skill/cabin-batir', 'trees/skirted', 'skill/hedge-pit', 'skill/coal-rock', 'skill/craft-on-rock',
     # A/B variants measured on 19 full benches (verdicts: python3 ci/ab.py);
     # only the variants of the mode being built (`poser`) stay.
     'trees/bent~sans-anti_boucle', 'trees/bent~avec-acces_unifie', 'trees/tall~sans-reflexes',
@@ -1964,6 +2006,8 @@ COVERED_BY = {
     'route/around-wall': 'route/wait-and-back', 'route/under-far-tree': 'route/wait-and-back',
     'terrain/dirt-wall': 'terrain/plateau', 'terrain/hedge-pit': 'terrain/far-hedge-pit',
     'terrain/pit': 'terrain/far-hedge-pit', 'terrain/far-tree': 'terrain/far-hedge-pit',
+    'skill/hedge-pit': 'terrain/far-hedge-pit', 'skill/coal-rock': 'composite/lit-cabin',
+    'skill/craft-on-rock': 'composite/powered-rail-line',
     'trees/leaves': 'trees/double', 'trees/reachable': 'trees/double', 'trees/pillar': 'trees/tall',
     'skill/tree-reachable': 'skill/tree-pillar', 'skill/dirt-box': 'skill/stone-hut-batir',
     'skill/cabin-batir': 'skill/stone-hut-batir', 'trees/skirted': 'trees/tall',
@@ -2399,6 +2443,21 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
                     folder.mkdir(parents=True, exist_ok=True)
                     stem = re.sub(r'[^A-Za-z0-9_.-]+', '_', level['name'])
                     names = []
+                    # Blocs vus par le SERVEUR autour du bot au dernier
+                    # blocage (cases non vides) : a comparer au monde du
+                    # client de l instantane (desynchronisation, piege 19).
+                    p = snaps[-1].get('position') or {}
+                    if all(isinstance(p.get(k), (int, float)) for k in 'xyz'):
+                        bx, by, bz = (int(p[k] // 1) for k in 'xyz')
+                        pleins = []
+                        for dx in (-1, 0, 1):
+                            for dz in (-1, 0, 1):
+                                for dy in (-1, 0, 1, 2):
+                                    x, y, z = bx + dx, by + dy, bz + dz
+                                    answer = str(rcon(f'execute unless block {x} {y} {z} #minecraft:air') or '')
+                                    if 'passed' in answer.lower():
+                                        pleins.append(f'{x},{y},{z}')
+                        snaps[-1]['pleinsServeur'] = pleins
                     for i, snap in enumerate(snaps):
                         name = f'{stem}-{i + 1}.json'
                         (folder / name).write_text(json.dumps(snap), encoding='utf-8')

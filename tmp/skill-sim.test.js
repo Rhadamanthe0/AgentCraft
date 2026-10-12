@@ -19,7 +19,7 @@ function jouer (niveau) {
   return JSON.parse(out)
 }
 
-for (const niveau of ['skill/tree-reachable', 'skill/dirt-box', 'skill/sand-walled', 'skill/sand-walled~avec-acces_unifie']) {
+for (const niveau of ['skill/tree-reachable', 'skill/dirt-box', 'skill/sand-walled', 'skill/sand-walled~avec-acces_unifie', 'skill/hedge-pit', 'skill/coal-rock']) {
   test(`hors ligne : ${niveau}`, () => {
     let r
     try {

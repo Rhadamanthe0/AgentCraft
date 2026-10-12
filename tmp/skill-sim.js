@@ -19,7 +19,7 @@ const { Vec3 } = require('vec3')
 
 const FIXTURES = JSON.parse(fs.readFileSync(path.join(__dirname, 'skill-levels.json'), 'utf8'))
 // Fabrication et four : fenetres non simulees.
-const HORS_CHAMP = /batir/
+const HORS_CHAMP = /batir|craft-on/
 
 function trouver (nom) {
   for (const level of FIXTURES.levels) {
@@ -52,6 +52,8 @@ async function jouer (nomNiveau, { capMs = 240000 } = {}) {
   const { level, features } = found
   if (HORS_CHAMP.test(level.name)) return { test: nomNiveau, horsChamp: true, success: null, raison: 'fabrication non simulee : banc seulement' }
   for (const [mode, on] of Object.entries(features)) process.env[`FEATURE_${mode.toUpperCase()}`] = on ? '1' : '0'
+  // Trajet qui creuse comme au banc : le pathfinder, sauf avec nav_creuse.
+  process.env.SIM_CREUSE ??= features.nav_creuse ? 'navigateur' : 'pathfinder'
   const { createSimServer } = require('./sim-server')
   const craft = require('../bot/craft')
   craft.targetCriteria = craft.targetCriteria ?? (() => ({}))

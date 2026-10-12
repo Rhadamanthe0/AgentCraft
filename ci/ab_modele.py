@@ -30,8 +30,9 @@ PRICES = {
     'openai/gpt-5.4-mini': (0, 0, 0, 0),
     'openai/gpt-5-mini': (0, 0, 0, 0),
 }
-# Model of the level as written (ci/models.env since 2026-10-09); --base to change.
-BASE_MODEL = 'claude-haiku-5-5'
+# Model of the level as written (ci/models.env: Haiku 2026-10-09, DeepSeek
+# since 2026-10-11); --base to change for older reports.
+BASE_MODEL = 'deepseek-v4.1-flash'
 
 
 def cost(tokens, model):

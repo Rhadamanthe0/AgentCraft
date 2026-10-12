@@ -155,6 +155,16 @@ PLANNER_KEY = {}
 
 def planner_key_present():
     return bool(PLANNER_KEY.get('chosen'))
+
+
+# Niveaux scriptes seuls (skill/*, cerveau scripte, aucun appel au modele) :
+# ni cle ni sonde, ils se jouent meme quand le quota du gateway est epuise
+# (banc b66c014 rouge sans aucun niveau joue, 2026-10-11).
+SCRIPTED_ONLY = {'value': False}
+
+
+def bench_ready():
+    return planner_key_present() or SCRIPTED_ONLY['value']
 # Delai des appels HTTP aux bots : /api/instruction attend la lecture de
 # l objectif (PLANNER_TIMEOUT_MS_BRIEF, 60 s, rejouee une fois si tronquee).
 HTTP_TIMEOUT_S = 150
@@ -164,7 +174,7 @@ UNIT = ['attendre-chunks.test.js', 'navigation.test.js', 'navigation-drop.test.j
         'place-direct.test.js', 'craft-table-reuse.test.js',
         # Ajoutes le 2026-09-27 (revue : 1 a 11 s chacun, regressions a bas cout).
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
-        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'navigation-place.test.js', 'sous-buts.test.js', 'skill-sim.test.js', 'construire-trou.test.js', 'reparer.test.js', 'poser.test.js', 'minerai-faisable.test.js', 'trouver-blocs.test.js', 'but-bloc.test.js', 'objet-vers.test.js', 'utiliser.test.js', 'buts-ouverts.test.js', 'arbitrage-options.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
+        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'navigation-place.test.js', 'sous-buts.test.js', 'skill-sim.test.js', 'construire-trou.test.js', 'reparer.test.js', 'poser.test.js', 'minerai-faisable.test.js', 'trouver-blocs.test.js', 'casse.test.js', 'paroi.test.js', 'but-bloc.test.js', 'objet-vers.test.js', 'utiliser.test.js', 'buts-ouverts.test.js', 'arbitrage-options.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
         'delivery.test.js', 'planner-profile.test.js', 'planner-relaunch.test.js', 'planner-outage.test.js','llm.test.js', 'executor.test.js', 'objective-controller.test.js',
         'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js', 'ouvrir-porte.test.js', 'enclosure.test.js',
         'physical-exclusive.test.js', 'execution-envelope.test.js', 'objective-failed.test.js',
@@ -272,6 +282,7 @@ def main():
     # Levels with the planner (mission levels): none chosen = no bots, no
     # model probe, no key check (navigation scenarios alone need none).
     trees_wanted = args.suite in ('trees', 'all') and bool(levels())
+    SCRIPTED_ONLY['value'] = trees_wanted and all(level.get('skill') for level in levels())
     # Un nom par job : deux executions en parallele (branches, depots du
     # runner mutualise) ne partagent ni conteneur, ni reseau, ni volume.
     run_id = os.environ.get('GITHUB_RUN_ID', '')
@@ -319,7 +330,7 @@ def main():
     except (OSError, subprocess.CalledProcessError):
         pass  # An exported source directory is supported, but never claims a tested SHA.
     report['providerModels'] = provider_models()
-    if trees_wanted:
+    if trees_wanted and not SCRIPTED_ONLY['value']:
         # Une cle par banc (2026-10-01) : mini prompt sans raisonnement sur
         # chaque cle ; primary si les deux repondent, sinon celle qui repond,
         # sinon aucune et le banc echoue. Seule la cle retenue va aux bots.
@@ -333,6 +344,9 @@ def main():
             print(f"Cle du banc : {PLANNER_KEY['chosen']}", flush=True)
         else:
             report['errors'].append('Aucune cle OpenCode ne repond au test de demarrage : niveaux non joues')
+    elif trees_wanted:
+        keyprobe.bot_env(env, None)
+        print('Niveaux scriptes seuls : aucune cle, aucune sonde de modele', flush=True)
 
     log_lock = threading.Lock()
 
@@ -662,9 +676,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 phase('forceloadArenas', arena_started)
             arena_errors = []
             arena_thread = threading.Thread(target=forceload_arenas, daemon=True)
-            if trees_wanted and planner_key_present():
+            if trees_wanted and bench_ready():
                 arena_thread.start()
-            bots_wanted = trees_wanted and bool(planner_key_present())
+            bots_wanted = trees_wanted and bench_ready()
             # Two containers host all pool bots and all probe players.
             extra = [BOTS_SERVICE, PROBES_SERVICE] if bots_wanted else []
             up = ('up', '-d', '--wait', '--wait-timeout', '240', 'harness', *extra)
@@ -727,7 +741,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             nav_thread = threading.Thread(target=run_navigation, daemon=True)
             nav_thread.start()
         if trees_wanted:
-            if planner_key_present():
+            if bench_ready():
                 ops = read_ops()
                 if ops:
                     raise RuntimeError('Expected empty ops.json: ' + json.dumps(ops))

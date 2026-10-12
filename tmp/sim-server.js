@@ -76,7 +76,14 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
     setControlState: (k, v) => { controls[k] = v },
     getControlState: k => controls[k],
     look: async (yaw, pitch) => { bot.entity.yaw = yaw; bot.entity.pitch = pitch },
-    lookAt: async () => {},
+    // Comme mineflayer : le regard suit le point vise (le pathfinder recule
+    // vers un rebord en se retournant, moveToEdge ; sans cela il reculait a
+    // l aveugle).
+    lookAt: async point => {
+      const d = point.minus(bot.entity.position.offset(0, 1.62, 0))
+      bot.entity.yaw = Math.atan2(-d.x, -d.z)
+      bot.entity.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z))
+    },
     chat () {},
     equip: async item => {
       const owned = stock.find(i => i.name === item?.name && i.count > 0)
@@ -207,10 +214,12 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
       return navigator.toPosition(position, opts)
     },
     navigateToPlayer: async () => ({ reached: false, code: 'no_player' }),
-    // Trajet qui creuse : au banc, le pathfinder (index.digToward) ; ici le
-    // navigateur en mode creuser, meme politique de casse qu index.js
-    // (digTowardNavigateur) : pas de bloc construit si protectBuilt.
+    // Trajet qui creuse : par defaut le navigateur en mode creuser (A/B
+    // nav_creuse, digTowardNavigateur), pas de bloc construit si protectBuilt ;
+    // SIM_CREUSE=pathfinder : le pathfinder comme au banc (index.digToward,
+    // nav_creuse eteint), choisi par tmp/skill-sim.js.
     digToward: async (position, { range, protectBuilt, block } = {}) => {
+      if (process.env.SIM_CREUSE === 'pathfinder') return digTowardPathfinder(position, { range, block })
       const BUILT = /(_planks|_door|glass|chest|crafting_table|furnace|_stairs|_slab|_log|_wood)/
       const startPos = bot.entity.position.clone()
       const target = block ? new Vec3(block.x + 0.5, block.y + 0.5, block.z + 0.5) : position
@@ -222,6 +231,55 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
         travelled: Number(startPos.distanceTo(bot.entity.position).toFixed(2)), distance: bot.entity.position.distanceTo(position) }
     },
     recentChat: () => []
+  }
+  // Trajet qui creuse du banc (index.digToward) : vrai pathfinder 2.4.5,
+  // memes Movements que safeDigMovements, but « bloc en vue ».
+  async function digTowardPathfinder (position, { range = 3, block } = {}) {
+    const { Movements, goals } = require('mineflayer-pathfinder')
+    const { GoalBlocEnVue } = require('../bot/but-bloc')
+    const m = new Movements(bot)
+    m.canDig = true; m.allow1by1towers = true; m.allowParkour = false; m.maxDropDown = 3
+    bot.pathfinder.setMovements(m)
+    const startPos = bot.entity.position.clone()
+    // Monde par sections (raycast du but) recopie du serveur simule autour du
+    // trajet, tenu a jour par blockUpdate.
+    const Chunk = require('prismarine-chunk')(registry)
+    const World = require('prismarine-world')(registry)
+    const monde = new World(null).sync
+    const a = bot.entity.position; const b = block ?? position
+    for (let cx = Math.floor(Math.min(a.x, b.x) / 16) - 1; cx <= Math.floor(Math.max(a.x, b.x) / 16) + 1; cx++) {
+      for (let cz = Math.floor(Math.min(a.z, b.z) / 16) - 1; cz <= Math.floor(Math.max(a.z, b.z) / 16) + 1; cz++) {
+        const ch = new Chunk({ minY: -64, worldHeight: 384 })
+        for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) for (let y = 185; y < 225; y++) {
+          const n = nameAt(cx * 16 + x, y, cz * 16 + z)
+          if (n !== 'air') ch.setBlockStateId(new Vec3(x, y, z), registry.blocksByName[n].defaultState)
+        }
+        monde.setColumn(cx, cz, ch)
+      }
+    }
+    const onBloc = (_old, neuf) => { if (neuf?.position) monde.setBlockStateId(neuf.position, registry.blocksByName[neuf.name]?.defaultState ?? 0) }
+    bot.on('blockUpdate', onBloc)
+    const goal = block ? new GoalBlocEnVue(block, monde, { reach: 3.5 }) : new goals.GoalNear(position.x, position.y, position.z, range)
+    const log = []
+    const onUpdate = r => log.push(`${r.status}:${r.visitedNodes}n/${r.path.length}p ${r.path.slice(0, 3).map(n => `${n.x},${n.y},${n.z}${n.toBreak.length ? ' b' + n.toBreak.length : ''}${n.toPlace.length ? ' p' + n.toPlace.length : ''}`).join(' > ')}`)
+    const onReset = r => log.push(`reset:${r} ${bot.entity.position.toString()}`)
+    bot.on('path_update', onUpdate); bot.on('path_reset', onReset)
+    let stuck = 0
+    const onStuck = r => { if (r === 'stuck' && ++stuck >= 3) bot.pathfinder.setGoal(null) }
+    bot.on('path_reset', onStuck)
+    const timer = setTimeout(() => bot.pathfinder.setGoal(null), 45000)
+    try {
+      await bot.pathfinder.goto(goal)
+      return { reached: stuck < 3, code: stuck < 3 ? 'dug' : 'stuck', travelled: Number(startPos.distanceTo(bot.entity.position).toFixed(2)), distance: bot.entity.position.distanceTo(position) }
+    } catch (e) {
+      console.log(`[creuse] ${e.message} ; ${log.slice(-8).join(' | ')}`)
+      return { reached: false, code: stuck >= 3 ? 'stuck' : 'no_path', travelled: Number(startPos.distanceTo(bot.entity.position).toFixed(2)) }
+    } finally {
+      clearTimeout(timer)
+      bot.removeListener('path_update', onUpdate); bot.removeListener('path_reset', onReset); bot.removeListener('path_reset', onStuck)
+      bot.removeListener('blockUpdate', onBloc)
+      bot.clearControlStates()
+    }
   }
   return {
     bot, host, navigator, journal,

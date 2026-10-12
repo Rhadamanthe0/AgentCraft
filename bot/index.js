@@ -14,6 +14,8 @@ const { createApi } = require('./api')
 const { createNavigator } = require('./navigation')
 const { GoalBlocEnVue } = require('./but-bloc')
 const perception = require('./perception')
+const casse = require('./casse')
+const paroi = require('./paroi')
 const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText, parseArbitrationChoice } = require('./conversation')
 const { createExecutor, awaitPhysicalWithTimeout, createControlLease, runPhysicalOrThrow } = require('./executor')
 const { createStateStore } = require('./state-store')
@@ -531,12 +533,44 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
   // Diagnostic d un echec (2026-10-11, terrain/far-hedge-pit : no_path au
   // banc, chemin trouve hors ligne sur le meme monde) : derniers calculs de
   // l A* et remises a zero du trajet, journalises si le trajet echoue.
+  // Banc b8db857 : l A* trouve (7 pas) mais le bot ne rejoint jamais le
+  // premier noeud (3 stuck), alors que le meme trajet passe hors ligne : le
+  // premier noeud, l etat des commandes au stuck et les recalages du serveur
+  // (forcedMove : position refusee, monde du client desynchronise) tranchent.
   const calculs = []
   const remises = {}
-  const onUpdate = r => { calculs.push(`${r.status}:${r.visitedNodes}n/${Math.round(r.time ?? 0)}ms/${r.path?.length ?? 0}p`); if (calculs.length > 6) calculs.shift() }
-  const onRemise = raison => { remises[raison] = (remises[raison] ?? 0) + 1 }
+  let premiers = ''
+  const auStuck = []
+  let recalages = 0
+  const noeud = n => `${Math.floor(n.x)},${n.y},${Math.floor(n.z)}${n.toBreak?.length ? ` b${n.toBreak.length}` : ''}${n.toPlace?.length ? ` p${n.toPlace.length}` : ''}`
+  const onUpdate = r => {
+    calculs.push(`${r.status}:${r.visitedNodes}n/${Math.round(r.time ?? 0)}ms/${r.path?.length ?? 0}p`)
+    if (calculs.length > 6) calculs.shift()
+    if (r.path?.length) premiers = r.path.slice(0, 3).map(noeud).join(' > ')
+  }
+  const onRemise = raison => {
+    remises[raison] = (remises[raison] ?? 0) + 1
+    if (raison === 'stuck' && bot.entity && auStuck.length < 3) {
+      const p = bot.entity.position
+      const c = ['forward', 'jump', 'sprint'].filter(k => bot.getControlState?.(k)).join('+') || 'aucune'
+      auStuck.push(`${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)} ${bot.entity.onGround ? 'sol' : 'air'} ${c}`)
+    }
+  }
+  const onRecalage = () => { recalages += 1 }
+  // Position du client juste avant chaque recalage et position imposee :
+  // le sens du pas refuse (skill/hedge-pit f3898a3 : 200 recalages par
+  // trajet, casses toutes confirmees par le serveur).
+  const ecarts = []
+  const avantRecalage = packet => {
+    if (ecarts.length >= 4 || !bot.entity) return
+    const c = bot.entity.position
+    const rel = typeof packet.flags === 'object' ? ['x', 'y', 'z'].filter(k => packet.flags[k]).join('') : ''
+    ecarts.push(`${c.x.toFixed(2)},${c.y.toFixed(2)},${c.z.toFixed(2)}>${Number(packet.x).toFixed(2)},${Number(packet.y).toFixed(2)},${Number(packet.z).toFixed(2)}${rel ? ` rel ${rel}` : ''}`)
+  }
   bot.on('path_update', onUpdate)
   bot.on('path_reset', onRemise)
+  bot.on('forcedMove', onRecalage)
+  bot._client?.prependListener?.('position', avantRecalage)
   const depart = bot.entity.position.floored()
   const settleGate = bot.pathfinder.goto(goal).then(
     value => ({ ok: true, value }),
@@ -585,7 +619,8 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     }
     if (!settle.ok) {
       const message = String(settle.error?.message ?? settle.error)
-      console.log(`[creuse] echec depuis ${depart} vers ${block ?? position} : ${message.slice(0, 80)} ; A* ${calculs.join(' ') || 'aucun calcul'} ; remises ${JSON.stringify(remises)}`)
+      console.log(`[creuse] echec depuis ${depart} vers ${block ?? position} : ${message.slice(0, 80)} ; A* ${calculs.join(' ') || 'aucun calcul'} ; ` +
+        `remises ${JSON.stringify(remises)} ; chemin ${premiers || '-'} ; au stuck ${auStuck.join(' | ') || '-'} ; casses ${bot.casse ? `${bot.casse.confirmees} confirmees, ${bot.casse.refusees} refusees` : 'non verifiees'} ; ecarts de paroi ${bot.paroi?.ecartes ?? '-'} ; recalages serveur ${recalages}${ecarts.length ? ` (client>serveur ${ecarts.join(' | ')})` : ''}`)
       // « Took to long to decide path » : l A* a epuise son temps, pas les
       // chemins ; no_path a tort egarait le diagnostic (far-hedge-pit).
       const code = /annule/.test(message) ? 'cancelled' : /Took to long|timeout/i.test(message) ? 'timeout' : 'no_path'
@@ -607,6 +642,8 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     clearTimeout(timer)
     bot.removeListener('path_update', onUpdate)
     bot.removeListener('path_reset', onRemise)
+    bot.removeListener('forcedMove', onRecalage)
+    bot._client?.removeListener?.('position', avantRecalage)
     if (onAbort) signal?.removeEventListener?.('abort', onAbort)
     if (onReset) bot.removeListener('path_reset', onReset)
     stopPathfinding()
@@ -1678,6 +1715,10 @@ function connectBot () {
     // Recherche de blocs par ids sans parcourir les sections uniformes (piege
     // 18) ; plugin charge apres celui des blocs de mineflayer.
     bot.loadPlugin(perception.brancherRecherche)
+    // Casse tenue pour faite seulement si le serveur la confirme (piege 19).
+    bot.loadPlugin(casse.brancherCasse)
+    // Jamais au contact exact d une paroi : le serveur refuse le pas (piege 20).
+    bot.loadPlugin(paroi.brancherParoi)
     craft.trackWindowStateIds(bot)
     // Le logger publie dans le chat des qu une instance est joignable.
     logger.attach(bot)
