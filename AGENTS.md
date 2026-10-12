@@ -566,6 +566,11 @@ dans `docs/journal.md` (section « Les pieges »).
 
 ## 6. Tests locaux
 
+Les unitaires CI passent avant Paper et les sondes de modele, avec la borne
+inchangee de 180 s. Un timeout conserve les sorties dans `unit.log`, marque
+l echec et arrete/supprime seulement `<projet-du-banc>-unit`. Une suite unit/all
+sans resultat unitaire ne peut pas devenir verte (`ci/test_unit_runner.py`).
+
 ```bash
 # Depuis la racine ; sans NODE_PATH : « Cannot find module vec3 », faux echecs.
 NODE_PATH=$PWD/bot/node_modules node --test tmp/recolter.test.js
