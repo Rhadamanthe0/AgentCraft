@@ -26,9 +26,8 @@ MODELS_ENV = Path(__file__).with_name('models.env')
 DEFAULT_MODEL = 'deepseek-v4.1-flash'
 
 
-def bench_models(path=MODELS_ENV):
-    """Models of PLANNER_MODEL_PLAN (else PLANNER_MODEL) of ci/models.env, in
-    order: the bot moves to the next one on a long rate limit (2026-10-12)."""
+def bench_model(path=MODELS_ENV):
+    """PLANNER_MODEL_PLAN (else PLANNER_MODEL) of ci/models.env."""
     values = {}
     try:
         for line in path.read_text(encoding='utf-8').splitlines():
@@ -37,17 +36,10 @@ def bench_models(path=MODELS_ENV):
                 values[name.strip()] = value.strip()
     except OSError:
         pass
-    text = values.get('PLANNER_MODEL_PLAN') or values.get('PLANNER_MODEL') or DEFAULT_MODEL
-    return [m.strip() for m in text.split(',') if m.strip()] or [DEFAULT_MODEL]
+    return values.get('PLANNER_MODEL_PLAN') or values.get('PLANNER_MODEL') or DEFAULT_MODEL
 
 
-def bench_model(path=MODELS_ENV):
-    """First model of the bench's plan chain."""
-    return bench_models(path)[0]
-
-
-MODELS = bench_models()
-MODEL = MODELS[0]
+MODEL = bench_model()
 PROMPT = "Pas de réflexion, répond uniquement 'test validé'"
 TIMEOUT_S = 20
 # GitHub secret(s) holding each key, in order; PLANNER_API_KEY stays accepted
@@ -130,33 +122,12 @@ def probe(key, urlopen=urllib.request.urlopen, model=None):
     return result
 
 
-def probe_chain(key, urlopen=urllib.request.urlopen, models=None):
-    """Every model of the chain, as the bot may reach each of them: the key
-    passes if one answers, `score` counts those that answer (2026-10-12: a key
-    whose workspace refuses a model, « requires Global regions », passed on
-    the first model and left the bots with a 400 on every call)."""
-    models = models or MODELS
-    tried = {}
-    first = None
-    for model in models:
-        result = probe(key, urlopen, model=model)
-        tried[model] = {k: result[k] for k in ('status', 'ok', 'ms', 'error') if k in result}
-        if result.get('ok') and first is None:
-            first = {**result, 'model': model}
-    best = first or {**result, 'model': models[-1]}
-    return {**best, 'score': sum(1 for r in tried.values() if r.get('ok')), 'models': tried}
-
-
 def choose(results):
-    """The key that reaches the most models of the chain, primary on a tie;
-    None if no key answers."""
-    ok = [name for name in ORDER if (results.get(name) or {}).get('ok')]
-    if not ok:
-        return None
-    return max(ok, key=lambda name: (results[name].get('score') or 1, -ORDER.index(name)))
+    """primary if it answers, else secondary if it answers, else None."""
+    return next((name for name in ORDER if (results.get(name) or {}).get('ok')), None)
 
 
-def select(environ=None, probe_fn=probe_chain):
+def select(environ=None, probe_fn=probe):
     """{'chosen': name or None, 'probes': {name: result}} for the keys present."""
     if MODEL.startswith(OPENAI_PREFIX):
         key = ((os.environ if environ is None else environ).get('OPENAI_API_KEY') or '').strip()

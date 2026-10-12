@@ -1,7 +1,6 @@
 'use strict'
-// Modeles par usage (bot/model-chain.js + planner.callWithProfile) : le premier
-// sert, une limite de debit longue (429 > 10 s ou sans attente dite) passe au
-// suivant, aucun autre repli de modele. Reseau simule (llm.call moque).
+// Modele par usage (bot/model-chain.js + planner.callWithProfile) : UN modele
+// par usage, jamais de repli vers un autre. Reseau simule (llm.call moque).
 //   NODE_PATH=bot/node_modules node --test tmp/model-chain.test.js
 const { test, afterEach } = require('node:test')
 const assert = require('node:assert/strict')
@@ -30,8 +29,7 @@ function load (env) {
 const httpErr = (status, message) => Object.assign(new Error(`HTTP ${status} : ${message}`), { code: 'LLM_HTTP', status })
 const plan = '{"fini":0,"pourquoi":"t","plan":[{"action":"regarder_autour"}]}'
 
-test('modele de l usage : PLANNER_MODEL_<USAGE> sinon PLANNER_MODEL ; une liste dans l ordre', () => {
-  assert.deepEqual(chain.modelsFor('plan', { PLANNER_MODEL: 'a, b,c' }).map(e => e.model), ['a', 'b', 'c'])
+test('modele de l usage : PLANNER_MODEL_<USAGE> sinon PLANNER_MODEL ; une liste ne garde que la tete', () => {
   assert.deepEqual(chain.parse(' a , b ').map(e => e.model), ['a', 'b'])
   assert.equal(chain.modelFor('plan', { PLANNER_MODEL: 'b@go2' }), null, 'plus aucun alias')
   const env = { PLANNER_MODEL: 'a,b', PLANNER_MODEL_CHAT: 'c' }
@@ -40,60 +38,12 @@ test('modele de l usage : PLANNER_MODEL_<USAGE> sinon PLANNER_MODEL ; une liste 
   assert.equal(chain.modelFor('interpretMessage', env).model, 'c')
 })
 
-test('refus du fournisseur (403) : l erreur remonte, AUCUN autre modele n est essaye', async () => {
+test('refus du fournisseur : l erreur remonte, AUCUN autre modele n est essaye', async () => {
   const seen = []
-  llm.call = async (s, u, o) => { seen.push(o.model); throw httpErr(403, 'FreeTierError') }
-  const p = load({ PLANNER_MODEL: 'gratuit,payant' })
+  llm.call = async (s, u, o) => { seen.push(o.model); throw httpErr(429, 'GoUsageLimitError') }
+  const p = load({ PLANNER_MODEL: 'payant,gratuit' })
   await assert.rejects(p.plan({}, 'recolte', 'harvest'))
-  assert.deepEqual([...new Set(seen)], ['gratuit'])
-})
-
-test('limite de debit longue ou sans attente dite : modele suivant, puis le limite reste de cote', async () => {
-  const seen = []
-  llm.call = async (s, u, o) => {
-    seen.push(o.model)
-    if (o.model === 'step') throw Object.assign(httpErr(429, 'rate limit'), { attenteS: 30 })
-    if (o.model === 'exo') throw Object.assign(httpErr(429, 'rate limit'), { attenteS: null })
-    return { content: plan, usage: null, ms: 1 }
-  }
-  const p = load({ PLANNER_MODEL: 'step,exo,deepseek' })
-  await p.plan({}, 'recolte', 'harvest')
-  assert.deepEqual(seen, ['step', 'exo', 'deepseek'])
-  seen.length = 0
-  await p.plan({}, 'recolte', 'harvest')
-  assert.deepEqual(seen, ['deepseek'], 'step et exo de cote le temps demande')
-  assert.equal(p.stats.bascules_modele, 2)
-})
-
-test('limite de debit courte (10 s au plus) : pas de changement de modele', async () => {
-  const seen = []
-  llm.call = async (s, u, o) => { seen.push(o.model); throw Object.assign(httpErr(429, 'rate limit'), { attenteS: 5 }) }
-  const p = load({ PLANNER_MODEL: 'step,deepseek' })
-  await assert.rejects(p.plan({}, 'recolte', 'harvest'))
-  assert.deepEqual([...new Set(seen)], ['step'])
-})
-
-test('silence du modele : pas de changement de modele', async () => {
-  const seen = []
-  llm.call = async (s, u, o) => { seen.push(o.model); throw Object.assign(new Error('pas de reponse en 10 s'), { code: 'LLM_TIMEOUT' }) }
-  const p = load({ PLANNER_MODEL: 'step,deepseek' })
-  await assert.rejects(p.plan({}, 'recolte', 'harvest'))
-  assert.deepEqual([...new Set(seen)], ['step'])
-})
-
-test('mise de cote : attente demandee, 60 s si non dite, dernier modele si tous limites', () => {
-  const st = chain.createModelState()
-  const e = ['a', 'b'].map(model => ({ model }))
-  st.bench(e[0], 30, 0)
-  assert.deepEqual(st.order(e, 29000).map(x => x.model), ['b'])
-  assert.deepEqual(st.order(e, 30001).map(x => x.model), ['a', 'b'])
-  st.bench(e[0], null, 0)
-  st.bench(e[1], null, 0)
-  assert.deepEqual(st.order(e, 59000).map(x => x.model), ['b'])
-  assert.equal(chain.isRateLimitSwitch(Object.assign(httpErr(429, 'x'), { attenteS: 10 })), false)
-  assert.equal(chain.isRateLimitSwitch(Object.assign(httpErr(429, 'x'), { attenteS: 11 })), true)
-  assert.equal(chain.isRateLimitSwitch(httpErr(429, 'x')), true)
-  assert.equal(chain.isRateLimitSwitch(httpErr(403, 'x')), false)
+  assert.deepEqual([...new Set(seen)], ['payant'])
 })
 
 test('base tierce `modele@url` refusee : aucun modele, aucun appel', async () => {

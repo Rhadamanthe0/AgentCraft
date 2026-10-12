@@ -75,31 +75,7 @@ class Probe(unittest.TestCase):
     def test_probes_the_bench_plan_model(self):
         env = Path(__file__).with_name('models.env').read_text(encoding='utf-8')
         plan = next(l.split('=', 1)[1].strip() for l in env.splitlines() if l.startswith('PLANNER_MODEL_PLAN='))
-        self.assertEqual(keyprobe.MODELS, [m.strip() for m in plan.split(',')])
-        self.assertEqual(keyprobe.MODEL, keyprobe.MODELS[0])
-
-    def test_key_reaching_more_models_wins(self):
-        results = {'primary': {'ok': True, 'score': 1}, 'secondary': {'ok': True, 'score': 2}}
-        self.assertEqual(keyprobe.choose(results), 'secondary')
-        results['secondary']['score'] = 1
-        self.assertEqual(keyprobe.choose(results), 'primary')
-
-    def test_chain_passes_on_the_first_model_that_answers(self):
-        calls = []
-
-        def fake(key, urlopen, model=None):
-            calls.append(model)
-            return {'status': 429 if model == 'gratuit' else 200, 'ok': model != 'gratuit', 'ms': 1}
-        old = keyprobe.probe
-        keyprobe.probe = fake
-        try:
-            result = keyprobe.probe_chain('k', models=['gratuit', 'payant', 'autre'])
-        finally:
-            keyprobe.probe = old
-        self.assertEqual(calls, ['gratuit', 'payant', 'autre'])
-        self.assertTrue(result['ok'])
-        self.assertEqual(result['model'], 'payant')
-        self.assertEqual(result['score'], 2)
+        self.assertEqual(keyprobe.MODEL, plan)
 
     def test_claude_on_messages(self):
         sent, urlopen = self.reply()
