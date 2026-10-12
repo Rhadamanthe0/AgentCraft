@@ -553,6 +553,15 @@ dans `docs/journal.md` (section « Les pieges »).
     `PAROI_ECART` (1 mm) apres chaque pas de physique en contact horizontal.
     Test : tmp/paroi.test.js.
 
+21. **Memoire de l enveloppe CI** (2026-10-12) : sous 16 bots, l enveloppe
+    (slice podman-ci, `MemoryHigh`) restait a sa limite (`report.capacity` :
+    marge 0, ~27 000 evenements `memory.events high` par banc) ; le noyau
+    freinait chaque allocation et chaque ecriture, Paper restait fige plus de
+    30 s sur la sauvegarde d un joueur (`PlayerDataStorage.save`) et tous les
+    bots etaient expulses : banc INVALIDE (infrastructure), main compris.
+    Remede (proprietaire) : `CI_POOL_SIZE` 5 et tas de Paper a 2 G. Avant de
+    remonter le pool, verifier `memEventsDelta.high` et `minMemMarginGiB`.
+
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
 - Declenche par tout push sur `main` ou `claude/**` (workflow

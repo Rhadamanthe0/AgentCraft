@@ -13,11 +13,13 @@ services:
       # configs par defaut telechargees (Paper ecrit lui-meme les siennes).
       TYPE: CUSTOM
       CUSTOM_SERVER: /data/paper-26.1.2-74.jar
-      # Tas Java : 1 G engage au depart, 2 G au plus (3 G fixes avant). Mesure
-      # locale, 33 joueurs et 19 arenes chargees : tas vivant <= 662 MB apres
-      # GC (-Xlog:gc ci-dessous). G1 ne grossit le tas que si le GC l exige.
+      # Tas Java : 1 G engage au depart, 2 G au plus. Mesure locale, 33
+      # joueurs et 19 arenes chargees : tas vivant <= 662 MB apres GC
+      # (-Xlog:gc ci-dessous) ; banc du 2026-10-12, 16 bots : 1161 M avant un
+      # GC jeune. A 5 bots (CI_POOL_SIZE), 2 G laissent de la marge sous la
+      # limite memoire de l enveloppe CI, atteinte sous 16 bots (piege 21).
       INIT_MEMORY: 1G
-      MAX_MEMORY: 3G
+      MAX_MEMORY: 2G
       # 16 bots + 16 probes + harness : au-dela de 20 le serveur refuse ("server_full").
       MAX_PLAYERS: "80"
       ONLINE_MODE: "FALSE"
