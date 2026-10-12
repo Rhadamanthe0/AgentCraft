@@ -405,8 +405,11 @@ combien passe tout de suite a `b` et met `a` de cote le temps demande (60 s si
 non dit, 1 h au plus) ; 10 s ou moins : attente puis un nouvel essai du meme
 modele. Un silence, une 5xx ou un refus ne changent PAS de modele (Step 5 se
 taisait sous 16 bots le 2026-10-09 : a surveiller, `bascules_modele` et
-`modeles_de_cote` dans les stats du planificateur). `ci/keyprobe.py` sonde la
-chaine dans le meme ordre. Effort low pour TOUS les usages (choix du
+`modeles_de_cote` dans les stats du planificateur). `ci/keyprobe.py` sonde TOUS les
+modeles de la chaine et retient la cle qui en sert le plus (primary a
+egalite) : le 2026-10-12, la cle primary passait la sonde sur Step 5 mais son
+espace OpenCode refusait les appels des bots (400 « This Go model requires
+Global regions », reglage Privacy de l espace), 89 refus sur un banc cible. Effort low pour TOUS les usages (choix du
 proprietaire, 2026-10-10) ;
 plus aucune variante de modele au banc (`MODELES_AB = []`, quota epargne).
 

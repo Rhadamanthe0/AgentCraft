@@ -78,6 +78,12 @@ class Probe(unittest.TestCase):
         self.assertEqual(keyprobe.MODELS, [m.strip() for m in plan.split(',')])
         self.assertEqual(keyprobe.MODEL, keyprobe.MODELS[0])
 
+    def test_key_reaching_more_models_wins(self):
+        results = {'primary': {'ok': True, 'score': 1}, 'secondary': {'ok': True, 'score': 2}}
+        self.assertEqual(keyprobe.choose(results), 'secondary')
+        results['secondary']['score'] = 1
+        self.assertEqual(keyprobe.choose(results), 'primary')
+
     def test_chain_passes_on_the_first_model_that_answers(self):
         calls = []
 
@@ -90,9 +96,10 @@ class Probe(unittest.TestCase):
             result = keyprobe.probe_chain('k', models=['gratuit', 'payant', 'autre'])
         finally:
             keyprobe.probe = old
-        self.assertEqual(calls, ['gratuit', 'payant'])
+        self.assertEqual(calls, ['gratuit', 'payant', 'autre'])
         self.assertTrue(result['ok'])
         self.assertEqual(result['model'], 'payant')
+        self.assertEqual(result['score'], 2)
 
     def test_claude_on_messages(self):
         sent, urlopen = self.reply()

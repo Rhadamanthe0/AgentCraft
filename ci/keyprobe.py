@@ -131,21 +131,29 @@ def probe(key, urlopen=urllib.request.urlopen, model=None):
 
 
 def probe_chain(key, urlopen=urllib.request.urlopen, models=None):
-    """The chain in order, like the bot: the key passes if one model answers
-    (a free model rate-limited, the next one is tried)."""
+    """Every model of the chain, as the bot may reach each of them: the key
+    passes if one answers, `score` counts those that answer (2026-10-12: a key
+    whose workspace refuses a model, « requires Global regions », passed on
+    the first model and left the bots with a 400 on every call)."""
     models = models or MODELS
     tried = {}
+    first = None
     for model in models:
         result = probe(key, urlopen, model=model)
-        tried[model] = {k: result[k] for k in ('status', 'ok', 'ms') if k in result}
-        if result.get('ok'):
-            break
-    return {**result, 'model': model, 'models': tried}
+        tried[model] = {k: result[k] for k in ('status', 'ok', 'ms', 'error') if k in result}
+        if result.get('ok') and first is None:
+            first = {**result, 'model': model}
+    best = first or {**result, 'model': models[-1]}
+    return {**best, 'score': sum(1 for r in tried.values() if r.get('ok')), 'models': tried}
 
 
 def choose(results):
-    """primary if it answers, else secondary if it answers, else None."""
-    return next((name for name in ORDER if (results.get(name) or {}).get('ok')), None)
+    """The key that reaches the most models of the chain, primary on a tie;
+    None if no key answers."""
+    ok = [name for name in ORDER if (results.get(name) or {}).get('ok')]
+    if not ok:
+        return None
+    return max(ok, key=lambda name: (results[name].get('score') or 1, -ORDER.index(name)))
 
 
 def select(environ=None, probe_fn=probe_chain):
