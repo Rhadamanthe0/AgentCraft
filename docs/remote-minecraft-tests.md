@@ -50,7 +50,7 @@ installation, jamais de l attente en file. Jamais plus de workers que de
 niveaux en attente.
 
 `CI_POOL_MODE` :
-- `fixed` : `CI_POOL_SIZE` workers (16), aucune mesure ne les freine. Sert a
+- `fixed` : `CI_POOL_SIZE` workers (5 depuis le 2026-10-12, 16 avant), aucune mesure ne les freine. Sert a
   comparer les performances entre commits (memes conditions).
 - `adaptive` (au choix par workflow_dispatch ; le defaut est `fixed`, plus
   rapide sur MINIPC-CLEM : 219 s contre 292 a 347 s, meme graine) : `ci/capacity.py` lit 10 fois par seconde

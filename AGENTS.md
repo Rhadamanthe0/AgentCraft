@@ -591,7 +591,9 @@ dans `docs/journal.md` (section « Les pieges »).
   `ouvert/hors-capacite`, `skill/stone-hut-batir`.
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
-  `CI_POOL_MODE=fixed`, 16 workers), RCON et HTTP en direct.
+  `CI_POOL_MODE=fixed`, 5 workers depuis le 2026-10-12 a la demande du
+  proprietaire, 16 avant ; banc complet ~12 700 s de niveaux, soit ~50 min
+  a 5 contre ~35 a 16), RCON et HTTP en direct.
 - Familles (`ci/trees.py`, 147 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
