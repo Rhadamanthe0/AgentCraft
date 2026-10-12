@@ -559,8 +559,14 @@ dans `docs/journal.md` (section « Les pieges »).
     freinait chaque allocation et chaque ecriture, Paper restait fige plus de
     30 s sur la sauvegarde d un joueur (`PlayerDataStorage.save`) et tous les
     bots etaient expulses : banc INVALIDE (infrastructure), main compris.
-    Remede (proprietaire) : `CI_POOL_SIZE` 5 et tas de Paper a 2 G. Avant de
-    remonter le pool, verifier `memEventsDelta.high` et `minMemMarginGiB`.
+    **Limite memoire des CI Linux : 6 Go** (proprietaire, 2026-10-12 ; les
+    14G/16G de l ancien quadlet ne valent plus). Remede : `CI_POOL_SIZE` 5
+    (choix du proprietaire, garder 5) et plafonds `ci/compose.yaml` qui
+    tiennent dessous : Paper 1,5 G de tas (~2,1 Go avec le natif ; tas vivant
+    mesure <= 662 MB), bots 2 Go (5 x 356 MB au pire), sondes 512 Mo (286
+    mesures sous 16 bots), harness ~0,15 Go : ~4,8 Go au pire, ~3 Go
+    attendus, le reste au cache disque. Avant de remonter le pool ou un
+    plafond, verifier `memEventsDelta.high` et `minMemMarginGiB` du rapport.
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 

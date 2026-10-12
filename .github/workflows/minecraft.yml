@@ -133,7 +133,8 @@ jobs:
           # Enveloppe CI vue du runner (cgroupns prive : son /sys/fs/cgroup n est
           # que sa feuille) : slice user-1008 (podman-ci, CPUQuota 600 % depuis
           # le 2026-09-28, choix du proprietaire pour laisser de la marge aux
-          # autres services de la machine ; MemoryHigh 14G, MemoryMax 16G) montee
+          # autres services de la machine ; memoire limitee a 6 Go pour les CI
+          # Linux, proprietaire 2026-10-12, piege 21 d AGENTS.md) montee
           # en lecture seule par le quadlet du runner (rhada-server). Absente =>
           # repli fixe, ecrit dans le rapport.
           CI_METRICS_CGROUP: /host/ci-cgroup

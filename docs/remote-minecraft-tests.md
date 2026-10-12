@@ -95,8 +95,8 @@ unique sous `/sys/fs/cgroup` dont `cpu.max` vaut 600 %. Le cgroup propre du
 runner n est PAS l enveloppe (Paper, bots et sondes sont des conteneurs
 freres) : il n est que rapporte (`report.capacity.sources.runnerCgroup`).
 Sur MINIPC-CLEM : enveloppe = `/sys/fs/cgroup/user.slice/user-1008.slice`
-(compte `podman-ci`, `cpu.max` 600000/100000, `memory.high` 14G, `MemoryMax`
-16G) ; pendant un job, `cpu-arbiter` (systemd-maintainer, rhada-server)
+(compte `podman-ci`, `cpu.max` 600000/100000, memoire limitee a 6 Go pour les CI Linux,
+proprietaire 2026-10-12, 14G/16G annonces avant) ; pendant un job, `cpu-arbiter` (systemd-maintainer, rhada-server)
 cantonne la slice a 3 coeurs physiques (6 threads) et les interdit au reste de
 la machine, qui garde les 5 autres (choix du proprietaire, 2026-09-28 : marge
 pour les autres services, dont Project Zomboid) ; hors job, le quota reste un
