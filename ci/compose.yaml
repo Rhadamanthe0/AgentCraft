@@ -13,11 +13,13 @@ services:
       # configs par defaut telechargees (Paper ecrit lui-meme les siennes).
       TYPE: CUSTOM
       CUSTOM_SERVER: /data/paper-26.1.2-74.jar
-      # Tas Java : 1 G engage au depart, 2 G au plus (3 G fixes avant). Mesure
-      # locale, 33 joueurs et 19 arenes chargees : tas vivant <= 662 MB apres
-      # GC (-Xlog:gc ci-dessous). G1 ne grossit le tas que si le GC l exige.
+      # Tas Java : 1 G engage au depart, 2 G au plus. Mesure locale, 33
+      # joueurs et 19 arenes chargees : tas vivant <= 662 MB apres GC
+      # (-Xlog:gc ci-dessous) ; banc du 2026-10-12, 16 bots : 1161 M avant un
+      # GC jeune. A 10 bots (CI_POOL_SIZE), 1,5 G de tas tiennent dans les
+      # 10 Go de l enveloppe CI (piege 21 : budget dans AGENTS.md).
       INIT_MEMORY: 1G
-      MAX_MEMORY: 3G
+      MAX_MEMORY: 1536M
       # 16 bots + 16 probes + harness : au-dela de 20 le serveur refuse ("server_full").
       MAX_PLAYERS: "80"
       ONLINE_MODE: "FALSE"
@@ -184,10 +186,11 @@ services:
       # Banc de competences (skill/*) : missions scriptees sans modele,
       # route /api/mission/script (bot/script-brain.js).
       MISSION_SCRIPT: "1"
-    # 32 processes x (256 MB heap cap + ~100 MB code/buffers) stays under it
-    # (mesure : ~80 MB par bot au travail) ; au-dela le noyau tue un bot, ce que
-    # le healthcheck et les journaux montrent.
-    mem_limit: 12g
+    # Enveloppe CI de 10 Go (piege 21) : 10 bots (CI_POOL_SIZE) x (256 MB de
+    # tas + ~100 MB de code et tampons) = 3,6 Go au pire (mesure : 85 a 170 MB par
+    # bot en pointe) ; au-dela le noyau tue un bot, ce que le healthcheck et
+    # les journaux montrent. Le pool adaptatif reste borne par cette limite.
+    mem_limit: 4g
     # Anonymous volume: every run starts with no memory or objectives.
     volumes:
       - /data
@@ -221,7 +224,8 @@ services:
     command: ["node", "/work/ci/probes.js", "--idle-secs", "4200"]
     ports:
       - "127.0.0.1::2998"
-    mem_limit: 1536m
+    # Un seul processus pour toutes les sondes : 286 MB en pointe sous 16 bots.
+    mem_limit: 512m
     depends_on:
       minecraft:
         condition: service_healthy

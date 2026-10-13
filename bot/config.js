@@ -74,22 +74,6 @@ function finiteNumber (raw, fallback, name, opts = {}) {
   return fallback
 }
 
-function finiteNumberOrThrow (raw, fallback, name, opts = {}) {
-  const min = opts.min ?? -Infinity
-  const max = opts.max ?? Infinity
-  if (isUnset(raw)) {
-    note(name, fallback, fallback, 'defaut', true)
-    return fallback
-  }
-  const n = toFinite(raw)
-  if (Number.isFinite(n) && n >= min && n <= max) {
-    note(name, n, fallback, 'env', true)
-    return n
-  }
-  throwInvalid(name, raw, 'nombre fini attendu')
-  return fallback // inatteignable, pour les lecteurs pressés
-}
-
 function positiveInt (raw, fallback, name) {
   if (isUnset(raw)) {
     if (name) note(name, fallback, fallback, 'defaut', false)
@@ -255,7 +239,7 @@ function effectiveConfig () {
 
 function logEffectiveConfig () {
   try {
-    const entries = [...registry.entries()].filter(([name]) => !isSecretName(name))
+    const entries = Object.entries(effectiveConfig())
     const shown = entries.map(([name, entry]) =>
       `${name}=${JSON.stringify(entry.valeur)}${entry.statut === 'env' ? '' : ` (${entry.statut})`}`).join(', ')
     console.log(`[config] effective (${entries.length}) : ${shown}`)
@@ -269,7 +253,6 @@ function _clearRegistry () {
 
 module.exports = {
   finiteNumber,
-  finiteNumberOrThrow,
   positiveInt,
   positiveIntOrThrow,
   boundedNumber,

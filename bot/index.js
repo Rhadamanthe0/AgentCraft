@@ -265,13 +265,6 @@ function isHardStopped () {
   return false
 }
 
-function isWorkPaused () {
-  const snap = objectivesSnapshotSafe()
-  if (snap && (snap.workPaused || (snap.current && snap.current.statut === 'paused'))) return true
-  try { if (physicalExecutor && physicalExecutor.status().paused) return true } catch (_) {}
-  return false
-}
-
 // Writer physique unique : tout ordre aux touches/pathfinder passe ici.
 // Fail-closed strict : sans executeur, admission refusee (jamais de fallback
 // direct) ; paused/stopped/busy => refus code. Duree de vie : une invocation
@@ -374,18 +367,6 @@ function isOwnerBypass (options) {
   } catch (_) {
     return false
   }
-}
-
-function pauseWorkAll (reason) {
-  // Physique coupe AVANT persist (latch executor synchrone), erreurs de
-  // persistance remontees (jamais swallow) : l appelant annonce.
-  let firstError = null
-  try { physicalExecutor?.pauseWork?.(reason) } catch (err) { firstError = firstError ?? err }
-  try {
-    if (!objectives) throw physicalRefusal('unavailable', 'objectifs indisponibles (fail-closed)')
-    objectives.pauseWork(reason)
-  } catch (err) { firstError = firstError ?? err }
-  if (firstError) throw firstError
 }
 
 function totalStopAll (reason) {
@@ -2007,14 +1988,12 @@ module.exports = {
   runPhysical,
   isOwnerBypass,
   requireAdmissionOrThrow,
-  pauseWorkAll,
   totalStopAll,
   resumeAll,
   objectivesSnapshotSafe,
   durableCorrupted,
   durablePersistError,
   isHardStopped,
-  isWorkPaused,
   startRuntime,
   HANDLERS,
   handleHardStop,

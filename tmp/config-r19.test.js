@@ -97,7 +97,6 @@ test('variantes OrThrow : refus clair si renseigne-invalide, defaut si absent', 
     assert.throws(() => config.positiveIntOrThrow('0', 60, 'T_CRIT_ZERO'), /demarrage refuse/)
     assert.throws(() => config.positiveIntOrThrow('2.5', 60, 'T_CRIT_DEC'), /demarrage refuse/)
     assert.throws(() => config.positiveIntOrThrow('Infinity', 60, 'T_CRIT_INF'), /demarrage refuse/)
-    assert.throws(() => config.finiteNumberOrThrow('abc', 1, 'T_CRIT_FIN'), /demarrage refuse/)
     assert.throws(
       () => config.boundedNumberOrThrow('99', 12, 0, 16, 'T_CRIT_BORNE', { integer: true }),
       /T_CRIT_BORNE.*demarrage refuse/
