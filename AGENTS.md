@@ -235,9 +235,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
 - Runner MINIPC-CLEM : pas de Docker Engine, pas de DinD, pas de privilege en
   plus ; ne supprimer que les ressources du job (`mc-ci-*`, `minebot-ci:*`) ;
   ne jamais toucher `/root/infra-deploy` ni les images
-  `minecraft-bot-test-bot:before-*`. Enveloppe CI 600 % CPU (choix du
-  proprietaire, 2026-09-28 : laisser de la marge aux autres services de la
-  machine) ; ne pas la relever sans son accord.
+  `minecraft-bot-test-bot:before-*`. Enveloppe CI 400 % CPU et 10 Go (choix du
+  proprietaire, 2026-10-13 ; 600 % depuis le 2026-09-28 : laisser de la marge
+  aux autres services de la machine) ; ne pas la relever sans son accord.
 - Ne pas allonger un delai ni relacher une assertion du banc sans preuve.
 - Plafonds de niveau hors attente du modele (proprietaire, 2026-10-09,
   `trees.Plafond`) : le temps passe a attendre le gateway (brief compris,
@@ -559,14 +559,18 @@ dans `docs/journal.md` (section « Les pieges »).
     freinait chaque allocation et chaque ecriture, Paper restait fige plus de
     30 s sur la sauvegarde d un joueur (`PlayerDataStorage.save`) et tous les
     bots etaient expulses : banc INVALIDE (infrastructure), main compris.
-    **Limite memoire des CI Linux : 6 Go** (proprietaire, 2026-10-12 ; les
-    14G/16G de l ancien quadlet ne valent plus). Remede : `CI_POOL_SIZE` 5
-    (choix du proprietaire, garder 5) et plafonds `ci/compose.yaml` qui
-    tiennent dessous : Paper 1,5 G de tas (~2,1 Go avec le natif ; tas vivant
-    mesure <= 662 MB), bots 2 Go (5 x 356 MB au pire), sondes 512 Mo (286
-    mesures sous 16 bots), harness ~0,15 Go : ~4,8 Go au pire, ~3 Go
-    attendus, le reste au cache disque. Avant de remonter le pool ou un
-    plafond, verifier `memEventsDelta.high` et `minMemMarginGiB` du rapport.
+    **Enveloppe des CI Linux : 10 Go et 400 % CPU** (proprietaire,
+    2026-10-13 ; 6 Go la veille). `CI_POOL_SIZE` 10 et plafonds
+    `ci/compose.yaml` : Paper 1,5 G de tas (~2,1 Go avec le natif ; tas
+    vivant mesure <= 662 MB), bots 4 Go (10 x 356 MB au pire, 85 a 170 MB
+    mesures), sondes 512 Mo (286 mesures sous 16 bots), harness ~0,15 Go :
+    ~6,3 Go au pire, ~4 Go attendus, ~4 Go au cache disque. CPU : 16 bots
+    = 135 % en moyenne (conteneurs, banc vert du 2026-10-12). L enveloppe
+    compte aussi ce que d autres jobs laissent : le banc du 2026-10-12 soir
+    demarrait a 10,9 Gio avant le premier bot, les 5 bots se figeaient
+    ensemble (jusqu a 33 s) et un bot etait expulse. Avant de remonter le
+    pool ou un plafond, verifier `memEventsDelta.high`, `minMemMarginGiB` et
+    la memoire de l enveloppe au debut de `capacity.timeline`.
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
@@ -606,9 +610,8 @@ dans `docs/journal.md` (section « Les pieges »).
   `ouvert/hors-capacite`, `skill/stone-hut-batir`.
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
-  `CI_POOL_MODE=fixed`, 5 workers depuis le 2026-10-12 a la demande du
-  proprietaire, 16 avant ; banc complet ~12 700 s de niveaux, soit ~50 min
-  a 5 contre ~35 a 16), RCON et HTTP en direct.
+  `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
+  avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
 - Familles (`ci/trees.py`, 147 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc

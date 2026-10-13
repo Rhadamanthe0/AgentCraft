@@ -123,23 +123,23 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CI_ENDPOINT_MODE: ip
           # Pool adaptatif (ci/capacity.py) : admissions sous 75 % de l enveloppe
-          # (450 % sur 600 %) et 4 Gio de reserve CI + hote ; sans mesures
-          # fiables, repli fixe a CI_POOL_SIZE (5 depuis le 2026-10-12, choix du
-          # proprietaire : 16 auparavant, mesure a 400 %).
+          # (300 % sur 400 %) et 4 Gio de reserve CI + hote ; sans mesures
+          # fiables, repli fixe a CI_POOL_SIZE (10 depuis le 2026-10-13 : enveloppe
+          # de 10 Go et 400 %, piege 21 d AGENTS.md ; 16 avant le 2026-10-12).
           # Fixe par defaut (comparaison meme graine, 800 %) : fixe 16 = 219 s
           # 65/65 ; adaptatif un a un 347 s, par lots 297 s puis 292 s (22
           # workers, deux niveaux perdus). L adaptatif reste au choix (dispatch).
           CI_POOL_MODE: ${{ inputs.pool_mode || 'fixed' }}
           # Enveloppe CI vue du runner (cgroupns prive : son /sys/fs/cgroup n est
-          # que sa feuille) : slice user-1008 (podman-ci, CPUQuota 600 % depuis
+          # que sa feuille) : slice user-1008 (podman-ci, CPUQuota 400 % depuis le 2026-10-13, 600 % depuis
           # le 2026-09-28, choix du proprietaire pour laisser de la marge aux
-          # autres services de la machine ; memoire limitee a 6 Go pour les CI
-          # Linux, proprietaire 2026-10-12, piege 21 d AGENTS.md) montee
+          # autres services de la machine ; memoire limitee a 10 Go pour les CI
+          # Linux, proprietaire 2026-10-13, piege 21 d AGENTS.md) montee
           # en lecture seule par le quadlet du runner (rhada-server). Absente =>
           # repli fixe, ecrit dans le rapport.
           CI_METRICS_CGROUP: /host/ci-cgroup
-          CI_ENVELOPE_CPU_PCT: '600'
-          CI_POOL_SIZE: '5'
+          CI_ENVELOPE_CPU_PCT: '400'
+          CI_POOL_SIZE: '10'
           CI_VARIATION_SEED: ${{ inputs.variation_seed }}
           CI_RANDOM_SEED: ${{ inputs.random_seed }}
           CI_LEVELS: ${{ steps.levels.outputs.levels }}

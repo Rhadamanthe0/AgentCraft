@@ -50,7 +50,7 @@ installation, jamais de l attente en file. Jamais plus de workers que de
 niveaux en attente.
 
 `CI_POOL_MODE` :
-- `fixed` : `CI_POOL_SIZE` workers (5 depuis le 2026-10-12, 16 avant), aucune mesure ne les freine. Sert a
+- `fixed` : `CI_POOL_SIZE` workers (10 depuis le 2026-10-13, 16 avant le 2026-10-12), aucune mesure ne les freine. Sert a
   comparer les performances entre commits (memes conditions).
 - `adaptive` (au choix par workflow_dispatch ; le defaut est `fixed`, plus
   rapide sur MINIPC-CLEM : 219 s contre 292 a 347 s, meme graine) : `ci/capacity.py` lit 10 fois par seconde
@@ -58,7 +58,7 @@ niveaux en attente.
   `cpu.pressure`, `memory.current`, `memory.high/max` (et ceux des ancetres
   lisibles), `memory.events` de l enveloppe CI (cgroup plafonne a 600 %), plus
   `MemAvailable` et `/proc/stat` de l hote. Seuils CPU en part de l enveloppe
-  (`CI_ENVELOPE_CPU_PCT`, 600 %) : admission 75 % (450 %), plafond 90 % (540 %).
+  (`CI_ENVELOPE_CPU_PCT`, 400 % depuis le 2026-10-13) : admission 75 % (300 %), plafond 90 % (360 %).
   Admission par lots (`CI_ADMIT_BATCH_MAX`, 8) : autant de workers que toutes
   les limites ci-dessous en laissent, calculees pendant les 30 premieres
   secondes avec un pic de 60 % par worker au moins (`worker_cpu_prior_pct` :
@@ -95,8 +95,8 @@ unique sous `/sys/fs/cgroup` dont `cpu.max` vaut 600 %. Le cgroup propre du
 runner n est PAS l enveloppe (Paper, bots et sondes sont des conteneurs
 freres) : il n est que rapporte (`report.capacity.sources.runnerCgroup`).
 Sur MINIPC-CLEM : enveloppe = `/sys/fs/cgroup/user.slice/user-1008.slice`
-(compte `podman-ci`, `cpu.max` 600000/100000, memoire limitee a 6 Go pour les CI Linux,
-proprietaire 2026-10-12, 14G/16G annonces avant) ; pendant un job, `cpu-arbiter` (systemd-maintainer, rhada-server)
+(compte `podman-ci`, `cpu.max` 600000/100000, memoire limitee a 10 Go et CPU a 400 % pour les CI Linux,
+proprietaire 2026-10-13, 14G/16G annonces avant) ; pendant un job, `cpu-arbiter` (systemd-maintainer, rhada-server)
 cantonne la slice a 3 coeurs physiques (6 threads) et les interdit au reste de
 la machine, qui garde les 5 autres (choix du proprietaire, 2026-09-28 : marge
 pour les autres services, dont Project Zomboid) ; hors job, le quota reste un
