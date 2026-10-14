@@ -15,6 +15,7 @@
 
 const { Vec3 } = require('vec3')
 const build = require('./build')
+const { awaitPhysicalWithTimeout } = require('./executor')
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -122,19 +123,23 @@ function caseDevant (bot) {
 //   signal, resoudreObjet(texte) -> nom d objet du registre ou null }
 function createPoser (deps) {
   // Rejoint un poste d ou la case est a portee, corps hors de la case.
-  async function aPortee (bot, cellule) {
+  async function aPortee (bot, cellule, verifier) {
+    verifier()
     const centre = cellule.offset(0.5, 0.5, 0.5)
     const ici = bot.entity.position
     if (bot.entity.onGround !== false && !build.bodyOverlaps(ici, cellule) &&
       ici.offset(0, 1.62, 0).distanceTo(centre) <= build.PLACE_REACH) return true
     for (const v of build.findVantages(bot, cellule).filter(v => !v.perche).slice(0, 3)) {
-      if (await deps.rejoindre(v.stand).catch(() => false)) return true
+      verifier()
+      const rejoint = await deps.rejoindre(v.stand).catch(() => false)
+      verifier()
+      if (rejoint) return true
     }
     return false
   }
 
   // Pose un bloc-objet dans `cellule`, appuye sur le bloc du dessous.
-  async function poserBloc (bot, cellule, item, objet) {
+  async function poserBloc (bot, cellule, item, objet, verifier) {
     if (correspond(bot.blockAt(cellule)?.name, objet)) return { deja: true }
     if (!libre(bot.blockAt(cellule))) return { erreur: `case ${cellule.x} ${cellule.y} ${cellule.z} occupee (${bot.blockAt(cellule)?.name})` }
     const appui = bot.blockAt(cellule.offset(0, -1, 0))
@@ -144,38 +149,48 @@ function createPoser (deps) {
     if (bot.registry?.blocksByName?.[objet]?.boundingBox === 'block' && build.enclosureBy(bot, cellule)) {
       return { erreur: 'cette pose enfermerait le bot', code: 'enfermement' }
     }
-    if (!await aPortee(bot, cellule)) return { erreur: 'aucun poste a portee de la case n est rejoint', code: 'pose_hors_portee' }
+    if (!await aPortee(bot, cellule, verifier)) return { erreur: 'aucun poste a portee de la case n est rejoint', code: 'pose_hors_portee' }
     try {
+      verifier()
       await bot.equip(item, 'hand')
+      verifier()
       await bot.lookAt(cellule.offset(0.5, 0.2, 0.5), true)
+      verifier()
       await bot.placeBlock(appui, new Vec3(0, 1, 0))
     } catch (err) {
+      verifier()
       if (!correspond(bot.blockAt(cellule)?.name, objet)) return { erreur: `pose refusee : ${err.message}` }
     }
     return correspond(bot.blockAt(cellule)?.name, objet) ? { pose: true } : { erreur: 'pose refusee par le serveur (case toujours vide)' }
   }
 
   // Pose un objet-entite (minecart, bateau...) SUR `bloc` : clic droit, puis
-  // une entite nouvelle a moins de 2 blocs, ou la case qui change, fait foi.
-  async function poserEntite (bot, bloc, item) {
+  // une entite du type attendu et la consommation de cet objet font foi.
+  async function poserEntite (bot, bloc, item, objet, verifier) {
     const centre = bloc.position.offset(0.5, 0.5, 0.5)
     const voisines = () => new Set(Object.values(bot.entities ?? {})
-      .filter(e => e !== bot.entity && e.type !== 'player' && e.name !== 'item' && e.position?.distanceTo(centre) <= 2)
+      .filter(e => e !== bot.entity && e.name === objet && bot.registry?.entitiesByName?.[objet] && e.position?.distanceTo(centre) <= 2)
       .map(e => e.id))
-    if (!await aPortee(bot, bloc.position)) return { erreur: 'aucun poste a portee du bloc n est rejoint', code: 'pose_hors_portee' }
+    if (!await aPortee(bot, bloc.position, verifier)) return { erreur: 'aucun poste a portee du bloc n est rejoint', code: 'pose_hors_portee' }
     const avant = voisines()
-    const nomAvant = bot.blockAt(bloc.position.offset(0, 1, 0))?.name
+    const stock = () => bot.inventory.items().filter(i => i.name === objet).reduce((n, i) => n + i.count, 0)
+    const stockAvant = stock()
     try {
+      verifier()
       await bot.equip(item, 'hand')
+      verifier()
       await bot.lookAt(centre, true)
+      verifier()
       await bot.activateBlock(bloc, new Vec3(0, 1, 0))
     } catch (err) {
+      verifier()
       return { erreur: `usage refuse : ${err.message}` }
     }
     const fin = Date.now() + ENTITE_ATTENTE_MS
     while (Date.now() < fin) {
-      if ([...voisines()].some(id => !avant.has(id))) return { pose: true }
-      if (bot.blockAt(bloc.position.offset(0, 1, 0))?.name !== nomAvant) return { pose: true }
+      verifier()
+      if ([...voisines()].some(id => !avant.has(id)) &&
+          stock() < stockAvant) return { pose: true }
       await sleep(100)
     }
     return { erreur: 'aucune entite apparue : objet refuse par le serveur sur ce bloc' }
@@ -234,10 +249,26 @@ function createPoser (deps) {
       if (poses >= demande || deps.signal?.()?.aborted) break
       const item = deps.enInventaire(objet)
       if (!item) { derniere = `plus de ${objet} en inventaire`; break }
-      const r = await Promise.race([
-        blocObjet ? poserBloc(bot, cible, item, objet) : poserEntite(bot, cible, item),
-        sleep(CASE_TIMEOUT_MS).then(() => ({ erreur: 'pose trop longue' }))
-      ])
+      const controller = new AbortController()
+      const signal = deps.signal?.()
+      const verifier = () => {
+        if (controller.signal.aborted || signal?.aborted) {
+          const err = new Error('pose interrompue')
+          err.code = 'cancelled'
+          throw err
+        }
+      }
+      let r
+      try {
+        r = await awaitPhysicalWithTimeout(
+          blocObjet ? poserBloc(bot, cible, item, objet, verifier) : poserEntite(bot, cible, item, objet, verifier),
+          CASE_TIMEOUT_MS, 'pose trop longue', { signal, onTimeout: () => controller.abort() })
+      } catch (err) {
+        derniere = err.message
+        // Ne jamais lancer une autre case apres timeout/annulation. La vraie
+        // operation est deja terminee : le writer peut maintenant etre rendu.
+        break
+      }
       if (r.pose) poses += 1
       else if (r.erreur) {
         derniere = r.erreur

@@ -65,7 +65,10 @@ function prochainGesteChantier (e) {
 function prochainGesteSolveur (plan, faisable) {
   if (!plan) return { bloque: 'aucun objet a obtenir pour cette mission (ni fabrication demandee, ni outil manquant)', code: 'obtenir_sans_cible' }
   const etapes = plan.etapes ?? []
-  if (etapes.length === 0) return { fini: true }
+  if (etapes.length === 0) {
+    if (plan.ok === false || plan.bloque?.length) return { bloque: `acquisition impossible : ${plan.bloque?.map(b => `${b.objet} : ${b.raison}`).join(', ') || 'plan refuse'}`, code: 'obtenir_bloque' }
+    return { fini: true }
+  }
   const i = etapes.findIndex((s, k) => s.op !== 'recolter' || faisable(etapes, s, k))
   if (i < 0) return { bloque: `aucune etape faisable : ${plan.bloque?.map(b => b.objet).join(', ') || 'outil a obtenir ailleurs'}`, code: 'obtenir_bloque' }
   const s = etapes[i]

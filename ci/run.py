@@ -149,6 +149,46 @@ def classify_failures(report):
         report['benchInvalid'] = ' ; '.join(reasons)
 
 
+UNIT_TEST_NAME = 'unit/navigation-regression'
+
+
+def run_unit_regressions(compose, command, project, output):
+    """Aucun serveur ni modele en parallele ; un conteneur unique par banc."""
+    name = project + '-unit'
+    result = {'test': UNIT_TEST_NAME, 'success': False}
+    logs = ''
+    text = lambda value: value.decode('utf-8', 'replace') if isinstance(value, bytes) else (value or '')
+    try:
+        done = compose('run', '--rm', '--no-deps', '--name', name, 'harness', 'node', '--test',
+                       *['tmp/' + item for item in UNIT], timeout=180, check=False)
+        logs = text(done.stdout) + text(done.stderr)
+        result['success'] = done.returncode == 0
+        if done.returncode:
+            result['error'] = f'Unit container exited with {done.returncode}'
+    except subprocess.TimeoutExpired as error:
+        logs = text(error.stdout) + text(error.stderr)
+        result['error'] = 'Unit container timed out after 180 seconds'
+        # Tuer le client Compose ne tue pas necessairement le conteneur. Sa
+        # sortie et son nettoyage ciblent exclusivement le nom de CE banc.
+        for argv in (['docker', 'logs', name], ['docker', 'stop', '--time', '5', name],
+                     ['docker', 'rm', '-f', name]):
+            try:
+                cleanup = command(argv, check=False)
+                logs += '\n$ ' + ' '.join(argv) + '\n' + text(cleanup.stdout) + text(cleanup.stderr)
+            except Exception as cleanup_error:
+                logs += '\n' + str(cleanup_error) + '\n'
+    except Exception as error:
+        result['error'] = 'Unit container failed: ' + str(error)
+    logs += '\n' + (result.get('error') or 'Unit container completed') + '\n'
+    (output / 'unit.log').write_text(logs, encoding='utf-8')
+    return result
+
+
+def require_unit_result(report, required):
+    if required and not any(t.get('test') == UNIT_TEST_NAME for t in report['tests']):
+        report['errors'].append('Unit regression result missing: bench cannot pass')
+
+
 # Cle du banc, choisie au demarrage par ci/keyprobe.py (une seule, aucune bascule).
 PLANNER_KEY = {}
 
@@ -612,17 +652,17 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         missing = command(['docker', 'image', 'inspect', '--format', '{{.Id}}', paper], timeout=60, check=False).returncode
         compose('build', 'harness', *(['minecraft'] if missing else []), timeout=900)
         phase('build', started)
-        # Everything independent runs at once: offline unit tests start while
-        # Paper boots, navigation scenarios run beside the mission levels.
-        unit_results, nav_results = [], []
-
-        def run_unit():
+        # Les unitaires precedent le serveur et les sondes de modeles : ils
+        # gardent leur budget de 180 s sans concurrence au demarrage.
+        nav_results = []
+        if args.suite in ('unit', 'all'):
+            print('Running focused offline regression tests (before Paper)...', flush=True)
             unit_started = time.monotonic()
-            result = compose('run', '--rm', '--no-deps', 'harness', 'node', '--test',
-                             *['tmp/' + name for name in UNIT], timeout=180, check=False)
-            (output / 'unit.log').write_text(result.stdout + result.stderr, encoding='utf-8')
-            unit_results.append({'test': 'unit/navigation-regression', 'success': result.returncode == 0})
+            unit_result = run_unit_regressions(compose, command, project, output)
+            report['tests'].append(unit_result)
             phase('unit', unit_started)
+            if not unit_result['success']:
+                raise RuntimeError('Unit regressions failed before Paper startup; see unit.log')
 
         # Candidate planner models (ci/model-probe.js): latency and validity of
         # plans, chat and brief with the real prompts, next to the levels.
@@ -643,11 +683,6 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             probe_thread = threading.Thread(target=run_model_probe, daemon=True)
             probe_thread.start()
 
-        unit_thread = None
-        if args.suite in ('unit', 'all'):
-            print('Running focused offline regression tests (in parallel)...', flush=True)
-            unit_thread = threading.Thread(target=run_unit, daemon=True)
-            unit_thread.start()
         if args.suite in ('minecraft', 'trees', 'all'):
             print('Starting isolated Paper server...', flush=True)
             started = time.monotonic()
@@ -873,7 +908,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                                  for level in [level['name'] for level in levels()]]
         else:
             level_results = []
-        for thread in (unit_thread, nav_thread):
+        for thread in (nav_thread,):
             if thread:
                 thread.join()
         if probe_thread:
@@ -882,7 +917,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         # A level whose worker died leaves None: report it, never crash the summary.
         level_results = [r if r else {'test': 'niveau sans resultat', 'success': False, 'error': 'worker mort'}
                          for r in level_results]
-        report['tests'].extend(unit_results + nav_results + level_results)
+        report['tests'].extend(nav_results + level_results)
         # Services arretes en fin de banc (conteneur tue de l exterieur, moteur
         # redemarre...) : le banc est invalide, pas le code (vu sur b2da858).
         report['servicesDown'] = services_down()
@@ -919,6 +954,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         classify_failures(report)
         # A/B variants (a mode switched off, or the view switched on) measure,
         # they never gate: only the levels as written decide PASS/FAIL.
+        require_unit_result(report, args.suite in ('unit', 'all'))
         report['success'] = bool(report['tests']) and all(t['success'] or t.get('informative') for t in report['tests']) and not report['errors']
         report['comparisons'] = compare_variants(report['tests'])
         report['kpi'] = kpi_summary(report['tests'])
