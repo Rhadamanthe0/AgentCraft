@@ -238,6 +238,13 @@ au demarrage au lieu de 75 min de niveaux rouges.
   `minecraft-bot-test-bot:before-*`. Enveloppe CI 400 % CPU et 10 Go (choix du
   proprietaire, 2026-10-13 ; 600 % depuis le 2026-09-28 : laisser de la marge
   aux autres services de la machine) ; ne pas la relever sans son accord.
+  **Redemarrage automatique de MINIPC-CLEM chaque jour a 5 h 00 (heure de
+  Paris)** (proprietaire, 2026-10-14) : un banc en cours est coupe, et GitHub
+  l annote « The run was canceled by @Rhadamanthe0 » alors que personne n a
+  annule. Une annulation vers 5 h n est donc pas un choix du proprietaire :
+  relancer le banc (`gh api -X POST .../actions/runs/<id>/rerun`). Le runner
+  peut aussi rester deconnecte apres un redemarrage (bancs en file des heures) :
+  le dire au proprietaire, qui relance son service.
 - Ne pas allonger un delai ni relacher une assertion du banc sans preuve.
 - Plafonds de niveau hors attente du modele (proprietaire, 2026-10-09,
   `trees.Plafond`) : le temps passe a attendre le gateway (brief compris,
