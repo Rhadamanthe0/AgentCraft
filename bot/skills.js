@@ -1078,22 +1078,25 @@ const FR_ITEMS = {
 }
 const FR_STOP = new Set(['un', 'une', 'des', 'de', 'du', 'la', 'le', 'les', 'l', 'd', 'a', 'en', 'au'])
 
+// Mot du dictionnaire lui-meme, jamais une propriete heritee (« constructor »
+// donnait `function Object() ..._pickaxe`).
+const motDe = (dico, w) => Object.prototype.hasOwnProperty.call(dico, w) ? dico[w] : undefined
 function singular (word) {
-  if (FR_TOOLS[word] || FR_MATERIALS[word] || FR_ITEMS[word]) return word // « bois » n est pas un pluriel
+  if (motDe(FR_TOOLS, word) || motDe(FR_MATERIALS, word) || motDe(FR_ITEMS, word)) return word // « bois » n est pas un pluriel
   return word.length > 3 && /[sx]$/.test(word) ? word.slice(0, -1) : word
 }
 
 function frenchFabricationTarget (key) {
   const words = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim().split(' ')
   const content = words.map(singular)
-  const tool = content.find(w => FR_TOOLS[w])
+  const tool = content.find(w => motDe(FR_TOOLS, w))
   if (tool) {
-    const material = content.find(w => FR_MATERIALS[w])
+    const material = content.find(w => motDe(FR_MATERIALS, w))
     // Sans matiere : la famille (« une pioche » -> pioche, le code choisit).
     return material ? `${FR_MATERIALS[material]}_${FR_TOOLS[tool]}` : (FABRICATION_ALIASES[tool] ?? null)
   }
   const nouns = content.filter(w => !FR_STOP.has(w))
-  if (nouns.length === 1 && FR_ITEMS[nouns[0]]) return FR_ITEMS[nouns[0]]
+  if (nouns.length === 1 && motDe(FR_ITEMS, nouns[0])) return FR_ITEMS[nouns[0]]
   return null
 }
 
@@ -1115,13 +1118,14 @@ const NOMBRES_OUTILS = new Set(['deux', 'trois', 'quatre', 'cinq', 'six', 'sept'
 function outilsDuTexte (text) {
   const mots = String(text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[.;:!?]/g, ' . ').replace(/,/g, ' , ').replace(/[^a-z0-9.,]+/g, ' ').trim().split(/\s+/).map(singular)
-  const out = {}
+  const out = Object.create(null)
   mots.forEach((w, i) => {
-    if (!FR_TOOLS[w] || out[w]) return
+    if (!motDe(FR_TOOLS, w) || out[w]) return
     for (let j = i + 1; j < mots.length; j++) {
       const m = mots[j]
-      if (m === 'en' && FR_MATERIALS[mots[j + 1]]) { out[w] = `${FR_MATERIALS[mots[j + 1]]}_${FR_TOOLS[w]}`; return }
-      if (!FR_TOOLS[m] && !LIENS_OUTILS.has(m) && !NOMBRES_OUTILS.has(m) && !/^\d+$/.test(m)) return
+      const matiere = m === 'en' ? motDe(FR_MATERIALS, mots[j + 1]) : undefined
+      if (matiere) { out[w] = `${matiere}_${FR_TOOLS[w]}`; return }
+      if (!motDe(FR_TOOLS, m) && !LIENS_OUTILS.has(m) && !NOMBRES_OUTILS.has(m) && !/^\d+$/.test(m)) return
     }
   })
   return out
@@ -1134,11 +1138,11 @@ function outilsDuTexte (text) {
 function fabricationPrecisee (raw, text) {
   const words = String(raw ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, ' ').trim().split(' ').map(singular)
-  if (words.some(w => FR_MATERIALS[w] || /^(wooden|stone|iron|golden|diamond|netherite)$/.test(w))) return null
+  if (words.some(w => motDe(FR_MATERIALS, w) || /^(wooden|stone|iron|golden|diamond|netherite)$/.test(w))) return null
   const outils = outilsDuTexte(text)
-  const english = Object.fromEntries(Object.entries(FR_TOOLS).map(([fr, en]) => [en, fr]))
+  const english = Object.assign(Object.create(null), Object.fromEntries(Object.entries(FR_TOOLS).map(([fr, en]) => [en, fr])))
   for (const w of words) {
-    const fr = FR_TOOLS[w] ? w : english[w]
+    const fr = motDe(FR_TOOLS, w) ? w : english[w]
     if (fr && outils[fr]) return outils[fr]
   }
   return null

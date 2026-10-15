@@ -338,14 +338,16 @@ function posesDuBrief (bot, brut) {
 function resolveFabricationCible (bot, raw) {
   const norm = fabTargetName(raw)
   if (!norm) return null
-  if (craft.TARGETS[norm]) return norm
+  if (Object.hasOwn(craft.TARGETS, norm)) return norm
   const itemsByName = bot?.registry?.itemsByName
-  if (itemsByName && itemsByName[norm]) return norm
+  // Propriete propre seulement : « constructor » n est ni une cible ni un objet.
+  const objet = n => Boolean(itemsByName) && Object.hasOwn(itemsByName, n)
+  if (objet(norm)) return norm
   // Pluriel du modele (« torches », « furnaces ») : le singulier du registre.
   const single = norm.replace(/(?<=[a-z])e?s$/, '')
   if (itemsByName && single !== norm) {
-    if (itemsByName[norm.slice(0, -1)]) return norm.slice(0, -1)
-    if (itemsByName[single]) return single
+    if (objet(norm.slice(0, -1))) return norm.slice(0, -1)
+    if (objet(single)) return single
   }
   // Sans registre (jamais en prod), le format suffit : le make tranchera
   // (unknown/missing honnetes). En prod le registre existe toujours.

@@ -95,6 +95,7 @@ test('cibles de fabrication en francais : outil a matiere, objets courants, plur
   const { resolveFabricationCible } = require('../bot/mission')
   assert.equal(resolveFabricationCible({ registry: md }, 'torches'), 'torch')
   assert.equal(resolveFabricationCible({ registry: md }, 'furnaces'), 'furnace')
+  assert.equal(resolveFabricationCible({ registry: md }, 'constructor'), null)
   // Matiere dite une fois pour un groupe d outils, jamais prise a une autre
   // demande de la phrase (revue de #75).
   const { fabricationPrecisee } = skills
@@ -114,7 +115,8 @@ test('cibles de fabrication en francais : outil a matiere, objets courants, plur
     ['hache', 'une hache ; puis un pont en bois'], ['pelle', 'une pelle puis une porte en fer'],
     ['pioche', 'une pioche et une maison en pierre'], ['pioche', 'une pioche et deux planches en fer'],
     ['pioche', 'une pioche. deux pelles en fer'], ['pioche', 'une pioche et 11 planches en pierre'],
-    ['pioche', 'une pioche et onze planches en pierre'], ['pioche', 'une pioche. deux haches en pierre']]) {
+    ['pioche', 'une pioche et onze planches en pierre'], ['pioche', 'une pioche. deux haches en pierre'],
+    ['pioche', 'une pioche en constructor'], ['constructor', 'un constructor en fer'], ['pioche', 'une pioche en tostring']]) {
     assert.equal(fabricationPrecisee(brut, texte), null, texte)
   }
 })
