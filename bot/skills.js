@@ -1105,6 +1105,9 @@ function frenchFabricationTarget (key) {
 // autre demande (« une pioche. Construis une maison en pierre ») ne passe
 // pas. Le code lit la phrase, comme les dimensions.
 const LIENS_OUTILS = new Set(['une', 'un', 'des', 'la', 'le', 'les', 'l', 'et', ','])
+// Les nombres d un groupe (« deux pioches et trois pelles en fer ») le
+// prolongent : ils comptent les outils, ils ne commencent pas un autre objet.
+const NOMBRES_OUTILS = new Set(['deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix'].map(singular))
 function outilsDuTexte (text) {
   const mots = String(text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[.;:!?]/g, ' . ').replace(/,/g, ' , ').replace(/[^a-z0-9.,]+/g, ' ').trim().split(/\s+/).map(singular)
@@ -1114,7 +1117,7 @@ function outilsDuTexte (text) {
     for (let j = i + 1; j < mots.length; j++) {
       const m = mots[j]
       if (m === 'en' && FR_MATERIALS[mots[j + 1]]) { out[w] = `${FR_MATERIALS[mots[j + 1]]}_${FR_TOOLS[w]}`; return }
-      if (!FR_TOOLS[m] && !LIENS_OUTILS.has(m)) return
+      if (!FR_TOOLS[m] && !LIENS_OUTILS.has(m) && !NOMBRES_OUTILS.has(m) && !/^\d+$/.test(m)) return
     }
   })
   return out

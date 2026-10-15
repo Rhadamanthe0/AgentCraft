@@ -520,3 +520,38 @@ test('matiere a hauteur avant le sol sous les pieds, le tronc garde son ordre', 
     else assert.equal(Math.floor(vise.y), 64, variant)
   }
 })
+
+// Exclusions d une position (secteur, chantier, bornes) avant les plafonds de
+// la recherche : 32 blocs plus proches hors du cone cachaient le seul bloc du
+// cone (revue de #75, meme defaut qu une emprise de chantier pleine).
+test('cone de regard : les blocs hors du cone ne remplissent pas la recherche', async () => {
+  const blocs = []
+  for (let y = 65; y <= 68; y++) for (let z = -7; z <= -1; z++) for (let x = z + 1; x <= -z - 1; x++) {
+    if ((x + y + z) % 2 === 0) blocs.push(new Vec3(x, y, z))
+  }
+  blocs.push(new Vec3(8, 65, 0))
+  planner.readBrief = async () => ({ kind: 'recolte', kindConfidence: 1, resource: 'pierre', resourceConfidence: 1, landmark: 'ici', door: false, doorProbability: 0 })
+  let n = 0
+  planner.plan = async () => ({ ms: 0, seconds: 1, rejected: [], done: 0, finished: false,
+    steps: [{ action: n++ === 0 ? 'regarder_autour' : 'terminer', scale: 0, scaleLevel: null, choices: {} }] })
+  const bot = { entity: { position: new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
+    registry: { blocksByName: { stone: { id: 1 } }, blocks: { 1: { name: 'stone' } }, itemsByName: {} },
+    inventory: { items: () => [] }, players: {}, entities: {},
+    findBlocks: ({ matching, useExtraInfo, count, point }) => blocs
+      .filter(p => [].concat(matching).includes(1) && (!useExtraInfo || useExtraInfo({ position: p })))
+      .sort((a, b) => a.distanceTo(point) - b.distanceTo(point)).slice(0, count),
+    findBlock: () => null,
+    blockAt: position => blocs.some(p => p.equals(position))
+      ? { name: 'stone', position, shapes: [[0, 0, 0, 1, 1, 1]] } : { name: 'air', position, shapes: [] },
+    clearControlStates () {}, look: async () => {}, lookAt: async () => {}, setControlState () {} }
+  const r = createMissionRunner({ getBot: () => bot, isReady: () => true, inLiquid: () => false, stopPathfinding () {}, chat () {} })
+  const lignes = []
+  const log = console.log
+  console.log = (...a) => { lignes.push(a.join(' ')) }
+  try {
+    await r.start('ramasse de la pierre', 'test')
+    for (let i = 0; i < 200 && r.status?.()?.active !== false && !lignes.some(l => l.includes('tour d horizon')); i++) await new Promise(res => setTimeout(res, 10))
+  } finally { console.log = log; r.stop?.() }
+  const l = lignes.find(x => x.includes('tour d horizon')) ?? ''
+  assert.match(l, /est : stone/)
+})

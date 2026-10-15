@@ -1758,8 +1758,48 @@ function createMissionRunner (host, injected = {}) {
     // les 32 plus proches etant toutes sous le sol de l arene).
     const feetLevel = Math.floor(bot.entity.position.y)
     const exposed = (pos, lire) => blocExpose(bot, pos, feetLevel, lire)
-    let positions
-    try {
+    const here = bot.entity.position
+    const feetY = feetLevel
+    // anyHeight : pour SE DEPLACER vers la matiere (fond de trou, haut de
+    // falaise), pas pour la casser d ici. Les bornes verticales ci-dessous
+    // restent celles de `casser`.
+    const anyHeight = opts.anyHeight === true
+    const emprise = empriseChantier()
+
+    // Admissibilite d une position seule (chantier, bornes, secteur), appliquee
+    // PENDANT la recherche, avant ses plafonds : sinon 32 blocs d une emprise
+    // de chantier remplissaient la liste et la pierre autorisee a cote n etait
+    // jamais vue.
+    const admissible = position => {
+      if (dansEmprise(emprise, position)) return false
+      if (!anyHeight && position.y < feetY - MAX_DIG_DEPTH) return false
+      // Trop haut pour etre atteint depuis le sol : passer a la cible suivante
+      // plutot que de s acharner sur le haut d un tronc.
+      if (!anyHeight && position.y > feetY + MAX_REACH_UP) return false
+      const dx = position.x + 0.5 - here.x
+      const dz = position.z + 0.5 - here.z
+      const horizontal = Math.hypot(dx, dz)
+      // Le bloc sous ses pieds le ferait tomber dans son propre trou.
+      if (position.y < feetY && horizontal < 1.5) return false
+      // Secteur : cap du bloc = atan2(-dx, -dz) (inverse de
+      // avant = (-sin yaw, -cos yaw)). Ecart normalise dans [-PI, PI].
+      // Un bloc quasi a la verticale du bot n a pas de cap defini : on le
+      // garde (il est visible depuis toutes les directions).
+      if (filtreSecteur && horizontal >= 0.5) {
+        const capBloc = Math.atan2(-dx, -dz)
+        let ecart = (capBloc - yaw) % (Math.PI * 2)
+        if (ecart > Math.PI) ecart -= Math.PI * 2
+        if (ecart < -Math.PI) ecart += Math.PI * 2
+        if (Math.abs(ecart) > demiAngle) return false
+      }
+      return true
+    }
+
+    // Cible mise de cote (sans chemin) : ignoree tant qu il en reste une
+    // autre, jamais quand c est la derniere. Vu sur terrain/plateau (a45b981,
+    // 9b5fe31) : buche du haut mise de cote depuis le pied de la falaise, puis
+    // invisible une fois le bot monte (« rien » partout, errance, chute).
+    const rechercher = garde => {
       // Filtre PENDANT la recherche : sous une arene ou un sol de pierre, des
       // milliers de blocs enfouis sont plus proches que le rocher visible (vu :
       // les 256 plus proches toutes enfouies, « pierre introuvable »).
@@ -1770,16 +1810,21 @@ function createMissionRunner (host, injected = {}) {
       // rocher a cote n etait jamais vu (le bot redescendait en escalier).
       // Le sol sous les pieds ne complete la liste que s il en manque. Le bois
       // garde sa recherche unique (tronc : le plus bas d abord).
-      const chercher = filtre => perception.trouverBlocs(bot, { ids, filtre, maxDistance: SEARCH_RADIUS, count: 64 })
-        .filter(p => filtre(p)).slice(0, 32)
-      const bois = ids.every(id => TREE_LOG.test(bot.registry?.blocks?.[id]?.name ?? ''))
-      if (bois) positions = chercher(exposed)
-      else {
-        positions = chercher((pos, lire) => pos.y >= feetLevel && exposed(pos, lire))
-        if (positions.length < 32) {
-          positions = positions.concat(chercher((pos, lire) => pos.y < feetLevel && exposed(pos, lire)).slice(0, 32 - positions.length))
-        }
+      const chercher = f => {
+        const filtre = (pos, lire) => garde(pos) && admissible(pos) && f(pos, lire)
+        return perception.trouverBlocs(bot, { ids, filtre, maxDistance: SEARCH_RADIUS, count: 64 })
+          .filter(p => filtre(p)).slice(0, 32)
       }
+      const bois = ids.every(id => TREE_LOG.test(bot.registry?.blocks?.[id]?.name ?? ''))
+      if (bois) return chercher(exposed)
+      const trouves = chercher((pos, lire) => pos.y >= feetLevel && exposed(pos, lire))
+      if (trouves.length >= 32) return trouves
+      return trouves.concat(chercher((pos, lire) => pos.y < feetLevel && exposed(pos, lire)).slice(0, 32 - trouves.length))
+    }
+    let positions
+    try {
+      positions = rechercher(p => !injoignable(p))
+      if (positions.length === 0) positions = rechercher(p => injoignable(p))
     } catch (err) {
       return null
     }
@@ -1797,43 +1842,9 @@ function createMissionRunner (host, injected = {}) {
         .filter(p => !bot.blockAt(p) || TREE_LOG.test(bot.blockAt(p)?.name ?? '') || !mission.buchesArbreDemande)
     }
 
-    const here = bot.entity.position
-    const feetY = Math.floor(here.y)
-    // anyHeight : pour SE DEPLACER vers la matiere (fond de trou, haut de
-    // falaise), pas pour la casser d ici. Les bornes verticales ci-dessous
-    // restent celles de `casser`.
-    const anyHeight = opts.anyHeight === true
-    const emprise = empriseChantier()
-
-    // Cible mise de cote (sans chemin) : ignoree tant qu il en reste une
-    // autre, jamais quand c est la derniere. Vu sur terrain/plateau (a45b981,
-    // 9b5fe31) : buche du haut mise de cote depuis le pied de la falaise, puis
-    // invisible une fois le bot monte (« rien » partout, errance, chute).
     const candidates = []
     const collect = list => { for (const position of list) {
-      if (dansEmprise(emprise, position)) continue
-      if (!anyHeight && position.y < feetY - MAX_DIG_DEPTH) continue
-      // Trop haut pour etre atteint depuis le sol : passer a la cible suivante
-      // plutot que de s acharner sur le haut d un tronc.
-      if (!anyHeight && position.y > feetY + MAX_REACH_UP) continue
-
-      const dx = position.x + 0.5 - here.x
-      const dz = position.z + 0.5 - here.z
-      const horizontal = Math.hypot(dx, dz)
-      // Le bloc sous ses pieds le ferait tomber dans son propre trou.
-      if (position.y < feetY && horizontal < 1.5) continue
-
-      // Secteur : cap du bloc = atan2(-dx, -dz) (inverse de
-      // avant = (-sin yaw, -cos yaw)). Ecart normalise dans [-PI, PI].
-      // Un bloc quasi a la verticale du bot n a pas de cap defini : on le
-      // garde (il est visible depuis toutes les directions).
-      if (filtreSecteur && horizontal >= 0.5) {
-        const capBloc = Math.atan2(-dx, -dz)
-        let ecart = (capBloc - yaw) % (Math.PI * 2)
-        if (ecart > Math.PI) ecart -= Math.PI * 2
-        if (ecart < -Math.PI) ecart += Math.PI * 2
-        if (Math.abs(ecart) > demiAngle) continue
-      }
+      if (!admissible(position)) continue
 
       const measured = bot.blockAt(position)
       const unknownTree = mission.wholeTree && mission.tree && (!measured || !mission.buchesArbreDemande)
