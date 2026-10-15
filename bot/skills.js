@@ -1097,6 +1097,41 @@ function frenchFabricationTarget (key) {
   return null
 }
 
+// Outils nommes dans la phrase du joueur et la matiere qui les suit : « une
+// pioche, une hache et une epee en pierre » -> pioche, hache et epee en
+// pierre ; « une pioche en bois et une hache en fer » -> chacun la sienne.
+// Chaque outil prend la premiere matiere dite apres lui (le code lit la
+// phrase, comme les dimensions) ; un outil sans matiere apres lui n y est pas.
+function outilsDuTexte (text) {
+  const words = String(text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim().split(' ').map(singular)
+  const out = {}
+  words.forEach((w, i) => {
+    if (!FR_TOOLS[w] || out[w]) return
+    for (let j = i + 1; j < words.length - 1; j++) {
+      if (words[j] === 'en' && FR_MATERIALS[words[j + 1]]) { out[w] = `${FR_MATERIALS[words[j + 1]]}_${FR_TOOLS[w]}`; return }
+    }
+  })
+  return out
+}
+
+// Objet precis d un brut du brief (« pioche », « epee ») quand la phrase dit
+// sa matiere : la famille seule laissait le code choisir (pioche en bois) et
+// « epee » sans matiere n etait aucun objet (composite/stone-toolkit : epee
+// perdue, hache en bois fabriquee, mission close a 1 objet sur 3).
+function fabricationPrecisee (raw, text) {
+  const words = String(raw ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim().split(' ').map(singular)
+  if (words.some(w => FR_MATERIALS[w] || /^(wooden|stone|iron|golden|diamond|netherite)$/.test(w))) return null
+  const outils = outilsDuTexte(text)
+  const english = Object.fromEntries(Object.entries(FR_TOOLS).map(([fr, en]) => [en, fr]))
+  for (const w of words) {
+    const fr = FR_TOOLS[w] ? w : english[w]
+    if (fr && outils[fr]) return outils[fr]
+  }
+  return null
+}
+
 function normalizeFabricationTarget (input) {
   // Accents, articles et espaces pliés : le brief rend « établi », « une
   // hache en bois » (vu sur craft/table : « établi » inconnu, aucune cible,
@@ -1748,6 +1783,8 @@ module.exports = {
   RESOURCE_ALIASES,
   FABRICATION_ALIASES,
   normalizeFabricationTarget,
+  outilsDuTexte,
+  fabricationPrecisee,
   LANDMARKS,
   SCALE_LEVELS,
   resolve,

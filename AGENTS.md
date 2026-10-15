@@ -330,7 +330,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
   cabin-across-water) et bucket (dans powered-rail-line) retires ;
   stone-hut-from-scratch (dans big-stone-house), craft/iron-pickaxe (dans
   powered-rail-line) et chat/question-keeps-mission (dans stone-wall-question)
-  attendent la promotion de leur couverture ; 15 tests unitaires retires. Un
+  attendent la promotion de leur couverture ; 14 tests unitaires retires. Un
   niveau `skill/*` ne double pas son jumeau joue par le modele : il mesure le
   code seul.
 - Avant de proposer un changement d architecture, le chiffrer sur les bancs
@@ -511,6 +511,11 @@ dans `docs/journal.md` (section « Les pieges »).
     pour se deplacer seulement. Quand la seule matiere restante est sous ses
     pieds (dernier minerai d un rocher), `recolter` le poste a cote, a la
     hauteur du bloc ou plus bas (`posteHorsDessous`, skill/coal-rock).
+    La borne « un bloc sous les pieds » est relative : sans autre regle, chaque
+    casse en ouvrait une un cran plus bas (pierre sous l herbe de l arene,
+    composite/bucket a y 198, skill/stone-hut-batir a y 197). `findTargetBlock`
+    ne vise donc un bloc sous les pieds (hors tronc) que s il ne reste aucune
+    matiere a hauteur, meme hors de portee.
 11. **Modele a raisonnement** : ses jetons de raisonnement comptent dans
     `PLANNER_MAX_TOKENS` ; trop bas => contenu vide (`finish=length`).
 12. **Prompt systeme = partie mise en cache** : jamais d horodatage ni de

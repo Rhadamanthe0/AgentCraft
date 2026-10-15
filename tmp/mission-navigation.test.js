@@ -476,3 +476,39 @@ test('terminer ne transforme plus un quota non atteint en succes', async () => {
   assert.ok(f.messages.some(t => /Échec/.test(t)))
   }
 })
+
+// Pierre sous l herbe a portee, rocher a hauteur plus loin : le bloc du sol
+// sous les pieds n est jamais vise tant qu il reste de la matiere a hauteur
+// (sinon le bot descend en escalier, composite/bucket, y 198 sur un sol en 199).
+test('matiere a hauteur avant le sol sous les pieds, le tronc garde son ordre', async () => {
+  for (const variant of ['pierre', 'pierre_seule', 'bois']) {
+    const f = highTargetFixture({ high: false })
+    const nom = variant === 'bois' ? 'oak_log' : 'stone'
+    const dessous = new Vec3(2, 64, 0)
+    const hauteur = new Vec3(6, 65, 0)
+    const blocs = variant === 'pierre_seule' ? [dessous] : [dessous, hauteur]
+    planner.readBrief = async () => ({ ...brief, kind: 'recolte', resource: variant === 'bois' ? 'bois' : 'pierre' })
+    f.bot.registry.blocksByName = { [nom]: { id: 1 } }
+    f.bot.findBlocks = ({ matching }) => matching.includes(1) ? blocs : []
+    f.bot.blockAt = position => blocs.some(p => p.equals(position))
+      ? { name: nom, position, shapes: [[0, 0, 0, 1, 1, 1]] }
+      : { name: 'air', position, shapes: [] }
+    const checked = []
+    const originalHarvestCheck = craft.harvestCheck
+    craft.harvestCheck = (_bot, block) => {
+      checked.push(block.position)
+      return { ok: false, need: 'test', reason: 'stop before physical dig' }
+    }
+    let n = 0
+    planner.plan = async () => ({ ms: 0, seconds: 1, rejected: [], done: 0, finished: false,
+      steps: [{ action: n++ === 0 ? 'casser' : 'terminer', scale: 0, scaleLevel: null, choices: {} }] })
+    try {
+      await f.r.start(variant === 'bois' ? 'ramasse du bois' : 'ramasse de la pierre', 'human')
+      await finished(f.r)
+    } finally { craft.harvestCheck = originalHarvestCheck }
+    const vise = checked[0] ?? f.navigation[0]?.position
+    assert.ok(vise, variant)
+    if (variant === 'pierre') assert.equal(Math.floor(vise.x), 6, variant)
+    else assert.equal(Math.floor(vise.x), 2, variant)
+  }
+})

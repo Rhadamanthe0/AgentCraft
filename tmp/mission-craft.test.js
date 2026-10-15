@@ -513,8 +513,11 @@ test('plusieurs objets demandes : un a la fois, fin apres le dernier seulement',
   try {
     const brief = realShapeBrief({
       kind: 'recolte', resource: 'pierre',
-      fabrication: 'stone_pickaxe', fabricationQuantite: 1,
-      fabricationSuite: ['stone_axe', 'stone_sword', 'stone_axe'],
+      // Bruts du brief tels que vus au banc : famille seule (« pioche »),
+      // outil sans matiere (« épée »), nom exact, doublon ; la matiere dite
+      // une fois pour tous dans la phrase les precise (composite/stone-toolkit).
+      fabrication: 'pioche', fabricationQuantite: 1,
+      fabricationSuite: ['stone_axe', 'épée', 'hache'],
       _texte: 'fabrique-toi une pioche, une hache et une epee en pierre'
     })
     const stub = async (bot, target, wanted) => {

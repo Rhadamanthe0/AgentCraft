@@ -1841,7 +1841,15 @@ function createMissionRunner (host, injected = {}) {
 
     if (candidates.length === 0) return null
 
+    // Matiere du sol sous les pieds (pierre sous l herbe, terre) : jamais
+    // tant qu il en reste a hauteur, meme hors de portee. Sinon chaque bloc
+    // casse « un sous les pieds » en ouvrait un autre un cran plus bas, le bot
+    // descendait en escalier au lieu d aller au rocher (composite/bucket et
+    // stone-toolkit : y 198 dans une arene au sol en 199). Le tronc garde son
+    // ordre (le plus bas d abord) ; seul un minerai sans autre choix descend.
+    const sousPieds = c => c.block.position.y < feetY && !TREE_LOG.test(c.block.name ?? '')
     candidates.sort((a, b) => {
+      if (sousPieds(a) !== sousPieds(b)) return sousPieds(a) ? 1 : -1
       // A visible reachable block must not be hidden by a lower occluded candidate.
       if (a.interactable !== b.interactable) return a.interactable ? -1 : 1
       // Un bloc a portee vaut mieux qu un bloc plus proche mais injoignable :
@@ -7347,19 +7355,20 @@ function createMissionRunner (host, injected = {}) {
     } catch (_) {
       fabricationCible = null
     }
-    // Famille seule (« pioche ») alors que l objectif nomme la matiere (« une
-    // pioche en pierre ») : l objet precis du texte (vu sur craft/stone-pickaxe :
-    // cible « pioche », pioche en bois fabriquee, puis errance 4 min).
-    if (fabricationCible && FAMILLES_FAB[fabricationCible] && !/^(planches|batons|etabli)$/.test(fabricationCible)) {
-      // La matiere qui suit l outil, pas le premier mot de matiere de la
-      // phrase (« coupe du bois pour une pioche en pierre » : pierre).
-      const tool = /\b(haches?|pioches?|pelles?)\s+en\s+([a-zé]+)\b/i.exec(sansCoordonnees(text))
-      const precise = tool ? fabTargetName(tool[0]) : null
-      if (precise && precise !== fabricationCible && FAMILLES_FAB[fabricationCible].test(precise)) {
-        console.log(`[mission] cible de fabrication precisee par l objectif : ${fabricationCible} -> ${precise}`)
-        fabricationCible = precise
-      }
+    // Famille seule (« pioche ») ou outil sans matiere (« epee ») alors que
+    // l objectif nomme la matiere (« une pioche en pierre », « une pioche, une
+    // hache et une epee en pierre ») : l objet precis du texte (vu sur
+    // craft/stone-pickaxe : cible « pioche », pioche en bois fabriquee, puis
+    // errance 4 min ; composite/stone-toolkit : epee perdue).
+    const texteSansCoord = sansCoordonnees(text)
+    const preciser = (brut, objet) => {
+      if (objet && !(FAMILLES_FAB[objet] && !/^(planches|batons|etabli)$/.test(objet))) return objet
+      const precise = skills.fabricationPrecisee(brut, texteSansCoord)
+      if (!precise || (objet && !FAMILLES_FAB[objet].test(precise))) return objet
+      console.log(`[mission] cible de fabrication precisee par l objectif : ${objet ?? brut} -> ${precise}`)
+      return precise
     }
+    fabricationCible = preciser(briefFabRaw, fabricationCible)
     let fabricationQuantite = fabricationCible
       ? fabricationWanted(text, briefFabQty)
       : 1
@@ -7383,6 +7392,7 @@ function createMissionRunner (host, injected = {}) {
     for (const brut of suiteBrute) {
       let objet = null
       try { objet = resolveFabricationCible(host.getBot(), brut) } catch (_) {}
+      objet = preciser(brut, objet)
       if (objet && objet !== fabricationCible && !fabricationSuite.some(f => f.objet === objet)) {
         fabricationSuite.push({ objet, initial: 0 })
       }
