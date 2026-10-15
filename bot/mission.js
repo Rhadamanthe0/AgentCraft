@@ -1765,8 +1765,21 @@ function createMissionRunner (host, injected = {}) {
       // les 256 plus proches toutes enfouies, « pierre introuvable »).
       // perception.trouverBlocs lit les numeros d etat sans construire de
       // Block : le `findBlocks` de mineflayer avec filtre coutait des secondes.
-      positions = perception.trouverBlocs(bot, { ids, filtre: exposed, maxDistance: SEARCH_RADIUS, count: 64 })
-        .filter(exposed).slice(0, 32)
+      // Matiere a hauteur d abord, AVANT les plafonds de la recherche : sur un
+      // sol de pierre, les 64 plus proches sont toutes sous les pieds et le
+      // rocher a cote n etait jamais vu (le bot redescendait en escalier).
+      // Le sol sous les pieds ne complete la liste que s il en manque. Le bois
+      // garde sa recherche unique (tronc : le plus bas d abord).
+      const chercher = filtre => perception.trouverBlocs(bot, { ids, filtre, maxDistance: SEARCH_RADIUS, count: 64 })
+        .filter(p => filtre(p)).slice(0, 32)
+      const bois = ids.every(id => TREE_LOG.test(bot.registry?.blocks?.[id]?.name ?? ''))
+      if (bois) positions = chercher(exposed)
+      else {
+        positions = chercher((pos, lire) => pos.y >= feetLevel && exposed(pos, lire))
+        if (positions.length < 32) {
+          positions = positions.concat(chercher((pos, lire) => pos.y < feetLevel && exposed(pos, lire)).slice(0, 32 - positions.length))
+        }
+      }
     } catch (err) {
       return null
     }

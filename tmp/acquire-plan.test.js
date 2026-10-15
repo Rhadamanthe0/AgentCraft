@@ -95,6 +95,20 @@ test('cibles de fabrication en francais : outil a matiere, objets courants, plur
   const { resolveFabricationCible } = require('../bot/mission')
   assert.equal(resolveFabricationCible({ registry: md }, 'torches'), 'torch')
   assert.equal(resolveFabricationCible({ registry: md }, 'furnaces'), 'furnace')
+  // Matiere dite une fois pour un groupe d outils, jamais prise a une autre
+  // demande de la phrase (revue de #75).
+  const { fabricationPrecisee } = skills
+  const groupe = 'une pioche, une hache et une épée en pierre'
+  assert.deepEqual(['pioche', 'hache', 'épée', 'sword'].map(r => fabricationPrecisee(r, groupe)),
+    ['stone_pickaxe', 'stone_axe', 'stone_sword', 'stone_sword'])
+  assert.deepEqual(['pioche', 'hache'].map(r => fabricationPrecisee(r, 'une pioche en bois et une hache en fer')),
+    ['wooden_pickaxe', 'iron_axe'])
+  assert.equal(fabricationPrecisee('wooden_pickaxe', groupe), null)
+  for (const [brut, texte] of [['pioche', 'Fabrique une pioche. Construis une maison en pierre.'],
+    ['hache', 'une hache ; puis un pont en bois'], ['pelle', 'une pelle puis une porte en fer'],
+    ['pioche', 'une pioche et une maison en pierre']]) {
+    assert.equal(fabricationPrecisee(brut, texte), null, texte)
+  }
 })
 
 test('four deja pose : pas de nouveau four ni de pierre pour lui', () => {

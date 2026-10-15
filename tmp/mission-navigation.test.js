@@ -484,9 +484,17 @@ test('matiere a hauteur avant le sol sous les pieds, le tronc garde son ordre', 
   for (const variant of ['pierre', 'pierre_seule', 'bois']) {
     const f = highTargetFixture({ high: false })
     const nom = variant === 'bois' ? 'oak_log' : 'stone'
-    const dessous = new Vec3(2, 64, 0)
+    // Sol de pierre sous les pieds : 100 blocs plus proches que le rocher,
+    // au-dela des plafonds de la recherche (64, puis 32 gardes).
+    const sol = []
+    for (let x = -5; x <= 5 && sol.length < 100; x++) {
+      for (let z = -5; z <= 5 && sol.length < 100; z++) {
+        if (Math.hypot(x, z) >= 2 && Math.hypot(x, z) < 5.9) sol.push(new Vec3(x, 64, z))
+      }
+    }
+    const dessous = variant === 'bois' ? [new Vec3(2, 64, 0)] : sol
     const hauteur = new Vec3(6, 65, 0)
-    const blocs = variant === 'pierre_seule' ? [dessous] : [dessous, hauteur]
+    const blocs = variant === 'pierre_seule' ? dessous : [...dessous, hauteur]
     planner.readBrief = async () => ({ ...brief, kind: 'recolte', resource: variant === 'bois' ? 'bois' : 'pierre' })
     f.bot.registry.blocksByName = { [nom]: { id: 1 } }
     f.bot.findBlocks = ({ matching }) => matching.includes(1) ? blocs : []
@@ -508,7 +516,7 @@ test('matiere a hauteur avant le sol sous les pieds, le tronc garde son ordre', 
     } finally { craft.harvestCheck = originalHarvestCheck }
     const vise = checked[0] ?? f.navigation[0]?.position
     assert.ok(vise, variant)
-    if (variant === 'pierre') assert.equal(Math.floor(vise.x), 6, variant)
-    else assert.equal(Math.floor(vise.x), 2, variant)
+    if (variant === 'pierre') assert.deepEqual([Math.floor(vise.x), Math.floor(vise.y)], [6, 65], variant)
+    else assert.equal(Math.floor(vise.y), 64, variant)
   }
 })

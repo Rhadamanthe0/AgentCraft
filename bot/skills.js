@@ -1097,19 +1097,24 @@ function frenchFabricationTarget (key) {
   return null
 }
 
-// Outils nommes dans la phrase du joueur et la matiere qui les suit : « une
-// pioche, une hache et une epee en pierre » -> pioche, hache et epee en
-// pierre ; « une pioche en bois et une hache en fer » -> chacun la sienne.
-// Chaque outil prend la premiere matiere dite apres lui (le code lit la
-// phrase, comme les dimensions) ; un outil sans matiere apres lui n y est pas.
+// Outils nommes dans la phrase du joueur et la matiere de leur groupe :
+// « une pioche, une hache et une epee en pierre » -> les trois en pierre ;
+// « une pioche en bois et une hache en fer » -> chacun la sienne. Le groupe
+// ne contient que des outils, articles, « et » et virgules : tout autre mot
+// ou ponctuation forte (« . ; : ! ? », « puis ») le ferme, la matiere d une
+// autre demande (« une pioche. Construis une maison en pierre ») ne passe
+// pas. Le code lit la phrase, comme les dimensions.
+const LIENS_OUTILS = new Set(['une', 'un', 'des', 'la', 'le', 'les', 'l', 'et', ','])
 function outilsDuTexte (text) {
-  const words = String(text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ').trim().split(' ').map(singular)
+  const mots = String(text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[.;:!?]/g, ' . ').replace(/,/g, ' , ').replace(/[^a-z0-9.,]+/g, ' ').trim().split(/\s+/).map(singular)
   const out = {}
-  words.forEach((w, i) => {
+  mots.forEach((w, i) => {
     if (!FR_TOOLS[w] || out[w]) return
-    for (let j = i + 1; j < words.length - 1; j++) {
-      if (words[j] === 'en' && FR_MATERIALS[words[j + 1]]) { out[w] = `${FR_MATERIALS[words[j + 1]]}_${FR_TOOLS[w]}`; return }
+    for (let j = i + 1; j < mots.length; j++) {
+      const m = mots[j]
+      if (m === 'en' && FR_MATERIALS[mots[j + 1]]) { out[w] = `${FR_MATERIALS[mots[j + 1]]}_${FR_TOOLS[w]}`; return }
+      if (!FR_TOOLS[m] && !LIENS_OUTILS.has(m)) return
     }
   })
   return out
