@@ -92,37 +92,6 @@ test('langage naturel : variations stop/accent immediates hors LLM', () => {
   assert.equal(isResume('reprends apres'), false)
 })
 
-test('inbox : multi messages seriaslises sans perte', () => {
-  const { store } = freshStore()
-  const clock = fakeClock()
-  const ctrl = createObjectiveController({ store, now: clock.now, setTimer: clock.setTimer, clearTimer: clock.clearTimer })
-  ctrl.recordMessage({ auteur: 'Alice', texte: 'prends du bois' })
-  ctrl.recordMessage({ auteur: 'Bob', texte: 'non, de la pierre' })
-  ctrl.recordMessage({ auteur: 'Alice', texte: 'vite ?' })
-  const snap = ctrl.snapshot()
-  assert.deepEqual(snap.inbox.map((m) => m.texte), ['prends du bois', 'non, de la pierre', 'vite ?'])
-  assert.deepEqual(snap.inbox.map((m) => m.auteur), ['Alice', 'Bob', 'Alice'])
-})
-
-test('stop immediat annule interpretation obsolete (hors LLM)', async () => {
-  const events = []
-  const host = {
-    status: () => null,
-    interpret: () => new Promise(() => {}), // jamais resolu
-    stop: () => events.push('stop'),
-    say: () => {},
-    cancelPendingStart: () => {}
-  }
-  const conv = createConversation(host)
-  const pending = conv.receive('Alice', 'construis un abri')
-  await new Promise((r) => setImmediate(r))
-  await conv.receive('Alice', 'stop')
-  assert.deepEqual(events, ['stop'])
-  // L interpretation en vol ne doit jamais parler ni demarrer apres le stop.
-  await assert.rejects(Promise.race([pending, Promise.reject(new Error('reste pendante'))]), /reste pendante/)
-    .catch(() => {})
-})
-
 test('question/context conservent mission, sans replanifier pending', async () => {
   const { store } = freshStore()
   const clock = fakeClock()
@@ -189,26 +158,6 @@ test('hardstop : rescue interdit fail-closed, reprise explicite', async () => {
   ctrl.resume()
   const env = await ex.run({ id: 'rescue-2', kind: 'survival' }, async () => 'ok')
   assert.equal(env.outcome, 'completed')
-})
-
-test('executor : un seul writer, slot libere a resolution reelle (pas de race)', async () => {
-  const ex = createExecutor({ stopControls: () => {} })
-  const gate = deferred()
-  let maxActive = 0
-  let active = 0
-  const p1 = ex.run({ id: 'w1', kind: 'work' }, async () => {
-    active += 1
-    maxActive = Math.max(maxActive, active)
-    await gate.promise
-    active -= 1
-    return 'w1'
-  })
-  await new Promise((r) => setTimeout(r, 5))
-  await assert.rejects(ex.run({ id: 'w2', kind: 'work' }, async () => 'w2'), (e) => e.code === 'busy')
-  gate.resolve()
-  const env = await p1
-  assert.equal(env.value, 'w1')
-  assert.equal(maxActive, 1)
 })
 
 test('reload : faits stale, arbitrage expire, hardstop sans timer', () => {
@@ -407,22 +356,6 @@ test('normaux serialises : second message persiste meme apres stop intermediaire
   const texts = [...snap.inbox.map((m) => m.texte), ...persisted.map(([, t]) => t)]
   assert.ok(texts.some((t) => String(t).includes('precision un')), 'message un preserve')
   assert.ok(texts.some((t) => String(t).includes('precision deux')), 'message deux preserve')
-})
-
-test('mécanisme: réacquisition sans token pendant slot tenu -> busy (preuve)', async () => {
-  const ex = createExecutor({ stopControls () {} })
-  const gate = deferred()
-  const held = ex.run({ id: 'holder', kind: 'work' }, async () => {
-    await gate.promise
-    return 1
-  })
-  await new Promise((r) => setTimeout(r, 10))
-  await assert.rejects(
-    ex.run({ id: 'reacquire-sans-token', kind: 'work' }, async () => 2),
-    (e) => e && e.code === 'busy')
-  gate.resolve()
-  const env = await held
-  assert.equal(env.outcome, 'completed')
 })
 
 test('REPRO auditeur: boucle rejoindre_demandeur sans token -> failed, 0 jointure', async () => {

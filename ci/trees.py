@@ -1973,6 +1973,9 @@ RETIRED = frozenset({
     'craft/iron-pickaxe~avec-objet_vers', 'composite/cabin-from-scratch~avec-objet_vers',
     'composite/stone-hut-from-scratch~avec-objet_vers',
     'craft/iron-pickaxe~avec-utiliser', 'composite/cabin-from-scratch~avec-utiliser',
+    # Dedoublonnage (proprietaire, 2026-10-14 : un niveau inclus dans un plus
+    # complexe part, le plus complexe reste ; refait a chaque ajout de niveau).
+    'composite/cabin-from-scratch', 'composite/bucket',
 })
 
 # Owner's limit (2026-10-10): a full bench plays fewer than 50 tests (levels,
@@ -1985,13 +1988,13 @@ MAX_LEVELS = 49
 # measure a mode, not a situation.
 COVERED_BY = {
     'build/arch': 'build/windows', 'build/big-box': 'composite/big-stone-house', 'build/dirt-box': 'build/windows',
-    'build/planks': 'build/no-materials', 'build/planks-door': 'composite/cabin-from-scratch',
+    'build/planks': 'build/no-materials', 'build/planks-door': 'composite/cabin-across-water',
     'build/tower': 'composite/big-stone-house', 'build/wall': 'composite/stone-wall-question',
-    'build/door': 'composite/cabin-from-scratch', 'chat/chatter-ignored': 'chat/question-keeps-mission',
+    'build/door': 'composite/cabin-across-water', 'chat/chatter-ignored': 'chat/question-keeps-mission',
     'chat/stop-resume': 'chat/stop-tree', 'chat/join-then-tree': 'chat/replace-and-join',
     'craft/from-tree': 'craft/iron-pickaxe', 'craft/planks': 'build/no-materials', 'craft/sticks': 'craft/iron-pickaxe',
     'craft/table': 'craft/iron-pickaxe', 'craft/stone-pickaxe': 'craft/iron-pickaxe', 'craft/furnace': 'craft/iron-pickaxe',
-    'craft/axe': 'composite/stone-toolkit', 'craft/door': 'composite/cabin-from-scratch',
+    'craft/axe': 'composite/stone-toolkit', 'craft/door': 'composite/cabin-across-water',
     'craft/torches': 'composite/lit-cabin',
     'follow/corner': 'follow/winding', 'follow/ledge-down': 'follow/winding', 'follow/stairs': 'follow/winding',
     'follow/stop': 'chat/stop-tree', 'follow/straight': 'follow/winding',
@@ -2011,6 +2014,7 @@ COVERED_BY = {
     'trees/leaves': 'trees/double', 'trees/reachable': 'trees/double', 'trees/pillar': 'trees/tall',
     'skill/tree-reachable': 'skill/tree-pillar', 'skill/dirt-box': 'skill/stone-hut-batir',
     'skill/cabin-batir': 'skill/stone-hut-batir', 'trees/skirted': 'trees/tall',
+    'composite/cabin-from-scratch': 'composite/cabin-across-water', 'composite/bucket': 'composite/powered-rail-line',
 }
 
 

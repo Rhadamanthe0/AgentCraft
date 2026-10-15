@@ -59,8 +59,8 @@ class Selection(unittest.TestCase):
             self.assertTrue(trees.selected('navigation/stairs'))
 
     def test_exact_composite_brings_its_twin(self):
-        self.assertEqual(names('composite/cabin-from-scratch'),
-                         ['composite/cabin-from-scratch', 'composite/cabin-from-scratch~aleatoire'])
+        self.assertEqual(names('composite/cabin-across-water'),
+                         ['composite/cabin-across-water', 'composite/cabin-across-water~aleatoire'])
 
     def test_typo_is_reported(self):
         with mock.patch.dict(os.environ, {'CI_LEVELS': 'trees/pilar*, composite/*'}):

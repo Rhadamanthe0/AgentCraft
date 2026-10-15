@@ -318,6 +318,21 @@ au demarrage au lieu de 75 min de niveaux rouges.
   (`git clone . <scratch>` puis les tests) : un fichier present seulement en
   local a casse deux bancs (7f7ac88, e3786f9).
 - Pas de revue Codex a attendre (retiree, #60).
+- **Dedoublonnage des tests (proprietaire, 2026-10-14)** : a chaque ajout d un
+  test (unitaire `tmp/*.test.js`, `ci/test_*.py` ou niveau de `ci/trees.py`),
+  retirer tout test en doublon ou inclus dans un autre (tout ce qu il verifie,
+  sur le meme chemin et une situation equivalente, l est aussi par un autre) ;
+  on retire toujours le moins complexe et on garde le plus complexe. Un niveau
+  retire va dans `trees.RETIRED` avec sa couverture dans `COVERED_BY`. Un
+  niveau BLOQUANT couvert seulement par un niveau informatif reste joue
+  jusqu a la promotion de sa couverture (garde-fou de fusion) ; il part le jour
+  ou elle devient bloquante. Passe du 2026-10-14 : cabin-from-scratch (dans
+  cabin-across-water) et bucket (dans powered-rail-line) retires ;
+  stone-hut-from-scratch (dans big-stone-house), craft/iron-pickaxe (dans
+  powered-rail-line) et chat/question-keeps-mission (dans stone-wall-question)
+  attendent la promotion de leur couverture ; 15 tests unitaires retires. Un
+  niveau `skill/*` ne double pas son jumeau joue par le modele : il mesure le
+  code seul.
 - Avant de proposer un changement d architecture, le chiffrer sur les bancs
   (`report.json` de plusieurs bancs, `containers.log`) puis le critiquer :
   la revue du 2026-10-02 a ecarte deux propositions sur ces seuls chiffres
@@ -605,7 +620,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  91 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
+  98 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
   reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -619,7 +634,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 147 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 152 niveaux avec variantes, 41 joues par defaut dont 22 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
