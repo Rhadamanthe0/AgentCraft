@@ -105,14 +105,16 @@ test('cibles de fabrication en francais : outil a matiere, objets courants, plur
     ['wooden_pickaxe', 'iron_axe'])
   assert.equal(fabricationPrecisee('wooden_pickaxe', groupe), null)
   // Les nombres comptent les outils du groupe, ils ne le coupent pas.
-  for (const texte of ['deux pioches et trois pelles en fer', '2 pioches et 3 pelles en fer', 'des pioches et des pelles en fer']) {
+  for (const texte of ['deux pioches et trois pelles en fer', '2 pioches et 3 pelles en fer', 'des pioches et des pelles en fer',
+    'une pioche et onze pelles en fer', 'une pioche et vingt pelles en fer', 'une pioche et quatre-vingt-douze pelles en fer']) {
     assert.equal(fabricationPrecisee('pioche', texte), 'iron_pickaxe', texte)
   }
   assert.equal(fabricationPrecisee('hache', 'une hache et deux épées en pierre'), 'stone_axe')
   for (const [brut, texte] of [['pioche', 'Fabrique une pioche. Construis une maison en pierre.'],
     ['hache', 'une hache ; puis un pont en bois'], ['pelle', 'une pelle puis une porte en fer'],
     ['pioche', 'une pioche et une maison en pierre'], ['pioche', 'une pioche et deux planches en fer'],
-    ['pioche', 'une pioche. deux pelles en fer']]) {
+    ['pioche', 'une pioche. deux pelles en fer'], ['pioche', 'une pioche et 11 planches en pierre'],
+    ['pioche', 'une pioche et onze planches en pierre'], ['pioche', 'une pioche. deux haches en pierre']]) {
     assert.equal(fabricationPrecisee(brut, texte), null, texte)
   }
 })

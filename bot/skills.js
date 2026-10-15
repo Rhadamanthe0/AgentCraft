@@ -1107,7 +1107,11 @@ function frenchFabricationTarget (key) {
 const LIENS_OUTILS = new Set(['une', 'un', 'des', 'la', 'le', 'les', 'l', 'et', ','])
 // Les nombres d un groupe (« deux pioches et trois pelles en fer ») le
 // prolongent : ils comptent les outils, ils ne commencent pas un autre objet.
-const NOMBRES_OUTILS = new Set(['deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix'].map(singular))
+// Tout le vocabulaire des nombres en lettres (les composes, « dix-sept »,
+// « quatre-vingt-douze », se coupent en ces mots).
+const NOMBRES_OUTILS = new Set(['deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix',
+  'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize', 'vingt', 'vingts', 'trente', 'quarante',
+  'cinquante', 'soixante', 'cent', 'cents', 'mille'].map(singular))
 function outilsDuTexte (text) {
   const mots = String(text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[.;:!?]/g, ' . ').replace(/,/g, ' , ').replace(/[^a-z0-9.,]+/g, ' ').trim().split(/\s+/).map(singular)
