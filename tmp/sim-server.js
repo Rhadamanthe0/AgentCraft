@@ -239,6 +239,7 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
     const { GoalBlocEnVue } = require('../bot/but-bloc')
     const m = new Movements(bot)
     m.canDig = true; m.allow1by1towers = true; m.allowParkour = false; m.maxDropDown = 3
+    require('../bot/correctifs-jeu').lianesGrimpables(m, registry)
     bot.pathfinder.setMovements(m)
     const startPos = bot.entity.position.clone()
     // Monde par sections (raycast du but) recopie du serveur simule autour du

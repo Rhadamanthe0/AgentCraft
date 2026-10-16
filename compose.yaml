@@ -59,6 +59,11 @@ services:
     build:
       context: ./bot
     init: true
+    # Une exception non capturee fait quitter le bot en code 1 (logger.js) :
+    # Docker le relance (attente croissante en cas de boucle de crash), et la
+    # mission durable reprend depuis /data (arret total persistant respecte).
+    # `docker compose stop` le laisse arrete.
+    restart: unless-stopped
     depends_on:
       minecraft:
         condition: service_healthy

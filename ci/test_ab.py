@@ -5,17 +5,20 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
 import ab  # noqa: E402
+import trees  # noqa: E402
 
 
 def bench(sha, base_ok, variant_ok, base_s=60, variant_s=60, base_calls=5, variant_calls=5,
-          mode='acces_unifie', suffix='avec', acted=True):
+          mode='acces_unifie', suffix='avec', acted=True, base_progress=None, variant_progress=None):
     on = suffix == 'avec'
     variant = {'test': f'trees/x~{suffix}-{mode}', 'informative': True, 'variantOf': 'trees/x',
-               'features': {mode: on}, 'success': variant_ok, 'elapsedS': variant_s, 'plannerCalls': variant_calls}
+               'features': {mode: on}, 'success': variant_ok, 'elapsedS': variant_s, 'plannerCalls': variant_calls,
+               'progress': variant_progress}
     if acted:
         variant['modes'] = {'acces': {'appels': 1, 'atteints': 1}}
     return {'sha': sha, 'dirty': False, 'tests': [
-        {'test': 'trees/x', 'success': base_ok, 'elapsedS': base_s, 'plannerCalls': base_calls},
+        {'test': 'trees/x', 'success': base_ok, 'elapsedS': base_s, 'plannerCalls': base_calls,
+         'progress': base_progress},
         variant,
         # A random twin is not an A/B pair.
         {'test': 'composite/a', 'success': True},
@@ -54,6 +57,31 @@ class AB(unittest.TestCase):
         self.assertEqual(row['verdict'], 'retirer')
         self.assertEqual(row['durationRatio'], 1.32)
         self.assertEqual(verdict([bench(str(i), True, True) for i in range(6)])['verdict'], 'egalite')
+
+    def test_progress_breaks_a_tie_of_double_failures(self):
+        # Both arms fail every time: success says nothing, progress does.
+        better = [bench(str(i), False, False, base_progress=0.4, variant_progress=0.8) for i in range(6)]
+        row = verdict(better)
+        self.assertEqual((row['bothFailed'], row['progressGains'], row['progressLosses'], row['verdict']),
+                         (6, 6, 0, 'garder'))
+        self.assertIn('progression gains 6, pertes 0', ab.line('trees/x', row))
+        worse = [bench(str(i), False, False, base_progress=0.8, variant_progress=0.5) for i in range(6)]
+        self.assertEqual(verdict(worse)['verdict'], 'retirer')
+        # A gap under TIE, or no progress measured, is no evidence.
+        close = [bench(str(i), False, False, base_progress=0.5, variant_progress=0.55) for i in range(6)]
+        self.assertEqual(verdict(close)['verdict'], 'egalite')
+        self.assertEqual(verdict([bench(str(i), False, False) for i in range(6)])['bothFailed'], 0)
+
+    def test_progression_is_the_mean_share_of_each_quantity(self):
+        self.assertEqual(trees.progression([(12, 24)]), 0.5)
+        # Blocks all placed, door missing, torches half: (1 + 0 + 0.5) / 3.
+        self.assertEqual(trees.progression([(30, 24), (0, 2), (2, 4)]), 0.5)
+        self.assertIsNone(trees.progression([(3, 0)]))
+        self.assertIsNone(trees.progression([]))
+
+    def test_success_decides_before_progress(self):
+        reports = [bench(str(i), False, i < 2, base_progress=0.9, variant_progress=0.1) for i in range(6)]
+        self.assertEqual(verdict(reports)['verdict'], 'garder')
 
     def test_mode_on_by_default_is_read_from_the_sans_variant(self):
         # sans-anti_boucle: the base runs with the mode, the variant without.
