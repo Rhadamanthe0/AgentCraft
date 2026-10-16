@@ -15,7 +15,7 @@ craft.targetCriteria = craft.targetCriteria ?? (() => ({}))
 const { createMissionRunner } = require('../bot/mission')
 const poserMod = require('../bot/action-poser')
 
-async function jouer ({ blocks, inventory, brief, script, features = { poser: true } }) {
+async function jouer ({ blocks, inventory, brief, script, features = { poser: true }, objectif = 'Fais-moi une ligne de minecart entre les deux blocs' }) {
   const sim = createSimServer({ blocks, start: new Vec3(8.5, 200, 15.5), borne: { x0: 0, x1: 30, z0: 0, z1: 30 }, inventory })
   const log = console.log
   const lignes = []
@@ -23,7 +23,7 @@ async function jouer ({ blocks, inventory, brief, script, features = { poser: tr
   try {
     const r = createMissionRunner(sim.host)
     r.setFeatures({ reset: true, ...features })
-    const started = await r.start('Fais-moi une ligne de minecart entre les deux blocs', 'joueur', { brief, script })
+    const started = await r.start(objectif, 'joueur', { brief, script })
     assert.ok(started.ok, started.error)
     const debut = Date.now()
     while (r.isRunning() && Date.now() - debut < 90000) await new Promise(resolve => setTimeout(resolve, 100))
@@ -83,6 +83,19 @@ test('poser : terminer avant tous les objets poses est refuse, chiffres a l appu
   })
   assert.equal(sim.count(n => n === 'rail'), 11)
   assert.ok(lignes.some(l => /terminer refuse \(1\/\d\) : 0 minecart pose\(s\) sur 1/.test(l)), lignes.slice(-8).join('\n'))
+  assert.ok(!lignes.some(l => /Objectif atteint/.test(l)))
+})
+
+test('poser : un pluriel sans nombre (« des torches ») en veut deux, une seule pose ne clot pas', async () => {
+  const { sim, lignes } = await jouer({
+    objectif: 'Pose des torches a cote de la laine rouge',
+    blocks: { '10,199,15': 'red_wool' },
+    inventory: [{ name: 'torch', count: 3 }],
+    brief: { type: 'recolte', matiere: 'aucune', pose: [{ objet: 'torch' }] },
+    script: [{ action: 'poser', objet: 'torch', quantite: 1, de: 'red_wool' }, { action: 'terminer' }]
+  })
+  assert.equal(sim.count(n => n === 'torch' || n === 'wall_torch'), 1)
+  assert.ok(lignes.some(l => /terminer refuse \(1\/\d\) : 1 torch pose\(s\) sur 2 : poser le reste/.test(l)), lignes.slice(-8).join('\n'))
   assert.ok(!lignes.some(l => /Objectif atteint/.test(l)))
 })
 

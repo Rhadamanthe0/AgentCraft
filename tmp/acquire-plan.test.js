@@ -119,6 +119,11 @@ test('cibles de fabrication en francais : outil a matiere, objets courants, plur
     ['pioche', 'une pioche en constructor'], ['constructor', 'un constructor en fer'], ['pioche', 'une pioche en tostring']]) {
     assert.equal(fabricationPrecisee(brut, texte), null, texte)
   }
+  // Pluriel sans nombre : au moins deux objets a poser (nommeAuPluriel).
+  assert.ok(skills.nommeAuPluriel('eclaire-la avec des torches', 'torch'))
+  assert.ok(skills.nommeAuPluriel('une ligne de rails', 'rail'))
+  assert.ok(!skills.nommeAuPluriel('pose une torche', 'torch'))
+  assert.ok(!skills.nommeAuPluriel('des torches', 'rail'))
 })
 
 test('four deja pose : pas de nouveau four ni de pierre pour lui', () => {

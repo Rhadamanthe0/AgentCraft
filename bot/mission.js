@@ -321,7 +321,7 @@ function fabricationWanted (text, briefQty) {
 // Aucune regex de phrase ici : le modele a extrait, le code valide.
 // Objets a poser lus dans le brief : [{ objet, quantite }] au registre des
 // objets, six au plus, quantite 1 a 64 ou null (au moins un).
-function posesDuBrief (bot, brut) {
+function posesDuBrief (bot, brut, texte = '') {
   if (!Array.isArray(brut)) return []
   const vus = new Set()
   const out = []
@@ -330,7 +330,9 @@ function posesDuBrief (bot, brut) {
     if (!objet || vus.has(objet) || (bot?.registry?.itemsByName && !bot.registry.itemsByName[objet])) continue
     vus.add(objet)
     const q = Number(p?.quantite)
-    out.push({ objet, quantite: p?.quantite !== null && Number.isFinite(q) ? Math.max(1, Math.min(64, Math.round(q))) : null })
+    const dite = p?.quantite !== null && Number.isFinite(q) ? Math.max(1, Math.min(64, Math.round(q))) : null
+    // Sans nombre, un pluriel de la phrase vaut deux (skills.nommeAuPluriel).
+    out.push({ objet, quantite: dite ?? (skills.nommeAuPluriel(texte, objet) ? 2 : null) })
   }
   return out
 }
@@ -736,6 +738,20 @@ function createMissionRunner (host, injected = {}) {
       const enPoche = items.filter(i => i.name === p.objet).reduce((n, i) => n + i.count, 0)
       return { objet: p.objet, voulues, posees, enPoche, manque: Math.max(0, voulues - posees - enPoche) }
     }).filter(p => p.posees < p.voulues)
+  }
+
+  // Poses servies au modele : en poche compris. Sans ce chiffre, des torches
+  // fabriquees restaient en poche 25 min, le modele cherchant du charbon
+  // (composite/lit-cabin~avec-poser, banc da9ebbe).
+  function posesEtat () {
+    const items = host.getBot()?.inventory?.items() ?? []
+    return mission.poses.map(p => {
+      const voulues = p.quantite ?? 1
+      const posees = mission.posesFaites?.[p.objet] ?? 0
+      const enPoche = items.filter(i => i.name === p.objet).reduce((n, i) => n + i.count, 0)
+      return { objet: p.objet, voulues, posees, en_poche: enPoche,
+        ...(posees < voulues && enPoche > 0 ? { a_faire: `poser ${p.objet}` } : {}) }
+    })
   }
 
   function outilManquant (bot) {
@@ -3250,7 +3266,7 @@ function createMissionRunner (host, injected = {}) {
         fabrications_suivantes: mission.fabricationSuite?.length ? mission.fabricationSuite.map(f => f.objet) : null,
         // Objets a poser dans le monde (A/B `poser`), comptes par le code.
         poses: mission.poses?.length
-          ? mission.poses.map(p => ({ objet: p.objet, voulues: p.quantite ?? 1, posees: mission.posesFaites?.[p.objet] ?? 0 }))
+          ? posesEtat()
           : null
       },
       quota_par_defaut: DEFAULT_QUOTA,
@@ -7449,7 +7465,7 @@ function createMissionRunner (host, injected = {}) {
     }
     // Objets a poser dans le monde (A/B `poser`) : noms du brief valides au
     // registre, quantite dite ou au moins un. La revision garde les siens.
-    let poses = featureOn('poser', false) ? posesDuBrief(host.getBot(), brief.pose) : []
+    let poses = featureOn('poser', false) ? posesDuBrief(host.getBot(), brief.pose, texteSansCoord) : []
     if (poses.length === 0 && Array.isArray(opts.revisionOf?.poses)) poses = opts.revisionOf.poses
     if (poses.length > 0 && !brief.route && kind !== 'construction') kind = 'recolte'
     // Bloc ouvert qui ne lache rien (spawner) ou incassable : il se rejoint,

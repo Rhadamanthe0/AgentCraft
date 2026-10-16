@@ -1148,6 +1148,17 @@ function fabricationPrecisee (raw, text) {
   return null
 }
 
+// Objet que la phrase nomme au pluriel sans nombre (« des torches », « avec
+// des rails ») : au moins deux. Le nombre reste mesure par le code ; un
+// pluriel lu comme « un » laissait la mission close apres une seule pose
+// (composite/lit-cabin~avec-poser, banc da9ebbe : 1 torche posee).
+function nommeAuPluriel (text, objet) {
+  const words = String(text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9_]+/g, ' ').trim().split(' ')
+  return words.some(w => w.length > 3 && /[sx]$/.test(w) &&
+    (w.slice(0, -1) === objet || motDe(FR_ITEMS, w.slice(0, -1)) === objet))
+}
+
 function normalizeFabricationTarget (input) {
   // Accents, articles et espaces pliés : le brief rend « établi », « une
   // hache en bois » (vu sur craft/table : « établi » inconnu, aucune cible,
@@ -1801,6 +1812,7 @@ module.exports = {
   normalizeFabricationTarget,
   outilsDuTexte,
   fabricationPrecisee,
+  nommeAuPluriel,
   LANDMARKS,
   SCALE_LEVELS,
   resolve,
