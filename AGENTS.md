@@ -84,6 +84,11 @@ resume donnent reussite, duree, appels au modele, degats et compteurs du mode
 mesurable n est pas garde** ; a resultats egaux, on garde la version la plus
 simple. Une paire d un seul banc est du bruit : la decision se prend sur
 plusieurs bancs avec `python3 ci/ab.py <report.json...>` (au moins 6 paires).
+A egalite de reussite, `ab.py` departage par la progression (`progress`,
+part de l objectif mesure atteinte, 0 a 1, `trees.progression`) sur les
+paires ou les deux bras echouent (ecart d au moins 0,10), puis par le cout
+(proprietaire, 2026-10-16, idee reprise de Mindcraft) ; PASS/FAIL reste seul
+juge de la fusion.
 Les variantes comptent dans la limite de 49 niveaux (§5) : une campagne A/B
 les joue par `Banc:` (nom exact), puis elles retournent dans `trees.RETIRED`.
 
@@ -224,6 +229,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
   teleportation. Serveur en survie, `DIFFICULTY: peaceful`. Garantie verifiee :
   `TestBot` absent de `ops.json` **et** `playerGameType = 0` (piege 3).
 - Ports lies a `127.0.0.1` uniquement.
+- Prod : `restart: unless-stopped` sur le service `bot` (2026-10-16) : une
+  exception non capturee le fait quitter en code 1 (logger.js) et Docker le
+  relance ; la mission durable reprend depuis `/data`, l arret total persiste.
 - Jamais de secret committe, journalise, mis dans un artefact ou une image.
 - Banc CI : **une seule cle**, sans repli silencieux ; `report.keyCheck` le
   verifie. Choisie au demarrage (`ci/keyprobe.py`, 2026-10-01) : mini prompt
@@ -579,6 +587,22 @@ dans `docs/journal.md` (section « Les pieges »).
     pool ou un plafond, verifier `memEventsDelta.high`, `minMemMarginGiB` et
     la memoire de l enveloppe au debut de `capacity.timeline`.
 
+22. **Donnees du jeu et pathfinder en 26.1** (2026-10-16, reperes dans les
+    patchs de Mindcraft, `bot/correctifs-jeu.js`) : minecraft-data range 108
+    blocs a pioche (minerais, metal, obsidienne, cuivre) dans le materiau
+    `incorrect_for_wooden_tool`, qui ne connait que les outils en bois ;
+    `digTime` comptait la pioche en pierre ou en fer comme la main (fer a la
+    pioche en pierre 4,55 s au lieu de 1,15 s). Ces materiaux recoivent les
+    multiplicateurs de `mineable/pickaxe` (plugin `brancherCorrectifs`). Le
+    pathfinder 2.4.5 laisse `vine` hors de `climbables` alors que la physique
+    la grimpe : ajoutee aux Movements du pathfinder (pas au navigateur, dont
+    l execution ne grimpe pas) ; pas les autres lianes, que la physique ne
+    grimpe pas. Ecartes apres verification : temps de casse dans l eau et
+    rotation de `use_item` (deja corriges en mineflayer 4.39), portes du
+    pathfinder (l activation bascule une porte deja ouverte : le navigateur
+    les gere), delai de pose a 0,5 s (faux echecs sous charge). Test :
+    tmp/correctifs-jeu.test.js.
+
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
 - Declenche par tout push sur `main` ou `claude/**` (workflow
@@ -637,7 +661,9 @@ dans `docs/journal.md` (section « Les pieges »).
   compris ; par famille : a faire baisser ; 25 a 60 % d attente sur les
   composites au 2026-10-01),
   `blocages` par niveau (a analyser a chaque banc), `plannerSummary`
-  (latences p50/p95 par usage), `keyCheck`, `modelProbe`, ressources.
+  (latences p50/p95 par usage), `keyCheck`, `modelProbe`, ressources ;
+  `progress` par niveau d arbre, de construction ou de recolte (part de
+  l objectif mesure, informatif, dite dans les comparaisons A/B en echec).
 - Lire un resultat : `python3 ci/fetch-results.py --repo <owner/repo> --sha
   <sha complet>`.
 
@@ -758,6 +784,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/navigation.js` / `bot/motion-trace.js` | navigateur partage (options `dig` et `place` : casse et pose planifiees par A*) ; traces de trajet |
 | `bot/casse.js` | casse confirmee par le serveur, bloc remis cote client sinon (piege 19) |
 | `bot/paroi.js` | jamais au contact exact d une paroi, pas refuse par le serveur sinon (piege 20) |
+| `bot/correctifs-jeu.js` | vitesse de casse des minerais et lianes grimpables en 26.1 (piege 22) |
 | `bot/but-bloc.js` | but « bloc en vue, a portee des yeux » du trajet qui creuse (corrige `GoalLookAtBlock`, piege 6) |
 | `bot/pose.js` | gestes de pose partages : tour (pose sous soi au sommet du saut), pose contre une face, verifies par le monde |
 | `bot/movement-task.js` / `bot/tree-position.js` | parcours declaratifs ; placement sous un arbre |
@@ -774,5 +801,5 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `tmp/reparer.test.js`, `tmp/buts-ouverts.test.js` | reparations par le code, matieres ouvertes et refus (serveur simule) |
 | `tmp/arbitrage-options.test.js` | une demande qui en remplace une autre (arbitrage automatique) garde ses options de demarrage : sans cela, une mission scriptee `skill/*` lancee pendant qu une autre tournait etait planifiee par le modele (`aucun_appel_modele` rouge) |
 | `ci/ab_modele.py` | A/B de modele (variantes `~modele-*`) : reussite, duree, attente, cout par bras aux prix OpenCode Go |
-| `ci/ab.py` | decision A/B sur N bancs, par mode et par niveau : gains/pertes de reussite, duree et appels medians, mode reellement actif, verdict garder/retirer/egalite/insuffisant |
+| `ci/ab.py` | decision A/B sur N bancs, par mode et par niveau : gains/pertes de reussite, progression sur les doubles echecs, duree et appels medians, mode reellement actif, verdict garder/retirer/egalite/insuffisant |
 | `docs/journal.md` | historique des decisions et correctifs |
