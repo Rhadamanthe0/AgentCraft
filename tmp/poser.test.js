@@ -109,8 +109,9 @@ test('obtenir : objet nomme deja en poche ou inconnu, dit sans rien jouer', asyn
 })
 
 const { createExecutor } = require('../bot/executor')
-function actionIsolee (sim, signal, compte) {
+function actionIsolee (sim, signal, compte, autres = {}) {
   return poserMod.createPoser({
+    ...autres,
     getBot: () => sim.bot, resoudreObjet: texte => texte,
     enInventaire: nom => sim.bot.inventory.items().find(i => i.name === nom),
     rejoindre: async () => false, signal: () => signal,
@@ -131,6 +132,13 @@ test('poser : face a un mur, l objet va sur une case libre autour du bot', async
     assert.equal(sim.count(n => n === 'torch'), 1)
     assert.notEqual(sim.nameAt(0, 200, 0), 'torch')
     assert.deepEqual(compte, [['torch', 1]])
+    // Cases d un chantier encore a remplir (toit au-dessus d un mur) : jamais.
+    const reservees = []
+    const r2 = await actionIsolee(sim, null, compte, { reservee: c => { reservees.push(c); return true } })
+      .poser({ objet: 'torch' })
+    assert.equal(r2.echec, true)
+    assert.ok(reservees.length > 0)
+    assert.equal(sim.count(n => n === 'torch'), 1)
   } finally { sim.close() }
 })
 

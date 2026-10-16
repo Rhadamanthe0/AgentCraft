@@ -148,7 +148,8 @@ function casesAutour (bot) {
 }
 
 // deps : { getBot, enInventaire(objet) -> item|null, rejoindre(stand) -> bool,
-//   signal, resoudreObjet(texte) -> nom d objet du registre ou null }
+//   signal, resoudreObjet(texte) -> nom d objet du registre ou null,
+//   reservee(case) -> bool : case qu un chantier doit encore remplir }
 function createPoser (deps) {
   // Rejoint un poste d ou la case est a portee, corps hors de la case.
   async function aPortee (bot, cellule, verifier) {
@@ -263,7 +264,11 @@ function createPoser (deps) {
     }
     if (blocObjet) {
       // Cases deja faites ou prises par autre chose : sautees, jamais cassees.
-      cibles = cibles.filter(c => libre(bot.blockAt(c)))
+      // Une case reservee (bloc ou porte d un chantier encore a poser) aussi :
+      // une torche posee sur un mur, dans la case du toit, bloquait le toit
+      // (composite/lit-cabin~avec-poser 86680bd : 25 min de « the block is
+      // still torch »).
+      cibles = cibles.filter(c => libre(bot.blockAt(c)) && !deps.reservee?.(c))
     }
     if (autour) cibles = cibles.slice(0, ESSAIS_AUTOUR)
     if (cibles.length === 0) {

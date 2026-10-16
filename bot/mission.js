@@ -3840,6 +3840,14 @@ function createMissionRunner (host, injected = {}) {
       signal: mission.navigationAbort.signal, __owner: stepToken, radius: 0.35, timeoutMs: 8000
     }))?.reached === true,
     signal: () => mission?.navigationAbort?.signal,
+    // Cases du chantier (blocs, porte et sa moitie haute) : jamais un objet pose.
+    reservee: c => {
+      const plan = mission?.plan
+      if (!plan) return false
+      const porte = plan.door?.position
+      return Boolean((porte && (porte.equals(c) || porte.offset(0, 1, 0).equals(c))) ||
+        plan.blocks?.some(b => b.position.equals(c)))
+    },
     compter: (objet, n) => {
       mission.posesFaites = { ...(mission.posesFaites ?? {}), [objet]: (mission.posesFaites?.[objet] ?? 0) + n }
     }
