@@ -13,9 +13,13 @@ ci/fetch-results.py) and gives, per mode and per level:
   Wilson interval;
 - cost, on pairs where both passed: median duration and model calls, mode on
   against mode off;
+- progress, on pairs where both failed: the share of the measured goal each
+  run reached (`progress`, trees.progression, 0 to 1); a gap of at least
+  TIE counts as a progress gain or loss;
 - whether the mode actually acted (`modes` counters, see trees.run_one);
 - a verdict: garder, retirer, egalite (keep the simpler version: mode off),
-  or insuffisant (too few pairs).
+  or insuffisant (too few pairs). Success gains and losses decide first; on
+  a tie, progress gains and losses on double failures; then cost.
 
     python3 ci/ab.py test-results/remote/*/*/report.json
     python3 ci/ab.py --mode acces_unifie --json reports...
@@ -31,7 +35,8 @@ import sys
 from promotion import wilson
 
 MIN_PAIRS = 6
-# Relative cost change (duration or calls) below which two runs are a tie.
+# Relative cost change (duration or calls), or progress gap (share of the
+# goal, absolute), below which two runs are a tie.
 TIE = 0.10
 
 
@@ -51,6 +56,7 @@ def variant_mode(test):
 def run_view(test):
     return {'success': bool(test.get('success')), 'elapsedS': test.get('elapsedS'),
             'calls': test.get('plannerCalls'), 'damage': test.get('damageTaken'),
+            'progress': test.get('progress'),
             'modes': test.get('modes') or {}}
 
 
@@ -85,6 +91,10 @@ def judge(group):
     both = [p for p in group if p['on']['success'] and p['off']['success']]
     duration = ratio([p['on']['elapsedS'] for p in both], [p['off']['elapsedS'] for p in both])
     calls = ratio([p['on']['calls'] for p in both], [p['off']['calls'] for p in both])
+    failed = [p for p in group if not p['on']['success'] and not p['off']['success']
+              and p['on']['progress'] is not None and p['off']['progress'] is not None]
+    progress_gains = sum(1 for p in failed if p['on']['progress'] - p['off']['progress'] >= TIE)
+    progress_losses = sum(1 for p in failed if p['off']['progress'] - p['on']['progress'] >= TIE)
     acted = sum(1 for p in group if p['on']['modes'])
     on_pass = sum(1 for p in group if p['on']['success'])
     off_pass = sum(1 for p in group if p['off']['success'])
@@ -94,6 +104,8 @@ def judge(group):
         verdict = 'garder'
     elif losses > gains:
         verdict = 'retirer'
+    elif progress_gains != progress_losses:
+        verdict = 'garder' if progress_gains > progress_losses else 'retirer'
     else:
         faster = [r for r in (duration, calls) if r is not None and r <= 1 - TIE]
         slower = [r for r in (duration, calls) if r is not None and r >= 1 + TIE]
@@ -102,6 +114,7 @@ def judge(group):
             'passOn': on_pass, 'passOff': off_pass,
             'wilsonOn': list(wilson(on_pass, n)), 'wilsonOff': list(wilson(off_pass, n)),
             'durationRatio': duration, 'callsRatio': calls, 'bothPassed': len(both),
+            'bothFailed': len(failed), 'progressGains': progress_gains, 'progressLosses': progress_losses,
             'modeActed': acted, 'verdict': verdict}
 
 
@@ -131,9 +144,11 @@ def line(name, j):
         cost.append(f"duree x{j['durationRatio']}")
     if j['callsRatio'] is not None:
         cost.append(f"appels x{j['callsRatio']}")
+    progress = (f" ; progression gains {j['progressGains']}, pertes {j['progressLosses']} (deux echecs)"
+                if j['bothFailed'] else '')
     return (f"{name}: {j['pairs']} paires, reussite avec {j['passOn']}/{j['pairs']} (IC95 {j['wilsonOn'][0]}-{j['wilsonOn'][1]})"
             f" vs sans {j['passOff']}/{j['pairs']} ; gains {j['gains']}, pertes {j['losses']}"
-            f"{' ; ' + ', '.join(cost) + ' (deux reussites)' if cost else ''}"
+            f"{' ; ' + ', '.join(cost) + ' (deux reussites)' if cost else ''}{progress}"
             f" ; mode actif dans {j['modeActed']}/{j['pairs']} -> {VERDICTS[j['verdict']]}")
 
 

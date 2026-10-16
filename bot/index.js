@@ -16,6 +16,7 @@ const { GoalBlocEnVue } = require('./but-bloc')
 const perception = require('./perception')
 const casse = require('./casse')
 const paroi = require('./paroi')
+const correctifs = require('./correctifs-jeu')
 const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText, parseArbitrationChoice } = require('./conversation')
 const { createExecutor, awaitPhysicalWithTimeout, createControlLease, runPhysicalOrThrow } = require('./executor')
 const { createStateStore } = require('./state-store')
@@ -474,6 +475,10 @@ function buildMovements () {
   joinDigMovements.liquidCost = 200
   for (const block of Object.values(bot.registry.blocksByName)) {
     if (BUILT_BLOCK.test(block.name)) joinDigMovements.blocksCantBreak.add(block.id)
+  }
+  // Lianes grimpables, comme une echelle (correctifs-jeu.js).
+  for (const m of [strictMovements, climbMovements, digMovements, safeDigMovements, joinDigMovements]) {
+    correctifs.lianesGrimpables(m, bot.registry)
   }
 
   setNavigation('strict')
@@ -1700,6 +1705,8 @@ function connectBot () {
     bot.loadPlugin(casse.brancherCasse)
     // Jamais au contact exact d une paroi : le serveur refuse le pas (piege 20).
     bot.loadPlugin(paroi.brancherParoi)
+    // Vitesse de casse des minerais en 26.1 (donnees du jeu, correctifs-jeu.js).
+    bot.loadPlugin(correctifs.brancherCorrectifs)
     craft.trackWindowStateIds(bot)
     // Le logger publie dans le chat des qu une instance est joignable.
     logger.attach(bot)

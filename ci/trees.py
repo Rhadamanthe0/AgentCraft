@@ -1394,8 +1394,11 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         bot_api(bot, '/api/stop', {})
     checks = {'blocs_poses': built >= level['target'], 'aucun_degat': damage == 0,
               'mission_terminee': end_reason.startswith('mission terminee')}
+    # Quantities of the goal (got, needed), for the partial score.
+    parts = [(built, level['target'])]
     if level.get('door'):
         checks['porte_posee'] = doors >= 2  # a door is two blocks
+        parts.append((doors, 2))
     if level.get('opening') and level.get('minTop'):
         # Openings asked (arch, passage): the ground layer must hold fewer
         # blocks than the top one (a full wall has as many). A block count cap
@@ -1410,12 +1413,16 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         if zone:
             a, b0, c, d, e, f = zone[0]
             area = f'{x0 + a} {b0} {c} {x0 + d} {e} {f}'
-        checks[check] = sum(count(area, b) for b in blocks) >= minimum
+        got = sum(count(area, b) for b in blocks)
+        checks[check] = got >= minimum
+        parts.append((got, minimum))
     for check, (entity, minimum) in level.get('entities', {}).items():
         # Entities the order asks for (a minecart on its rails...).
         answer = rcon(f'execute if entity @e[type={entity},x={x0},y=200,z=0,dx={SIZE},dy={TOP_Y - 200},dz={SIZE}]')
         match = re.search(r'count: (\d+)', answer or '')
-        checks[check] = (int(match.group(1)) if match else 0) >= minimum
+        got = int(match.group(1)) if match else 0
+        checks[check] = got >= minimum
+        parts.append((got, minimum))
     if level.get('minTop'):
         # Free-form shape: something must reach that layer (tower, wall).
         layer = 200 + level['minTop'] - 1
@@ -1430,6 +1437,7 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
         'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
         'events': event_answers, 'blocksPlaced': built, 'target': level['target'], 'doorBlocks': doors,
+        'progress': progression(parts),
         'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
         'botFinalPosition': final.get('position'), 'probe': probe_name,
         # Ordre sans reponse du modele => echec classe api, pas bot (build/windows ab48615).
@@ -1519,11 +1527,18 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
                   'refus_rapide': time.monotonic() - started < 60, 'aucun_degat': damage == 0}
     (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
         json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
+    if level.get('expectRefusal'):
+        progress = None
+    elif each:
+        progress = progression([(1 if n else 0, 1) for n in each.values()])
+    else:
+        progress = progression([(count, level['target'])])
     failed = [k for k, v in checks.items() if not v]
     return {
         'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
         'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
         'itemsHeld': count, 'target': level['target'], 'lowestStandingY': round(lowest, 2),
+        'progress': progress,
         **({'tirage': level['tirage']} if level.get('tirage') else {}),
         'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
         'botFinalPosition': final.get('position'), 'probe': probe_name,
@@ -2044,6 +2059,15 @@ def mission_type(name):
     return {'trees': 'bois', 'terrain': 'bois', 'join': 'rejoindre', 'chat': 'chat', 'follow': 'suivre', 'gather': 'ramasser', 'craft': 'fabriquer', 'build': 'construire', 'route': 'parcours'}.get(name.split('/')[0], name.split('/')[0])
 
 
+def progression(parts):
+    """Share of the level's measured goal reached, 0 to 1 (idea from Mindcraft,
+    2026-10-16): the mean over the goal's quantities (got, needed) of
+    min(1, got / needed). Informative: PASS/FAIL alone decides a merge; ab.py
+    reads it to tell apart two runs that both failed. None without quantity."""
+    shares = [min(1.0, max(0, got) / need) for got, need in parts if need]
+    return round(sum(shares) / len(shares), 3) if shares else None
+
+
 def wood(inventory, placed_planks=0):
     inventory = inventory or {}
     return inventory.get('buches', 0) + (inventory.get('planches', 0) + placed_planks) // 4
@@ -2229,6 +2253,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
             'test': name, 'success': all(checks.values()), 'about': level['about'], 'bot': username,
             'checks': checks, 'endReason': end_reason, 'expectedLogs': expected_logs,
             'logsInInventory': inventory, 'before': before, 'after': after,
+            'progress': progression([(inventory, expected_logs)]),
             'leavesBroken': before['leaves'] - after['leaves'], 'floorBroken': before['floor'] - after['floor'],
             'peakStandingY': round(peak_standing, 2), 'elapsedS': elapsed, 'itemsLeft': items_left,
             'damageTaken': damage,
