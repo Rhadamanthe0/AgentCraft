@@ -142,7 +142,14 @@ par ce mode, une porte posee sur un chantier qui en prevoit une va dans
 l ouverture ; `emplacement` de cuire parmi `craft.POSTES_CUISSON` ;
 `ouvrir_porte` et `poser_porte` masquees ; `avec(...)` sur craft/iron-pickaxe
 et composite/cabin-from-scratch, retires du banc complet ;
-tmp/utiliser.test.js).
+tmp/utiliser.test.js) ; `plans_longs` (eteint, 2026-10-16, idee des agents
+Gemini qui finissent le jeu, arXiv 2610.22319, un programme de 33 s en
+mediane : plan de 1 a `PLANNER_LONG_PLAN_MAX` (10) actions et 25 a 40 s de
+jeu vises au lieu de 5 actions et 6 a 10 s, prompt en cache distinct
+(`|long`) ; but : moins d appels au modele ; `avec(...)` sur terrain/plateau,
+gather/sand-walled, build/no-materials, trees/tall, trees/double,
+craft/iron-pickaxe et les composites cabane et maison en pierre, retires du
+banc complet ; compteur `modes.plans` : etapes et appels).
 
 A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
 liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)
@@ -736,6 +743,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `MISSION_PLANNER_OUTAGE_MS` | 90000 | serie de pannes passageres du plan (`planner.estPassager` : silence, reseau coupe, 5xx, 429) toleree avant d abandonner la mission ; un refus (403...) arrete au troisieme echec. Lecture d objectif et chat rejouent aussi une coupure reseau dans le budget de deux essais (`rejouerSiPassager`) |
 | `PLANNER_PLAN_MAX` | 5 | actions max par plan |
 | `PLANNER_BUDGET_MIN_S` / `_MAX_S` | 6 / 10 | secondes de jeu visees par plan (consigne du prompt, jamais appliquee) |
+| `PLANNER_LONG_PLAN_MAX`, `PLANNER_LONG_BUDGET_MIN_S` / `_MAX_S` | 10, 25 / 40 | memes bornes avec l interrupteur `plans_longs` |
 | `PLANNER_MAX_TOKENS` | 2000 | sortie, raisonnement compris |
 | `PLANNER_PILOT_MAX_TOKENS` / `_RETRY_` | 4096 / 8192 | idem pour `/responses` |
 | `FEATURE_<MODE>` | allume | interrupteurs A/B |

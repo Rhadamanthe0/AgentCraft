@@ -451,3 +451,20 @@ it('prompt par type de mission : regles bois et fabrication seulement si utiles'
   assert.ok(!/choisir_terrain avant toute pose/.test(route))
   assert.ok(!/\$\{/.test(tout + fleurs + bois + fab + route), 'gabarit non interprete')
 })
+
+it('plans longs (A/B plans_longs) : bornes du prompt et de la validation', () => {
+  process.env.PLANNER_BASE_URL = process.env.PLANNER_BASE_URL || 'http://x/v1'
+  const p = require('../bot/planner')
+  const court = p.systemPrompt('recolte', 'harvest')
+  const long = p.systemPrompt('recolte', 'harvest', null, true)
+  assert.match(court, /de 1 a 5 actions/)
+  assert.match(court, /entre 6 et 10 secondes/)
+  assert.match(long, /de 1 a 10 actions/)
+  assert.match(long, /entre 25 et 40 secondes/)
+  assert.match(long, /quatre a huit actions/)
+  // Deux prompts distincts en cache : le mode ne recycle pas le prompt court.
+  assert.match(p.systemPrompt('recolte', 'harvest'), /de 1 a 5 actions/)
+  const douze = { fini: 0, plan: Array.from({ length: 12 }, () => ({ action: 'sauter' })) }
+  assert.equal(p.validate(douze, 'recolte', 'harvest').steps.length, 5)
+  assert.equal(p.validate(douze, 'recolte', 'harvest', { long: true }).steps.length, 10)
+})
