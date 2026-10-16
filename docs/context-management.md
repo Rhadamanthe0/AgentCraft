@@ -1,219 +1,103 @@
 # Gestion du contexte
 
-Comment le planificateur recoit ce qu'il doit savoir, et pourquoi le decoupage
-est fait ainsi. Trois couches, une seule frontiere importante : **ce qui est mis
-en cache** et **ce qui change a chaque appel**.
+Comment le planificateur reçoit ce qu'il doit savoir, et pourquoi le découpage
+est fait ainsi. Une seule frontière compte : **ce qui est mis en cache** et
+**ce qui change à chaque appel**.
 
-## Les trois couches
+## Pourquoi cette frontière
 
-### 1. Prompt systeme — mis en cache
+Le cache de prompt est côté serveur, sur le gateway : il sert le préfixe commun
+tant que l'en-tête `x-opencode-session` reste stable et que le début du prompt
+est identique octet pour octet. Une valeur qui change à chaque tour, placée
+dans ce préfixe, l'invaliderait à chaque appel. Au banc, environ 89 % du prompt
+est servi depuis le cache.
 
-Construit une fois par cle
-`"<type>|<approvisionnement>|<profil>|<docs.generation>|<memory.generation>"`
-(`planner.basePrompt()`), puis renvoye **octet pour octet** a chaque appel. Le
-profil (`bois`, `fabrication`, donne par `mission.profilPrompt()`, A/B
-`prompt_type`) retire les regles qui ne servent pas a la mission. Il contient :
+Règle : **toute donnée qui bouge descend vers la couche la plus volatile.**
+Aucun horodatage, aucune position, aucune valeur de jeu n'entre dans le prompt
+système.
 
-- les consignes generales et les regles d'etat (ce que le modele doit faire
-  selon `environnement.bloc_cible_a_portee`, `chantier.materiau_en_inventaire`,
-  `blocage.detecte`, etc.) ;
-- le catalogue des actions **natives** du type de mission
-  (`skills.actionsFor(kind, supply)`, moins les actions coupees par un
-  interrupteur A/B) avec leur **documentation et leurs exemples**
-  (`skills.actionDoc()`) ;
-- les deux prompts voisins, `intent` (routage du chat) et `brief` (lecture de
-  l'objectif), construits une seule fois ;
-- la **memoire long terme** (couche 3, voir la section finale).
+## Les cinq couches
 
-Il n'y a plus d'actions apprises ni de meta-actions : le modele compose ses
-enchainements a partir des seules actions natives, guide par leurs exemples. Il
-n'est reconstruit que si `docs.generation` ou `memory.generation` change,
-c'est-a-dire quand un interrupteur A/B change le catalogue, ou quand la memoire
-long terme est commitee (fin de mission) ou effacee. Aucun horodatage, aucune position, aucune valeur de jeu n'y est
-injectee.
+Ordonnées du plus stable au plus volatil :
 
-### 2. Message utilisateur — volatil
-
-`mission.buildState()` produit l'etat complet du tour, serialise en JSON par
-`planner.plan()` et joint a l'appel sous forme de message utilisateur :
-
-- `consigne` (le brief reinjecte a chaque tour) ;
-- `memoire` = les **compteurs** de `memory.snapshot()` (`memoireCompteurs()` :
-  jetons, plafonds, restants, generation) — le texte des memoires, lui, vit dans
-  les couches 3 et 4 du prompt systeme (voir la section finale) ;
-- `progression`, `bot` (`position`, `orientation`, `dans_liquide`),
-  `environnement` (cible, navigation, `objets_au_sol`, `outil_necessaire`,
-  indices de montee), `inventaire`, `chantier` et `besoins`, `prerequis`
-  (solveur), `blocage`, `demandeur`, `dernieres_etapes`, `etapes_en_cours`,
-  `chat_recent` ;
-- `fabrications_possibles` (ajoute par `mission.extraState()`).
-
-Ce message fait de l'ordre d'un a deux milliers de jetons, contre 24 a 30 k
-caracteres (~7 a 9 k jetons) pour le systeme selon le type de mission ; au
-banc, environ 89 % du prompt est servi depuis le cache.
-
-### 3. Etat de mission — RAM
-
-L'objet `mission` (`mission.js`) porte la file d'etapes, l'historique, les
-compteurs, le plan de chantier, etc. Il vit uniquement en memoire du processus et
-n'est jamais envoye tel quel : `buildState()` en extrait une vue.
-
-## Pourquoi cette frontiere
-
-Le cache de prompt est cote serveur, sur le gateway **OpenCode Zen** : il sert le
-prefixe commun depuis son cache tant que l'en-tete `x-opencode-session` reste
-**stable** et que le prompt systeme est identique octet pour octet. Si une valeur
-qui changeait a chaque tour entrait dans le prompt systeme, elle invaliderait ce
-cache a chaque appel et on repaierait chaque fois le prompt entier.
-
-Regle : **tout ce qui bouge va dans le message utilisateur, ou dans la couche 4
-du prompt** (memoire de mission, reconstruite a chaque appel mais en ajout seul,
-donc son prefixe reste servi du cache). Le prompt systeme mis en cache ne depend
-que du type de mission, de l'approvisionnement, du profil, de la generation du
-catalogue (interrupteurs) et de la generation de la memoire long terme.
-
-## Memoire du planificateur (`bot/memory.js`)
-
-La boucle est sans etat cote modele : chaque appel part de zero. Le modele
-s'ecrit donc lui-meme, via les actions `memoriser` et `oublier`, un fil qu'il
-relit au tour suivant.
-
-### Deux portees
-
-| Portee | Duree de vie | Usage |
-| --- | --- | --- |
-| `travail` | videe a chaque nouvelle mission (`memory.resetWork()`) | gisement repere, intention, plan entame |
-| `long_terme` | persiste dans `MEMORY_FILE` (`/data/memory.json`), recharge au demarrage (`memory.load()`) | ce qui survit aux missions : le monde, les habitudes |
-
-### Plafonds et refus
-
-- Les plafonds sont **separés par portee** : `MEMORY_LONG_TERM_TOKENS` (defaut
-  10000) pour la memoire long terme, `MEMORY_WORK_TOKENS` (defaut 10000) pour la
-  memoire de mission. Une mission bavarde ne peut pas affamer la memoire longue,
-  et inversement.
-- L'estimation est volontairement grossiere : environ 3,5 caracteres par jeton
-  (`memory.estimateTokens()`). Le but est d'empecher un depassement, pas de
-  facturer au jeton.
-- Une note isolee est bornee par `MEMORY_NOTE_MAX` (defaut 4000 caracteres).
-- Une ecriture qui depasserait le plafond de sa portee est **refusee**. Le
-  message rendu dit le total vise, le plafond et les jetons restants, pour que
-  le modele oublie ou resume au lieu de reessayer en boucle.
-- `memory.snapshot()` expose en interne `travail`, `long_terme`, `a_retenir`
-  (tampon long terme en attente de commit), `jetons`, `plafonds`, `restants` et
-  `generation`. Seuls les compteurs (`jetons`, `plafonds`, `restants`,
-  `generation`) atteignent le modele via `etat.memoire`
-  (`mission.memoireCompteurs()`) ; le texte des memoires vit dans les couches 3
-  et 4 du prompt systeme.
-
-API : `snapshot()`, `write({ texte, portee })`, `clear(portee)` (portee
-`travail`, `long_terme` ou `tout`, jamais devinee : une portee absente est
-refusee), `resetWork()`. Seule la portee `long_terme` est ecrite sur disque.
-
-## Schema
-
-```
-        cle = <type>|<supply>|<docs.generation>|<memory.generation>
-        ┌──────────────────────────────────────────────────────┐
-        │  BASE MISE EN CACHE (couches 1-3)                      │
-        │  1. consignes + regles d'etat                          │
-        │  2. catalogue natif + doc/exemples des actions         │
-        │  3. memoire long terme (editee au finish seulement)    │
-        └──────────────────────────────────────────────────────┘
-                              │  reconstruit UNIQUEMENT si
-                              │  docs.generation ou
-                              │  memory.generation change
-                              ▼
-  /chat/completions  ┌────────────────────────────────────────────┐
-  (llm.js)  ───────► │  COUCHE 4 recollee a chaque appel            │
-                     │  memoire de mission (travail, en ajout       │
-                     │  seul, compactee au-dela de 8000 jetons)     │
-                     │  + a_retenir (tampon long terme)             │
-                     ├────────────────────────────────────────────┤
-                     │  MESSAGE UTILISATEUR  (volatil, ~centaines)  │
-                     │  buildState() : consigne, compteurs memoire, │
-                     │  progression, bot.orientation,               │
-                     │  environnement.bloc_regarde, inventaire,     │
-                     │  chantier, blocage, chat_recent, ...         │
-                     └────────────────────────────────────────────┘
-                              ▲
-                              │
-        ┌──────────────────────────────────────────────────────┐
-        │  ETAT DE MISSION  (RAM, mission.js)                    │
-        │  file d'etapes, historique, compteurs, plan            │
-        └──────────────────────────────────────────────────────┘
-        ┌──────────────────────────────────────────────────────┐
-        │  MEMOIRE  (memory.js)                                  │
-        │  travail    : RAM, en ajout seul, resetWork()          │
-        │  pending    : tampon long terme, commit au finish      │
-        │  long_terme : -> /data/memory.json, recharge au boot   │
-        └──────────────────────────────────────────────────────┘
-```
-
-## Exposition et garde-fous
-
-- `GET /api/status` expose `memory` (`memory.snapshot()`).
-- `GET /api/memory` expose la memoire et le fichier de persistence.
-- `DELETE /api/memory?portee=travail|long_terme|tout` l'efface.
-- `mission.status()` expose aussi `memoire`.
-
-C'est le garde-fou humain : on voit ce que le modele retient, et on l'efface
-s'il s'egare.
-
-## Cache en couches du prompt
-
-Architecture **implémentée**. Elle generalise la regle ci-dessus (« tout ce qui
-bouge va dans le message utilisateur ») en cinq couches, ordonnees du plus
-profond (stable) au plus volatil. Le cache de prefixe du gateway (Zen) sert tout
-ce qui n'a pas bouge depuis l'appel precedent ; la regle devient : **toute
-donnee qui bouge descend vers la couche la plus volatile**.
-
-| # | Couche (profondeur) | Contenu | Ce qui l'invalide |
+| # | Couche | Contenu | Ce qui l'invalide |
 | --- | --- | --- | --- |
-| 1 | Prompt systeme | consignes generales, regles d'etat | jamais (statique) |
-| 2 | Actions possibles | catalogue natif (type, appro) + documentation/exemples | `docs.generation` |
-| 3 | Memoire long terme | 10000 jetons ; **editee uniquement en fin de mission** | fin de mission (generation memoire) |
-| 4 | Memoire de la mission | portee `travail`, 10000 max, **en ajout seul** | ajout d'une note ; compaction |
-| 5 | Raisonnement du modele | raisonnement + plan, regenere a chaque appel | chaque appel |
+| 1 | Consignes | règles générales et règles d'état (que faire selon `environnement.bloc_cible_a_portee`, `blocage.detecte`…) | jamais (statique) |
+| 2 | Catalogue | actions natives du type de mission (`skills.actionsFor(kind, supply)`, moins celles d'un interrupteur éteint), avec documentation et exemples (`skills.actionDoc()`) | `docs.generation` (un interrupteur change le catalogue) |
+| 3 | Mémoire long terme | notes durables du modèle, au plus `MEMORY_LONG_TERM_TOKENS` (10 000) | fin de mission, ou effacement (`memory.generation`) |
+| 4 | Mémoire de mission | portée `travail`, en ajout seul, au plus `MEMORY_WORK_TOKENS` (10 000), plus le tampon `a_retenir` | ajout d'une note (le préfixe reste servi) ; compaction |
+| 5 | Message utilisateur | `mission.buildState()` sérialisé en JSON | chaque appel |
 
-Les couches 1 et 2 forment le prompt systeme historique. La couche 3 y est
-ajoutee : la cle de cache complete est
+Les couches 1 à 3 forment la base mise en cache, construite une fois par clé
 `<type>|<approvisionnement>|<profil>|<docs.generation>|<memory.generation>`
-(`planner.basePrompt()`). La couche 4 est recoltee a chaque appel par
-`planner.systemPrompt()` = `basePrompt()` + `missionMemoryLayer()`.
+(`planner.basePrompt()`). Le profil (`bois`, `fabrication`, donné par
+`mission.profilPrompt()`, A/B `prompt_type`) retire les règles inutiles à la
+mission. La couche 4 est recollée à chaque appel :
+`planner.systemPrompt()` = `basePrompt()` + `missionMemoryLayer()`. Les
+prompts voisins `intent` (routage du chat) et `brief` (lecture de l'objectif)
+sont construits une seule fois.
 
-### Les trois regles
+Ordres de grandeur : 24 à 30 k caractères (~7 à 9 k jetons) pour le système
+selon le type de mission, un à deux milliers de jetons pour l'état.
 
-**Memoire de la mission = en ajout seul (append-only).** Chaque note s'ajoute a
-la fin du fil : le prefixe deja en cache reste valide. Si elle depasse **8000**
-jetons, elle est **compactee par un resume du modele** a moins de **4000** — la
-compaction reecrit le fil une fois, paye une invalidation, puis le cache repart
-sur le resume.
+### Contenu du message utilisateur
 
-**Memoire long terme hors du volatil.** Elle n'est ecrite qu'a la **fin d'une
-mission** ; pendant toute la mission la couche 3 ne bouge pas, donc reste en
-cache. Les ecritures long terme faites en cours de mission sont **tamponnees** —
-elles restent visibles dans la couche 4 (« a retenir ») — puis fusionnees dans
-la couche 3 au `finish()` de la mission : une seule invalidation de la couche 3
-par mission.
+`consigne` (le brief), `progression`, `bot` (position, orientation,
+`dans_liquide`), `environnement` (cible, navigation, `objets_au_sol`,
+`outil_necessaire`, indices de montée), `inventaire`, `chantier` et `besoins`,
+`prerequis` (solveur), `blocage`, `demandeur`, `dernieres_etapes`,
+`etapes_en_cours`, `chat_recent`, `fabrications_possibles`, et les seuls
+**compteurs** de mémoire (`memoire` : jetons, plafonds, restants, génération ;
+le texte des notes vit dans les couches 3 et 4).
 
-**Raisonnement = `PLANNER_MAX_TOKENS` (2000).** Le raisonnement (compte dans
-`max_tokens` chez deepseek) est regenere a chaque appel ; il n'est ni stocke ni
-reinjecte. La couche 5 est par construction la plus volatile.
+L'objet `mission` de `mission.js` (file d'étapes, historique, compteurs, plan
+de chantier) reste en mémoire du processus : `buildState()` n'en envoie
+qu'une vue.
 
-### Budgets
+## Mémoire du modèle (`bot/memory.js`)
 
-| Element | Budget |
-| --- | --- |
-| Raisonnement | `PLANNER_MAX_TOKENS` (2000) |
-| Memoire long terme | `MEMORY_LONG_TERM_TOKENS` (10000 jetons) |
-| Memoire de la mission | `MEMORY_WORK_TOKENS` (10000 max) ; compaction au-dela de `MEMORY_WORK_COMPACT_AT` (8000) vers moins de `MEMORY_WORK_COMPACT_TO` (4000) |
-| Note isolee | `MEMORY_NOTE_MAX` (4000 caracteres) |
+Chaque appel part de zéro côté modèle. Il s'écrit donc lui-même des notes avec
+les actions `memoriser` et `oublier`, qu'il relit au tour suivant.
 
-### Statut
+| Portée | Durée de vie | Usage |
+| --- | --- | --- |
+| `travail` | vidée à chaque nouvelle mission (`memory.resetWork()`) | gisement repéré, intention, plan entamé |
+| `long_terme` | persistée dans `MEMORY_FILE` (`/data/memory.json`), rechargée au démarrage | ce qui survit aux missions : le monde, les habitudes |
 
-Implémenté. Les ecritures long terme faites en cours de mission vont dans le
-tampon `a_retenir` (couche 4, visible du modele) et sont fusionnees dans la
-couche 3 par `memory.commitLongTerm()` au `finish()` de la mission — une seule
-invalidation de la couche 3 par mission. La compaction de la memoire de mission
-est un resume produit par le modele (`compact()` dans `planner.js`, injecte
-dans `memory.js` via `memory.setCompactor`).
+Trois règles tiennent le cache :
+
+- **La mémoire de mission est en ajout seul.** Chaque note s'ajoute à la fin
+  du fil, donc le préfixe déjà en cache reste valide. Au-delà de
+  `MEMORY_WORK_COMPACT_AT` (8 000 jetons), le fil est résumé par le modèle
+  (`planner.compact`, branché par `memory.setCompactor`) sous
+  `MEMORY_WORK_COMPACT_TO` (4 000) : une invalidation payée une fois.
+- **La mémoire long terme ne bouge qu'en fin de mission.** Une écriture long
+  terme en cours de mission va dans le tampon `a_retenir` (visible en couche 4)
+  et n'est fusionnée qu'au `finish()` (`memory.commitLongTerm()`) : une seule
+  invalidation de la couche 3 par mission.
+- **Le raisonnement n'est jamais réinjecté.** Il est régénéré à chaque appel
+  et compte dans `PLANNER_MAX_TOKENS` (2 000).
+
+Plafonds et refus :
+
+- un plafond par portée, pour qu'une mission bavarde n'affame pas la mémoire
+  longue ;
+- estimation volontairement grossière, environ 3,5 caractères par jeton
+  (`memory.estimateTokens()`) : le but est d'empêcher un dépassement ;
+- une note isolée est bornée par `MEMORY_NOTE_MAX` (4 000 caractères) ;
+- une écriture qui dépasserait son plafond est refusée, avec le total visé, le
+  plafond et les jetons restants, pour que le modèle oublie ou résume au lieu
+  de réessayer ;
+- `clear(portee)` exige une portée explicite (`travail`, `long_terme` ou
+  `tout`), jamais devinée.
+
+## Garde-fou humain
+
+On voit ce que le modèle retient, et on l'efface s'il s'égare :
+
+```powershell
+curl.exe -s http://127.0.0.1:3000/api/memory
+curl.exe -s -X DELETE "http://127.0.0.1:3000/api/memory?portee=travail"   # travail | long_terme | tout
+```
+
+`GET /api/status` et `mission.status()` exposent aussi `memoire`.

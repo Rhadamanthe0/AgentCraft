@@ -7,6 +7,11 @@ HISTORIQUE : les notes les plus anciennes decrivent des modules retires
 gratuits, overlay de documentation). L etat courant et les regles en vigueur
 sont dans AGENTS.md ; en cas de contradiction, AGENTS.md prime.
 
+Les versions detaillees des documents de `docs/` d avant la revue du
+2026-10-16 (essais de navigation, ancien runner Windows, mesures de vitesse
+du banc, progression d implementation du 2026-09-24) restent lisibles par
+`git show e5d210b:docs/<fichier>.md`.
+
 ---
 
 ## Bancs rouges sur main apres 5c9667f (2026-10-04)
