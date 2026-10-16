@@ -118,6 +118,22 @@ function actionIsolee (sim, signal, compte) {
   })
 }
 
+// Sans lieu nomme, face a un mur (cabane finie, composite/lit-cabin) : la case
+// devant est pleine, la torche va sur le sol libre a cote, jamais dans le corps.
+test('poser : face a un mur, l objet va sur une case libre autour du bot', async () => {
+  const sim = createSimServer({ start: new Vec3(0.5, 200, 0.5), inventory: [{ name: 'torch', count: 2 }],
+    blocks: { '0,200,-1': 'stone', '0,201,-1': 'stone' } })
+  sim.bot.entity.yaw = 0
+  const compte = []
+  try {
+    const r = await actionIsolee(sim, null, compte).poser({ objet: 'torch' })
+    assert.ok(!r.echec, r.resultat)
+    assert.equal(sim.count(n => n === 'torch'), 1)
+    assert.notEqual(sim.nameAt(0, 200, 0), 'torch')
+    assert.deepEqual(compte, [['torch', 1]])
+  } finally { sim.close() }
+})
+
 for (const etape of ['equip', 'lookAt', 'placeBlock']) {
   test(`poser : timeout pendant ${etape}, vrai writer tenu jusqu au settle, aucune continuation tardive`, async t => {
     const sim = createSimServer({ start: new Vec3(0.5, 200, 0.5), inventory: [{ name: 'rail', count: 1 }] })
