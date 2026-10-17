@@ -11,7 +11,7 @@ fallback when metrics are unusable). A worker:
             its fixture is set, never while it waits in the queue;
   retired   stopped on purpose (no level left, or target lowered): bot and
             probe quit cleanly, the index may be started again later;
-  failed    not in the world within the start timeout: stopped, its index is
+  failed    launch refused or not ready within the start timeout: stopped, its index is
             never reused, and after CI_MAX_START_FAILURES (3) no more starts;
   dead      its bot or probe exited on its own: logged, never restarted, the
             level it was playing fails and the healthcheck of its container too.
@@ -244,6 +244,8 @@ class Pool:
 
     # ---------------------------------------------------------- main loop
     def admit(self, reason, m, batch=1):
+        if self.start_failures >= self.max_start_failures:
+            return
         index = self.free_index()
         if index is None:
             return
@@ -257,8 +259,12 @@ class Pool:
             self.control.start_bot(index)
             self.control.start_probe(w.probe)
         except Exception as error:
-            w.state = 'retired'
-            self.event('echec', f'lancement refuse : {error}', w)
+            with self.lock:
+                self.start_failures += 1
+            problem = f'lancement refuse : {error}'
+            self.retire(w, problem)
+            w.state = 'failed'
+            self.event('echec', problem, w)
             return
         thread = threading.Thread(target=self.worker_main, args=(w,), daemon=True)
         thread.start()
