@@ -94,7 +94,7 @@ les joue par `Banc:` (nom exact), puis elles retournent dans `trees.RETIRED`.
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
 `prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte`,
-`anti_boucle` (allumes par defaut) ; `nav_creuse` (eteint, `avec(...)` sur
+`anti_boucle`, `plans_longs` (allumes par defaut) ; `nav_creuse` (eteint, `avec(...)` sur
 gather/sand-walled et terrain/plateau) ; `acces_unifie` (eteint, moteur d acces
 unique : un seul A* pour marcher, casser, monter en tour et poser un pont,
 `avancer` -> `atteindre`, la cascade historique en recours ; `avec(...)` sur
@@ -142,14 +142,16 @@ par ce mode, une porte posee sur un chantier qui en prevoit une va dans
 l ouverture ; `emplacement` de cuire parmi `craft.POSTES_CUISSON` ;
 `ouvrir_porte` et `poser_porte` masquees ; `avec(...)` sur craft/iron-pickaxe
 et composite/cabin-from-scratch, retires du banc complet ;
-tmp/utiliser.test.js) ; `plans_longs` (eteint, 2026-10-16, idee des agents
-Gemini qui finissent le jeu, arXiv 2610.22319, un programme de 33 s en
-mediane : plan de 1 a `PLANNER_LONG_PLAN_MAX` (10) actions et 25 a 40 s de
-jeu vises au lieu de 5 actions et 6 a 10 s, prompt en cache distinct
-(`|long`) ; but : moins d appels au modele ; `avec(...)` sur terrain/plateau,
-gather/sand-walled, build/no-materials, trees/tall, trees/double,
-craft/iron-pickaxe et les composites cabane et maison en pierre, retires du
-banc complet ; compteur `modes.plans` : etapes et appels).
+tmp/utiliser.test.js) ; `plans_longs` (allume par defaut le 2026-10-17 par le
+proprietaire, idee des agents Gemini qui finissent le jeu, arXiv 2610.22319,
+un programme de 33 s en mediane : plan de 1 a `PLANNER_LONG_PLAN_MAX` (10)
+actions et 25 a 40 s de jeu vises au lieu de `PLANNER_PLAN_MAX` (5) et 6 a
+10 s, prompt en cache distinct (`|long`) ; A/B de 2 bancs, 16 paires toutes
+reussies : appels au modele -36 %, duree totale +3 %, trees/tall +33 % ;
+`sans(...)` sur terrain/plateau, gather/sand-walled, build/no-materials,
+trees/tall, trees/double, craft/iron-pickaxe et les composites cabane et
+maison en pierre, retires du banc complet ; compteur `modes.plans` : etapes
+et appels).
 
 A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
 liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)
@@ -369,7 +371,8 @@ Flux d une demande (details : ARCHITECTURE.md) :
    suivants (`fabricationSuite`) le deviennent un a un, la fin attend le
    dernier.
 3. **Boucle de mission** (`mission.js`) : un plan JSON de 1 a
-   `PLANNER_PLAN_MAX` actions par appel, 6 a 10 s de jeu vises ; le premier
+   `PLANNER_LONG_PLAN_MAX` (10) actions par appel, 25 a 40 s de jeu vises
+   (`plans_longs` ; sans lui 5 actions et 6 a 10 s) ; le premier
    echec vide la file ; l appel suivant part pendant la derniere etape
    (appel anticipe) ; `reflexPass` entre deux etapes ; `finishAllowed`
    refuse un arret que les chiffres contredisent ; blocages detectes
@@ -741,9 +744,9 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `PLANNER_TIMEOUT_MS[_<USAGE>]` | 12000 | delai d un appel |
 | `PLANNER_RELAUNCH_MS` | 10000 | plan sans reponse apres ce delai : appel coupe et refait une fois avec le temps restant, jamais deux appels en meme temps, delai total inchange (interrupteur `relance_plan`, decision du proprietaire 2026-09-29) |
 | `MISSION_PLANNER_OUTAGE_MS` | 90000 | serie de pannes passageres du plan (`planner.estPassager` : silence, reseau coupe, 5xx, 429) toleree avant d abandonner la mission ; un refus (403...) arrete au troisieme echec. Lecture d objectif et chat rejouent aussi une coupure reseau dans le budget de deux essais (`rejouerSiPassager`) |
-| `PLANNER_PLAN_MAX` | 5 | actions max par plan |
+| `PLANNER_PLAN_MAX` | 5 | actions max par plan, `plans_longs` coupe |
 | `PLANNER_BUDGET_MIN_S` / `_MAX_S` | 6 / 10 | secondes de jeu visees par plan (consigne du prompt, jamais appliquee) |
-| `PLANNER_LONG_PLAN_MAX`, `PLANNER_LONG_BUDGET_MIN_S` / `_MAX_S` | 10, 25 / 40 | memes bornes avec l interrupteur `plans_longs` |
+| `PLANNER_LONG_PLAN_MAX`, `PLANNER_LONG_BUDGET_MIN_S` / `_MAX_S` | 10, 25 / 40 | memes bornes avec l interrupteur `plans_longs` (allume par defaut) |
 | `PLANNER_MAX_TOKENS` | 2000 | sortie, raisonnement compris |
 | `PLANNER_PILOT_MAX_TOKENS` / `_RETRY_` | 4096 / 8192 | idem pour `/responses` |
 | `FEATURE_<MODE>` | allume | interrupteurs A/B |

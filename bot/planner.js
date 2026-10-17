@@ -1,7 +1,8 @@
 'use strict'
 
 // Planificateur JSON : le cerveau du bot. Un appel rend **plusieurs** actions
-// d affilee (1 a PLANNER_PLAN_MAX), executees sans rien redemander tant
+// d affilee (1 a PLANNER_LONG_PLAN_MAX, PLANNER_PLAN_MAX sans plans_longs),
+// executees sans rien redemander tant
 // qu elles reussissent : la latence d une mission est celle d un appel PAR
 // PLAN, pas par action. La boucle reste fermee : **le premier echec vide la
 // file** et fait replanifier sur l etat reel (voir mission.js).
@@ -77,7 +78,7 @@ const PLAN_MAX = config.positiveIntOrThrow(process.env.PLANNER_PLAN_MAX, 5, 'PLA
 // temps de la cabane, revue du 2026-09-27). Consigne du prompt, jamais appliquee.
 const BUDGET_MIN_S = config.positiveInt(process.env.PLANNER_BUDGET_MIN_S, 6, 'PLANNER_BUDGET_MIN_S')
 const BUDGET_MAX_S = config.positiveInt(process.env.PLANNER_BUDGET_MAX_S, 10, 'PLANNER_BUDGET_MAX_S')
-// Plans longs (A/B `plans_longs`, eteint, 2026-10-16) : un programme des
+// Plans longs (`plans_longs`, allume par defaut le 2026-10-17) : un programme des
 // agents Gemini qui finissent le jeu (arXiv 2610.22319) dure 33 s en mediane,
 // contre 6 a 10 s de jeu vises ici. Plus d actions et plus de jeu par plan :
 // moins d appels au modele (le quota est le facteur limitant), au prix d un

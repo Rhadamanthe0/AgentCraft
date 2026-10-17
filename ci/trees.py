@@ -320,7 +320,7 @@ def base_levels():
             'rules': {},
             # A/B: digging path by the shared navigator (index.digTowardNavigateur),
             # and the single access engine (acces_unifie).
-            'variants': [avec('nav_creuse'), avec('acces_unifie'), avec('plans_longs')],
+            'variants': [avec('nav_creuse'), avec('acces_unifie'), sans('plans_longs')],
         },
         {
             'name': 'terrain/hedge-pit',
@@ -447,7 +447,7 @@ def base_levels():
             'target': 4, 'leaves': [], 'logs': [], 'rules': {},
             # A/B: digging path by the shared navigator (index.digTowardNavigateur),
             # and the single access engine (acces_unifie).
-            'variants': [avec('nav_creuse'), avec('acces_unifie'), avec('plans_longs')],
+            'variants': [avec('nav_creuse'), avec('acces_unifie'), sans('plans_longs')],
         },
         # Craft levels: same runner as gather/* ; `give` stocks the bot by RCON
         # before the order (fixture only, like the arena itself).
@@ -609,7 +609,7 @@ def base_levels():
             'about': 'Inventaire vide, « Construis une maison en terre de 3 par 3 par 3 » : creuser la terre d abord.',
             'kind': 'build', 'instruction': 'Construis une maison en terre de 3 par 3 par 3',
             'blocks': ['minecraft:dirt', 'minecraft:grass_block'], 'target': 20, 'leaves': [], 'logs': [], 'rules': {},
-            'variants': [avec('sous_buts'), avec('reparer'), *MODELES_AB, avec('plans_longs')],
+            'variants': [avec('sous_buts'), avec('reparer'), *MODELES_AB, sans('plans_longs')],
         },
         {
             'name': 'route/three-trips',
@@ -632,7 +632,7 @@ def base_levels():
             'rules': {'standing_y_min': 203.9},
             # A/B des reflexes (objets tombes ramasses entre deux etapes, mise
             # a l abri) : buches coupees depuis le pilier, dispersees au sol.
-            'variants': [sans('reflexes'), avec('reparer'), avec('plans_longs')],
+            'variants': [sans('reflexes'), avec('reparer'), sans('plans_longs')],
         },
         {
             'name': 'trees/double',
@@ -640,7 +640,7 @@ def base_levels():
             'leaves': [(TX-2, 204, TZ-2, TX+3, 205, TZ+3)],
             'logs': _logs(*[(TX + dx, 200 + i, TZ + dz) for i in range(4) for dx in (0, 1) for dz in (0, 1)]),
             # Second A/B: plan calls without the relaunch after 10 s of silence.
-            'rules': {}, 'variants': [sans('recolter'), sans('relance_plan'), avec('plan_sans_raisonnement'), avec('plans_longs')],
+            'rules': {}, 'variants': [sans('recolter'), sans('relance_plan'), avec('plan_sans_raisonnement'), sans('plans_longs')],
         },
         # Player report: a snowy spruce whose leaf skirts reach the ground,
         # left half cut for other trees. Informative until three green runs.
@@ -710,7 +710,7 @@ def base_levels():
             # de cuisson en plus. Bloquant (4 bancs reussis d affilee au
             # 2026-09-28, 230-326 s).
             'kind': 'gather', 'instruction': 'Fabrique une pioche en fer', 'items': ['iron_pickaxe'],
-            'target': 1, 'cap': 480, 'variants': [sans('solveur'), avec('sous_buts'), avec('objet_vers'), avec('utiliser'), *MODELES_AB, avec('plans_longs')],
+            'target': 1, 'cap': 480, 'variants': [sans('solveur'), avec('sous_buts'), avec('objet_vers'), avec('utiliser'), *MODELES_AB, sans('plans_longs')],
             'terrain': [(20, 200, 26, 24, 201, 30, 'stone'), (22, 201, 26, 22, 201, 26, 'iron_ore'),
                         (23, 201, 26, 23, 201, 26, 'iron_ore'), (24, 201, 27, 24, 201, 27, 'iron_ore')],
             'leaves': [(6, 204, 6, 10, 205, 10)], 'logs': _logs(*[(8, 200 + i, 8) for i in range(4)]), 'rules': {},
@@ -761,7 +761,7 @@ def base_levels():
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
             # A/B: the model picks sub-goals (batir, obtenir) the code runs to the end.
-            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts'), avec('reparer'), avec('objet_vers'), avec('utiliser'), *MODELES_AB, avec('plans_longs')],
+            'rules': {}, 'variants': [sans('ouvrir_porte'), avec('sous_buts'), avec('reparer'), avec('objet_vers'), avec('utiliser'), *MODELES_AB, sans('plans_longs')],
         },
         # Palier 2 (2026-09-28) : chaine plus longue, imprevu, terrain hostile.
         # Informatifs jusqu a trois bancs reussis d affilee.
@@ -777,7 +777,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [avec('sous_buts'), avec('plan_sans_raisonnement'), avec('objet_vers'), *MODELES_AB, avec('plans_longs')],
+            'rules': {}, 'variants': [avec('sous_buts'), avec('plan_sans_raisonnement'), avec('objet_vers'), *MODELES_AB, sans('plans_longs')],
         },
         # Palier 2 (2026-10-09, A/B de modele) : forme jamais demandee depuis
         # rien (un mur, pas une boite), en pierre, avec une question du joueur
@@ -1988,12 +1988,13 @@ RETIRED = frozenset({
     'craft/iron-pickaxe~avec-objet_vers', 'composite/cabin-from-scratch~avec-objet_vers',
     'composite/stone-hut-from-scratch~avec-objet_vers',
     'craft/iron-pickaxe~avec-utiliser', 'composite/cabin-from-scratch~avec-utiliser',
-    # Plans longs (2026-10-16, idee des agents Gemini, arXiv 2610.22319) :
-    # joues par `Banc:` le temps de la campagne A/B.
-    'terrain/plateau~avec-plans_longs', 'gather/sand-walled~avec-plans_longs',
-    'build/no-materials~avec-plans_longs', 'trees/tall~avec-plans_longs', 'trees/double~avec-plans_longs',
-    'craft/iron-pickaxe~avec-plans_longs', 'composite/cabin-from-scratch~avec-plans_longs',
-    'composite/stone-hut-from-scratch~avec-plans_longs',
+    # Plans longs (2026-10-16, idee des agents Gemini, arXiv 2610.22319),
+    # allumes par defaut le 2026-10-17 (A/B : 16 paires, -36 % d appels) :
+    # le bras sans le mode se joue par `Banc:`.
+    'terrain/plateau~sans-plans_longs', 'gather/sand-walled~sans-plans_longs',
+    'build/no-materials~sans-plans_longs', 'trees/tall~sans-plans_longs', 'trees/double~sans-plans_longs',
+    'craft/iron-pickaxe~sans-plans_longs', 'composite/cabin-from-scratch~sans-plans_longs',
+    'composite/stone-hut-from-scratch~sans-plans_longs',
 })
 
 # Owner's limit (2026-10-10): a full bench plays fewer than 50 tests (levels,
@@ -2456,9 +2457,9 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             for action in ('batir', 'obtenir'):
                 if par_action.get(action):
                     modes[action] = {k: par_action[action].get(k) for k in ('n', 'echecs', 'ms')}
-            # plans_longs: model calls and steps, steps per plan (the mode
-            # acted when plans got longer than PLANNER_PLAN_MAX).
-            if (level.get('features') or {}).get('plans_longs') and steps:
+            # plans_longs (on by default): model calls and steps, steps per
+            # plan (the mode acted when plans got longer than PLANNER_PLAN_MAX).
+            if (level.get('features') or {}).get('plans_longs') is not False and steps:
                 modes['plans'] = {'etapes': steps, 'appels': result.get('plannerCalls')}
             if modes:
                 result['modes'] = modes
