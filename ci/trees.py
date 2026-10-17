@@ -837,7 +837,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [avec('plan_sans_raisonnement')],
         },
         {
             'name': 'composite/bucket',
@@ -864,7 +864,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [avec('plan_sans_raisonnement')],
         },
         {
             'name': 'composite/lit-cabin',
@@ -882,7 +882,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31)) for i in range(5)]),
-            'rules': {}, 'variants': [sans('poser')],
+            'rules': {}, 'variants': [sans('poser'), avec('plan_sans_raisonnement')],
         },
         {
             # Demande du proprietaire (2026-10-10) : chaine la plus longue du
@@ -907,7 +907,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [sans('poser')],
+            'rules': {}, 'variants': [sans('poser'), avec('plan_sans_raisonnement')],
         },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
@@ -1982,6 +1982,10 @@ RETIRED = frozenset({
     'composite/cabin-from-scratch~sans-ouvrir_porte', 'composite/cabin-from-scratch~avec-sous_buts',
     'composite/cabin-from-scratch~avec-reparer', 'composite/stone-hut-from-scratch~avec-sous_buts',
     'composite/stone-hut-from-scratch~avec-plan_sans_raisonnement', 'skill/tree-pillar~avec-acces_unifie',
+    # A/B plan_sans_raisonnement sur les composites les plus durs (2026-10-17) :
+    # niveaux qui differencient les bras, joues par `Banc:` le temps de la campagne.
+    'composite/stone-toolkit~avec-plan_sans_raisonnement', 'composite/big-stone-house~avec-plan_sans_raisonnement',
+    'composite/lit-cabin~avec-plan_sans_raisonnement', 'composite/powered-rail-line~avec-plan_sans_raisonnement',
     'skill/sand-walled~avec-acces_unifie',
     # Lot 2 des actions generiques (2026-10-11) : joues par `Banc:` le temps
     # de la campagne A/B, jamais au banc complet (quota).

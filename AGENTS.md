@@ -89,6 +89,9 @@ part de l objectif mesure atteinte, 0 a 1, `trees.progression`) sur les
 paires ou les deux bras echouent (ecart d au moins 0,10), puis par le cout
 (proprietaire, 2026-10-16, idee reprise de Mindcraft) ; PASS/FAIL reste seul
 juge de la fusion.
+**Choisir des niveaux qui differencient** (proprietaire, 2026-10-17) : un A/B
+se joue sur les niveaux les plus durs (composites longs, palier 3), pas sur
+ceux que les deux bras reussissent toujours : 6/6 contre 6/6 ne tranche rien.
 Les variantes comptent dans la limite de 49 niveaux (§5) : une campagne A/B
 les joue par `Banc:` (nom exact), puis elles retournent dans `trees.RETIRED`.
 
@@ -110,7 +113,10 @@ ses remedes joues par le code puis l etape rejouee, sans appel au modele ;
 table unique `remedesMesures`, partagee avec les sous-buts ; `avec(...)` sur
 trees/tall, trees/skirted, build/no-materials, composite/cabin-from-scratch) ;
 `plan_sans_raisonnement` (eteint : plan envoye avec thinking desactive au lieu
-de l effort ; `avec(...)` sur trees/double et composite/stone-hut-from-scratch) ;
+de l effort ; A/B du 2026-10-17 sur trees/double et stone-hut-from-scratch :
+6/6 contre 6/6, non differenciant ; campagne refaite sur les composites du
+palier 3, `avec(...)` sur stone-toolkit, big-stone-house, lit-cabin et
+powered-rail-line, retires du banc complet) ;
 `buts_ouverts` (eteint : matiere ou lieu hors catalogue nomme par le brief au
 registre du jeu, cle `libre:<bloc>` decrite par `skills.resourceSpec` ; un
 nom absent du registre (nom francais : « magnetite ») est renvoye une fois
