@@ -653,6 +653,14 @@ dans `docs/journal.md` (section « Les pieges »).
     composite/powered-rail-line. Les instantanes de blocage portent les objets
     au sol (`objets` : nom et position). Test : tmp/navigation-drop.test.js.
 
+24. **Emprise du chantier et arbre commence** (2026-10-17) : les cibles
+    ignorent l emprise du chantier (murs plus un bloc de marge), mais
+    `siteFits` n exige que deux blocs libres dans la marge : un chantier pose
+    a cote d un tronc coupe par le bas couvrait la derniere buche, seule cible
+    bois par la regle arbre fini et introuvable pour casser et piler (45 min,
+    193 plans). Les buches de l arbre commence restent des cibles
+    (`horsEmprise`, mission.js). Test : tmp/arbre-chantier.test.js.
+
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
 - Declenche par tout push sur `main` ou `claude/**` (workflow

@@ -1700,6 +1700,19 @@ function createMissionRunner (host, injected = {}) {
     return { x0: Math.min(...xs) - 1, x1: Math.max(...xs) + 1, z0: Math.min(...zs) - 1, z1: Math.max(...zs) + 1, y: Math.min(...ys) }
   }
 
+  // Emprise du chantier ecartee des cibles, sauf les buches de l arbre
+  // commence : un chantier pose a cote d un tronc coupe par le bas mettait la
+  // derniere buche dans sa marge, introuvable pour casser et pour piler alors
+  // que la regle arbre fini la rendait seule cible bois (stone-hut~aleatoire
+  // e067385 : 45 min, 193 plans, « hors de portee d ici » a un bloc d elle).
+  function horsEmprise (emprise) {
+    if (!emprise) return () => true
+    const arbre = arbreInacheve()
+    const gardees = arbre ? new Set(arbre.map(p => `${p.x},${p.y},${p.z}`)) : null
+    return position => !dansEmprise(emprise, position) ||
+      Boolean(gardees?.has(`${position.x},${position.y},${position.z}`))
+  }
+
   // Un etat de mission se construit d un trait (synchrone, le monde ne bouge
   // pas entre-temps) mais cherche plusieurs fois la meme cible : memo le temps
   // d un buildState.
@@ -1788,14 +1801,14 @@ function createMissionRunner (host, injected = {}) {
     // falaise), pas pour la casser d ici. Les bornes verticales ci-dessous
     // restent celles de `casser`.
     const anyHeight = opts.anyHeight === true
-    const emprise = empriseChantier()
+    const horsChantier = horsEmprise(empriseChantier())
 
     // Admissibilite d une position seule (chantier, bornes, secteur), appliquee
     // PENDANT la recherche, avant ses plafonds : sinon 32 blocs d une emprise
     // de chantier remplissaient la liste et la pierre autorisee a cote n etait
     // jamais vue.
     const admissible = position => {
-      if (dansEmprise(emprise, position)) return false
+      if (!horsChantier(position)) return false
       if (!anyHeight && position.y < feetY - MAX_DIG_DEPTH) return false
       // Trop haut pour etre atteint depuis le sol : passer a la cible suivante
       // plutot que de s acharner sur le haut d un tronc.
@@ -2844,8 +2857,8 @@ function createMissionRunner (host, injected = {}) {
     // Same footprint exclusion as findTargetBlock, also during the search:
     // the house being built is not a resource to climb to, and its placed
     // blocks must not fill the result cap.
-    const emprise = empriseChantier()
-    const admis = (pos, lire) => !dansEmprise(emprise, pos) && blocExpose(bot, pos, feetY, lire)
+    const horsChantier = horsEmprise(empriseChantier())
+    const admis = (pos, lire) => horsChantier(pos) && blocExpose(bot, pos, feetY, lire)
     let positions
     try {
       positions = perception.trouverBlocs(bot, { ids, filtre: admis, maxDistance: SEARCH_RADIUS, count: 32 })
