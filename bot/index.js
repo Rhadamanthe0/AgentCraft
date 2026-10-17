@@ -164,7 +164,7 @@ function stopPathfinding () {
 }
 
 // ---------------------------------------------------------------------------
-// Cycle durable (ARCHITECTURE C0/C5, D18/D22-D23/D29/D36/D38/D42/D44-D46) :
+// Cycle durable (cadrage archive C0/C5, D18/D22-D23/D29/D36/D38/D42/D44-D46) :
 // inbox + objectifs persistés, executeur a proprietaire unique, deux arrets
 // hors LLM. Factory injectable pour les tests sans vrai bot.
 // ---------------------------------------------------------------------------
