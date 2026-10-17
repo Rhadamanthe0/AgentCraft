@@ -3844,6 +3844,10 @@ function createMissionRunner (host, injected = {}) {
     getBot: () => host.getBot(),
     resoudreObjet: texte => {
       const bot = host.getBot()
+      // Nom exact du registre d abord : « spruce_planks » devenait la famille
+      // planches, puis oak_planks (« aucun oak_planks en inventaire »).
+      const exact = String(texte ?? '').trim().toLowerCase().replace(/^minecraft:/, '')
+      if (bot?.registry?.itemsByName && Object.hasOwn(bot.registry.itemsByName, exact)) return exact
       const nom = resolveFabricationCible(bot, texte)
       if (!nom) return null
       if (bot?.registry?.itemsByName?.[nom]) return nom

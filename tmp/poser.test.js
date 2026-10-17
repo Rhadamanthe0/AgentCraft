@@ -104,9 +104,11 @@ test('poser : objet absent de l inventaire, echec dit avec son code', async () =
     blocks: { '10,199,15': 'red_wool' },
     inventory: [],
     brief: { type: 'recolte', matiere: 'aucune' },
-    script: [{ action: 'poser', objet: 'torch', de: 'red_wool' }, { action: 'terminer' }]
+    script: [{ action: 'poser', objet: 'torch', de: 'red_wool' }, { action: 'poser', objet: 'spruce_planks' }, { action: 'terminer' }]
   })
   assert.ok(lignes.some(l => /aucun torch en inventaire/.test(l)), lignes.slice(-10).join('\n'))
+  // Nom exact du registre garde tel quel, jamais la famille (oak_planks).
+  assert.ok(lignes.some(l => /aucun spruce_planks en inventaire/.test(l)), lignes.slice(-10).join('\n'))
 })
 
 test('obtenir : objet nomme deja en poche ou inconnu, dit sans rien jouer', async () => {
