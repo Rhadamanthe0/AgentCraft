@@ -262,7 +262,8 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
     bot.on('blockUpdate', onBloc)
     const goal = block ? new GoalBlocEnVue(block, monde, { reach: 3.5 }) : new goals.GoalNear(position.x, position.y, position.z, range)
     const log = []
-    const onUpdate = r => log.push(`${r.status}:${r.visitedNodes}n/${r.path.length}p ${r.path.slice(0, 3).map(n => `${n.x},${n.y},${n.z}${n.toBreak.length ? ' b' + n.toBreak.length : ''}${n.toPlace.length ? ' p' + n.toPlace.length : ''}`).join(' > ')}`)
+    let derniere = null
+    const onUpdate = r => (derniere = r) && log.push(`${r.status}:${r.visitedNodes}n/${r.path.length}p ${r.path.slice(0, 3).map(n => `${n.x},${n.y},${n.z}${n.toBreak.length ? ' b' + n.toBreak.length : ''}${n.toPlace.length ? ' p' + n.toPlace.length : ''}`).join(' > ')}`)
     const onReset = r => log.push(`reset:${r} ${bot.entity.position.toString()}`)
     bot.on('path_update', onUpdate); bot.on('path_reset', onReset)
     let stuck = 0
@@ -271,6 +272,9 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
     const timer = setTimeout(() => bot.pathfinder.setGoal(null), 45000)
     try {
       await bot.pathfinder.goto(goal)
+      if (require('../bot/correctifs-jeu').cheminVideSansBut(derniere, goal, bot.entity.position)) {
+        return { reached: false, code: 'no_path', travelled: Number(startPos.distanceTo(bot.entity.position).toFixed(2)) }
+      }
       return { reached: stuck < 3, code: stuck < 3 ? 'dug' : 'stuck', travelled: Number(startPos.distanceTo(bot.entity.position).toFixed(2)), distance: bot.entity.position.distanceTo(position) }
     } catch (e) {
       console.log(`[creuse] ${e.message} ; ${log.slice(-8).join(' | ')}`)

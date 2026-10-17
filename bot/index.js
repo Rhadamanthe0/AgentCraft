@@ -529,7 +529,9 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
   const auStuck = []
   let recalages = 0
   const noeud = n => `${Math.floor(n.x)},${n.y},${Math.floor(n.z)}${n.toBreak?.length ? ` b${n.toBreak.length}` : ''}${n.toPlace?.length ? ` p${n.toPlace.length}` : ''}`
+  let derniere = null
   const onUpdate = r => {
+    derniere = r
     calculs.push(`${r.status}:${r.visitedNodes}n/${Math.round(r.time ?? 0)}ms/${r.path?.length ?? 0}p`)
     if (calculs.length > 6) calculs.shift()
     if (r.path?.length) premiers = r.path.slice(0, 3).map(noeud).join(' > ')
@@ -557,6 +559,8 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
   bot.on('path_reset', onRemise)
   bot.on('forcedMove', onRecalage)
   bot._client?.prependListener?.('position', avantRecalage)
+  // Point de retour du pathfinder neutralise a l annulation (correctifs-jeu.js).
+  const retour = correctifs.gardeRetour(bot)
   const depart = bot.entity.position.floored()
   const settleGate = bot.pathfinder.goto(goal).then(
     value => ({ ok: true, value }),
@@ -618,6 +622,10 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     if (stuckFired) {
       return { reached: false, code: 'stuck', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: 'stuck' }
     }
+    // goto resout sur un chemin vide meme sans chemin (correctifs-jeu.js).
+    if (correctifs.cheminVideSansBut(derniere, goal, bot.entity.position)) {
+      return { reached: false, code: 'no_path', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: 'chemin vide' }
+    }
     const distance = bot.entity.position.distanceTo(position)
     return { reached: block ? true : distance <= range + 1, code: 'dug', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), distance }
   } catch (err) {
@@ -633,6 +641,8 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     if (onAbort) signal?.removeEventListener?.('abort', onAbort)
     if (onReset) bot.removeListener('path_reset', onReset)
     stopPathfinding()
+    if (timedOut || abortFired || stuckFired) await retour.neutraliser()
+    else retour.detacher()
     setNavigation('strict')
     try { bot.clearControlStates() } catch (_) {}
   }
