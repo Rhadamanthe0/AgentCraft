@@ -900,6 +900,10 @@ function createMissionRunner (host, injected = {}) {
   // chercher ou recolter encore serait une errance. Rend un texte, ou null.
   function materiauSuffisant () {
     if (mission?.kind !== 'construction' || !mission.plan) return null
+    // Le solveur a encore une recolte d une autre matiere (or d un rail a
+    // poser, fer d un outil) : le chantier couvert ne la rend pas inutile
+    // (composite/powered-rail-line : « recolter » refuse, raw_gold manquant).
+    if (acquisition()?.etapes?.some(e => e.op === 'recolter' && e.matiere && e.matiere !== mission.resource)) return null
     const reste = buildProgress().left
     const bot = host.getBot()
     const stock = (bot?.inventory?.items() ?? []).filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
@@ -6121,7 +6125,14 @@ function createMissionRunner (host, injected = {}) {
     // trop gros pour l etat de mission lu a chaque rafraichissement.
     try {
       if (p) {
-        mission.instantanes = (mission.instantanes ?? []).concat({ ...entree, monde: perception.instantane(host.getBot(), p) }).slice(-3)
+        // Objets au sol avec leur position : un objet jamais ramasse se
+        // localise dans le monde rejoue (powered-rail-line, raw_gold perdu).
+        const objets = nearbyItems().slice(0, 8).map(e => {
+          let nom = null
+          try { nom = e.getDroppedItem?.()?.name ?? null } catch (_) {}
+          return { objet: nom, x: Number(e.position.x.toFixed(2)), y: Number(e.position.y.toFixed(2)), z: Number(e.position.z.toFixed(2)) }
+        })
+        mission.instantanes = (mission.instantanes ?? []).concat({ ...entree, monde: perception.instantane(host.getBot(), p), objets }).slice(-3)
       }
     } catch (_) {}
     const cause = derniere?.echec ? ` (${derniere.action} : ${String(derniere.resultat ?? '').slice(0, 70)})` : ''

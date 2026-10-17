@@ -12,7 +12,7 @@ const registry = require('prismarine-registry')('26.1')
 const Block = require('prismarine-block')(registry)
 const { createNavigator, clearSegment, itemInPickupRange } = require('../bot/navigation')
 
-function fixture ({ height = 2, landing = 'stone', unknown = false, mobile = true, tree = false, landingPatch = null, pickupEdge = false } = {}) {
+function fixture ({ height = 2, landing = 'stone', unknown = false, mobile = true, tree = false, landingPatch = null, pickupEdge = false, encoche = false } = {}) {
   const bot = new EventEmitter()
   const controls = { forward: false, back: false, left: false, right: false, jump: false, sprint: false, sneak: false }
   const inputs = []
@@ -33,6 +33,9 @@ function fixture ({ height = 2, landing = 'stone', unknown = false, mobile = tru
       name = p.y <= 63 ? 'stone' : 'air'
       if (p.x === 43 && p.z === -107 && p.y >= 64 && p.y <= 65) name = 'stone'
       if (p.x === 45 && p.z === -106 && p.y === 64) name = 'grass_block'
+      // Paroi de deux blocs a x = 47, encoche a hauteur de tete (minerai casse
+      // de cote) ou l objet repose a +1 au-dessus des pieds.
+      if (encoche && p.x === 47 && p.y >= 64 && p.y <= 65 && !(p.y === 65 && p.z === -105)) name = 'stone'
     }
     const definition = registry.blocksByName[name]
     // A bottom slab makes the geometric fall 2.5 rather than two blocks.
@@ -254,11 +257,29 @@ test('objet contre paroi : vrai A* et physique atteignent un poste proche sans v
   assert.equal(Object.values(f.controls).some(Boolean), false)
 })
 
+test('objet dans une encoche a hauteur de tete : vrai A* et physique rejoignent un poste au pied de la paroi', async t => {
+  const f = fixture({ pickupEdge: true, encoche: true })
+  t.after(f.close)
+  f.bot.entity.position = new Vec3(43.5, 64, -104.5)
+  const item = new Vec3(47.5, 65, -104.5)
+  f.startPhysics()
+  const result = await createNavigator(() => f.bot, { timeoutMs: 7000 }).toPosition(item, { radius: 1.6, pickup: true })
+  assert.equal(result.code, 'arrived', JSON.stringify({ result, position: f.bot.entity.position }))
+  const p = f.bot.entity.position
+  assert.equal(p.y, 64)
+  assert.ok(p.x < 47 && Math.hypot(p.x - item.x, p.z - item.z) <= 1.6, JSON.stringify(p))
+})
+
 test('poste pickup : autre etage, absence appui, eau et chunks inconnus refuses', () => {
   const f = fixture()
   const post = new Vec3(3.5, 65, 0.5)
   assert.equal(itemInPickupRange(f.bot, post, new Vec3(3.7, 65, 0.5)), true)
   assert.equal(itemInPickupRange(f.bot, post, new Vec3(3.7, 63, 0.5)), false)
+  // Boite de ramassage du jeu : un objet a +1 ou +2 est pris, pas a +2,4.
+  assert.equal(itemInPickupRange(f.bot, post, new Vec3(3.7, 66, 0.5)), true)
+  assert.equal(itemInPickupRange(f.bot, post, new Vec3(3.7, 67, 0.5)), true)
+  assert.equal(itemInPickupRange(f.bot, post, new Vec3(3.7, 67.4, 0.5)), false)
+  assert.equal(itemInPickupRange(f.bot, post, new Vec3(3.7, 64.2, 0.5)), false)
   const original = f.bot.blockAt
   for (const name of ['water', 'air', null]) {
     f.bot.blockAt = position => {

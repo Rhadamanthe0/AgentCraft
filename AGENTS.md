@@ -336,7 +336,8 @@ au demarrage au lieu de 75 min de niveaux rouges.
   retire va dans `trees.RETIRED` avec sa couverture dans `COVERED_BY`. Un
   niveau BLOQUANT couvert seulement par un niveau informatif reste joue
   jusqu a la promotion de sa couverture (garde-fou de fusion) ; il part le jour
-  ou elle devient bloquante. Passe du 2026-10-14 : cabin-from-scratch (dans
+  ou elle devient bloquante, sans demander (proprietaire, 2026-10-17 : tout
+  retrait d un doublon est automatique). Passe du 2026-10-14 : cabin-from-scratch (dans
   cabin-across-water) et bucket (dans powered-rail-line) retires ;
   stone-hut-from-scratch (dans big-stone-house), craft/iron-pickaxe (dans
   powered-rail-line) et chat/question-keeps-mission (dans stone-wall-question)
@@ -624,6 +625,15 @@ dans `docs/journal.md` (section « Les pieges »).
     pathfinder (l activation bascule une porte deja ouverte : le navigateur
     les gere), delai de pose a 0,5 s (faux echecs sous charge). Test :
     tmp/correctifs-jeu.test.js.
+
+23. **Ramassage : la boite du jeu, pas le seuil de 0,75 de `arrived`**
+    (2026-10-17) : le joueur ramasse un objet de 0,75 sous ses pieds a 2,3
+    au-dessus (corps gonfle de 0,5). `itemInPickupRange` (navigation.js) suit
+    cette hauteur ; avec `arrived` (|dy| <= 0,75), un objet tombe dans une
+    encoche a hauteur de tete (minerai casse de cote) n avait aucun poste :
+    A* sans but, `ramasser` 0/1 jusqu au plafond, raw_gold perdu sur
+    composite/powered-rail-line. Les instantanes de blocage portent les objets
+    au sol (`objets` : nom et position). Test : tmp/navigation-drop.test.js.
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 

@@ -99,6 +99,18 @@ test('poser : un pluriel sans nombre (« des torches ») en veut deux, une seule
   assert.ok(!lignes.some(l => /Objectif atteint/.test(l)))
 })
 
+test('poser : chantier couvert par la terre en poche, la recolte d un objet a poser reste permise', async () => {
+  const { lignes } = await jouer({
+    blocks: { '12,200,15': 'coal_ore', '12,201,15': 'stone' },
+    inventory: [{ name: 'dirt', count: 64 }, { name: 'stick', count: 4 }, { name: 'wooden_pickaxe', count: 1 }],
+    objectif: 'Construis une cabane de 3 blocs avec des torches',
+    brief: { type: 'construction', matiere: 'terre', pose: [{ objet: 'torch', quantite: 2 }] },
+    script: [{ action: 'choisir_terrain' }, { action: 'recolter', quantite: 1 }, { action: 'terminer' }]
+  })
+  const recolte = lignes.find(l => /\] 2\. recolter/.test(l)) ?? ''
+  assert.match(recolte, /1\/1 objet\(s\) de minerai/, lignes.filter(l => /mission\] \d/.test(l)).join('\n'))
+})
+
 test('poser : objet absent de l inventaire, echec dit avec son code', async () => {
   const { lignes } = await jouer({
     blocks: { '10,199,15': 'red_wool' },
