@@ -2444,14 +2444,14 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
                 result['trace'] = trace.get('resume')
             # Mode counters (ci/ab.py, A/B summary): did the mode actually act?
             # acces_unifie: engine calls, targets reached, blocks placed/dug;
-            # sous_buts: batir/obtenir steps and failures.
+            # sous_buts: batir/obtenir steps and failures; poser/utiliser: their steps.
             modes = {}
             if m.get('acces'):
                 modes['acces'] = m['acces']
             if m.get('reparations'):
                 modes['reparations'] = m['reparations']
             par_action = (result.get('trace') or {}).get('parAction') or {}
-            for action in ('batir', 'obtenir'):
+            for action in ('batir', 'obtenir', 'poser', 'utiliser'):
                 if par_action.get(action):
                     modes[action] = {k: par_action[action].get(k) for k in ('n', 'echecs', 'ms')}
             if modes:
