@@ -130,7 +130,9 @@ function setFeatures (changes = {}) {
 // validation du planificateur suivent featureOn.
 function syncActionFeatures () {
   for (const spec of Object.values(skills.ACTIONS)) {
-    for (const f of [].concat(spec.feature ?? [])) skills.setFeatureEnabled(f, featureOn(f, spec.featureDefault ?? true))
+    // featureDefault : un booleen pour tous ses modes, ou un defaut par mode.
+    const defaut = f => typeof spec.featureDefault === 'object' ? spec.featureDefault[f] ?? true : spec.featureDefault ?? true
+    for (const f of [].concat(spec.feature ?? [])) skills.setFeatureEnabled(f, featureOn(f, defaut(f)))
     // Parametres a interrupteur : eteints par defaut (un nouveau parametre se
     // mesure en A/B avant d etre servi).
     for (const d of Object.values(spec.params ?? {})) {
@@ -7305,7 +7307,7 @@ function createMissionRunner (host, injected = {}) {
         console.log(`[mission] fabrication "${target}" detectee, type geste -> recolte (pas de cloture en un plan)`)
         value = { ...value, kind: 'recolte' }
       }
-      if (featureOn('poser', false) && Array.isArray(value.pose) && value.pose.length > 0 && value.kind === 'geste' && !value.route) {
+      if (featureOn('poser') && Array.isArray(value.pose) && value.pose.length > 0 && value.kind === 'geste' && !value.route) {
         console.log('[mission] objets a poser, type geste -> recolte (obtenir puis poser)')
         value = { ...value, kind: 'recolte', incompleteGesture: false }
       }
@@ -7317,7 +7319,7 @@ function createMissionRunner (host, injected = {}) {
     const blocConnu = nom => !!skills.ressourceLibre(nom, host.getBot()?.registry)
     let brief
     const debutBrief = Date.now()
-    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), pose: featureOn('poser', false), blocConnu, relance: featureOn('relance_plan') }))
+    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), pose: featureOn('poser'), blocConnu, relance: featureOn('relance_plan') }))
     try {
       try {
         brief = await lireBrief()
@@ -7469,7 +7471,7 @@ function createMissionRunner (host, injected = {}) {
     }
     // Objets a poser dans le monde (A/B `poser`) : noms du brief valides au
     // registre, quantite dite ou au moins un. La revision garde les siens.
-    let poses = featureOn('poser', false) ? posesDuBrief(host.getBot(), brief.pose, texteSansCoord) : []
+    let poses = featureOn('poser') ? posesDuBrief(host.getBot(), brief.pose, texteSansCoord) : []
     if (poses.length === 0 && Array.isArray(opts.revisionOf?.poses)) poses = opts.revisionOf.poses
     if (poses.length > 0 && !brief.route && kind !== 'construction') kind = 'recolte'
     // Bloc ouvert qui ne lache rien (spawner) ou incassable : il se rejoint,

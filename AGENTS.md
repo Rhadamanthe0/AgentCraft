@@ -94,7 +94,7 @@ les joue par `Banc:` (nom exact), puis elles retournent dans `trees.RETIRED`.
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
 `prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte`,
-`anti_boucle` (allumes par defaut) ; `nav_creuse` (eteint, `avec(...)` sur
+`anti_boucle`, `poser` (allumes par defaut) ; `nav_creuse` (eteint, `avec(...)` sur
 gather/sand-walled et terrain/plateau) ; `acces_unifie` (eteint, moteur d acces
 unique : un seul A* pour marcher, casser, monter en tour et poser un pont,
 `avancer` -> `atteindre`, la cascade historique en recours ; `avec(...)` sur
@@ -119,14 +119,17 @@ deplacement vers un tel bloc est clos par le code des qu il est a portee ; et
 refus immediat d une capacite absente, identifiant de
 `skills.CAPACITES_ABSENTES`, jamais un texte libre ; niveaux `ouvert/*`,
 `avec(...)` sur gather/flowers et craft/axe pour voir les faux refus) ;
-`poser` (eteint, 2026-10-10 : action `poser {objet, quantite, de, vers}`,
+`poser` (allume par defaut le 2026-10-17 par le proprietaire : A/B de 7 bancs,
+5/14 contre 0/14, aucune perte ; action `poser {objet, quantite, de, vers}`,
 `bot/action-poser.js` : un objet devant soi, a cote d un bloc nomme, SUR lui
 pour un objet-entite (minecart, bateau : `activateBlock` puis entite
 mesuree), ou une ligne au sol d un bloc nomme a l autre ; le brief liste les
 objets a poser (`pose`, cle de prompt `brief|pose`), `consigne.poses` les
 sert, le solveur vise le premier qui manque en poche, `finishAllowed` exige
-chaque pose verifiee (`mission.posesFaites`) ; `avec(...)` sur
-composite/lit-cabin et composite/powered-rail-line ; tmp/poser.test.js) ;
+chaque pose verifiee (`mission.posesFaites`), un pluriel sans nombre (« des
+torches ») en vaut deux (`skills.nommeAuPluriel`), `consigne.poses` dit
+`en_poche` ; `sans(...)` sur composite/lit-cabin et
+composite/powered-rail-line ; tmp/poser.test.js) ;
 `objet_vers` (eteint, 2026-10-11, lot 2 des actions generiques : `objet` sur
 casser, recolter, ramasser et `vers` sur avancer, explorer, piler, servis au
 modele seulement avec le mode (parametre a `feature` dans skills.js) ; le nom
@@ -217,8 +220,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
   supplementaires comptes, dans l arene ou une zone qui suit rotation et
   miroir), `composite/powered-rail-line` (ligne de minecart entre deux
   laines avec rails accelerateurs : fer, or, redstone, cuisson ; `entities` :
-  minecart present) ; ces deux derniers se mesurent avec `poser` (variante
-  `~avec-poser`). Une ferme a canne a sucre exige `culture` et `mecanisme`
+  minecart present) ; ces deux derniers gardent la variante `~sans-poser`. Une ferme a canne a sucre exige `culture` et `mecanisme`
   (circuits) : ce n est pas encore un niveau.
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
   escalier (jamais un puits vertical). Difficulte paisible pour l instant.
@@ -390,7 +392,7 @@ Flux d une demande (details : ARCHITECTURE.md) :
    declare dans `mission-state.js`, nulle part ailleurs.
 4. **Actions** (`skills.ACTIONS`, 28 hors sous-buts) : `casser`, `recolter`, `ramasser`,
    `donner`, `cuire`, `fabriquer`, `avancer`, `explorer`, `choisir_terrain`,
-   `piler`, `construire`, `poser` (A/B), `poser_porte`, `ouvrir_porte`, `utiliser` (A/B), `sortir`, `attendre`, `terminer`,
+   `piler`, `construire`, `poser`, `poser_porte`, `ouvrir_porte`, `utiliser` (A/B), `sortir`, `attendre`, `terminer`,
    `dire`, `regarder`, `sauter`, `appuyer`, `regarder_autour`, `pivoter`,
    `memoriser`, `oublier`, `rejoindre_demandeur`, `tourner_vers_demandeur`.
    Chacune est parametree (duree, distance, quantite, objet...) ; le modele
@@ -649,7 +651,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  98 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
+  98 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
   reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -792,7 +794,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/trace.js` | trace structuree de mission |
 | `bot/action-gestes.js` | gestes, attente, fin, memoire (premier module d actions) |
 | `bot/action-sous-buts.js` | plan vide bloque/refuse = `obtenir_bloque`, jamais acquisition accomplie ; sous-buts `batir` et `obtenir {objet, quantite}` (A/B `sous_buts`) : un geste mesure a la fois jusqu au but ; `obtenir` nomme fait de l objet la cible du solveur le temps du sous-but (`mission.demandeObtenir`) |
-| `bot/action-poser.js` | action `poser` (A/B `poser`, toujours eteint) : timeout/abort attend le settle physique avant de rendre le writer ; aucune continuation apres equip/regard annule ; objets-entites verifies par nouvelle entite du type demande ET consommation du stock total (pas un mob ni un bloc modifie) |
+| `bot/action-poser.js` | action `poser` (interrupteur `poser`, allume par defaut) : timeout/abort attend le settle physique avant de rendre le writer ; aucune continuation apres equip/regard annule ; objets-entites verifies par nouvelle entite du type demande ET consommation du stock total (pas un mob ni un bloc modifie) |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
 | `bot/script-brain.js` | cerveau scripte du banc de competences (`skill/*`, `MISSION_SCRIPT=1`) |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |

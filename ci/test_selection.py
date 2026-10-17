@@ -20,11 +20,11 @@ class Selection(unittest.TestCase):
         every = names('')
         self.assertEqual(every, names('tout'))
         self.assertIn('trees/tall', every)
-        self.assertIn('composite/lit-cabin~avec-poser', every)
+        self.assertIn('composite/lit-cabin~sans-poser', every)
 
     def test_patterns_take_variants(self):
         chosen = names('composite/lit-cabin*, craft/planks')
-        self.assertCountEqual(chosen, ['craft/planks', 'composite/lit-cabin', 'composite/lit-cabin~avec-poser',
+        self.assertCountEqual(chosen, ['craft/planks', 'composite/lit-cabin', 'composite/lit-cabin~sans-poser',
                                        'composite/lit-cabin~aleatoire'])
 
     def test_retired_only_by_exact_name(self):

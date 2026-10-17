@@ -882,7 +882,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31)) for i in range(5)]),
-            'rules': {}, 'variants': [avec('poser')],
+            'rules': {}, 'variants': [sans('poser')],
         },
         {
             # Demande du proprietaire (2026-10-10) : chaine la plus longue du
@@ -907,7 +907,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [avec('poser')],
+            'rules': {}, 'variants': [sans('poser')],
         },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve

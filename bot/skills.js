@@ -542,8 +542,9 @@ const ACTIONS = {
   poser: {
     kinds: ['recolte', 'deplacement', 'construction', 'geste'],
     // Servie avec l un ou l autre mode (le lot 3 remplace poser_porte par elle).
+    // `poser` allume par defaut (A/B du 2026-10-17, 7 bancs : 5/14 contre 0/14).
     feature: ['poser', 'utiliser'],
-    featureDefault: false,
+    featureDefault: { poser: true, utiliser: false },
     summary: 'poser un objet de l inventaire dans le monde, ou une ligne d objets',
     scale: 'nombre d objets poses, de 1 a 40',
     secondes: 1.5,
