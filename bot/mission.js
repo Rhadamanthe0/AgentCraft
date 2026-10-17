@@ -958,7 +958,7 @@ function createMissionRunner (host, injected = {}) {
     // Jamais la colonne ou le bot se tient : la casser le ferait chuter (vu :
     // degats sur trees/tall et trees/bent au premier essai de ce geste).
     const pieds = bot.entity.position.floored()
-    const colonne = support && (PILER_DIRT.test(support.name) || /_planks$/.test(support.name)) && isPillarBlock(bot, support) &&
+    const colonne = support && estBlocDePilier(support) && isPillarBlock(bot, support) &&
       !(support.position.x === pieds.x && support.position.z === pieds.z)
     if (!support || !(/_leaves$/.test(support.name) || colonne)) return false
     const center = support.position.offset(0.5, 0.5, 0.5)
@@ -1010,7 +1010,7 @@ function createMissionRunner (host, injected = {}) {
       // Perche sur son pilier : le sol est deux niveaux plus bas (vu sur
       // trees/tall : rien a creuser a -1, piler echouait faute de terre).
       const sous = bot.blockAt(here.offset(0, -0.5, 0))
-      const perche = sol && Boolean(sous) && (PILER_DIRT.test(sous.name) || /_planks$/.test(sous.name)) && isPillarBlock(bot, sous)
+      const perche = sol && Boolean(sous) && estBlocDePilier(sous) && isPillarBlock(bot, sous)
       let best = null
       for (let dx = -3; dx <= 3; dx += 1) {
         for (let dz = -3; dz <= 3; dz += 1) {
@@ -1489,6 +1489,13 @@ function createMissionRunner (host, injected = {}) {
   // Feuilles, buches et plantes ne sont pas un sol : un pilier monte contre
   // un tronc, dans la couronne, reste un pilier (vu en jeu : bot bloque en haut
   // d un pilier de planches entoure de feuilles, « parcours interrompu »).
+  // Bloc d echafaudage du bot : terre, planches, et herbe, qu une terre posee
+  // a l air libre devient en quelques secondes au serveur (skill/tree-pillar,
+  // banc d67a3cb : pilier verdi pris pour le sol, ni defait ni repris).
+  function estBlocDePilier (block) {
+    return Boolean(block) && (PILER_DIRT.test(block.name) || block.name === 'grass_block' || /_planks$/.test(block.name))
+  }
+
   function isPillarBlock (bot, block) {
     return [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => {
       const side = bot.blockAt(block.position.offset(dx, 0, dz))
@@ -1502,7 +1509,7 @@ function createMissionRunner (host, injected = {}) {
   async function quitterPilier (raison) {
     const bot = host.getBot()
     const dessous = bot?.entity ? bot.blockAt(bot.entity.position.offset(0, -0.5, 0)) : null
-    if (!dessous || !(PILER_DIRT.test(dessous.name) || /_planks$/.test(dessous.name)) || !isPillarBlock(bot, dessous)) return 0
+    if (!dessous || !estBlocDePilier(dessous) || !isPillarBlock(bot, dessous)) return 0
     const n = await descendScaffold(-Infinity, { pillarOnly: true })
     if (n) console.log(`[mission] ${raison} : pilier defait avant (${n} bloc(s))`)
     return n
@@ -1514,7 +1521,9 @@ function createMissionRunner (host, injected = {}) {
       const bot = host.getBot()
       if (!bot?.entity || bot.entity.position.y - targetY <= 1.5) break
       const below = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
-      if (!below || !(PILER_DIRT.test(below.name) || /_planks$/.test(below.name))) break
+      if (!below || !estBlocDePilier(below)) break
+      // L herbe du sol n est jamais creusee : seule une colonne isolee en est.
+      if (below.name === 'grass_block' && !isPillarBlock(bot, below)) break
       if (pillarOnly && !isPillarBlock(bot, below)) break
       // Chute d un bloc au plus : il faut un appui sous le bloc casse.
       const dessous = bot.blockAt(below.position.offset(0, -1, 0))
@@ -1555,7 +1564,7 @@ function createMissionRunner (host, injected = {}) {
       // deux blocs au plus, vers le sol juste sous le bot, puis nouvel essai.
       const bot = host.getBot()
       const under = bot?.entity ? bot.blockAt(bot.entity.position.offset(0, -0.5, 0)) : null
-      if (!result?.reached && under && (PILER_DIRT.test(under.name) || /_planks$/.test(under.name)) &&
+      if (!result?.reached && under && estBlocDePilier(under) &&
         isPillarBlock(bot, under) && typeof host.digToward === 'function' && !mission?.cancelled) {
         // Le sol est le premier bloc qui n est plus une colonne isolee
         // d echafaudage : la terre du sol (souvent de la dirt sous un pilier)
@@ -1564,7 +1573,7 @@ function createMissionRunner (host, injected = {}) {
         while (ground > under.position.y - 16) {
           const b = bot.blockAt(new Vec3(under.position.x, ground - 1, under.position.z))
           if (!b || b.boundingBox !== 'block') { ground -= 1; continue }
-          if (!(PILER_DIRT.test(b.name) || /_planks$/.test(b.name)) || !isPillarBlock(bot, b)) break
+          if (!estBlocDePilier(b) || !isPillarBlock(bot, b)) break
           ground -= 1
         }
         const down = await host.digToward(new Vec3(bot.entity.position.x, ground, bot.entity.position.z),
@@ -2325,7 +2334,7 @@ function createMissionRunner (host, injected = {}) {
     for (const p of poses) attempts[key(p)] = (attempts[key(p)] ?? 0) + 1
     const present = p => {
       const b = host.getBot()?.blockAt(p)
-      return Boolean(b && (PILER_DIRT.test(b.name) || /_planks$/.test(b.name)))
+      return Boolean(b && estBlocDePilier(b))
     }
     // An unloaded cell is unknown, not proof that the scaffold is gone.
     const unresolved = p => !host.getBot()?.blockAt(p) || present(p)
@@ -4510,7 +4519,7 @@ function createMissionRunner (host, injected = {}) {
         if (!walk.reached && !mission.cancelled) {
           const live = host.getBot()
           const dessous = live?.entity && live.blockAt(live.entity.position.offset(0, -0.5, 0))
-          if (dessous && (PILER_DIRT.test(dessous.name) || /_planks$/.test(dessous.name)) && isPillarBlock(live, dessous) &&
+          if (dessous && estBlocDePilier(dessous) && isPillarBlock(live, dessous) &&
               (await descendScaffold(-Infinity, { pillarOnly: true })) > 0) {
             walk = await host.navigateToPosition(item.position, {
               signal: mission.navigationAbort.signal, __owner: stepToken,
@@ -5092,7 +5101,7 @@ function createMissionRunner (host, injected = {}) {
       if (result.code === 'no_path' && !mission.cancelled) {
         const live = host.getBot()
         const dessous = live?.entity && live.blockAt(live.entity.position.offset(0, -0.5, 0))
-        if (dessous && (PILER_DIRT.test(dessous.name) || /_planks$/.test(dessous.name)) && isPillarBlock(live, dessous)) {
+        if (dessous && estBlocDePilier(dessous) && isPillarBlock(live, dessous)) {
           const defaits = await descendScaffold(-Infinity, { pillarOnly: true })
           if (defaits > 0) result = await approach()
         }
@@ -5611,7 +5620,7 @@ function createMissionRunner (host, injected = {}) {
       // tient, et aucun terrain ne se trouvait a 3 blocs de haut
       // (composite ba7cc6f : 21 fois « aucun terrain plat »). Pilier defait.
       const dessous = bot.blockAt(bot.entity.position.offset(0, -0.5, 0))
-      if (dessous && (PILER_DIRT.test(dessous.name) || /_planks$/.test(dessous.name)) && isPillarBlock(bot, dessous)) {
+      if (dessous && estBlocDePilier(dessous) && isPillarBlock(bot, dessous)) {
         await descendScaffold(-Infinity, { pillarOnly: true })
       }
 

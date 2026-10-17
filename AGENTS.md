@@ -667,6 +667,16 @@ dans `docs/journal.md` (section « Les pieges »).
     193 plans). Les buches de l arbre commence restent des cibles
     (`horsEmprise`, mission.js). Test : tmp/arbre-chantier.test.js.
 
+25. **Un pilier de terre devient herbe** (2026-10-17) : au serveur, une terre
+    posee a l air libre pres d une herbe verdit en quelques secondes. Le
+    pilier n etait reconnu que en terre ou planches : un pilier verdi etait
+    pris pour le sol, ni defait ni repris pour la terre manquante
+    (skill/tree-pillar rouge au banc d67a3cb, perche a +1 sans terre).
+    `estBlocDePilier` (mission.js) compte l herbe ; une herbe n est descendue
+    que si elle forme une colonne isolee (`isPillarBlock`), jamais le sol.
+    Simulateur : `SIM_HERBE_MS` (tmp/sim-server.js, eteint par defaut).
+    Test : tmp/skill-sim.test.js.
+
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
 - Declenche par tout push sur `main` ou `claude/**` (workflow
