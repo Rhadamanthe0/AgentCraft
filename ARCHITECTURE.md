@@ -119,8 +119,9 @@ buildState() ──► decideFromPlan() ──► action (slot physique) ──�
   `inventaire`, `chantier` et `besoins` (construction), `prerequis` (solveur),
   `arbre_demande`, `arbre_en_cours`, `blocage`, `dernieres_etapes`,
   `chat_recent`, `memoire`.
-- **Plan** (`decideFromPlan`) : `planner.plan` rend 1 à `PLANNER_PLAN_MAX`
-  actions (consigne : 6 à 10 s de jeu) ; `planner.validate` borne les
+- **Plan** (`decideFromPlan`) : `planner.plan` rend 1 à `PLANNER_LONG_PLAN_MAX`
+  (10) actions (consigne : 25 à 40 s de jeu ; 5 actions et 6 à 10 s sans
+  l'interrupteur `plans_longs`) ; `planner.validate` borne les
   paramètres.
 - **Appel anticipé** : quand la file descend à une étape, l'appel suivant part
   pendant son exécution (`startPrefetch`) et n'est attendu que si la file se

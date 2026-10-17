@@ -185,7 +185,7 @@ quantités. Puis la boucle de mission alterne :
 
 1. le code construit l'**état** du jeu (inventaire, cible, obstacles, besoins
    d'un chantier, chaîne de prérequis calculée par un solveur de recettes) ;
-2. le modèle rend un **plan JSON** de quelques actions, visant 6 à 10 secondes
+2. le modèle rend un **plan JSON** de quelques actions, visant 25 à 40 secondes
    de jeu ;
 3. le code exécute chaque action et mesure son effet. **Le premier échec vide
    le reste du plan** et l'on replanifie sur l'état réel.
