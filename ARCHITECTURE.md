@@ -66,7 +66,7 @@ Trois principes structurent le code :
 | `reflexes.js` | réflexes entre deux étapes (tête prise, chute de bloc, feu, monstre, objets proches) |
 | `memory.js` | mémoire du modèle : `travail` (mission) et `long_terme` (persistante) |
 | `delivery.js`, `activity.js` | registre des dons prouvés ; activité exposée au joueur |
-| `casse.js`, `paroi.js`, `correctifs-jeu.js`, `but-bloc.js` | correctifs de Mineflayer 26.1 : casse confirmée par le serveur, écart aux parois, vitesse de casse des minerais, but « bloc à portée » (pièges 6, 19, 20, 22 d'AGENTS.md) |
+| `casse.js`, `paroi.js`, `correctifs-jeu.js`, `but-bloc.js` | correctifs de Mineflayer 26.1 : casse confirmée par le serveur, écart aux parois, vitesse de casse des minerais, chemin vide et point de retour du pathfinder, but « bloc à portée » (pièges 6, 19, 20, 22 d'AGENTS.md) |
 | `logger.js`, `screenshot.js`, `config.js` | journal (fichier et chat) ; mini-carte PNG (éteinte) ; lecture typée des variables |
 
 `build.js`, `craft.js`, `acquire-plan.js` et `navigation.js` ne parlent jamais

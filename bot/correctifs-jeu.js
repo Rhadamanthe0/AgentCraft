@@ -20,6 +20,20 @@
 //    monter en tour. Seule `vine` est ajoutee : les autres lianes (cave_vines,
 //    weeping/twisting) ne sont pas grimpees par la physique, le chemin
 //    calcule ne serait pas executable.
+// 3. Chemin vide (revue d Astra, rmalde/minecraft-agent, 2026-10-17). goto
+//    (lib/goto.js) RESOUT quand l A* rend un chemin vide, meme avec le statut
+//    `noPath` : bot enferme, aucun noeud meilleur que le depart. Le trajet qui
+//    creuse rendait alors « dug », atteint, sans avoir bouge.
+// 4. Point de retour perime (meme revue). Apres la pose d une marche
+//    au-dessus d un trou (getMoveJumpUp, `returnPos`), le pathfinder ramene le
+//    bot au centre du noeud de depart (index.js `returningPos`), tick apres
+//    tick, but ou pas. Ni setGoal(null) ni resetPath n effacent ce point : un
+//    trajet annule pendant ou juste apres la pose ramenait encore le bot
+//    d environ un bloc, regard et commandes repris par-dessus l action
+//    suivante.
+//    Ecarte apres mesure (tmp/correctifs-jeu.test.js) : `fullStop`, qui
+//    recentre la position (jusqu a 0,31 bloc) avant une casse, reste dans la
+//    case que le bot occupe, jamais en collision : rien que le serveur refuse.
 const PIOCHE = 'mineable/pickaxe'
 const MAUVAIS_OUTIL = /^incorrect_for_/
 
@@ -46,4 +60,45 @@ function lianesGrimpables (movements, registry) {
   return movements
 }
 
-module.exports = { brancherCorrectifs, corrigerVitesseCasse, lianesGrimpables }
+// Vrai si goto a resolu sur un chemin vide sans but atteint (3) : `derniere`
+// est le dernier `path_update` du trajet.
+function cheminVideSansBut (derniere, goal, position) {
+  return Boolean(derniere && derniere.status === 'noPath' && derniere.path?.length === 0 &&
+    goal && position && !goal.isEnd(position.floored()))
+}
+
+// Garde du point de retour (4), a ouvrir avant le goto. `neutraliser`, apres
+// l annulation : retire `returnPos` des poses des chemins vus (une pose encore
+// en vol n arme plus de retour), puis attend que le retour deja arme ait rendu
+// les commandes (`calmes` ticks sans marche, `maxTicks` au plus). Rend le
+// nombre de ticks ou le pathfinder menait encore le bot.
+function gardeRetour (bot, { maxTicks = 30, calmes = 2, tickMs = 50 } = {}) {
+  const poses = new Set()
+  const onUpdate = r => {
+    for (const noeud of r?.path ?? []) for (const pose of noeud.toPlace ?? []) if (pose.returnPos) poses.add(pose)
+  }
+  bot.on('path_update', onUpdate)
+  const detacher = () => bot.removeListener('path_update', onUpdate)
+  const tick = () => new Promise(resolve => {
+    const fin = () => { clearTimeout(t); bot.removeListener('physicsTick', fin); resolve() }
+    const t = setTimeout(fin, tickMs * 2)
+    bot.on('physicsTick', fin)
+  })
+  async function neutraliser () {
+    detacher()
+    for (const pose of poses) delete pose.returnPos
+    poses.clear()
+    let mene = 0
+    let calme = 0
+    try { bot.clearControlStates() } catch (_) {}
+    for (let i = 0; i < maxTicks && calme < calmes; i++) {
+      await tick()
+      if (bot.getControlState?.('forward')) { mene++; calme = 0 } else calme++
+    }
+    try { bot.clearControlStates() } catch (_) {}
+    return mene
+  }
+  return { neutraliser, detacher }
+}
+
+module.exports = { brancherCorrectifs, corrigerVitesseCasse, lianesGrimpables, cheminVideSansBut, gardeRetour }

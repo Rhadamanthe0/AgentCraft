@@ -633,7 +633,15 @@ dans `docs/journal.md` (section « Les pieges »).
     grimpe pas. Ecartes apres verification : temps de casse dans l eau et
     rotation de `use_item` (deja corriges en mineflayer 4.39), portes du
     pathfinder (l activation bascule une porte deja ouverte : le navigateur
-    les gere), delai de pose a 0,5 s (faux echecs sous charge). Test :
+    les gere), delai de pose a 0,5 s (faux echecs sous charge). Releves dans
+    le code d Astra (2026-10-17) : `goto` RESOUT sur un chemin vide meme en
+    `noPath` (bot enferme) ; le trajet qui creuse le rend `no_path`
+    (`cheminVideSansBut`). Apres la pose d une marche au-dessus d un trou, le
+    pathfinder ramene le bot a son point de retour (`returningPos`) meme but
+    annule, regard et commandes repris chaque tick : `gardeRetour` retire les
+    `returnPos` a l annulation et attend la fin d un retour deja arme.
+    Ecarte : `fullStop` recentre la position (jusqu a 0,31 bloc) avant une
+    casse, toujours dans la case occupee, jamais en collision. Test :
     tmp/correctifs-jeu.test.js.
 
 23. **Ramassage : la boite du jeu, pas le seuil de 0,75 de `arrived`**
@@ -835,7 +843,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/navigation.js` / `bot/motion-trace.js` | navigateur partage (options `dig` et `place` : casse et pose planifiees par A*) ; traces de trajet |
 | `bot/casse.js` | casse confirmee par le serveur, bloc remis cote client sinon (piege 19) |
 | `bot/paroi.js` | jamais au contact exact d une paroi, pas refuse par le serveur sinon (piege 20) |
-| `bot/correctifs-jeu.js` | vitesse de casse des minerais et lianes grimpables en 26.1 (piege 22) |
+| `bot/correctifs-jeu.js` | vitesse de casse des minerais, lianes grimpables, chemin vide et point de retour du pathfinder en 26.1 (piege 22) |
 | `bot/but-bloc.js` | but « bloc en vue, a portee des yeux » du trajet qui creuse (corrige `GoalLookAtBlock`, piege 6) |
 | `bot/pose.js` | gestes de pose partages : tour (pose sous soi au sommet du saut), pose contre une face, verifies par le monde |
 | `bot/movement-task.js` / `bot/tree-position.js` | parcours declaratifs ; placement sous un arbre |
