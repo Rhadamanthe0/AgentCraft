@@ -95,6 +95,35 @@ test('cibles de fabrication en francais : outil a matiere, objets courants, plur
   const { resolveFabricationCible } = require('../bot/mission')
   assert.equal(resolveFabricationCible({ registry: md }, 'torches'), 'torch')
   assert.equal(resolveFabricationCible({ registry: md }, 'furnaces'), 'furnace')
+  assert.equal(resolveFabricationCible({ registry: md }, 'constructor'), null)
+  // Matiere dite une fois pour un groupe d outils, jamais prise a une autre
+  // demande de la phrase (revue de #75).
+  const { fabricationPrecisee } = skills
+  const groupe = 'une pioche, une hache et une épée en pierre'
+  assert.deepEqual(['pioche', 'hache', 'épée', 'sword'].map(r => fabricationPrecisee(r, groupe)),
+    ['stone_pickaxe', 'stone_axe', 'stone_sword', 'stone_sword'])
+  assert.deepEqual(['pioche', 'hache'].map(r => fabricationPrecisee(r, 'une pioche en bois et une hache en fer')),
+    ['wooden_pickaxe', 'iron_axe'])
+  assert.equal(fabricationPrecisee('wooden_pickaxe', groupe), null)
+  // Les nombres comptent les outils du groupe, ils ne le coupent pas.
+  for (const texte of ['deux pioches et trois pelles en fer', '2 pioches et 3 pelles en fer', 'des pioches et des pelles en fer',
+    'une pioche et onze pelles en fer', 'une pioche et vingt pelles en fer', 'une pioche et quatre-vingt-douze pelles en fer']) {
+    assert.equal(fabricationPrecisee('pioche', texte), 'iron_pickaxe', texte)
+  }
+  assert.equal(fabricationPrecisee('hache', 'une hache et deux épées en pierre'), 'stone_axe')
+  for (const [brut, texte] of [['pioche', 'Fabrique une pioche. Construis une maison en pierre.'],
+    ['hache', 'une hache ; puis un pont en bois'], ['pelle', 'une pelle puis une porte en fer'],
+    ['pioche', 'une pioche et une maison en pierre'], ['pioche', 'une pioche et deux planches en fer'],
+    ['pioche', 'une pioche. deux pelles en fer'], ['pioche', 'une pioche et 11 planches en pierre'],
+    ['pioche', 'une pioche et onze planches en pierre'], ['pioche', 'une pioche. deux haches en pierre'],
+    ['pioche', 'une pioche en constructor'], ['constructor', 'un constructor en fer'], ['pioche', 'une pioche en tostring']]) {
+    assert.equal(fabricationPrecisee(brut, texte), null, texte)
+  }
+  // Pluriel sans nombre : au moins deux objets a poser (nommeAuPluriel).
+  assert.ok(skills.nommeAuPluriel('eclaire-la avec des torches', 'torch'))
+  assert.ok(skills.nommeAuPluriel('une ligne de rails', 'rail'))
+  assert.ok(!skills.nommeAuPluriel('pose une torche', 'torch'))
+  assert.ok(!skills.nommeAuPluriel('des torches', 'rail'))
 })
 
 test('four deja pose : pas de nouveau four ni de pierre pour lui', () => {

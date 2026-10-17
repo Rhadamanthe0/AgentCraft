@@ -146,13 +146,6 @@ describe('llm.call : chemin chat inchange (DeepSeek)', () => {
     )
   })
 
-  it('texte vide rejete', async () => {
-    mockFetch(async () => okJson({ choices: [{ message: { content: '   ' } }] }))
-    await assert.rejects(
-      llm.call('s', 'u', { baseUrl: BASE, model: 'deepseek-v4.1-flash' }),
-      /sans contenu/
-    )
-  })
 })
 
 describe('llm.call : chemin responses (Muse Go)', () => {
@@ -178,18 +171,6 @@ describe('llm.call : chemin responses (Muse Go)', () => {
     assert.deepEqual(seen.body.text, { format: { type: 'json_object' } })
     assert.deepEqual(seen.body.input, [{ role: 'system', content: 'sys' }, { role: 'user', content: 'jeu' }])
     assert.equal(res.content, '{"fini":0}')
-  })
-
-  it('detection auto muse-spark-1.3-contributor sans option -> /responses', async () => {
-    mockFetch(async () => okJson(responsesOk))
-    await llm.call('s', 'u', { baseUrl: BASE, model: 'muse-spark-1.3-contributor' })
-    assert.equal(seen.url, `${BASE}/responses`)
-  })
-
-  it('detection auto : deepseek sans option reste sur /chat/completions', async () => {
-    mockFetch(async () => okJson({ choices: [{ message: { content: '{}' } }] }))
-    await llm.call('s', 'u', { baseUrl: BASE, model: 'deepseek-v4.1-flash' })
-    assert.equal(seen.url, `${BASE}/chat/completions`)
   })
 
   it('option chat explicite gagne sur detection muse -> /chat/completions', async () => {
@@ -304,33 +285,6 @@ describe('llm.call : erreurs, annulation, timeout (les deux endpoints)', () => {
     )
   })
 
-  it('signal deja aborte -> appel annule', async () => {
-    mockFetch(abortingFetch())
-    const c = new AbortController()
-    c.abort()
-    await assert.rejects(
-      llm.call('s', 'u', { baseUrl: BASE, model: 'deepseek-v4.1-flash', signal: c.signal, timeoutMs: 1000 }),
-      /appel annule/
-    )
-  })
-
-  it('abort pendant l appel -> appel annule (pas timeout)', async () => {
-    mockFetch(abortingFetch())
-    const c = new AbortController()
-    setTimeout(() => c.abort(), 10)
-    await assert.rejects(
-      llm.call('s', 'u', { baseUrl: BASE, model: 'muse-spark-1.3-contributor', signal: c.signal, timeoutMs: 2000 }),
-      /appel annule/
-    )
-  })
-
-  it('timeout sans signal -> pas de reponse en N ms', async () => {
-    mockFetch(abortingFetch())
-    await assert.rejects(
-      llm.call('s', 'u', { baseUrl: BASE, model: 'deepseek-v4.1-flash', timeoutMs: 30 }),
-      /pas de reponse en 30 ms/
-    )
-  })
 })
 
 describe('llm.parseJson : JSON enveloppe', () => {

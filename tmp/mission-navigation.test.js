@@ -476,3 +476,82 @@ test('terminer ne transforme plus un quota non atteint en succes', async () => {
   assert.ok(f.messages.some(t => /Échec/.test(t)))
   }
 })
+
+// Pierre sous l herbe a portee, rocher a hauteur plus loin : le bloc du sol
+// sous les pieds n est jamais vise tant qu il reste de la matiere a hauteur
+// (sinon le bot descend en escalier, composite/bucket, y 198 sur un sol en 199).
+test('matiere a hauteur avant le sol sous les pieds, le tronc garde son ordre', async () => {
+  for (const variant of ['pierre', 'pierre_seule', 'bois']) {
+    const f = highTargetFixture({ high: false })
+    const nom = variant === 'bois' ? 'oak_log' : 'stone'
+    // Sol de pierre sous les pieds : 100 blocs plus proches que le rocher,
+    // au-dela des plafonds de la recherche (64, puis 32 gardes).
+    const sol = []
+    for (let x = -5; x <= 5 && sol.length < 100; x++) {
+      for (let z = -5; z <= 5 && sol.length < 100; z++) {
+        if (Math.hypot(x, z) >= 2 && Math.hypot(x, z) < 5.9) sol.push(new Vec3(x, 64, z))
+      }
+    }
+    const dessous = variant === 'bois' ? [new Vec3(2, 64, 0)] : sol
+    const hauteur = new Vec3(6, 65, 0)
+    const blocs = variant === 'pierre_seule' ? dessous : [...dessous, hauteur]
+    planner.readBrief = async () => ({ ...brief, kind: 'recolte', resource: variant === 'bois' ? 'bois' : 'pierre' })
+    f.bot.registry.blocksByName = { [nom]: { id: 1 } }
+    f.bot.findBlocks = ({ matching }) => matching.includes(1) ? blocs : []
+    f.bot.blockAt = position => blocs.some(p => p.equals(position))
+      ? { name: nom, position, shapes: [[0, 0, 0, 1, 1, 1]] }
+      : { name: 'air', position, shapes: [] }
+    const checked = []
+    const originalHarvestCheck = craft.harvestCheck
+    craft.harvestCheck = (_bot, block) => {
+      checked.push(block.position)
+      return { ok: false, need: 'test', reason: 'stop before physical dig' }
+    }
+    let n = 0
+    planner.plan = async () => ({ ms: 0, seconds: 1, rejected: [], done: 0, finished: false,
+      steps: [{ action: n++ === 0 ? 'casser' : 'terminer', scale: 0, scaleLevel: null, choices: {} }] })
+    try {
+      await f.r.start(variant === 'bois' ? 'ramasse du bois' : 'ramasse de la pierre', 'human')
+      await finished(f.r)
+    } finally { craft.harvestCheck = originalHarvestCheck }
+    const vise = checked[0] ?? f.navigation[0]?.position
+    assert.ok(vise, variant)
+    if (variant === 'pierre') assert.deepEqual([Math.floor(vise.x), Math.floor(vise.y)], [6, 65], variant)
+    else assert.equal(Math.floor(vise.y), 64, variant)
+  }
+})
+
+// Exclusions d une position (secteur, chantier, bornes) avant les plafonds de
+// la recherche : 32 blocs plus proches hors du cone cachaient le seul bloc du
+// cone (revue de #75, meme defaut qu une emprise de chantier pleine).
+test('cone de regard : les blocs hors du cone ne remplissent pas la recherche', async () => {
+  const blocs = []
+  for (let y = 65; y <= 68; y++) for (let z = -7; z <= -1; z++) for (let x = z + 1; x <= -z - 1; x++) {
+    if ((x + y + z) % 2 === 0) blocs.push(new Vec3(x, y, z))
+  }
+  blocs.push(new Vec3(8, 65, 0))
+  planner.readBrief = async () => ({ kind: 'recolte', kindConfidence: 1, resource: 'pierre', resourceConfidence: 1, landmark: 'ici', door: false, doorProbability: 0 })
+  let n = 0
+  planner.plan = async () => ({ ms: 0, seconds: 1, rejected: [], done: 0, finished: false,
+    steps: [{ action: n++ === 0 ? 'regarder_autour' : 'terminer', scale: 0, scaleLevel: null, choices: {} }] })
+  const bot = { entity: { position: new Vec3(0.5, 65, 0.5), yaw: 0, pitch: 0, onGround: true },
+    registry: { blocksByName: { stone: { id: 1 } }, blocks: { 1: { name: 'stone' } }, itemsByName: {} },
+    inventory: { items: () => [] }, players: {}, entities: {},
+    findBlocks: ({ matching, useExtraInfo, count, point }) => blocs
+      .filter(p => [].concat(matching).includes(1) && (!useExtraInfo || useExtraInfo({ position: p })))
+      .sort((a, b) => a.distanceTo(point) - b.distanceTo(point)).slice(0, count),
+    findBlock: () => null,
+    blockAt: position => blocs.some(p => p.equals(position))
+      ? { name: 'stone', position, shapes: [[0, 0, 0, 1, 1, 1]] } : { name: 'air', position, shapes: [] },
+    clearControlStates () {}, look: async () => {}, lookAt: async () => {}, setControlState () {} }
+  const r = createMissionRunner({ getBot: () => bot, isReady: () => true, inLiquid: () => false, stopPathfinding () {}, chat () {} })
+  const lignes = []
+  const log = console.log
+  console.log = (...a) => { lignes.push(a.join(' ')) }
+  try {
+    await r.start('ramasse de la pierre', 'test')
+    for (let i = 0; i < 200 && r.status?.()?.active !== false && !lignes.some(l => l.includes('tour d horizon')); i++) await new Promise(res => setTimeout(res, 10))
+  } finally { console.log = log; r.stop?.() }
+  const l = lignes.find(x => x.includes('tour d horizon')) ?? ''
+  assert.match(l, /est : stone/)
+})

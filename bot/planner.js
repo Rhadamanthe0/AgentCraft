@@ -1379,8 +1379,7 @@ fabrique), JAMAIS un "geste" : "fabrique une hache" -> type recolte,
 fabrication "hache", pas un geste a clore en un plan. Ne mets null que s il
 n y a vraiment aucun objet a fabriquer. Plusieurs objets demandes => une liste,
 dans l ordre dit, chacun avec la matiere dite meme une seule fois pour tous
-("une pioche, une hache et une epee en pierre" -> ["stone_pickaxe",
-"stone_axe", "stone_sword"]) ; "fabrication_quantite" vaut alors pour le
+("une pelle et une houe en fer" -> ["iron_shovel", "iron_hoe"]) ; "fabrication_quantite" vaut alors pour le
 premier.
 
 Ne reduis jamais la demande a la seule partie que le bot sait executer.

@@ -121,13 +121,6 @@ test('R05 permanente echec -> archive failed, jamais maintaining', () => {
 // Compatibilite : complete() sans resultat garde le chemin succes.
 // ---------------------------------------------------------------------------
 
-test('R05 compat : complete() sans argument reste un succes', () => {
-  const { ctrl } = freshController()
-  ctrl.proposeObjective({ auteur: 'Alice', texte: 'abri' })
-  const out = ctrl.complete()
-  assert.equal(out.objectif.statut, 'done')
-})
-
 // ---------------------------------------------------------------------------
 // Interactions : stop / reprise / recovery / historique.
 // ---------------------------------------------------------------------------

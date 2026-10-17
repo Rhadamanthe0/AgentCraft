@@ -65,8 +65,18 @@ function clearSegment (bot, from, to, requireFloor = false) {
 
 // An item is collected from a nearby supported post, not by fitting the
 // player's entire body at the item's sub-block coordinates.
+// Hauteur : boite de ramassage du jeu (corps de 1,8 gonfle de 0,5 en haut et
+// en bas, objet de 0,25) : de 0,75 sous les pieds a 2,3 au-dessus, marge
+// comprise. Le seuil de 0,75 de `arrived` rejetait un objet tombe dans une
+// encoche a hauteur de tete (minerai casse de cote) : A* sans but, ramasser
+// 0/1 jusqu a la fin (composite/powered-rail-line, raw_gold a +1).
+const PICKUP_DY_MIN = -0.7
+const PICKUP_DY_MAX = 2.2
 function itemInPickupRange (bot, feet, item, radius = 1.6) {
-  return arrived(feet, item, radius) && clearSegment(bot, feet, feet, true)
+  if (!feet || !item || ![feet.x, feet.y, feet.z, item.x, item.y, item.z].every(Number.isFinite)) return false
+  const dy = item.y - feet.y
+  return distanceXZ(feet, item) <= radius && dy >= PICKUP_DY_MIN && dy <= PICKUP_DY_MAX &&
+    clearSegment(bot, feet, feet, true)
 }
 
 // Une ressource est un bloc a toucher, pas une position ou mettre les pieds.
