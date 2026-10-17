@@ -240,6 +240,7 @@ confiance.
 - `tmp/creuse-repro.js` : rejoue un trajet qui creuse sur un instantané de
   blocage.
 
-L'ancien runner Windows (`ci/start-runner.ps1`), les mesures de vitesse du
-2026-09-25 et la validation locale du 2026-09-24 sont lisibles dans
-l'historique git : `git show e5d210b:docs/remote-minecraft-tests.md`.
+L'ancien runner Windows (`ci/start-runner.ps1`, retiré le 2026-10-17), les
+mesures de vitesse du 2026-09-25 et la validation locale du 2026-09-24 sont
+lisibles dans l'historique git : `git show e5d210b:ci/start-runner.ps1` et
+`git show e5d210b:docs/remote-minecraft-tests.md`.

@@ -351,3 +351,7 @@ artefact nommé `26.1` (« Requested version 26.1 is not available »), alors qu
 Avant de monter de version, vérifier les deux listes : Paper
 (<https://fill.papermc.io/v3/projects/paper/versions>) et
 `require('minecraft-data').supportedVersions.pc` dans l'image du bot.
+
+## Licence
+
+Code publié sous licence MIT : voir [LICENSE](LICENSE).
