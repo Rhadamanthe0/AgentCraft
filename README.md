@@ -1,544 +1,209 @@
 # AgentCraft
 
-Bot Minecraft autonome piloté par un modèle de langage : il reçoit un objectif
-en français (« coupe un arbre », « fais une maison en terre de 5 par 5 »), le
-décompose en actions et le poursuit en survie, sans tricher. Le dépôt contient
-le bot (Minecraft Java 26.1, Docker Desktop sous Windows) et un banc de tests
-en jeu qui mesure son autonomie.
+**Un bot Minecraft autonome qui reçoit un but en français et le poursuit en
+survie, sans tricher.**
 
-Pour aller plus loin : [`ARCHITECTURE.md`](ARCHITECTURE.md) (modules et flux
-d'une demande), [`AGENTS.md`](AGENTS.md) (règles du propriétaire, interrupteurs
-et pièges), [banc de tests](#banc-de-tests-et-interrupteurs-ab).
+« Construis-moi une cabane en bois de 4 par 4 avec une porte » : partant d'un
+inventaire vide, le bot trouve un arbre, le coupe, fabrique planches et établi,
+choisit un terrain, bâtit les murs et pose la porte. Il n'est pas opérateur :
+ni téléportation, ni mode créatif, ni commande `/`. Ce qu'il pose, il l'a
+ramassé.
 
-**Tests depuis Claude distant** : [banc Minecraft sur ce PC et raccordement GitHub Actions](docs/remote-minecraft-tests.md).
-Lancement local : `python ci/run.py` (Python + Docker Desktop).
+Le dépôt contient le bot (Mineflayer, Minecraft Java 26.1), son serveur de
+jeu, et un banc de tests en jeu qui mesure son autonomie sur des dizaines de
+situations, des plus simples aux chaînes complètes.
 
-Environnement local, minimal et jetable composé de **deux** services :
+## Sommaire
 
-- `minecraft` : serveur Minecraft Java Paper 26.1, en **survie**, dont la
-  configuration ne nomme qu'un opérateur, le joueur humain `Rhadamanthe0`
-  (des ops peuvent s'y ajouter en exploitation, voir « Le serveur tourne en
-  survie ») ;
-- `bot` : Mineflayer 4.39.0 + mineflayer-pathfinder 2.4.5 ;
-- interface Web locale : <http://localhost:3000> ;
-- serveur Minecraft local : `localhost:25565`.
+- [Principes](#principes)
+- [Démarrage rapide](#démarrage-rapide)
+- [Donner des ordres au bot](#donner-des-ordres-au-bot)
+- [Ce que le bot sait faire](#ce-que-le-bot-sait-faire)
+- [Comment il décide](#comment-il-décide)
+- [Configuration](#configuration)
+- [Limites connues](#limites-connues)
+- [Sécurité et confidentialité](#sécurité-et-confidentialité)
+- [Tests](#tests)
+- [Documentation](#documentation)
+- [Versions figées](#versions-figées)
 
-Le cerveau du bot n'est plus un service local : c'est un **planificateur JSON
-distant**, servi par le gateway **OpenCode Go**
-(`https://opencode.ai/zen/go/v1`, transports `/chat/completions` et `/responses`).
-Un modèle par usage (actions, chat, lecture d'objectif, mémoire). Aucun GPU n'est requis ; en contrepartie le chat et
-l'état de jeu sont envoyés à `opencode.ai` (voir « Confidentialité »).
+## Principes
 
-**Le bot joue sans tricher.** Il n'est pas opérateur : pas de `/tp`, pas de
-`/gamemode`, pas d'inventaire créatif. Ce qu'il construit, il l'a ramassé.
+- **Le modèle décide, le code mesure.** Un modèle de langage distant choisit
+  les actions et leur valeur (durée, distance, quantité). Le code lit les
+  chiffres du jeu (inventaire, blocs, distances, recettes) et refuse un arrêt
+  qu'ils contredisent. Le modèle ne compte jamais et ne fournit jamais de
+  coordonnées.
+- **Survie stricte.** Le bot joue avec ce qu'il récolte. Le serveur ne
+  connaît qu'un opérateur, le joueur humain.
+- **Autonomie, pas répétition.** Le bot doit s'adapter à une situation jamais
+  vue. Le banc de tests mesure cette autonomie ; aucun code ni prompt n'est
+  écrit pour un niveau du banc.
+- **Tout nouveau comportement se mesure.** Chaque mode optionnel est un
+  interrupteur comparé en A/B sur plusieurs bancs ; un mode sans gain mesurable
+  est retiré.
 
-## Pourquoi Minecraft 26.1 est figé
+## Démarrage rapide
 
-Au 21 septembre 2026, Paper existe en 26.2 mais Mineflayer 4.39.0 annonce officiellement un support jusqu'à Minecraft 26.1. Le serveur et le bot sont donc explicitement figés en 26.1 pour éviter une incompatibilité de protocole.
+### Prérequis
 
-Attention : Paper ne publie **aucun artefact nomme exactement `26.1`**. Cette ligne
-n'existe qu'en correctifs `26.1.1` et `26.1.2`, et demander `26.1` fait echouer le
-demarrage avec `Requested version 26.1 is not available`. Le compose demande donc
-`VERSION: "26.1.2"` cote serveur, tout en gardant `MC_VERSION: "26.1"` cote bot :
-c'est un **nom de protocole** pour minecraft-data, pas un nom d'artefact. Ne les
-harmonise pas.
+- Windows 10/11 avec Docker Desktop (conteneurs Linux), ou tout hôte Docker
+  Compose v2 ;
+- environ 4 Go de mémoire pour Docker (2 Go pour le serveur, le reste pour le
+  bot) ;
+- une clé du gateway [OpenCode Go](https://opencode.ai) : le modèle tourne à
+  distance, aucun GPU n'est nécessaire.
 
-Verifier les versions reellement disponibles avant tout changement :
+Ni Java ni Node.js ne sont à installer sur la machine.
 
-- Paper : <https://fill.papermc.io/v3/projects/paper/versions> (l'API v2 est sunset) ;
-- Mineflayer : `require('minecraft-data').supportedVersions.pc` dans l'image du bot.
+### Lancer
 
-Ne remplace pas `VERSION` par `LATEST` tant que Mineflayer n'annonce pas officiellement la prise en charge de la version Minecraft choisie.
+```powershell
+copy .env.example .env      # puis renseigner PLANNER_API_KEY
+.\start.ps1                 # ou : docker compose up --build --wait --wait-timeout 300
+.\verify.ps1                # l'API répond et le bot est bien apparu en jeu
+```
 
-## Prérequis
+Une fois prêt :
 
-- Windows 10/11 ;
-- Docker Desktop lancé avec les conteneurs Linux ;
-- environ 4 Go de RAM disponibles pour Docker (2 Go pour le serveur, le reste
-  pour le bot) ;
-- une connexion Internet et une clé `opencode-go` du gateway OpenCode Go,
-  placée dans `.env` sous `PLANNER_API_KEY` (voir `.env.example`).
-
-Aucune installation locale de Java, de Node.js ni de GPU n'est nécessaire : le
-modèle n'est plus exécuté sur la machine.
+- **jeu** : Minecraft Java **26.1**, Multijoueur, `localhost:25565` (si le
+  lanceur propose 26.2 par défaut, choisir explicitement une installation
+  26.1) ;
+- **interface web** : <http://localhost:3000>.
 
 Sans clé ou sans accès au gateway, le bot se connecte et obéit aux commandes
-`!` mais ne peut lancer aucune mission (il le dit).
+`!`, mais refuse les missions en le disant.
 
-## Démarrage
+| Script | Rôle |
+| --- | --- |
+| `start.ps1` | valide le compose, démarre serveur et bot |
+| `logs.ps1` | suit les journaux |
+| `verify.ps1` | vérifie l'API et la présence du bot en jeu |
+| `stop.ps1` | arrête sans effacer le monde (`docker compose down`) |
+| `destroy.ps1` | supprime conteneurs, réseau **et monde** (`docker compose down -v`) |
 
-Dans PowerShell, depuis ce dossier :
+## Donner des ordres au bot
 
-```powershell
-.\start.ps1
-```
+### Dans le chat du jeu
 
-Ou directement :
+Une phrase libre est interprétée dans le contexte de la mission en cours :
 
-```powershell
-docker compose up --build --wait --wait-timeout 300
-```
+| Message | Effet |
+| --- | --- |
+| « coupe-moi un arbre », « va miner du fer » | nouvel objectif, qui remplace le précédent |
+| « finalement fais-la de 5 par 5 » | révision de la mission en cours |
+| « je suis derrière toi » | précision, la mission continue |
+| « que fais-tu ? » | question, la mission continue |
+| `stop`, `arrête` | arrêt immédiat, même sans modèle disponible |
 
-Le premier démarrage valide la configuration Compose, puis télécharge les images, Paper et les dépendances Node.js.
-
-Suivre les journaux :
-
-```powershell
-.\logs.ps1
-```
-
-Vérifier l'état des conteneurs :
-
-```powershell
-docker compose ps
-```
-
-Vérifier que l'API locale répond et que le bot est réellement apparu dans le
-serveur (la commande échoue sinon) :
-
-```powershell
-.\verify.ps1
-```
-
-Quand le serveur et le bot sont prêts :
-
-- navigateur : <http://localhost:3000> ;
-- Minecraft Java 26.1 : Multijoueur -> `localhost:25565`.
-
-Si ton lanceur démarre Minecraft 26.2 par défaut, sélectionne explicitement une installation 26.1 pour ce test.
-
-## Contrôle du bot
-
-L'interface Web permet :
-
-- avancer, reculer et se déplacer latéralement ;
-- sauter ;
-- tourner ;
-- arrêter immédiatement tout déplacement ;
-- envoyer un message ou une commande dans le chat ;
-- demander au bot d'aller à des coordonnées avec Mineflayer Pathfinder.
-
-Le contrôle manuel annule automatiquement un trajet Pathfinder en cours pour éviter que les deux systèmes se battent sur les mêmes commandes de mouvement.
-
-API locale disponible également :
-
-```powershell
-Invoke-RestMethod http://localhost:3000/api/status
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://localhost:3000/api/control `
-  -ContentType "application/json" `
-  -Body '{"control":"forward","state":true}'
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://localhost:3000/api/control `
-  -ContentType "application/json" `
-  -Body '{"control":"forward","state":false}'
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://localhost:3000/api/goto `
-  -ContentType "application/json" `
-  -Body '{"x":10,"y":64,"z":10,"range":1}'
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://localhost:3000/api/stop `
-  -ContentType "application/json" `
-  -Body '{}'
-
-# Mission continue : le bot travaille jusqu'a ce que l'objectif soit atteint
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://localhost:3000/api/mission `
-  -ContentType "application/json" `
-  -Body '{"objective":"ramasse de l herbe"}'
-
-Invoke-RestMethod http://localhost:3000/api/mission
-Invoke-RestMethod -Method Delete -Uri http://localhost:3000/api/mission
-
-# Table des commandes et resultat de l'audit de coherence
-Invoke-RestMethod http://localhost:3000/api/commands
-```
-
-## Contrôle par le chat en jeu
-
-Tu peux piloter le bot directement depuis le chat Minecraft, sans passer par
-l'interface web.
-
-Commandes explicites :
+Les commandes préfixées servent au contrôle direct :
 
 ```
-!avance  !recule  !gauche  !droite  !saute [nombre]  !stop
-!va <x> <y> <z>   !viens   !sors    !ou     !vois    !aide
+!avance  !recule  !gauche  !droite  !saute [n]  !stop
+!va <x> <y> <z>   !viens   !sors    !ou    !vois    !aide
 !mission <objectif>
 ```
 
-`!saute` accepte un nombre : `!saute 3` fait trois sauts. `!vois` repond si le
-bot a le joueur en vue, et se tourne vers lui. Ces commandes prefixees servent au
-controle direct.
+### Interface web et API
 
-Chaque phrase libre est interpretee dans le contexte de la mission. Un nouvel
-objectif la remplace ; une modification la revise ; une precision comme
-« je suis derriere toi » et une question comme « que fais-tu ? » la conservent.
-`stop` et `arrete` seuls interrompent immediatement, meme sans modele disponible.
+L'interface (<http://localhost:3000>) déplace le bot à la main, le fait parler
+et l'envoie à des coordonnées. Le contrôle manuel annule un trajet en cours.
+Sa zone de chat fait **parler** le bot (`/api/chat`) ; elle ne lui donne pas
+d'ordre.
 
-Les deplacements simples et composes ont un **contrat complet verifie par le
-code** : « viens puis regarde-moi », « fais deux allers-retours vers moi »,
-« suis-moi », « rejoins-moi puis attends 3 secondes puis reviens ». Un retour
-vise le vrai point de depart, pas une touche reculer pendant une seconde.
-Le modele interprete la consigne ; le navigateur mesure chaque arrivee.
-Les autres missions gardent le planificateur de petits lots d'actions.
+L'API locale, sur `127.0.0.1:3000`, expose tout le reste :
 
-Pour approcher une ressource, `avancer` calcule maintenant un chemin avec le
-meme navigateur : il vise une position ou le bloc est visible et a portee,
-sans demander au modele de tourner, sauter ou contourner avec des touches.
-`distance` borne le trajet ; une progression partielle peut etre poursuivie.
-`ramasser` utilise aussi ce navigateur pour rejoindre les objets tombes.
-`!va` et `/api/goto` mesurent l'arrivee ; la reponse HTTP `admitted: true`
-confirme seulement l'admission, le resultat est dans `/api/status.navigation`.
-La construction rejoint ses postes de tir par le meme navigateur (`build.moveTo`
-en repli). Le calcul A* vient toujours de `mineflayer-pathfinder` ; l'execution
-physique du trajet est assuree par le controleur local du projet.
+```powershell
+# Lancer, suivre et arrêter une mission
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/mission `
+  -ContentType "application/json" -Body '{"objective":"ramasse de l herbe"}'
+Invoke-RestMethod http://localhost:3000/api/mission
+Invoke-RestMethod -Method Delete -Uri http://localhost:3000/api/mission
 
-« Mets-toi sous un arbre » utilise aussi ce parcours : le bot cherche un appui
-au sol avec des feuilles au-dessus, et non simplement une buche a portee.
-« Tu peux casser un bloc pour y parvenir » accorde un budget de degagement
-d'une feuille au maximum, si aucun emplacement libre essaye ne convient.
-Cette permission peut reprendre un placement qui vient de refuser le passage.
+# Ordre en langage naturel, routé comme un message du chat
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/instruction `
+  -ContentType "application/json" -Body '{"message":"rejoins-moi","requester":"Rhadamanthe0"}'
+```
 
-Details et limites : [missions de deplacement](docs/movement-missions.md).
-La derniere trajectoire (position, orientation, vitesse, touches, points vises)
-est consultable sur <http://localhost:3000/api/navigation/trace> ; ajouter
-`?history=1` pour les huit derniers trajets. Echantillonnage aux ticks physiques
-(environ 50 ms), 2400 echantillons maximum par trajet, sans ralentir le jeu
-par des ecritures disque a chaque tick.
+| Route | Rôle |
+| --- | --- |
+| `GET /api/status` | état du bot, du planificateur, de la mission et de la navigation |
+| `GET/POST/DELETE /api/mission` | voir, lancer, arrêter une mission |
+| `POST /api/instruction` | ordre en langage naturel |
+| `POST /api/stop`, `/api/arret-total`, `/api/resume` | arrêt, arrêt total durable, reprise |
+| `GET /api/actions`, `GET /api/commands` | catalogue lu par le modèle ; table des commandes et audit de cohérence |
+| `GET/DELETE /api/memory` | notes que le modèle s'est écrites |
+| `GET /api/mission/trace`, `/api/mission/instantanes` | trace structurée de la mission ; monde autour du bot à chaque blocage |
+| `GET /api/navigation/trace[?history=1]` | trajectoire physique des derniers trajets |
+| `POST /api/goto`, `/api/control`, `/api/jump`, `/api/look`, `/api/turn`, `/api/unstuck` | commandes directes et diagnostic |
+| `POST /api/features` | interrupteurs A/B (`{"reset": true}` pour revenir aux défauts) |
 
-Attention a ne pas confondre avec la zone de chat de l'interface web, qui appelle
-`/api/chat` et sert uniquement a **faire parler** le bot, pas a lui donner un ordre.
+`POST /api/goto` répond `admitted: true` dès que le trajet est accepté ;
+l'arrivée se lit dans `/api/status.navigation`.
 
-`GET /api/commands` renvoie la table complete des commandes, les etapes de
-mission, les ressources reconnues, et le resultat de l'audit de coherence decrit
-plus bas.
+## Ce que le bot sait faire
 
-## Le cerveau : un planificateur distant qui rend un plan d'actions
+| Famille | Exemples de demandes |
+| --- | --- |
+| Récolte | « coupe-moi un arbre », « ramasse 10 blocs de sable », « va miner du fer » |
+| Fabrication | « fabrique une pioche en fer » : bois, établi, pioche en pierre, minerai, four, cuisson |
+| Construction | « fais une maison en terre de 5 par 5 par 5 avec une porte », une tour, un mur, des fenêtres |
+| Déplacement | « rejoins-moi », « suis-moi », « fais deux allers-retours », « mets-toi sous un arbre » |
+| Chaînes complètes | « construis-moi une maison en pierre » depuis un inventaire vide |
 
-Les messages du chat et les missions sont pilotés par un **modèle distant servi
-par le gateway OpenCode Go** (`https://opencode.ai/zen/go/v1`). Il répond en JSON :
+Les dimensions se lisent sous les formes « 5 par 5 par 5 », « 5x5x5 »,
+« 6 sur 4 » ou « 5 de large et 4 de haut », bornées de 3 à 9. Sans quantité,
+une récolte vise 16 unités (`MISSION_DEFAULT_QUOTA`).
+
+Le bot compose ses missions à partir d'une trentaine d'**actions
+génériques** : `recolter`, `casser`, `ramasser`, `fabriquer`, `cuire`,
+`avancer`, `explorer`, `piler`, `construire`, `poser`, `utiliser`,
+`donner`, et des gestes de bas niveau (`regarder`, `sauter`, `appuyer`,
+`dire`, `memoriser`…). Chaque action prend ses objets, quantités et
+emplacements en paramètres ; aucune n'est propre à un objet ou à un lieu. Le
+catalogue exact, tel que le modèle le lit : `GET /api/actions`.
+
+### Monter en pilier (`piler`), sans tricher
+
+Pour atteindre le haut d'un tronc, le bot pose de la terre sous lui en
+sautant, bloc par bloc, avec la terre de son inventaire réel (il en casse au
+sol s'il n'en a pas). Le code choisit le poste et la hauteur ; si aucune
+hauteur ne suffit depuis l'endroit où il se tient, il rejoint un autre poste
+au sol. Chaque pose est vérifiée dans le monde.
+
+**Un arbre commencé est un arbre fini** : dès la première bûche coupée, cet
+arbre reste la seule cible bois jusqu'à sa dernière bûche, quelle que soit la
+mission. Le bot retire ensuite les piliers montés pour lui. Le détail est
+dans [ARCHITECTURE.md](ARCHITECTURE.md#35-actions).
+
+## Comment il décide
+
+Chaque mission commence par un **brief** : un appel au modèle classe
+l'objectif (récolte, construction, déplacement, geste) et en tire la matière,
+le repère et la porte éventuelle ; le code lit lui-même les dimensions et les
+quantités. Puis la boucle de mission alterne :
+
+1. le code construit l'**état** du jeu (inventaire, cible, obstacles, besoins
+   d'un chantier, chaîne de prérequis calculée par un solveur de recettes) ;
+2. le modèle rend un **plan JSON** de quelques actions, visant 6 à 10 secondes
+   de jeu ;
+3. le code exécute chaque action et mesure son effet. **Le premier échec vide
+   le reste du plan** et l'on replanifie sur l'état réel.
 
 ```json
 {"fini": 0.0, "pourquoi": "bois en vue", "plan": [
   {"action": "avancer", "distance": 8},
-  {"action": "casser", "duree": 5},
-  {"action": "ramasser", "quantite": 3}
+  {"action": "recolter", "quantite": 4},
+  {"action": "fabriquer", "objet": "planches", "quantite": 4}
 ]}
 ```
 
-Chaque action porte une **valeur numérique** décidée par le modèle — une durée
-en secondes, une distance en blocs, une quantité — et le code exécute
-exactement cette valeur. Les actions unitaires (voir « Actions parametrees »)
-n'en prennent pas.
+L'appel suivant part pendant la dernière action du plan, si bien que le bot
+reste rarement immobile à attendre le modèle. La mission s'arrête quand les
+chiffres confirment l'objectif, sur un `stop` du joueur, ou sur un garde-fou
+(nombre d'étapes, durée, échecs d'affilée).
 
-Un appel rend donc **plusieurs actions**, exécutées dans l'ordre sans redemander
-quoi que ce soit — c'est ce qui tient la latence basse. Chaque plan vise
-**6 à 10 secondes de jeu** (`PLANNER_BUDGET_MIN_S`/`MAX_S`, une consigne du
-prompt), et le **premier échec jette le reste du plan** : le bot ne suit jamais
-un plan devenu faux.
-
-Mesuré au banc (2026-09-28, `deepseek-v4.1-flash` effort `low`) : un plan en
-4,3 s (médiane), 10,6 s au 95e centile, 89 % du prompt servi depuis le cache.
-
-Le chat et l'état de jeu sont envoyés à `opencode.ai` à chaque appel : la
-promesse « rien ne sort de la machine » du temps du planificateur local n'est
-plus vraie.
-
-### Le bot compose ses actions
-
-Il n'y a **pas d'actions apprises** : le bot compose lui-même ses enchaînements
-à partir des actions natives, guidé par leur documentation et des exemples
-écrits dans le code (`skills.ACTION_EXEMPLES`). Le catalogue tel que le modèle le
-lit :
-
-```powershell
-curl.exe -s http://127.0.0.1:3000/api/actions
-```
-
-Des connaissances du jeu sont calculées par le code et servies au modèle à
-chaque tour : chaîne de prérequis d'une fabrication (outils, établi, four),
-besoins d'un chantier, outil minimal pour casser un bloc, objets au sol.
-
-### Ce que le bot retient (memoire)
-
-Le modele n'a pas d'etat entre deux appels. Il peut s'ecrire lui-meme des notes
-avec les actions `memoriser` et `oublier`, dans deux portees : `travail` (effacee
-a chaque nouvelle mission) et `long_terme` (conservee dans `/data/memory.json` et
-rechargee au demarrage). Les plafonds sont separes : `MEMORY_LONG_TERM_TOKENS`
-(10000) pour la memoire long terme, `MEMORY_WORK_TOKENS` (10000) pour la memoire
-de mission — compactee par un resume du modele au-dela de
-`MEMORY_WORK_COMPACT_AT` (8000 jetons), ramenee sous `MEMORY_WORK_COMPACT_TO`
-(4000). Les ecritures long terme faites en cours de mission sont tamponnees
-(`a_retenir`) et fusionnees a la fin de la mission ; une ecriture qui depasserait
-son plafond est refusee en disant combien de jetons restent.
-
-A voir et a effacer sans entrer dans le conteneur :
-
-```powershell
-curl.exe -s http://127.0.0.1:3000/api/memory
-curl.exe -s -X DELETE "http://127.0.0.1:3000/api/memory?portee=travail"
-```
-
-L'architecture du contexte — ce qui est mis en cache, ce qui change a chaque
-appel, et pourquoi — est detaillee dans `docs/context-management.md`.
-
-### Appel anticipe : le buffer reste plein pendant l'execution
-
-Sans anticipation, le bot resterait immobile pendant chaque appel (plusieurs
-secondes). Des que la file descend a **une** etape, l'appel suivant part
-**pendant** que cette etape s'execute, et son resultat n'est attendu que si la
-file se vide vraiment : le budget de 6 a 10 secondes de jeu par plan couvre
-justement la duree d'un appel.
-
-L'etat envoye a l'appel anticipe est perime d'une a deux actions : c'est accepte,
-le premier echec vide la file **et** annule le plan speculatif en vol, comme
-aujourd'hui. Un seul appel en vol (`AbortController` deja en place dans
-`llm.call()`) : `stop`, echec ou fin l'annule, jamais un second appel
-par-dessus. Le garde-fou `finishAllowed()` est evalue sur l'etat **frais** au
-moment de l'arret, pas sur celui qui a servi a planifier. Pas d'anticipation en
-`geste` : la mission s'arrete des que la file est vide, l'appel serait jete a
-chaque fois.
-
-Mesure live : `planner.appels` / `planner.etapes_servies` dans `/api/status`
-(~3 etapes par appel en missions longues), et `mission.appel_anticipe`
-(`lances`, `consommes`, `annules`, `en_vol`) dit si l'overlap est consomme ou
-jete.
-
-### Un modèle par usage
-
-Chaque usage a son modèle, sans aucun repli vers un autre modèle (décision du
-propriétaire, 2026-09-26) : `PLANNER_MODEL_PLAN` (actions), `_CHAT`,
-`_BRIEF` (lecture d'objectif), `_COMPACT` (mémoire), avec
-`PLANNER_REASONING_EFFORT_<USAGE>` et `PLANNER_TIMEOUT_MS_<USAGE>`. Seules
-les clés se relaient (principale puis secondaire, `PLANNER_KEY_FIRST`) sur un
-refus de quota. Le banc fixe ces valeurs dans `ci/models.env`.
-
-### Changer de modèle
-
-Dans `.env` :
-
-```
-PLANNER_MODEL=claude-haiku-5-5  # modele par defaut de tous les usages
-PLANNER_MODEL_BRIEF=claude-haiku-5-5
-PLANNER_REASONING_EFFORT_PLAN=low
-```
-
-`claude-haiku-5-5` (servi sur `/messages`) et `deepseek-v4.1-flash` sont des modèles à **raisonnement** : ses jetons de
-raisonnement comptent dans `PLANNER_MAX_TOKENS`. Trop bas, il raisonne jusqu'au
-bout et rend un **contenu vide** (`finish=length`) — c'est ce qui se passait à
-700. Un modèle servi sur `/responses` (Muse) a son propre budget
-(`PLANNER_PILOT_MAX_TOKENS`).
-
-### Changer de gateway
-
-Trois variables, aucune modification de code. Le gateway OpenCode Go est la
-configuration par défaut :
-
-```
-PLANNER_BASE_URL=https://opencode.ai/zen/go/v1
-PLANNER_MODEL=claude-haiku-5-5
-PLANNER_API_KEY=opencode-go-...
-```
-
-Zen exige un `user-agent` identifiable et un en-tête `x-opencode-session`
-**stable par conversation** (`PLANNER_SESSION_ID`, par défaut
-`minecraft-bot-<BOT_USERNAME>`), qui optimise le routage et le cache de prompt
-côté serveur. Le chat et l'état de jeu quittent la machine dans tous les cas.
-
-### Au démarrage
-
-Le journal du bot donne l'audit des commandes et des actions
-(`[commandes] ... : coherent`, sinon la liste des incohérences), puis le modèle
-et la base du planificateur. La session distante est préchauffée au démarrage
-(`planner.warmup`), ce qui évite que le premier ordre du joueur paie
-l'ouverture de la session.
-
-## Missions continues
-
-Une **mission** est un objectif que le bot poursuit tout seul jusqu'a ce qu'il
-soit atteint, au lieu d'une action unique. C'est ce que declenche le choix
-`mission` ci-dessus, ou `!mission <objectif>`, ou `POST /api/mission`.
-
-A chaque tour de boucle, un appel au planificateur (le modele JSON distant) lit l'etat reel du jeu et rend soit un plan de plusieurs actions,
-soit l'objectif declare accompli. Chaque action du plan est executee, puis son
-resultat est reinjecte dans l'etat du tour suivant ; **le premier echec jette le
-reste du plan** et fait replanifier.
-
-La mission s'arrete quand le modele juge l'objectif accompli au-dela de
-`JEV_DONE_THRESHOLD` (0.75) — un arret contredit par les chiffres est refuse une
-a trois fois (`finishAllowed()`) —, sur une action `terminer`, ou sur un
-garde-fou : `MISSION_MAX_STEPS` (60 par defaut, 90 dans le compose),
-`MISSION_MAX_DURATION_MS` (10 min par defaut, 15 min dans le compose), cinq
-etapes en echec d'affilee, trois echecs du planificateur d'affilee, ou un `stop`
-du joueur.
-
-Le modele **classe**, il ne compte pas : tout ce qui est numerique (ou est le
-bloc, a quelle distance, combien en inventaire) est mesure par le bot et fourni
-comme etat. Le modele ne fournit jamais de coordonnees.
-
-Deroule reel de `Ramasse de l'herbe` :
-
-```
-[mission] "Ramasse de l herbe" (Tester) -> type recolte (0.95), matiere herbe (0.95), repere ici, porte non, 5x5x5 (aucune dimension lue, valeurs par defaut), 4 bloc(s) connu(s), approvisionnement harvest
-[mission] plan en 640 ms (~2.0 s de jeu) : casser -> casser
-[mission] 1. casser (fini 6%, 1 en file) -> 5 bloc(s) casse(s) en 0.6 s (total 5) sur 5 s demandee
-[mission] 2. casser (fini 6%) -> 1 bloc(s) casse(s) en 0.2 s (total 6)
-...
-[mission] Objectif atteint (objectif estime accompli (78%)) : 9 etape(s), 21 bloc(s) casse(s), 1 objet(s) recolte(s)
-```
-
-Ressources reconnues : `herbe`, `graines`, `bois`, `feuilles`, `fleur`, `pierre`,
-`terre`, `sable`, `minerai`.
-
-Quand l'objectif ne precise pas de quantite, le bot vise `MISSION_DEFAULT_QUOTA`
-unites (16 par defaut).
-
-### Le brief : ce que le bot retient de la consigne
-
-Au lancement, **un seul appel** au planificateur etablit le brief de la mission :
-le type d'objectif (recolte, construction, deplacement, geste), la matiere, le
-repere (« a cote d'un arbre »), et si une porte est demandee. Les dimensions sont
-lues dans le texte par une expression reguliere — le modele classe, il ne compte
-pas.
-
-Ce brief est **reinjecte dans l'etat a chaque tour**. Sans lui, le bot reduisait
-« fais une maison en terre de 5 par 5 par 5 avec une porte » a l'etiquette
-`terre` et se mettait a creuser un puits.
-
-### Actions parametrees
-
-Chaque action qui a une quantite est reglee par une **valeur numerique** que le
-modele choisit lui-meme, dans l'unite de l'action :
-
-| Action | Parametre numerique |
-| --- | --- |
-| `casser` | `duree` (1 a 15 secondes) |
-| `recolter` | `quantite` (1 a 16 objets : avancer, casser, ramasser enchaines par le code) |
-| `explorer` | `distance` (8 a 32 blocs par trajet ; spirale de caps autour du depart, arret des que la matiere est en vue) |
-| `ramasser` | `quantite` (1 a 6 objets) |
-| `cuire` | `objet` et `quantite` (four rejoint ou pose, combustible choisi par le code) |
-| `donner` | `objet`, `quantite`, `destinataire` (seulement si le joueur a demande un don) |
-| `avancer` | `distance` (budget de trajet de 1 a 40 blocs ; cap actuel sans cible) |
-| `construire` | `quantite` (4 a 40 blocs) et `objet` (materiau, optionnel) |
-| `fabriquer` | `quantite` (1 a 16 exemplaires) et `objet` (recette possible) |
-| `piler` | `hauteur` (1 a 6 blocs, en dirt de l'inventaire reel) |
-| `attendre` | `duree` (1 a 5 secondes) |
-
-Les gestes (`dire`, `regarder`, `sauter`, `appuyer`, `pivoter`) gardent leurs
-parametres propres (texte, angle, touches, duree). Les actions unitaires
-(`choisir_terrain`, `poser_porte`, `ouvrir_porte`, `sortir`, `terminer`,
-`regarder_autour`, `rejoindre_demandeur`, `tourner_vers_demandeur`) n'ont aucun
-parametre. Seules les actions du type de mission en cours, et de ses
-interrupteurs allumes, sont proposees : un chantier ne voit jamais `ramasser`.
-Avec l'interrupteur `sous_buts`, `batir` (tout le chantier) et `obtenir` (un
-objet et ses prerequis) laissent le modele choisir le but et le code le conduire
-jusqu'au bout ; ils rendent la main au premier echec.
-
-Peu d'actions et non pas beaucoup, c'est delibere : le choix se degrade avec
-leur nombre, et chaque action coute des jetons dans le prompt. Les gestes de bas
-niveau (`dire`, `regarder`, `sauter`, `appuyer`, `pivoter`, `regarder_autour`,
-`memoriser`, `oublier`...) donnent au modele de quoi composer ce que le
-catalogue n a pas prevu.
-
-### Monter en pilier (`piler`), sans tricher
-
-Le navigateur franchit les marches praticables mais ne construit pas pour
-atteindre le haut d'un tronc. `MISSION_MAX_REACH_UP` (3) filtre les blocs trop
-hauts pour etre casses depuis la position actuelle, afin de ne pas les viser
-sans fin. Quand un bloc proche est **trop haut**
-(`environnement.cible_haute`, avec son denivele), le bot monte en pilier : il
-pose de la dirt sous lui en sautant, niveau par niveau, puis casse depuis le
-haut. Hauteur demandee = denivele - 1 au plus, bornee de 1 a 6
-(`MISSION_PILER_MAX`).
-
-La dirt vient de l'**inventaire reel** (`dirt`/`coarse_dirt`), jamais du creatif :
-sans dirt, `piler` echoue en le disant et le planificateur casse de la dirt au
-sol d'abord. Refus nets : cible deja a portee (casser directement), liquide
-(un pilier ne tient pas dans l'eau), pas de `cible_haute` (`regarder_autour`
-coute moins cher), plafond au-dessus. Chaque pose est verifiee dans le monde :
-un refus serveur n'est jamais compte comme une reussite. En mission bois, casser
-de la dirt au sol pour alimenter le pilier est autorise quand
-`environnement.dirt_secondaire_admise` est vrai (`grass_block` casse qui lache
-de la dirt) : elle est comptee a part (`progression.dirt_secondaire`) et ne
-fausse ni le quota bois ni l'arret (`finishAllowed()` l'ignore).
-
-Le poste se choisit par le code, pas par le modele. Si aucune hauteur de 1 a 6
-ne met la cible a portee depuis l'endroit ou se tient le bot (vue masquee,
-plafond dans la colonne), `avancer` mesure les postes au sol autour de la
-cible avec la meme regle que `piler` (cases traversees par la tete, feuilles
-degagees, ligne de vue reelle). Il retient le pilier le plus court, puis le
-poste le plus proche. Le bot defait d'abord son propre pilier, rejoint ce poste
-a pied, puis reprend la mesure. Chaque poste n'est essaye qu'une fois par cible
-et par mission : quand il n'en reste plus, le constat le dit (« aucun poste de
-pilier libre ») au lieu de tourner en rond.
-
-Un arbre commence est fini (interrupteur `arbre_fini`) : la premiere buche
-coupee fixe l'arbre (buches reliees au tronc). Tant qu'il en reste une debout,
-`findTargetBlock` et `cible_haute` ne visent que lui, `recolter` continue
-au-dela de la quantite demandee, `finishAllowed()` refuse la fin et l'etat
-porte `arbre_en_cours` (buches debout). `avancer` vise aussi ses buches hors
-des bornes verticales de casse, y compris pendant une construction.
-Pour un arbre entier demande, le retour ou don du bois attend la coupe et
-le ramassage complets, meme sans `arbre_fini`. Ses cellules connectees et les
-objets apparus apres ses coupes sont conserves pour la reprise ; les arbres
-voisins et le bois deja au sol restent hors de cette mesure. Une cellule non
-chargee ne prouve jamais la fin. Chaque coupe attend une preuve de collecte
-par `playerCollect`, meme si l'objet ou sa metadata apparait tardivement.
-La preuve associe l'UUID a la position initiale d'apparition et au type de
-la coupe mesuree. Une pile fusionnee ne prouve qu'une unite par origine ;
-une origine inconnue ne permet pas de conclure. Ces mesures sont conservees
-pour la reprise. Pour un trajet de remise independant,
-`rejoindre_demandeur.objet` identifie l'objet, meme si le don vient dans un autre
-plan. Sans cet objet, un retour apres demande d'arbre entier attend son bois.
-Une fois l'arbre fini, les piliers
-montes pour lui sont defaits : celui sous les pieds en redescendant, les
-autres depuis le sol ; les blocs non retires restent memorises et sont retentes au plus trois fois
-par mission, puis comptes (`echafaudage_laisse`). Leurs coordonnees sont
-conservees pour une reprise apres redemarrage. Une demande de fin du modele
-reste refusee tant que l arbre est incomplet ; les limites globales de duree
-et l arret explicite du joueur restent applicables.
-
-### Hache opportuniste, craft unitaire et alias
-
-Couper du bois a la main est lent : en mission bois sans hache, quand une
-fabrication utile existe, l etat le signale (`environnement.hache_recommandee`).
-C est une optimisation **facultative** : apres un echec de la fabrication, le
-bot reprend la coupe a la main au lieu de chercher un contournement. Un outil
-reellement exige (`environnement.outil_necessaire`, ex. pioche en pierre pour le
-fer) et une fabrication demandee par le joueur restent obligatoires.
-
-Deux garde-fous cote craft, mesures en jeu sur 26.1 : `bot.craft(recette, N)`
-avec N > 1 desynchronise la fenetre d'inventaire (resultat partiel **sans**
-erreur, puis echecs en chaine) — la fabrication se fait donc **unite par
-unite**, et un echec silencieux (resolu sans produire ni lever) est retente au
-plus 2 fois en rouvrant la table, jamais martelé en boucle. Et le modele ecrit
-parfois un nom d'objet (`stick`, `crafting_table`, `oak_planks`) la ou
-`fabriquer` attend un nom de cible (`batons`, `etabli`, `planches`) : la
-traduction se fait au point unique d'execution (`FAB_ALIAS` + motifs
-`_planks`/`_door`/`_axe`/`_pickaxe`/`_shovel`), et un nom vraiment inconnu rend
-une erreur qui liste les possibles, jamais un succes fictif.
-
-## Construction
-
-Le bot sait batir une boite creuse avec une porte, ou une forme libre (tour,
-mur, arche, fenetres) dessinee par le modele puis verifiee par le code (bornes,
-blocs flottants, cases injoignables, pieges a bot) :
-
-```
-!mission fais une maison en terre a cote d un arbre de 5 par 5 par 5 avec une porte
-```
-
-Deroule reel :
+Déroulé réel d'une construction :
 
 ```
 type construction, matiere terre, repere arbre, porte oui, 5x5x5
@@ -549,230 +214,140 @@ type construction, matiere terre, repere arbre, porte oui, 5x5x5
 Objectif atteint (objectif estime accompli (95%))
 ```
 
-Les dimensions se lisent sous les formes « 5 par 5 par 5 », « 5x5x5 », « 6 sur 4 »,
-« 5 de large et 4 de haut » ou « de 5 blocs », et sont bornees a 3-9.
+Modules, flux d'une demande et contexte envoyé au modèle :
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
-Le chantier se fait **en survie** : le bot casse, ramasse et fabrique lui-meme
-les blocs qu'il pose. Un chantier a court de materiau echoue en le disant, ce qui
-fait choisir `casser` puis `fabriquer` au planificateur. La maison coute donc
-reellement des ressources.
+## Configuration
 
-`BUILD_DEBUG=1` trace chaque pose (position du bot, appui, face, objet en main).
+Toute la configuration passe par `.env` (modèle commenté : `.env.example`) ;
+le compose fixe le reste.
 
-## Limite connue : poser un bloc dans son propre corps
+### Modèles
 
-Le serveur refuse de poser un bloc a l'endroit ou se tient le joueur, et
-mineflayer ne rapporte que `the block is still air` — rien n'indique la cause.
-Le bot cherche donc, pour chaque case, un **poste de tir** : une position ou il
-peut tenir debout, a portee de la case, et dont son corps ne la recouvre pas.
+Un modèle par usage, sans repli vers un autre modèle : une panne remonte telle
+quelle.
 
-C'est aussi pour cela qu'aucun vol n'est utilise : `bot.creative.flyTo` ne rend
-jamais la main sur une longue distance, et `startFlying()` ne coupe la gravite
-que cote client, si bien que le bot retombait dans la case avant de poser.
+| Variable | Usage |
+| --- | --- |
+| `PLANNER_MODEL` | défaut de tous les usages (`claude-haiku-5-5` en production) |
+| `PLANNER_MODEL_PLAN`, `_BRIEF`, `_CHAT`, `_COMPACT` | plan d'actions, lecture d'objectif, chat, résumé de mémoire |
+| `PLANNER_REASONING_EFFORT_<USAGE>` | effort de raisonnement (`low` partout par défaut) |
+| `PLANNER_TIMEOUT_MS_<USAGE>` | délai d'un appel |
+| `PLANNER_API_KEY`, `OPENCODE_SECONDARY_API_KEY` | deux clés ; la seconde ne sert que sur un refus de quota ou d'accès de la première |
 
-## Le serveur tourne en survie
+Les modèles à raisonnement comptent leurs jetons de réflexion dans
+`PLANNER_MAX_TOKENS` (2000) : trop bas, la réponse revient vide
+(`finish=length`). Le banc fixe ses propres modèles dans `ci/models.env`.
 
-En créatif, casser un bloc ne fait rien tomber : aucune récolte ne serait
-possible. Le serveur est donc en `MODE: "survival"`, et le bot joue avec.
-
-Il ne peut plus s'en extraire : le bot n'a aucun pouvoir d'administration. La
-configuration ne nomme qu'un opérateur, le joueur humain `Rhadamanthe0` : `OPS`
-porte son UUID hors-ligne et `OVERRIDE_OPS` réécrit `ops.json` depuis cette
-liste à chaque démarrage. Le fichier vit sur le volume : des ops peuvent ensuite
-s'y ajouter en exploitation, par RCON, sans passer par `OPS`. Une commande
-`/gamemode` tapée par le bot est rejetée par le serveur, et l'action `dire`
-refuse tout texte commençant par `/`.
-
-Attention : retirer la ligne `OPS` en gardant `OVERRIDE_OPS: "TRUE"` ne vide pas
-`ops.json` : le fichier du volume survit, avec ses entrées. Il faut une ligne
-`OPS` explicite.
-
-Pour le vérifier, deux contrôles : le pseudo du bot doit être **absent** de
-`ops.json`, et son mode de jeu doit valoir survie (`playerGameType = 0`).
-
-```powershell
-docker compose exec -T minecraft cat /data/ops.json
-# TestBot ne doit pas y figurer
-
-docker compose exec -T minecraft rcon-cli "data get entity TestBot playerGameType"
-# 0 = survie
-```
-
-## Confidentialité
-
-**Le chat et l'état de jeu quittent la machine.** Avec le planificateur distant
-(configuration par défaut), le prompt système, le message utilisateur (état de
-jeu, chat récent, mémoire) et le texte des objectifs sont envoyés à
-`opencode.ai` pour chaque appel. C'est la contrepartie du passage au distant :
-plus de GPU à porter, mais les données sortent.
-
-Seul un planificateur exécuté localement (`PLANNER_BASE_URL` vers un serveur
-compatible OpenAI sur la machine) le supprimerait.
-
-## Audit des commandes
-
-`bot/skills.js` est la table unique de tout ce que le bot sait faire. Les
-handlers d'`index.js`, le catalogue du planificateur et la liste de `!aide` en
-sont tous derives, et `skills.audit()` compare au demarrage les commandes
-declarees aux handlers reellement branches, ainsi que les actions de mission aux
-actions branchees :
-
-La ligne `[commandes]` du journal compte les commandes, les actions (dont les
-parametrees), les types de mission, les matieres, les reperes et les
-fabrications, puis conclut `coherent` ou liste les incoherences.
-
-Une commande ajoutee d'un cote mais pas de l'autre apparait ici, et dans
-`GET /api/commands`, au lieu de se decouvrir en jeu. L'audit verifie aussi que
-les exemples des actions ne citent que des champs d'etat existants et des
-valeurs dans les bornes.
-
-## Limite connue : le bot ne sait pas nager
-
-La physique aquatique de Prismarine ne permet pas de faire ressortir un bot d'un
-plan d'eau de facon fiable (voir
-[mineflayer#2796](https://github.com/PrismarineJS/mineflayer/issues/2796) et
-[pathfinder#90](https://github.com/PrismarineJS/mineflayer-pathfinder/pull/90)).
-Mesure faite sur ce montage en 26.1 : `setControlState('jump', true)` maintenu
-5 secondes dans l'eau laisse la position **figee au 7e chiffre decimal**, et
-ajouter `forward` annule la remontee.
-
-Le projet contourne le probleme au lieu de compter sur la nage :
-
-- `liquidCost: 30` dans les `Movements` : le pathfinder evite les liquides ;
-- `allowParkour: false` : pas de saut hasardeux vers l'eau ;
-- un **chien de garde** memorise en continu la derniere position sur la terre
-  ferme, et si le bot reste dans un liquide plus de 5 secondes il tente d'abord
-  de nager, puis d'y **retourner a pied** ;
-- si aucun chemin n'existe — un bassin aux bords droits, par exemple — le bot
-  **reste coince** et le dit dans le chat. Il se teleportait avant, mais il
-  n'est plus operateur. C'est la contrepartie assumee d'un bot qui ne triche
-  pas : sortez-le a la main, ou creusez-lui une marche ;
-- meme detection si le bot est immobile alors qu'il devrait avancer (7 s), ce qui
-  couvre aussi les culs-de-sac hors de l'eau. Sur la terre ferme, annuler
-  l'objectif ne suffit pas a degager un bot encastre dans le decor : si un saut
-  sur place reste sans effet, il tente de rejoindre une position **de sa trace
-  recente**, et non sa derniere position connue, qui serait justement l'endroit
-  ou il est coince ;
-- les evenements `path_update` du pathfinder sont ecoutes : un `noPath` ou un
-  `timeout` est journalise et abandonne au lieu de bloquer silencieusement.
-
-Le sauvetage ne se teleporte pas : le bot n'est pas operateur (voir « Le
-serveur tourne en survie »).
-
-Les champs `inLiquid`, `pathStatus`, `rescues` et `lastRescue` de
-`/api/status` permettent de suivre tout cela. `POST /api/unstuck` force un
-sauvetage.
-
-## Missions etagees et harness multi-bots (`tmp/`)
-
-Une maison en survie coute plus de 90 etapes (recolte + craft + poses +
-trajets) : plutot que de monter `MISSION_MAX_STEPS`, on chaine deux missions,
-l'inventaire persistant entre elles (meme conteneur, meme monde).
-`tmp/chaine-missions.js` pilote l'API **hors du bot**, sans toucher a son code
-ni a ses garde-fous :
+### Gateway
 
 ```
-docker compose cp tmp/chaine-missions.js bot:/tmp/chaine.js
-docker compose exec -T -e NODE_PATH=/app/node_modules bot node /tmp/chaine.js --phase1 "coupe 6 bois" --phase2 "construis un abri en bois de 3 par 3 par 3"
+PLANNER_BASE_URL=https://opencode.ai/zen/go/v1
+PLANNER_API_KEY=...
 ```
 
-Phase 1 (recolte), puis **gate borne** : phase 2 (construction) lancee seulement
-si phase 1 est close en `done` **et** si le stock atteint le seuil (besoin de la
-boite creuse `planHouse`, borne basse sans porte ni pertes de craft). Sinon
-sortie 2, sans reprise auto. Garde-fous constates avant de lancer, jamais
-ecrits : planner sur Zen (`opencode.ai/zen`, modele `deepseek`, `PLANNER_BASE_URL`
-jamais vide), `planner.captures == 0` (`MISSION_SCREENSHOT` OFF), aucune mission
-en cours, aucun `/tp` ni `/gamemode`, `--dry-run` pour verifier sans lancer.
-`--materiau` ne couvre que les cles de `/api/status.inventory`
-(`buches`/`planches`/`pierre`/`batons`/`portes`, pas de dirt) ; la verification
-serveur des blocs reste manuelle (le script imprime les commandes rcon exactes).
+Tout serveur compatible OpenAI convient (`/chat/completions`, `/responses`, ou
+`/messages` pour les modèles `claude-*`). Le gateway exige un en-tête
+`x-opencode-session` stable par bot (`PLANNER_SESSION_ID`), qui sert aussi son
+cache de prompt.
 
-Les tests en parallele passent par le template fige `tmp/probe-bot.js` (v1) : un
-process, un username, un fichier `/tmp/hN.js` par harness —
-`TestProbe1`/`TestProbe2`/`TestProbe3`, **jamais** `TestBot`, `Rhadamanthe0`,
-`ProbeBot`/`WalkerBot`. Harness **silencieux** (aucun `bot.chat()`, sinon
-`recentChat` est pollue), jamais ops, survie (`playerGameType = 0`), `TP` rcon
-reserve au placement du harness, arret propre par `pkill -f /tmp/hN.js`. Voir
-`docs/journal.md` (« Harness multi-bots ») pour le cycle de vie complet.
+### Autres réglages
 
-## Tests unitaires
+Garde-fous de mission (`MISSION_MAX_STEPS`, `MISSION_MAX_DURATION_MS`),
+mémoire du modèle (`MEMORY_*`), traces de diagnostic (`BUILD_DEBUG`,
+`PATH_DEBUG`, `PLANNER_DEBUG`) : la table complète des variables est dans
+[AGENTS.md §7](AGENTS.md#7-variables-d-environnement-principales).
 
-Depuis la racine du dépôt, avec les modules du bot (`npm ci` dans `bot/`) :
+## Limites connues
+
+- **Le bot ne sait pas nager.** La physique de Mineflayer ne fait pas
+  ressortir un joueur de l'eau de façon fiable en 26.1
+  ([mineflayer#2796](https://github.com/PrismarineJS/mineflayer/issues/2796)).
+  Le bot évite les liquides, franchit l'eau par des ponts de terre, et un
+  chien de garde le ramène à pied sur la terre ferme. Sans chemin (bassin aux
+  bords droits), il reste coincé et le dit : sortez-le à la main.
+- **Pas de pose dans son propre corps.** Le serveur refuse un bloc posé là où
+  se tient le joueur ; le bot choisit pour chaque case un poste hors de la
+  case, et ne s'enferme jamais dans ce qu'il construit.
+- **Pas de vol.** `bot.creative.flyTo` et `startFlying()` ne fonctionnent pas
+  sur cette version ; ils ne sont de toute façon pas permis en survie.
+- **Données hors de la machine.** Voir la section suivante.
+
+## Sécurité et confidentialité
+
+- **Survie, sans pouvoir d'administration.** Le serveur tourne en
+  `MODE: survival`, `DIFFICULTY: peaceful`. `OPS` ne nomme que l'UUID
+  hors-ligne de `Rhadamanthe0`, et `OVERRIDE_OPS` réécrit `ops.json` à chaque
+  démarrage. L'action `dire` refuse tout texte commençant par `/`. Pour le
+  vérifier :
+
+  ```powershell
+  docker compose exec -T minecraft cat /data/ops.json        # TestBot absent
+  docker compose exec -T minecraft rcon-cli "data get entity TestBot playerGameType"   # 0 = survie
+  ```
+
+  Retirer la ligne `OPS` en gardant `OVERRIDE_OPS` ne vide **pas**
+  `ops.json` : le fichier du volume survit.
+- **Réseau local seulement.** `ONLINE_MODE=FALSE` permet au bot de se
+  connecter sans compte Microsoft ; en contrepartie, les ports ne sont publiés
+  que sur `127.0.0.1` (`25565`, `3000`). Ne pas les ouvrir au réseau.
+- **Conteneur du bot durci** : utilisateur non-root, `no-new-privileges`,
+  aucune capability Linux.
+- **Confidentialité.** À chaque appel, le prompt, l'état de jeu, le chat récent
+  et la mémoire du modèle partent au gateway (`opencode.ai`). Seul un modèle
+  servi sur la machine (`PLANNER_BASE_URL` local) l'éviterait.
+
+## Tests
+
+**Tests unitaires** (Node, depuis la racine, après `npm ci` dans `bot/`) :
 
 ```bash
 NODE_PATH=$PWD/bot/node_modules node --test tmp/navigation.test.js
 ```
 
-Sans `NODE_PATH`, les tests échouent sur « Cannot find module 'vec3' » :
-`tmp/` n'a pas de `node_modules`. La CI le pose dans `ci/Dockerfile` et lance
-la liste `UNIT` de `ci/run.py`.
+Sans `NODE_PATH`, ils échouent sur « Cannot find module 'vec3' ».
 
-## Banc de tests et interrupteurs A/B
+**Banc de compétences hors ligne** : une mission scriptée, sans modèle, sur un
+serveur simulé (vrai A*, vraie physique), en quelques secondes :
 
-Le banc joue des niveaux en jeu (récolte, arbres, construction, fabrication,
-terrain, missions composites) et rend PASS/FAIL par niveau. Il mesure
-l'autonomie du bot ; il n'est jamais une cible à optimiser.
-
-- Lancement local : `python ci/run.py` (Python + Docker Desktop) ; banc distant
-  et raccordement GitHub Actions :
-  [`docs/remote-minecraft-tests.md`](docs/remote-minecraft-tests.md).
-- Chaque comportement optionnel est un interrupteur (`featureOn('<mode>')`,
-  `POST /api/features`, variable `FEATURE_<MODE>`), comparé en A/B par le banc ;
-  la décision se prend sur plusieurs bancs avec `python3 ci/ab.py`.
-- La liste des interrupteurs, leur état par défaut et les règles du banc :
-  [`AGENTS.md`](AGENTS.md).
-
-## Arrêt sans supprimer le monde
-
-```powershell
-.\stop.ps1
+```bash
+NODE_PATH=$PWD/bot/node_modules node tmp/skill-sim.js --liste
 ```
 
-ou :
+**Banc en jeu** : un vrai serveur Paper, une dizaine de bots en parallèle,
+chacun dans son arène, et le vrai modèle. Il rend PASS/FAIL par niveau et
+compare les interrupteurs en A/B. Il tourne à chaque push sur un runner
+auto-hébergé, ou en local par `python ci/run.py`. Fonctionnement, lecture des
+rapports et règles de fusion : [docs/remote-minecraft-tests.md](docs/remote-minecraft-tests.md).
 
-```powershell
-docker compose down
-```
+## Documentation
 
-## Suppression complète du test
-
-Cette commande supprime les conteneurs, le réseau Compose et le volume contenant le monde Minecraft :
-
-```powershell
-.\destroy.ps1
-```
-
-Équivalent :
-
-```powershell
-docker compose down -v --remove-orphans
-```
-
-Tu peux ensuite supprimer le dossier du projet.
-
-## Sécurité du test
-
-`ONLINE_MODE=FALSE` sert uniquement à permettre à `TestBot` de se connecter sans compte Microsoft.
-
-Les ports du serveur Minecraft et de l'interface sont publiés uniquement sur `127.0.0.1` :
-
-```yaml
-127.0.0.1:25565:25565
-127.0.0.1:3000:3000
-```
-
-Ne remplace pas ces liaisons par `25565:25565` ou `3000:3000` si tu conserves le mode hors-ligne et ne souhaites pas exposer le test au réseau local.
-
-Le conteneur bot s'exécute comme utilisateur non-root, avec `no-new-privileges` et toutes les capabilities Linux supprimées.
+| Document | Contenu |
+| --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | modules, flux d'une demande, actions, contexte du modèle |
+| [docs/context-management.md](docs/context-management.md) | prompt mis en cache, état volatil, mémoire du modèle |
+| [docs/movement-missions.md](docs/movement-missions.md) | parcours, navigateur, conversation contextuelle |
+| [docs/remote-minecraft-tests.md](docs/remote-minecraft-tests.md) | banc de tests en jeu et CI |
+| [AGENTS.md](AGENTS.md) | règles du propriétaire, état courant, pièges : à lire avant toute contribution |
+| [docs/journal.md](docs/journal.md) | historique des décisions et des correctifs |
 
 ## Versions figées
 
-Vérifiées le 21 septembre 2026 ; voir « Pourquoi Minecraft 26.1 est figé ».
+Mineflayer 4.39.0 ne prend officiellement en charge que Minecraft 26.1 : le
+serveur et le bot y restent figés, même si Paper publie 26.2.
 
-- image serveur : `itzg/minecraft-server:2026.9.1-java25` (Java 25, requis par Paper 26.1+) ;
-- Minecraft/Paper : `26.1.2` (aucun artefact `26.1` n'existe chez Paper) ;
-- protocole annoncé au bot (`MC_VERSION`) : `26.1` ;
-- image Node : `node:24.21.0-alpine3.24` ;
-- Mineflayer : `4.39.0` ;
-- mineflayer-pathfinder : `2.4.5` ;
-- Express : `5.2.1`.
+| Composant | Version |
+| --- | --- |
+| Image serveur | `itzg/minecraft-server:2026.9.1-java25` (Java 25) |
+| Paper | `VERSION: "26.1.2"` |
+| Protocole du bot | `MC_VERSION: "26.1"` |
+| Node | `node:24.21.0-alpine3.24` |
+| Mineflayer / pathfinder | `4.39.0` / `2.4.5` |
+| Express | `5.2.1` |
+
+Les deux champs de version ne s'harmonisent pas : Paper ne publie aucun
+artefact nommé `26.1` (« Requested version 26.1 is not available »), alors que
+`MC_VERSION` est un nom de protocole pour minecraft-data, qui s'arrête à 26.1.
+Avant de monter de version, vérifier les deux listes : Paper
+(<https://fill.papermc.io/v3/projects/paper/versions>) et
+`require('minecraft-data').supportedVersions.pc` dans l'image du bot.

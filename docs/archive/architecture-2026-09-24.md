@@ -1,3 +1,8 @@
+> **Archive.** Cadrage du 2026-09-24 (noyau externe, routage MiMo/Muse), jamais
+> réalisé et retiré du code. Conservé seulement parce que des commentaires du
+> code citent ses décisions `Dxx`. L'architecture en vigueur est dans
+> [ARCHITECTURE.md](../../ARCHITECTURE.md).
+
 # ARCHITECTURE.md
 
 ## Architecture cible — besoin consolide (2026-09-24, version 1.0)

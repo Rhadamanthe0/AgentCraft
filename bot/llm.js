@@ -1,16 +1,14 @@
 'use strict'
 
-// Transport LLM partage : un seul endroit parle les protocoles OpenAI
-// `/chat/completions` (DeepSeek, defaut inchange) et `/responses` (Muse Go),
-// et un seul endroit sait lire un JSON de modele.
-//
-// Pourquoi ce module existe : un seul endroit parle le protocole (et la sonde
-// des modeles du banc, ci/model-probe.js, le reutilise).
+// Transport LLM partage : un seul endroit parle les protocoles
+// `/chat/completions` (defaut), `/responses` (gpt-*, muse-spark) et
+// `/messages` (claude-*, format Anthropic), et un seul endroit sait lire un
+// JSON de modele. La sonde des modeles du banc (ci/model-probe.js) le reutilise.
 //
 // Ce module ne connait ni modele, ni URL, ni cle : tout est passe par l appelant.
-// Il reste volontairement sans etat, hors du fetch. Il ne reessaie jamais et ne
-// choisit aucun repli : les reessais et le repli DeepSeek/Muse appartiennent aux
-// appelants (C0 D49, C9), pas au transport.
+// Il reste volontairement sans etat, hors du fetch. Il ne reessaie jamais : les
+// rejeux (meme modele, autre cle) appartiennent aux appelants (planner.js,
+// model-chain.js), pas au transport.
 
 // Detection sure du protocole quand l appelant ne precise rien : seul
 // `muse-spark` (insensible a la casse, avec ou sans suffixe) bascule sur
