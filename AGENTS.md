@@ -382,7 +382,13 @@ Flux d une demande (details : ARCHITECTURE.md) :
    declare casse `tmp/outcomes.test.js`. La meme etape echouee (ou sans effet)
    deux fois a l identique n est pas rejouee (`anti_boucle`). Preconditions
    et effets des actions : `CONTRATS` (mission.js). Un champ persiste se
-   declare dans `mission-state.js`, nulle part ailleurs.
+   declare dans `mission-state.js`, nulle part ailleurs. Mort du bot
+   (`bot/mort.js`, 2026-10-17, idee de Mindcraft) : l etape s arrete (pause),
+   la mission reprend a la reapparition et l etat dit `bot.derniere_mort`
+   (lieu, cause, distance, objets laches encore au sol pendant 5 min) ; le
+   modele decide de les reprendre ou de refaire ; `MISSION_MORTS_MAX` (3)
+   morts : echec. Comportement toujours actif, sans interrupteur : le banc
+   paisible ne fait presque jamais mourir le bot, aucun A/B ne le mesurerait.
 4. **Actions** (`skills.ACTIONS`, 28 hors sous-buts) : `casser`, `recolter`, `ramasser`,
    `donner`, `cuire`, `fabriquer`, `avancer`, `explorer`, `choisir_terrain`,
    `piler`, `construire`, `poser` (A/B), `poser_porte`, `ouvrir_porte`, `utiliser` (A/B), `sortir`, `attendre`, `terminer`,
@@ -754,6 +760,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `CHAT_IGNORE_PLAYERS` | vide | joueurs ignores (banc : les autres bots) |
 | `MISSION_MAX_STEPS` / `_MAX_DURATION_MS` | 60 / 600000 | filets de securite |
 | `MISSION_RECOLTER_MAX_MS` | 60000 | duree max de `recolter` |
+| `MISSION_MORTS_MAX` | 3 | morts pendant une mission avant de l abandonner (`bot/mort.js`) |
 | `MISSION_EXPLORE_LEGS` / `_MAX_MS` | 4 / 45000 | `explorer` |
 | `MISSION_PILER_MAX` / `MISSION_CLIMB_MAX` | 6 / 12 | pilier, sortie de trou |
 | `MISSION_MAX_DIG_DEPTH` / `_MAX_REACH_UP` | 1 / 3 | bornes de casse (anti-puits) |
@@ -796,6 +803,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/casse.js` | casse confirmee par le serveur, bloc remis cote client sinon (piege 19) |
 | `bot/paroi.js` | jamais au contact exact d une paroi, pas refuse par le serveur sinon (piege 20) |
 | `bot/correctifs-jeu.js` | vitesse de casse des minerais et lianes grimpables en 26.1 (piege 22) |
+| `bot/mort.js` | mort mesuree (lieu, objets, cause du serveur) et reapparition ; la mission se met en pause puis reprend (`signalerMort`, `repriseApresMort`) ; test tmp/mort.test.js |
 | `bot/but-bloc.js` | but « bloc en vue, a portee des yeux » du trajet qui creuse (corrige `GoalLookAtBlock`, piege 6) |
 | `bot/pose.js` | gestes de pose partages : tour (pose sous soi au sommet du saut), pose contre une face, verifies par le monde |
 | `bot/movement-task.js` / `bot/tree-position.js` | parcours declaratifs ; placement sous un arbre |

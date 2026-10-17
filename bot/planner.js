@@ -965,6 +965,10 @@ ${si(chantier, `- chantier.emplacement_choisi faux => choisir_terrain avant tout
   (ramassage d objets tout pres, mise a l abri, pas de cote, fuite). Ta
   position ou ton inventaire ont pu changer : repars de l etat, ne refais
   pas ce geste.
+- bot.derniere_mort non nul => tu es mort et tu as reapparu ailleurs, poche
+  videe. objets_encore_au_sol vrai : tes objets sont au lieu de la mort
+  (position, distance), va les reprendre si c est plus court que les refaire ;
+  sinon repars de l inventaire reel. Evite la cause (chute, liquide).
 - Tu ne sais pas quoi faire, ou tu viens de te faire refuser un arret =>
   regarder_autour, jamais attendre : attendre ne t apprend rien, regarder_autour
   te dit ce qui est visible et dans quelle direction.

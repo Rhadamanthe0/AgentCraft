@@ -78,6 +78,10 @@ const ANNOUNCE_COOLDOWN_MS = config.positiveInt(process.env.MISSION_ANNOUNCE_COO
 const SUPPLY = 'harvest'
 
 const TICK_MS = config.positiveInt(process.env.MISSION_TICK_MS, 1200, 'MISSION_TICK_MS')
+// Morts du bot pendant une mission avant de l abandonner (signalerMort).
+const MORTS_MAX = config.positiveInt(process.env.MISSION_MORTS_MAX, 3, 'MISSION_MORTS_MAX')
+// Objets laches a la mort : le jeu les efface 5 min apres (despawn).
+const OBJETS_MORT_MS = 5 * 60 * 1000
 const MAX_STEPS = config.positiveIntOrThrow(process.env.MISSION_MAX_STEPS, 60, 'MISSION_MAX_STEPS')
 // Un geste ne se mesure pas en quantite : il doit se conclure vite. Sans cette
 // borne, un modele qui n ose jamais dire « fini » boucle sur regarder_autour.
@@ -3270,7 +3274,10 @@ function createMissionRunner (host, injected = {}) {
         en_deplacement: Boolean(bot.pathfinder?.isMoving?.()),
         // Cap et inclinaison : sans eux le modele ne sait pas ce qu il regarde,
         // et `regarder`/`pivoter` deviennent des gestes a l aveugle.
-        orientation: orientation()
+        orientation: orientation(),
+        // Mort pendant cette mission (nulle sinon) : inventaire perdu, objets
+        // laches au lieu de la mort tant que `objets_encore_au_sol`.
+        derniere_mort: derniereMort()
       },
       environnement: {
         bloc_cible_le_plus_proche: block ? block.name : null,
@@ -7683,6 +7690,58 @@ function createMissionRunner (host, injected = {}) {
     return true
   }
 
+  // Mort du bot (idee reprise de Mindcraft, 2026-10-16). Avant, la mission
+  // continuait depuis le point de reapparition, inventaire vide, sans le
+  // savoir. Maintenant l etape en cours s arrete (pause), la mort est retenue
+  // (lieu, cause, objets laches), et la mission reprend a la reapparition sur
+  // un etat frais qui la dit au modele (`bot.derniere_mort`) : lui decide
+  // d aller reprendre ses objets ou de refaire. MORTS_MAX morts : echec.
+  function signalerMort ({ position, objets = 0 } = {}) {
+    if (!isRunning()) return { mission: false }
+    const p = position ?? host.getBot()?.entity?.position
+    const mort = { x: p ? Number(p.x.toFixed(1)) : null, y: p ? Number(p.y.toFixed(1)) : null,
+      z: p ? Number(p.z.toFixed(1)) : null, cause: null, objets: Number(objets) || 0, t: Date.now() }
+    mission.morts = [...(mission.morts ?? []), mort]
+    traceDe(mission)?.push({ type: 'mort', ...mort })
+    if (mission.morts.length >= MORTS_MAX) {
+      mission.cancelled = true
+      try { host.stopPathfinding() } catch (_) {}
+      try { host.getBot()?.stopDigging() } catch (_) {}
+      finish('failed', `mort ${mission.morts.length} fois pendant la mission`)
+      return { fin: true, morts: mission.morts.length }
+    }
+    pauseWork('mort du bot')
+    mission.pauseMort = true
+    return { pause: true, morts: mission.morts.length }
+  }
+
+  // A la reapparition : la cause (message de mort du serveur) complete la
+  // derniere mort, puis la mission mise en pause par signalerMort reprend.
+  function repriseApresMort ({ cause } = {}) {
+    const derniere = mission?.morts?.at(-1)
+    if (derniere && cause && !derniere.cause) derniere.cause = String(cause).slice(0, 160)
+    if (!isPaused() || !mission.pauseMort) return false
+    mission.pauseMort = false
+    return resumeWork()
+  }
+
+  function derniereMort () {
+    const mort = mission?.morts?.at(-1)
+    if (!mort) return null
+    const p = host.getBot()?.entity?.position
+    const depuis = Date.now() - mort.t
+    return {
+      position: { x: mort.x, y: mort.y, z: mort.z },
+      cause: mort.cause,
+      il_y_a_s: Math.round(depuis / 1000),
+      distance: p && mort.x !== null ? Number(Math.hypot(p.x - mort.x, p.y - mort.y, p.z - mort.z).toFixed(1)) : null,
+      objets_laches: mort.objets,
+      objets_encore_au_sol: mort.objets > 0 && depuis < OBJETS_MORT_MS,
+      morts_dans_la_mission: mission.morts.length,
+      morts_max: MORTS_MAX
+    }
+  }
+
   // Pause durable (stop du travail, D18) : suspend la boucle en conservant
   // progression et contexte ; la reprise reobserve le monde (buildState frais),
   // sans inventer d actions terminees. Distinct de stop() qui clot en 'stopped'.
@@ -8091,6 +8150,8 @@ function createMissionRunner (host, injected = {}) {
     cancelPendingStart,
     pauseWork,
     resumeWork,
+    signalerMort,
+    repriseApresMort,
     suspend,
     resumeSuspended,
     rehydrate,
