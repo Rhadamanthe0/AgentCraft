@@ -112,11 +112,6 @@ cabane et maison en pierre, build/no-materials, craft/iron-pickaxe ; niveaux
 ses remedes joues par le code puis l etape rejouee, sans appel au modele ;
 table unique `remedesMesures`, partagee avec les sous-buts ; `avec(...)` sur
 trees/tall, trees/skirted, build/no-materials, composite/cabin-from-scratch) ;
-`plan_sans_raisonnement` (eteint : plan envoye avec thinking desactive au lieu
-de l effort ; A/B du 2026-10-17 sur trees/double et stone-hut-from-scratch :
-6/6 contre 6/6, non differenciant ; campagne refaite sur les composites du
-palier 3, `avec(...)` sur stone-toolkit, big-stone-house, lit-cabin et
-powered-rail-line, retires du banc complet) ;
 `buts_ouverts` (eteint : matiere ou lieu hors catalogue nomme par le brief au
 registre du jeu, cle `libre:<bloc>` decrite par `skills.resourceSpec` ; un
 nom absent du registre (nom francais : « magnetite ») est renvoye une fois
@@ -300,6 +295,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
 | Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
 | Escalade sur blocage (appel en effort high, puis fin) | ecarte 2026-10-02 | les 15 missions emballees des bancs du 2026-10-01 avaient toutes une cause d ACCES (tronc haut, no_path) : un modele qui raisonne plus n y peut rien ; traite par `reparer` et le moteur d acces |
 | Brief en effort low | ecarte 2026-10-02, remis 2026-10-10 par le proprietaire (Haiku low partout) | la sonde de modele mesure ~100 jetons de raisonnement en high : la lenteur vient du gateway ; gain trop rare pour etre vu par `ab.py`. |
+| Plan sans raisonnement (`plan_sans_raisonnement`, thinking desactive au lieu de l effort low) | retire 2026-10-18 par le proprietaire | A/B sur les composites du palier 3 (2 bancs, 8 paires) : 5/8 contre 5/8, duree x0,49 et appels x0,62 sur les doubles reussites, mais progression 0,27-0,37 contre 0,8 sur la ligne de rails (chantier trop court declare fini) ; `ab.py` : retirer. L effort `none` (variable ou A/B d effort) coupe toujours le raisonnement |
 | Relance de la lecture d objectif (`PLANNER_RELAUNCH_MS_BRIEF`) | retiree 2026-10-11 par le proprietaire | consommait du quota, devenu le facteur limitant ; elle reduisait pourtant les briefs sans reponse de ~11 a 2-4 par banc (3 bancs, 2026-10-08) : un niveau bloquant laisse sans plan est rejoue une fois (`trees.rejouable`) |
 | Bibliotheque de savoir-faire appris, code genere par le modele (Voyager) | ecarte 2026-10-02 | apprendrait le banc ; code genere = risque (commandes `/`), lent ; les primitives generiques et les arbres de buts couvrent le besoin |
 
@@ -709,7 +705,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  98 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
+  104 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
   reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -723,7 +719,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 152 niveaux avec variantes, 41 joues par defaut dont 22 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 158 niveaux avec variantes, 41 joues par defaut dont 22 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
