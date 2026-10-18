@@ -882,7 +882,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31)) for i in range(5)]),
-            'rules': {}, 'variants': [avec('poser')],
+            'rules': {}, 'variants': [sans('poser')],
         },
         {
             # Demande du proprietaire (2026-10-10) : chaine la plus longue du
@@ -907,7 +907,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [avec('poser')],
+            'rules': {}, 'variants': [sans('poser')],
         },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
@@ -1988,6 +1988,9 @@ RETIRED = frozenset({
     'craft/iron-pickaxe~avec-objet_vers', 'composite/cabin-from-scratch~avec-objet_vers',
     'composite/stone-hut-from-scratch~avec-objet_vers',
     'craft/iron-pickaxe~avec-utiliser', 'composite/cabin-from-scratch~avec-utiliser',
+    # Dedoublonnage (proprietaire, 2026-10-14 : un niveau inclus dans un plus
+    # complexe part, le plus complexe reste ; refait a chaque ajout de niveau).
+    'composite/cabin-from-scratch', 'composite/bucket',
     # Plans longs (2026-10-16, idee des agents Gemini, arXiv 2610.22319),
     # allumes par defaut le 2026-10-17 (A/B : 16 paires, -36 % d appels) :
     # le bras sans le mode se joue par `Banc:`.
@@ -2007,13 +2010,13 @@ MAX_LEVELS = 49
 # measure a mode, not a situation.
 COVERED_BY = {
     'build/arch': 'build/windows', 'build/big-box': 'composite/big-stone-house', 'build/dirt-box': 'build/windows',
-    'build/planks': 'build/no-materials', 'build/planks-door': 'composite/cabin-from-scratch',
+    'build/planks': 'build/no-materials', 'build/planks-door': 'composite/cabin-across-water',
     'build/tower': 'composite/big-stone-house', 'build/wall': 'composite/stone-wall-question',
-    'build/door': 'composite/cabin-from-scratch', 'chat/chatter-ignored': 'chat/question-keeps-mission',
+    'build/door': 'composite/cabin-across-water', 'chat/chatter-ignored': 'chat/question-keeps-mission',
     'chat/stop-resume': 'chat/stop-tree', 'chat/join-then-tree': 'chat/replace-and-join',
     'craft/from-tree': 'craft/iron-pickaxe', 'craft/planks': 'build/no-materials', 'craft/sticks': 'craft/iron-pickaxe',
     'craft/table': 'craft/iron-pickaxe', 'craft/stone-pickaxe': 'craft/iron-pickaxe', 'craft/furnace': 'craft/iron-pickaxe',
-    'craft/axe': 'composite/stone-toolkit', 'craft/door': 'composite/cabin-from-scratch',
+    'craft/axe': 'composite/stone-toolkit', 'craft/door': 'composite/cabin-across-water',
     'craft/torches': 'composite/lit-cabin',
     'follow/corner': 'follow/winding', 'follow/ledge-down': 'follow/winding', 'follow/stairs': 'follow/winding',
     'follow/stop': 'chat/stop-tree', 'follow/straight': 'follow/winding',
@@ -2033,6 +2036,7 @@ COVERED_BY = {
     'trees/leaves': 'trees/double', 'trees/reachable': 'trees/double', 'trees/pillar': 'trees/tall',
     'skill/tree-reachable': 'skill/tree-pillar', 'skill/dirt-box': 'skill/stone-hut-batir',
     'skill/cabin-batir': 'skill/stone-hut-batir', 'trees/skirted': 'trees/tall',
+    'composite/cabin-from-scratch': 'composite/cabin-across-water', 'composite/bucket': 'composite/powered-rail-line',
 }
 
 
@@ -2447,14 +2451,14 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
                 result['trace'] = trace.get('resume')
             # Mode counters (ci/ab.py, A/B summary): did the mode actually act?
             # acces_unifie: engine calls, targets reached, blocks placed/dug;
-            # sous_buts: batir/obtenir steps and failures.
+            # sous_buts: batir/obtenir steps and failures; poser/utiliser: their steps.
             modes = {}
             if m.get('acces'):
                 modes['acces'] = m['acces']
             if m.get('reparations'):
                 modes['reparations'] = m['reparations']
             par_action = (result.get('trace') or {}).get('parAction') or {}
-            for action in ('batir', 'obtenir'):
+            for action in ('batir', 'obtenir', 'poser', 'utiliser'):
                 if par_action.get(action):
                     modes[action] = {k: par_action[action].get(k) for k in ('n', 'echecs', 'ms')}
             # plans_longs (on by default): model calls and steps, steps per

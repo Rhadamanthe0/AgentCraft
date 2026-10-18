@@ -13,7 +13,11 @@
 //     ou le banc passe par le pathfinder ;
 //   - pose : refusee si la case est pleine, recouvre le corps du bot, ou sans
 //     objet en main (« the block is still air », piege 5) ;
-//   - inventaire : objets par id du registre 26.1.
+//   - inventaire : objets par id du registre 26.1 ;
+//   - herbe : une terre posee a l air libre, pres d une herbe, devient herbe
+//     apres `herbeMs` (SIM_HERBE_MS, 0 par defaut : jamais), comme au serveur ou un
+//     pilier de terre verdit en quelques secondes (skill/tree-pillar, banc
+//     d67a3cb : pilier d herbe pris pour le sol).
 // Hors champ : fabrication (fenetres), four, liquides, autres joueurs. Un
 // niveau qui en a besoin reste au banc.
 
@@ -32,7 +36,7 @@ const nom = brut => String(brut).replace(/^minecraft:/, '').replace(/\[.*$/, '')
 // les cases non listees (defaut : herbe en 199, pierre dessous, air dessus) ;
 // borne : { x0, x1, z0, z1 } au-dela de laquelle tout est barriere.
 function createSimServer ({ blocks = {}, sol = null, borne = null, start = new Vec3(0.5, 200, 0.5),
-  inventory = [], tickMs = 50 } = {}) {
+  inventory = [], tickMs = 50, herbeMs = Number(process.env.SIM_HERBE_MS ?? 0) } = {}) {
   const cells = new Map(blocks instanceof Map ? blocks : Object.entries(blocks))
   const fond = sol ?? ((x, y) => y === 199 ? 'grass_block' : y < 199 && y >= 189 ? 'stone' : 'air')
   const nameAt = (x, y, z) => {
@@ -49,6 +53,18 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
   }
   const setBlock = (p, name) => { cells.set(key(p.x, p.y, p.z), name ?? 'air') }
   const world = { getBlock: blockAt }
+  // Propagation de l herbe du jeu : herbe a un bloc pres (y -3 a +1).
+  const verdir = cell => {
+    if (nameAt(cell.x, cell.y, cell.z) !== 'dirt' || nameAt(cell.x, cell.y + 1, cell.z) !== 'air') return
+    let pres = false
+    for (let dx = -1; dx <= 1 && !pres; dx++) for (let dz = -1; dz <= 1 && !pres; dz++) for (let dy = -3; dy <= 1 && !pres; dy++) {
+      pres = nameAt(cell.x + dx, cell.y + dy, cell.z + dz) === 'grass_block'
+    }
+    if (!pres) return
+    const avant = blockAt(cell)
+    setBlock(cell, 'grass_block')
+    bot.emit('blockUpdate', avant, blockAt(cell))
+  }
 
   const bot = new EventEmitter()
   const controls = { forward: false, back: false, left: false, right: false, jump: false, sprint: false, sneak: false }
@@ -140,6 +156,7 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
       if (tenu.count <= 0) bot.heldItem = null
       journal.places.push(tenu.name)
       bot.emit('blockUpdate', null, blockAt(cell))
+      if (tenu.name === 'dirt' && herbeMs > 0) setTimeout(() => verdir(cell), herbeMs).unref?.()
     },
     findBlocks ({ matching, maxDistance = 32, count = 64, point, useExtraInfo }) {
       const test = typeof matching === 'function' ? matching
@@ -262,7 +279,8 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
     bot.on('blockUpdate', onBloc)
     const goal = block ? new GoalBlocEnVue(block, monde, { reach: 3.5 }) : new goals.GoalNear(position.x, position.y, position.z, range)
     const log = []
-    const onUpdate = r => log.push(`${r.status}:${r.visitedNodes}n/${r.path.length}p ${r.path.slice(0, 3).map(n => `${n.x},${n.y},${n.z}${n.toBreak.length ? ' b' + n.toBreak.length : ''}${n.toPlace.length ? ' p' + n.toPlace.length : ''}`).join(' > ')}`)
+    let derniere = null
+    const onUpdate = r => (derniere = r) && log.push(`${r.status}:${r.visitedNodes}n/${r.path.length}p ${r.path.slice(0, 3).map(n => `${n.x},${n.y},${n.z}${n.toBreak.length ? ' b' + n.toBreak.length : ''}${n.toPlace.length ? ' p' + n.toPlace.length : ''}`).join(' > ')}`)
     const onReset = r => log.push(`reset:${r} ${bot.entity.position.toString()}`)
     bot.on('path_update', onUpdate); bot.on('path_reset', onReset)
     let stuck = 0
@@ -271,6 +289,9 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
     const timer = setTimeout(() => bot.pathfinder.setGoal(null), 45000)
     try {
       await bot.pathfinder.goto(goal)
+      if (require('../bot/correctifs-jeu').cheminVideSansBut(derniere, goal, bot.entity.position)) {
+        return { reached: false, code: 'no_path', travelled: Number(startPos.distanceTo(bot.entity.position).toFixed(2)) }
+      }
       return { reached: stuck < 3, code: stuck < 3 ? 'dug' : 'stuck', travelled: Number(startPos.distanceTo(bot.entity.position).toFixed(2)), distance: bot.entity.position.distanceTo(position) }
     } catch (e) {
       console.log(`[creuse] ${e.message} ; ${log.slice(-8).join(' | ')}`)

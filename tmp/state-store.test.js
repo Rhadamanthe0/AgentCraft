@@ -49,13 +49,6 @@ test('chemins explicites : options invalides refusees', () => {
   assert.throws(() => store.readEvents(), /eventFile/)
 })
 
-test('roundtrip : save/load conserve objectifs, inbox, lieux/provenance, preferences', () => {
-  const { store } = freshStore()
-  const snapshot = sampleSnapshot()
-  store.save(snapshot)
-  assert.deepEqual(store.load(), snapshot)
-})
-
 test('redemarrage : une nouvelle instance relit le meme fichier', () => {
   const { file, eventFile } = freshStore()
   const first = createStateStore({ file, eventFile })

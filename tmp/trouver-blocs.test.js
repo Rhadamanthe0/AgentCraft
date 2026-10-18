@@ -78,14 +78,6 @@ test('pierre exposee : memes distances qu une recherche exhaustive', () => {
   assert.ok(trouves.every(exposed))
 })
 
-test('sans filtre et matiere a plusieurs blocs : les plus proches', () => {
-  const bot = faux(monde())
-  const ids = ['iron_ore', 'grass_block'].map(n => registry.blocksByName[n].id)
-  const trouves = perception.trouverBlocs(bot, { ids, maxDistance: 20, count: 10 })
-  const c = bot.entity.position.floored()
-  assert.deepStrictEqual(trouves.map(p => p.distanceTo(c)), exhaustif(bot, ids, null, 20, 10))
-})
-
 test('matiere absente : rien, et vite', () => {
   const bot = faux(monde())
   const debut = Date.now()

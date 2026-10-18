@@ -965,6 +965,10 @@ ${si(chantier, `- chantier.emplacement_choisi faux => choisir_terrain avant tout
   (ramassage d objets tout pres, mise a l abri, pas de cote, fuite). Ta
   position ou ton inventaire ont pu changer : repars de l etat, ne refais
   pas ce geste.
+- bot.derniere_mort non nul => tu es mort et tu as reapparu ailleurs, poche
+  videe. objets_encore_au_sol vrai : tes objets sont au lieu de la mort
+  (position, distance), va les reprendre si c est plus court que les refaire ;
+  sinon repars de l inventaire reel. Evite la cause (chute, liquide).
 - Tu ne sais pas quoi faire, ou tu viens de te faire refuser un arret =>
   regarder_autour, jamais attendre : attendre ne t apprend rien, regarder_autour
   te dit ce qui est visible et dans quelle direction.
@@ -1375,8 +1379,7 @@ fabrique), JAMAIS un "geste" : "fabrique une hache" -> type recolte,
 fabrication "hache", pas un geste a clore en un plan. Ne mets null que s il
 n y a vraiment aucun objet a fabriquer. Plusieurs objets demandes => une liste,
 dans l ordre dit, chacun avec la matiere dite meme une seule fois pour tous
-("une pioche, une hache et une epee en pierre" -> ["stone_pickaxe",
-"stone_axe", "stone_sword"]) ; "fabrication_quantite" vaut alors pour le
+("une pelle et une houe en fer" -> ["iron_shovel", "iron_hoe"]) ; "fabrication_quantite" vaut alors pour le
 premier.
 
 Ne reduis jamais la demande a la seule partie que le bot sait executer.

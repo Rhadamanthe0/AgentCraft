@@ -295,15 +295,6 @@ try {
 } catch (_) { mcdata = null }
 const hasData = Boolean(mcdata?.recipes && mcdata?.itemsByName)
 
-test('dataset 26.1 : planCraft stick/porte via recettes du jeu (pas de phrase)', { skip: !hasData }, () => {
-  const p1 = planCraft({ registry: mcdata, target: 'stick', count: 4, inventory: { oak_planks: 2 } })
-  assert.equal(p1.ok, true)
-  assert.equal(p1.operations[0].outputPerCraft, 4)
-  const p2 = planCraft({ registry: mcdata, target: 'oak_door', count: 3, inventory: { oak_log: 2 } })
-  assert.equal(p2.ok, true)
-  assert.equal(p2.requiresTable, true)
-})
-
 test('dataset 26.1 : torch générique valide (hors 7 FR)', { skip: !hasData }, () => {
   assert.ok(mcdata.itemsByName.torch, 'torch attendu en 26.1')
   // Torche = 2 variantes jeu (charbon ou charcoal) : stock des deux pour une

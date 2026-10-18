@@ -94,7 +94,7 @@ les joue par `Banc:` (nom exact), puis elles retournent dans `trees.RETIRED`.
 
 Interrupteurs actuels : `solveur`, `plans`, `recolter`, `explorer`,
 `prompt_type`, `reflexes`, `relance_plan`, `arbre_fini`, `ouvrir_porte`,
-`anti_boucle`, `plans_longs` (allumes par defaut) ; `nav_creuse` (eteint, `avec(...)` sur
+`anti_boucle`, `poser`, `plans_longs` (allumes par defaut) ; `nav_creuse` (eteint, `avec(...)` sur
 gather/sand-walled et terrain/plateau) ; `acces_unifie` (eteint, moteur d acces
 unique : un seul A* pour marcher, casser, monter en tour et poser un pont,
 `avancer` -> `atteindre`, la cascade historique en recours ; `avec(...)` sur
@@ -119,14 +119,17 @@ deplacement vers un tel bloc est clos par le code des qu il est a portee ; et
 refus immediat d une capacite absente, identifiant de
 `skills.CAPACITES_ABSENTES`, jamais un texte libre ; niveaux `ouvert/*`,
 `avec(...)` sur gather/flowers et craft/axe pour voir les faux refus) ;
-`poser` (eteint, 2026-10-10 : action `poser {objet, quantite, de, vers}`,
+`poser` (allume par defaut le 2026-10-17 par le proprietaire : A/B de 7 bancs,
+5/14 contre 0/14, aucune perte ; action `poser {objet, quantite, de, vers}`,
 `bot/action-poser.js` : un objet devant soi, a cote d un bloc nomme, SUR lui
 pour un objet-entite (minecart, bateau : `activateBlock` puis entite
 mesuree), ou une ligne au sol d un bloc nomme a l autre ; le brief liste les
 objets a poser (`pose`, cle de prompt `brief|pose`), `consigne.poses` les
 sert, le solveur vise le premier qui manque en poche, `finishAllowed` exige
-chaque pose verifiee (`mission.posesFaites`) ; `avec(...)` sur
-composite/lit-cabin et composite/powered-rail-line ; tmp/poser.test.js) ;
+chaque pose verifiee (`mission.posesFaites`), un pluriel sans nombre (« des
+torches ») en vaut deux (`skills.nommeAuPluriel`), `consigne.poses` dit
+`en_poche` ; `sans(...)` sur composite/lit-cabin et
+composite/powered-rail-line ; tmp/poser.test.js) ;
 `objet_vers` (eteint, 2026-10-11, lot 2 des actions generiques : `objet` sur
 casser, recolter, ramasser et `vers` sur avancer, explorer, piler, servis au
 modele seulement avec le mode (parametre a `feature` dans skills.js) ; le nom
@@ -226,8 +229,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
   supplementaires comptes, dans l arene ou une zone qui suit rotation et
   miroir), `composite/powered-rail-line` (ligne de minecart entre deux
   laines avec rails accelerateurs : fer, or, redstone, cuisson ; `entities` :
-  minecart present) ; ces deux derniers se mesurent avec `poser` (variante
-  `~avec-poser`). Une ferme a canne a sucre exige `culture` et `mecanisme`
+  minecart present) ; ces deux derniers gardent la variante `~sans-poser`. Une ferme a canne a sucre exige `culture` et `mecanisme`
   (circuits) : ce n est pas encore un niveau.
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
   escalier (jamais un puits vertical). Difficulte paisible pour l instant.
@@ -335,6 +337,22 @@ au demarrage au lieu de 75 min de niveaux rouges.
   (`git clone . <scratch>` puis les tests) : un fichier present seulement en
   local a casse deux bancs (7f7ac88, e3786f9).
 - Pas de revue Codex a attendre (retiree, #60).
+- **Dedoublonnage des tests (proprietaire, 2026-10-14)** : a chaque ajout d un
+  test (unitaire `tmp/*.test.js`, `ci/test_*.py` ou niveau de `ci/trees.py`),
+  retirer tout test en doublon ou inclus dans un autre (tout ce qu il verifie,
+  sur le meme chemin et une situation equivalente, l est aussi par un autre) ;
+  on retire toujours le moins complexe et on garde le plus complexe. Un niveau
+  retire va dans `trees.RETIRED` avec sa couverture dans `COVERED_BY`. Un
+  niveau BLOQUANT couvert seulement par un niveau informatif reste joue
+  jusqu a la promotion de sa couverture (garde-fou de fusion) ; il part le jour
+  ou elle devient bloquante, sans demander (proprietaire, 2026-10-17 : tout
+  retrait d un doublon est automatique). Passe du 2026-10-14 : cabin-from-scratch (dans
+  cabin-across-water) et bucket (dans powered-rail-line) retires ;
+  stone-hut-from-scratch (dans big-stone-house), craft/iron-pickaxe (dans
+  powered-rail-line) et chat/question-keeps-mission (dans stone-wall-question)
+  attendent la promotion de leur couverture ; 14 tests unitaires retires. Un
+  niveau `skill/*` ne double pas son jumeau joue par le modele : il mesure le
+  code seul.
 - Avant de proposer un changement d architecture, le chiffrer sur les bancs
   (`report.json` de plusieurs bancs, `containers.log`) puis le critiquer :
   la revue du 2026-10-02 a ecarte deux propositions sur ces seuls chiffres
@@ -382,10 +400,16 @@ Flux d une demande (details : ARCHITECTURE.md) :
    declare casse `tmp/outcomes.test.js`. La meme etape echouee (ou sans effet)
    deux fois a l identique n est pas rejouee (`anti_boucle`). Preconditions
    et effets des actions : `CONTRATS` (mission.js). Un champ persiste se
-   declare dans `mission-state.js`, nulle part ailleurs.
+   declare dans `mission-state.js`, nulle part ailleurs. Mort du bot
+   (`bot/mort.js`, 2026-10-17, idee de Mindcraft) : l etape s arrete (pause),
+   la mission reprend a la reapparition et l etat dit `bot.derniere_mort`
+   (lieu, cause, distance, objets laches encore au sol pendant 5 min) ; le
+   modele decide de les reprendre ou de refaire ; `MISSION_MORTS_MAX` (3)
+   morts : echec. Comportement toujours actif, sans interrupteur : le banc
+   paisible ne fait presque jamais mourir le bot, aucun A/B ne le mesurerait.
 4. **Actions** (`skills.ACTIONS`, 28 hors sous-buts) : `casser`, `recolter`, `ramasser`,
    `donner`, `cuire`, `fabriquer`, `avancer`, `explorer`, `choisir_terrain`,
-   `piler`, `construire`, `poser` (A/B), `poser_porte`, `ouvrir_porte`, `utiliser` (A/B), `sortir`, `attendre`, `terminer`,
+   `piler`, `construire`, `poser`, `poser_porte`, `ouvrir_porte`, `utiliser` (A/B), `sortir`, `attendre`, `terminer`,
    `dire`, `regarder`, `sauter`, `appuyer`, `regarder_autour`, `pivoter`,
    `memoriser`, `oublier`, `rejoindre_demandeur`, `tourner_vers_demandeur`.
    Chacune est parametree (duree, distance, quantite, objet...) ; le modele
@@ -514,6 +538,11 @@ dans `docs/journal.md` (section « Les pieges »).
     pour se deplacer seulement. Quand la seule matiere restante est sous ses
     pieds (dernier minerai d un rocher), `recolter` le poste a cote, a la
     hauteur du bloc ou plus bas (`posteHorsDessous`, skill/coal-rock).
+    La borne « un bloc sous les pieds » est relative : sans autre regle, chaque
+    casse en ouvrait une un cran plus bas (pierre sous l herbe de l arene,
+    composite/bucket a y 198, skill/stone-hut-batir a y 197). `findTargetBlock`
+    ne vise donc un bloc sous les pieds (hors tronc) que s il ne reste aucune
+    matiere a hauteur, meme hors de portee.
 11. **Modele a raisonnement** : ses jetons de raisonnement comptent dans
     `PLANNER_MAX_TOKENS` ; trop bas => contenu vide (`finish=length`).
 12. **Prompt systeme = partie mise en cache** : jamais d horodatage ni de
@@ -610,8 +639,43 @@ dans `docs/journal.md` (section « Les pieges »).
     grimpe pas. Ecartes apres verification : temps de casse dans l eau et
     rotation de `use_item` (deja corriges en mineflayer 4.39), portes du
     pathfinder (l activation bascule une porte deja ouverte : le navigateur
-    les gere), delai de pose a 0,5 s (faux echecs sous charge). Test :
+    les gere), delai de pose a 0,5 s (faux echecs sous charge). Releves dans
+    le code d Astra (2026-10-17) : `goto` RESOUT sur un chemin vide meme en
+    `noPath` (bot enferme) ; le trajet qui creuse le rend `no_path`
+    (`cheminVideSansBut`). Apres la pose d une marche au-dessus d un trou, le
+    pathfinder ramene le bot a son point de retour (`returningPos`) meme but
+    annule, regard et commandes repris chaque tick : `gardeRetour` retire les
+    `returnPos` a l annulation et attend la fin d un retour deja arme.
+    Ecarte : `fullStop` recentre la position (jusqu a 0,31 bloc) avant une
+    casse, toujours dans la case occupee, jamais en collision. Test :
     tmp/correctifs-jeu.test.js.
+
+23. **Ramassage : la boite du jeu, pas le seuil de 0,75 de `arrived`**
+    (2026-10-17) : le joueur ramasse un objet de 0,75 sous ses pieds a 2,3
+    au-dessus (corps gonfle de 0,5). `itemInPickupRange` (navigation.js) suit
+    cette hauteur ; avec `arrived` (|dy| <= 0,75), un objet tombe dans une
+    encoche a hauteur de tete (minerai casse de cote) n avait aucun poste :
+    A* sans but, `ramasser` 0/1 jusqu au plafond, raw_gold perdu sur
+    composite/powered-rail-line. Les instantanes de blocage portent les objets
+    au sol (`objets` : nom et position). Test : tmp/navigation-drop.test.js.
+
+24. **Emprise du chantier et arbre commence** (2026-10-17) : les cibles
+    ignorent l emprise du chantier (murs plus un bloc de marge), mais
+    `siteFits` n exige que deux blocs libres dans la marge : un chantier pose
+    a cote d un tronc coupe par le bas couvrait la derniere buche, seule cible
+    bois par la regle arbre fini et introuvable pour casser et piler (45 min,
+    193 plans). Les buches de l arbre commence restent des cibles
+    (`horsEmprise`, mission.js). Test : tmp/arbre-chantier.test.js.
+
+25. **Un pilier de terre devient herbe** (2026-10-17) : au serveur, une terre
+    posee a l air libre pres d une herbe verdit en quelques secondes. Le
+    pilier n etait reconnu que en terre ou planches : un pilier verdi etait
+    pris pour le sol, ni defait ni repris pour la terre manquante
+    (skill/tree-pillar rouge au banc d67a3cb, perche a +1 sans terre).
+    `estBlocDePilier` (mission.js) compte l herbe ; une herbe n est descendue
+    que si elle forme une colonne isolee (`isPillarBlock`), jamais le sol.
+    Simulateur : `SIM_HERBE_MS` (tmp/sim-server.js, eteint par defaut).
+    Test : tmp/skill-sim.test.js.
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
@@ -639,7 +703,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  91 dont les variantes A/B tranchees ou deja mesurees ; seule `~avec-poser`
+  98 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
   reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -653,7 +717,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 147 niveaux avec variantes, 45 joues par defaut dont 23 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 152 niveaux avec variantes, 41 joues par defaut dont 22 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
@@ -754,6 +818,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `CHAT_IGNORE_PLAYERS` | vide | joueurs ignores (banc : les autres bots) |
 | `MISSION_MAX_STEPS` / `_MAX_DURATION_MS` | 60 / 600000 | filets de securite |
 | `MISSION_RECOLTER_MAX_MS` | 60000 | duree max de `recolter` |
+| `MISSION_MORTS_MAX` | 3 | morts pendant une mission avant de l abandonner (`bot/mort.js`) |
 | `MISSION_EXPLORE_LEGS` / `_MAX_MS` | 4 / 45000 | `explorer` |
 | `MISSION_PILER_MAX` / `MISSION_CLIMB_MAX` | 6 / 12 | pilier, sortie de trou |
 | `MISSION_MAX_DIG_DEPTH` / `_MAX_REACH_UP` | 1 / 3 | bornes de casse (anti-puits) |
@@ -783,7 +848,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/trace.js` | trace structuree de mission |
 | `bot/action-gestes.js` | gestes, attente, fin, memoire (premier module d actions) |
 | `bot/action-sous-buts.js` | plan vide bloque/refuse = `obtenir_bloque`, jamais acquisition accomplie ; sous-buts `batir` et `obtenir {objet, quantite}` (A/B `sous_buts`) : un geste mesure a la fois jusqu au but ; `obtenir` nomme fait de l objet la cible du solveur le temps du sous-but (`mission.demandeObtenir`) |
-| `bot/action-poser.js` | action `poser` (A/B `poser`, toujours eteint) : timeout/abort attend le settle physique avant de rendre le writer ; aucune continuation apres equip/regard annule ; objets-entites verifies par nouvelle entite du type demande ET consommation du stock total (pas un mob ni un bloc modifie) |
+| `bot/action-poser.js` | action `poser` (interrupteur `poser`, allume par defaut) : timeout/abort attend le settle physique avant de rendre le writer ; aucune continuation apres equip/regard annule ; objets-entites verifies par nouvelle entite du type demande ET consommation du stock total (pas un mob ni un bloc modifie) |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
 | `bot/script-brain.js` | cerveau scripte du banc de competences (`skill/*`, `MISSION_SCRIPT=1`) |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |
@@ -795,7 +860,8 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/navigation.js` / `bot/motion-trace.js` | navigateur partage (options `dig` et `place` : casse et pose planifiees par A*) ; traces de trajet |
 | `bot/casse.js` | casse confirmee par le serveur, bloc remis cote client sinon (piege 19) |
 | `bot/paroi.js` | jamais au contact exact d une paroi, pas refuse par le serveur sinon (piege 20) |
-| `bot/correctifs-jeu.js` | vitesse de casse des minerais et lianes grimpables en 26.1 (piege 22) |
+| `bot/correctifs-jeu.js` | vitesse de casse des minerais, lianes grimpables, chemin vide et point de retour du pathfinder en 26.1 (piege 22) |
+| `bot/mort.js` | mort mesuree (lieu, objets, cause du serveur) et reapparition ; la mission se met en pause puis reprend (`signalerMort`, `repriseApresMort`) ; test tmp/mort.test.js |
 | `bot/but-bloc.js` | but « bloc en vue, a portee des yeux » du trajet qui creuse (corrige `GoalLookAtBlock`, piege 6) |
 | `bot/pose.js` | gestes de pose partages : tour (pose sous soi au sommet du saut), pose contre une face, verifies par le monde |
 | `bot/movement-task.js` / `bot/tree-position.js` | parcours declaratifs ; placement sous un arbre |
