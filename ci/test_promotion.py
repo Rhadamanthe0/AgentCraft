@@ -25,6 +25,16 @@ class Promotion(unittest.TestCase):
         self.assertEqual(row['streakWithTwin'], 2)
         self.assertFalse(row['promote'])
 
+    def test_missing_twin_cannot_promote(self):
+        # Three stable passes are not three complete pairs when a twin is absent.
+        rows = promotion.summarize(promotion.level_rows([
+            bench('a1', '1', True, True),
+            bench('a2', '2', True, True),
+            bench('a3', '3', True, None),
+        ]))
+        self.assertEqual(rows[0]['streakWithTwin'], 0)
+        self.assertFalse(rows[0]['promote'])
+
     def test_three_with_twin_promotes(self):
         rows = promotion.summarize(promotion.level_rows([bench(f's{i}', str(i), True, True) for i in range(3)]))
         self.assertTrue(rows[0]['promote'])
