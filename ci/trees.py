@@ -640,7 +640,7 @@ def base_levels():
             'leaves': [(TX-2, 204, TZ-2, TX+3, 205, TZ+3)],
             'logs': _logs(*[(TX + dx, 200 + i, TZ + dz) for i in range(4) for dx in (0, 1) for dz in (0, 1)]),
             # Second A/B: plan calls without the relaunch after 10 s of silence.
-            'rules': {}, 'variants': [sans('recolter'), sans('relance_plan'), avec('plan_sans_raisonnement'), sans('plans_longs')],
+            'rules': {}, 'variants': [sans('recolter'), sans('relance_plan'), sans('plans_longs')],
         },
         # Player report: a snowy spruce whose leaf skirts reach the ground,
         # left half cut for other trees. Informative until three green runs.
@@ -777,7 +777,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [avec('sous_buts'), avec('plan_sans_raisonnement'), avec('objet_vers'), *MODELES_AB, sans('plans_longs')],
+            'rules': {}, 'variants': [avec('sous_buts'), avec('objet_vers'), *MODELES_AB, sans('plans_longs')],
         },
         # Palier 2 (2026-10-09, A/B de modele) : forme jamais demandee depuis
         # rien (un mur, pas une boite), en pierre, avec une question du joueur
@@ -1975,13 +1975,13 @@ RETIRED = frozenset({
     # only the variants of the mode being built (`poser`) stay.
     'trees/bent~sans-anti_boucle', 'trees/bent~avec-acces_unifie', 'trees/tall~sans-reflexes',
     'trees/tall~avec-reparer', 'trees/double~sans-recolter', 'trees/double~sans-relance_plan',
-    'trees/double~avec-plan_sans_raisonnement', 'trees/skirted~sans-arbre_fini', 'trees/skirted~avec-reparer',
+    'trees/skirted~sans-arbre_fini', 'trees/skirted~avec-reparer',
     'terrain/plateau~avec-nav_creuse', 'terrain/plateau~avec-acces_unifie', 'terrain/moat~avec-acces_unifie',
     'gather/sand-walled~avec-nav_creuse', 'gather/sand-walled~avec-acces_unifie',
     'craft/iron-pickaxe~avec-sous_buts', 'build/no-materials~avec-sous_buts', 'build/no-materials~avec-reparer',
     'composite/cabin-from-scratch~sans-ouvrir_porte', 'composite/cabin-from-scratch~avec-sous_buts',
     'composite/cabin-from-scratch~avec-reparer', 'composite/stone-hut-from-scratch~avec-sous_buts',
-    'composite/stone-hut-from-scratch~avec-plan_sans_raisonnement', 'skill/tree-pillar~avec-acces_unifie',
+    'skill/tree-pillar~avec-acces_unifie',
     'skill/sand-walled~avec-acces_unifie',
     # Lot 2 des actions generiques (2026-10-11) : joues par `Banc:` le temps
     # de la campagne A/B, jamais au banc complet (quota).

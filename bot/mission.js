@@ -6455,7 +6455,7 @@ function createMissionRunner (host, injected = {}) {
     const controller = new AbortController()
     const promise = brain(mission).plan(
       snap, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
-      { signal: controller.signal, profil: profilPrompt(), relance: featureOn('relance_plan'), sansRaisonnement: featureOn('plan_sans_raisonnement', false), plansLongs: featureOn('plans_longs') }
+      { signal: controller.signal, profil: profilPrompt(), relance: featureOn('relance_plan'), plansLongs: featureOn('plans_longs') }
     )
     // Rejet attendu si abort avant consommation (voir abortPrefetch).
     promise.catch(() => {})
@@ -6518,7 +6518,7 @@ function createMissionRunner (host, injected = {}) {
         try {
           result = await brain(mission).plan(
             state, mission.kind, mission.supply, extraState(), capture ? capture.dataUrl : null,
-            { signal: mission.navigationAbort.signal, profil: profilPrompt(), relance: featureOn('relance_plan'), sansRaisonnement: featureOn('plan_sans_raisonnement', false), plansLongs: featureOn('plans_longs') }
+            { signal: mission.navigationAbort.signal, profil: profilPrompt(), relance: featureOn('relance_plan'), plansLongs: featureOn('plans_longs') }
           )
         } finally {
           mission.attenteModeleMs += Date.now() - attente

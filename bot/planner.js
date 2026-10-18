@@ -451,12 +451,12 @@ async function callWithProfileOnce (system, user, opts = {}) {
   }
 }
 
-async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan', sansRaisonnement = false } = {}) {
+async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan' } = {}) {
   // `none` (PLANNER_REASONING_EFFORT_<USAGE> ou A/B d effort) : raisonnement
-  // coupe, comme le plan sans raisonnement.
+  // coupe (thinking desactive a la place de l effort).
   const effortAsked = modelChain.effortFor(task)
   const EFFORT = effortAsked === 'none' ? null : effortAsked
-  if (effortAsked === 'none') sansRaisonnement = true
+  const sansRaisonnement = effortAsked === 'none'
   // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
   const target0 = forced ?? effectiveModel()
   // `openai/<modele>` : API OpenAI en direct (OPENAI_API_KEY), pour l offre de
@@ -482,9 +482,8 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     stats.tentatives += 1
     syncProfileStats()
     // `reasoning_effort` sur /chat/completions, `reasoning.effort` sur /responses (muse).
-    // Plan sans raisonnement (A/B `plan_sans_raisonnement`) : thinking
-    // desactive a la place de l effort, comme la sonde de cle (ci/keyprobe.py)
-    // que deepseek-v4.1-flash accepte. Un refus retire le champ pour CE
+    // Effort `none` : thinking desactive a la place de l effort, comme la
+    // sonde de cle (ci/keyprobe.py) que deepseek-v4.1-flash accepte. Un refus retire le champ pour CE
     // modele (thinkingOff), jamais l effort des autres usages.
     const effort = !sansRaisonnement && EFFORT && !effortOff.has(model) ? EFFORT : null
     // L effort remplace le champ thinking (space-bunny refuse thinking mais
@@ -1065,8 +1064,7 @@ async function call (system, user, image = null, opts = {}) {
     // Relaunch only once warm: the warm-up delay covers a cold model
     // (callWithProfile also requires that very model to have answered once).
     relanceMs: warm ? (opts.relanceMs ?? 0) : 0,
-    task: opts.task ?? 'plan',
-    sansRaisonnement: opts.sansRaisonnement === true
+    task: opts.task ?? 'plan'
   })
 }
 
@@ -1245,8 +1243,7 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   let response
   try {
     response = await call(system, user, image, {
-      signal: opts.signal ?? null, task: 'plan', relanceMs: opts.relance === false ? 0 : RELAUNCH_MS,
-      sansRaisonnement: opts.sansRaisonnement === true
+      signal: opts.signal ?? null, task: 'plan', relanceMs: opts.relance === false ? 0 : RELAUNCH_MS
     })
     lastError = null
   } catch (err) {
