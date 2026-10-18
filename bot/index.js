@@ -17,6 +17,7 @@ const perception = require('./perception')
 const casse = require('./casse')
 const paroi = require('./paroi')
 const correctifs = require('./correctifs-jeu')
+const { brancherMort } = require('./mort')
 const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText, parseArbitrationChoice } = require('./conversation')
 const { createExecutor, awaitPhysicalWithTimeout, createControlLease, runPhysicalOrThrow } = require('./executor')
 const { createStateStore } = require('./state-store')
@@ -1718,6 +1719,24 @@ function connectBot () {
     // Vitesse de casse des minerais en 26.1 (donnees du jeu, correctifs-jeu.js).
     bot.loadPlugin(correctifs.brancherCorrectifs)
     craft.trackWindowStateIds(bot)
+    // Mort : l etape s arrete, la mission reprend a la reapparition en le
+    // sachant (bot/mort.js, mission.signalerMort).
+    brancherMort(bot, {
+      onMort: mort => {
+        const p = mort.position
+        console.log(`[mort] en ${p ? `${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}` : '?'}, ${mort.objets} objet(s) laches`)
+        const suite = missionRunner.signalerMort(mort)
+        if (suite.fin) say(`Je suis mort ${suite.morts} fois, j abandonne la mission.`)
+      },
+      onReapparition: mort => {
+        // Reapparu ailleurs : la piste du chien de garde ne vaut plus.
+        safeTrail = []
+        lastSafePosition = bot?.entity?.position?.clone?.() ?? null
+        resetWatchdog()
+        console.log(`[mort] reapparu${mort.cause ? ` (${mort.cause})` : ''}`)
+        if (missionRunner.repriseApresMort({ cause: mort.cause })) say('Je suis mort, je reprends la mission.')
+      }
+    })
     // Le logger publie dans le chat des qu une instance est joignable.
     logger.attach(bot)
 
