@@ -101,6 +101,20 @@ function casesLigne (bot, a, b) {
 
 // Cases voisines d un bloc, a sa hauteur s il ne bouche pas (rail), sinon a
 // celle d au-dessus, puis le dessus lui-meme : libres et appuyees.
+// Etat d une ligne demandee par le brief, de `de` a `vers` : cases encore
+// libres sur sa partie praticable. Une case prise par un objet pose, quel
+// qu il soit (rail ou rail accelerateur sur la meme ligne), compte comme
+// faite. { erreur } quand une ancre n est pas en vue.
+function etatLigne (bot, de, vers) {
+  const a = trouverAncre(bot, nomPropre(de))
+  if (a.erreur) return { erreur: a.erreur }
+  const b = trouverAncre(bot, nomPropre(vers))
+  if (b.erreur) return { erreur: b.erreur }
+  const l = casesLigne(bot, caseDepuis(bot, a.bloc), caseDepuis(bot, b.bloc))
+  if (!l.cases?.length) return { erreur: l.erreur }
+  return { total: l.cases.length, libres: l.cases.filter(c => libre(bot.blockAt(c))).length, ...(l.erreur ? { coupee: l.erreur } : {}) }
+}
+
 function casesVoisines (bot, bloc) {
   const base = solide(bloc) ? bloc.position.offset(0, 1, 0) : bloc.position
   const cases = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => base.offset(dx, 0, dz))
@@ -325,4 +339,4 @@ function createPoser (deps) {
 }
 
 module.exports = {
-  casesAutour, createPoser, casesLigne, casesVoisines, correspond, trouverAncre, caseDepuis, nomPropre }
+  casesAutour, createPoser, casesLigne, casesVoisines, etatLigne, correspond, trouverAncre, caseDepuis, nomPropre }

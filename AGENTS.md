@@ -129,7 +129,11 @@ objets a poser (`pose`, cle de prompt `brief|pose`), `consigne.poses` les
 sert, le solveur vise le premier qui manque en poche, `finishAllowed` exige
 chaque pose verifiee (`mission.posesFaites`), un pluriel sans nombre (« des
 torches ») en vaut deux (`skills.nommeAuPluriel`), `consigne.poses` dit
-`en_poche` ; `sans(...)` sur composite/lit-cabin et
+`en_poche` ; une pose en ligne (`de`/`vers` au brief : « une ligne de rails
+de A a B ») vaut toute la ligne, ses cases libres font le reste
+(`posesMesurees`, `action-poser.etatLigne`) ; une « construction » sans
+matiere ni dimension lue qui pose des objets devient une pose (pas de
+chantier 5x5x5 par defaut qui refusait la fin, 2026-10-19) ; `sans(...)` sur composite/lit-cabin et
 composite/powered-rail-line ; tmp/poser.test.js) ;
 `objet_vers` (eteint, 2026-10-11, lot 2 des actions generiques : `objet` sur
 casser, recolter, ramasser et `vers` sur avancer, explorer, piler, servis au
@@ -424,7 +428,9 @@ Connaissances calculees par le code, servies au modele dans l etat :
   cible = l objet a fabriquer, sinon l outil qu exige la matiere d une
   construction ou d une recolte (pioche en bois pour la pierre) tant qu il
   manque et que le materiau en poche ne suffit pas ;
-  `harvestResource()` vise la premiere recolte du plan en vue ;
+  `harvestResource()` vise la premiere recolte du plan en vue ; chantier
+  pose sans sa porte demandee : la porte est la cible (`porteCible`, sinon la
+  pierre du brief etait recoltee jusqu au plafond, 2026-10-19) ;
 - **besoins d un chantier** (`state.besoins`) : blocs restants, planches,
   porte, etabli, buches a recolter d un coup ;
 - **arbre entier** (`arbre_demande`), arbre commence a finir (`arbre_en_cours`), `objets_au_sol` (nom, nombre, hauteur
