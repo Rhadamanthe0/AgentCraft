@@ -24,7 +24,7 @@ const perception = require('./perception')
 const missionState = require('./mission-state')
 const missionTrace = require('./trace')
 const { createGestes } = require('./action-gestes')
-const { createPoser, etatLigne, nomPropre: nomDeBloc } = require('./action-poser')
+const { createPoser, etatLigne, blocDeLObjet, nomPropre: nomDeBloc } = require('./action-poser')
 const { createSousButs, prochainGesteSolveur } = require('./action-sous-buts')
 const {
   PILER_DIRT, scaffoldingStock, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
@@ -761,7 +761,14 @@ function createMissionRunner (host, injected = {}) {
         const l = etatLigne(bot, p.de, p.vers)
         if (!l.erreur) mission.lignesMesurees = { ...(mission.lignesMesurees ?? {}), [cle]: l.libres }
         const libres = l.erreur ? (mission.lignesMesurees?.[cle] ?? Math.max(1, (p.quantite ?? 1) - posees)) : l.libres
-        return { objet: p.objet, voulues: posees + libres, posees, enPoche, manque: Math.max(0, libres - enPoche), libres,
+        // Les autres blocs a poser hors ligne (rails accelerateurs d une
+        // ligne de rails) prendront des cases : a fabriquer en moins. Sans
+        // cela, 17 cases faisaient fabriquer 32 rails (12 fer au lieu de 6)
+        // et le fer manquait au minecart (composite/powered-rail-line,
+        // banc 39307567266). Une estimation : la ligne mesuree tranche.
+        const autres = (mission.poses ?? []).filter(o => o !== p && !(o.de && o.vers) && blocDeLObjet(bot.registry, o.objet))
+          .reduce((n, o) => n + Math.max(0, (o.quantite ?? 1) - (mission.posesFaites?.[o.objet] ?? 0)), 0)
+        return { objet: p.objet, voulues: posees + libres, posees, enPoche, manque: Math.max(0, libres - enPoche - autres), libres,
           ligne: { de: p.de, vers: p.vers, cases_libres: libres, ...(l.erreur ? { hors_de_vue: l.erreur } : { cases: l.total }), ...(l.coupee ? { coupee: l.coupee } : {}) } }
       }
       const voulues = p.quantite ?? 1

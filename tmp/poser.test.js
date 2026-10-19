@@ -93,6 +93,19 @@ test('poser : construction sans matiere ni dimension = pose ; la ligne entiere p
   assert.ok(!lignes.some(l => /Objectif atteint|chantier/i.test(l)), lignes.filter(l => /chantier|Objectif/i.test(l)).join('\n'))
 })
 
+test('poser : les autres blocs a poser prennent des cases de la ligne, le solveur fabrique d autant moins', async () => {
+  const { lignes } = await jouer({
+    blocks: { '10,199,15': 'red_wool', '27,199,15': 'blue_wool' },
+    inventory: [{ name: 'iron_ingot', count: 40 }, { name: 'stick', count: 20 }, { name: 'crafting_table', count: 1 }],
+    brief: { type: 'recolte', matiere: 'aucune', pose: [{ objet: 'rail', de: 'red_wool', vers: 'blue_wool' }, { objet: 'powered_rail', quantite: 2 }, { objet: 'minecart', quantite: 1 }] },
+    script: [{ action: 'attendre', duree: 1 }]
+  })
+  // 18 cases, 2 rails accelerateurs : 16 rails, une seule fournee (6 fer), jamais 32.
+  const solveur = lignes.filter(l => /solveur/.test(l))
+  assert.ok(solveur.some(l => /fabriquer 16 rail\b/.test(l)), solveur.join('\n'))
+  assert.ok(!solveur.some(l => /fabriquer 32 rail\b/.test(l)), solveur.join('\n'))
+})
+
 test('poser : un pluriel sans nombre (« des torches ») en veut deux, une seule pose ne clot pas', async () => {
   const { sim, lignes } = await jouer({
     objectif: 'Pose des torches a cote de la laine rouge',
