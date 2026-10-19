@@ -15,7 +15,7 @@ craft.targetCriteria = craft.targetCriteria ?? (() => ({}))
 const { createMissionRunner } = require('../bot/mission')
 const poserMod = require('../bot/action-poser')
 
-async function jouer ({ blocks, inventory, brief, script, features = { poser: true } }) {
+async function jouer ({ blocks, inventory, brief, script, features = { poser: true }, objectif = 'Fais-moi une ligne de minecart entre les deux blocs' }) {
   const sim = createSimServer({ blocks, start: new Vec3(8.5, 200, 15.5), borne: { x0: 0, x1: 30, z0: 0, z1: 30 }, inventory })
   const log = console.log
   const lignes = []
@@ -23,7 +23,7 @@ async function jouer ({ blocks, inventory, brief, script, features = { poser: tr
   try {
     const r = createMissionRunner(sim.host)
     r.setFeatures({ reset: true, ...features })
-    const started = await r.start('Fais-moi une ligne de minecart entre les deux blocs', 'joueur', { brief, script })
+    const started = await r.start(objectif, 'joueur', { brief, script })
     assert.ok(started.ok, started.error)
     const debut = Date.now()
     while (r.isRunning() && Date.now() - debut < 90000) await new Promise(resolve => setTimeout(resolve, 100))
@@ -86,14 +86,41 @@ test('poser : terminer avant tous les objets poses est refuse, chiffres a l appu
   assert.ok(!lignes.some(l => /Objectif atteint/.test(l)))
 })
 
+test('poser : un pluriel sans nombre (« des torches ») en veut deux, une seule pose ne clot pas', async () => {
+  const { sim, lignes } = await jouer({
+    objectif: 'Pose des torches a cote de la laine rouge',
+    blocks: { '10,199,15': 'red_wool' },
+    inventory: [{ name: 'torch', count: 3 }],
+    brief: { type: 'recolte', matiere: 'aucune', pose: [{ objet: 'torch' }] },
+    script: [{ action: 'poser', objet: 'torch', quantite: 1, de: 'red_wool' }, { action: 'terminer' }]
+  })
+  assert.equal(sim.count(n => n === 'torch' || n === 'wall_torch'), 1)
+  assert.ok(lignes.some(l => /terminer refuse \(1\/\d\) : 1 torch pose\(s\) sur 2 : poser le reste/.test(l)), lignes.slice(-8).join('\n'))
+  assert.ok(!lignes.some(l => /Objectif atteint/.test(l)))
+})
+
+test('poser : chantier couvert par la terre en poche, la recolte d un objet a poser reste permise', async () => {
+  const { lignes } = await jouer({
+    blocks: { '12,200,15': 'coal_ore', '12,201,15': 'stone' },
+    inventory: [{ name: 'dirt', count: 64 }, { name: 'stick', count: 4 }, { name: 'wooden_pickaxe', count: 1 }],
+    objectif: 'Construis une cabane de 3 blocs avec des torches',
+    brief: { type: 'construction', matiere: 'terre', pose: [{ objet: 'torch', quantite: 2 }] },
+    script: [{ action: 'choisir_terrain' }, { action: 'recolter', quantite: 1 }, { action: 'terminer' }]
+  })
+  const recolte = lignes.find(l => /\] 2\. recolter/.test(l)) ?? ''
+  assert.match(recolte, /1\/1 objet\(s\) de minerai/, lignes.filter(l => /mission\] \d/.test(l)).join('\n'))
+})
+
 test('poser : objet absent de l inventaire, echec dit avec son code', async () => {
   const { lignes } = await jouer({
     blocks: { '10,199,15': 'red_wool' },
     inventory: [],
     brief: { type: 'recolte', matiere: 'aucune' },
-    script: [{ action: 'poser', objet: 'torch', de: 'red_wool' }, { action: 'terminer' }]
+    script: [{ action: 'poser', objet: 'torch', de: 'red_wool' }, { action: 'poser', objet: 'spruce_planks' }, { action: 'terminer' }]
   })
   assert.ok(lignes.some(l => /aucun torch en inventaire/.test(l)), lignes.slice(-10).join('\n'))
+  // Nom exact du registre garde tel quel, jamais la famille (oak_planks).
+  assert.ok(lignes.some(l => /aucun spruce_planks en inventaire/.test(l)), lignes.slice(-10).join('\n'))
 })
 
 test('obtenir : objet nomme deja en poche ou inconnu, dit sans rien jouer', async () => {
@@ -111,14 +138,38 @@ test('obtenir : objet nomme deja en poche ou inconnu, dit sans rien jouer', asyn
 })
 
 const { createExecutor } = require('../bot/executor')
-function actionIsolee (sim, signal, compte) {
+function actionIsolee (sim, signal, compte, autres = {}) {
   return poserMod.createPoser({
+    ...autres,
     getBot: () => sim.bot, resoudreObjet: texte => texte,
     enInventaire: nom => sim.bot.inventory.items().find(i => i.name === nom),
     rejoindre: async () => false, signal: () => signal,
     compter: (nom, n) => compte.push([nom, n])
   })
 }
+
+// Sans lieu nomme, face a un mur (cabane finie, composite/lit-cabin) : la case
+// devant est pleine, la torche va sur le sol libre a cote, jamais dans le corps.
+test('poser : face a un mur, l objet va sur une case libre autour du bot', async () => {
+  const sim = createSimServer({ start: new Vec3(0.5, 200, 0.5), inventory: [{ name: 'torch', count: 2 }],
+    blocks: { '0,200,-1': 'stone', '0,201,-1': 'stone' } })
+  sim.bot.entity.yaw = 0
+  const compte = []
+  try {
+    const r = await actionIsolee(sim, null, compte).poser({ objet: 'torch' })
+    assert.ok(!r.echec, r.resultat)
+    assert.equal(sim.count(n => n === 'torch'), 1)
+    assert.notEqual(sim.nameAt(0, 200, 0), 'torch')
+    assert.deepEqual(compte, [['torch', 1]])
+    // Cases d un chantier encore a remplir (toit au-dessus d un mur) : jamais.
+    const reservees = []
+    const r2 = await actionIsolee(sim, null, compte, { reservee: c => { reservees.push(c); return true } })
+      .poser({ objet: 'torch' })
+    assert.equal(r2.echec, true)
+    assert.ok(reservees.length > 0)
+    assert.equal(sim.count(n => n === 'torch'), 1)
+  } finally { sim.close() }
+})
 
 for (const etape of ['equip', 'lookAt', 'placeBlock']) {
   test(`poser : timeout pendant ${etape}, vrai writer tenu jusqu au settle, aucune continuation tardive`, async t => {

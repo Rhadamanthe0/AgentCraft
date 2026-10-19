@@ -17,6 +17,7 @@ const perception = require('./perception')
 const casse = require('./casse')
 const paroi = require('./paroi')
 const correctifs = require('./correctifs-jeu')
+const { brancherMort } = require('./mort')
 const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText, parseArbitrationChoice } = require('./conversation')
 const { createExecutor, awaitPhysicalWithTimeout, createControlLease, runPhysicalOrThrow } = require('./executor')
 const { createStateStore } = require('./state-store')
@@ -164,7 +165,7 @@ function stopPathfinding () {
 }
 
 // ---------------------------------------------------------------------------
-// Cycle durable (ARCHITECTURE C0/C5, D18/D22-D23/D29/D36/D38/D42/D44-D46) :
+// Cycle durable (cadrage archive C0/C5, D18/D22-D23/D29/D36/D38/D42/D44-D46) :
 // inbox + objectifs persistés, executeur a proprietaire unique, deux arrets
 // hors LLM. Factory injectable pour les tests sans vrai bot.
 // ---------------------------------------------------------------------------
@@ -529,7 +530,9 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
   const auStuck = []
   let recalages = 0
   const noeud = n => `${Math.floor(n.x)},${n.y},${Math.floor(n.z)}${n.toBreak?.length ? ` b${n.toBreak.length}` : ''}${n.toPlace?.length ? ` p${n.toPlace.length}` : ''}`
+  let derniere = null
   const onUpdate = r => {
+    derniere = r
     calculs.push(`${r.status}:${r.visitedNodes}n/${Math.round(r.time ?? 0)}ms/${r.path?.length ?? 0}p`)
     if (calculs.length > 6) calculs.shift()
     if (r.path?.length) premiers = r.path.slice(0, 3).map(noeud).join(' > ')
@@ -557,6 +560,8 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
   bot.on('path_reset', onRemise)
   bot.on('forcedMove', onRecalage)
   bot._client?.prependListener?.('position', avantRecalage)
+  // Point de retour du pathfinder neutralise a l annulation (correctifs-jeu.js).
+  const retour = correctifs.gardeRetour(bot)
   const depart = bot.entity.position.floored()
   const settleGate = bot.pathfinder.goto(goal).then(
     value => ({ ok: true, value }),
@@ -618,6 +623,10 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     if (stuckFired) {
       return { reached: false, code: 'stuck', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: 'stuck' }
     }
+    // goto resout sur un chemin vide meme sans chemin (correctifs-jeu.js).
+    if (correctifs.cheminVideSansBut(derniere, goal, bot.entity.position)) {
+      return { reached: false, code: 'no_path', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), detail: 'chemin vide' }
+    }
     const distance = bot.entity.position.distanceTo(position)
     return { reached: block ? true : distance <= range + 1, code: 'dug', travelled: Number(start.distanceTo(bot.entity.position).toFixed(2)), distance }
   } catch (err) {
@@ -633,6 +642,8 @@ async function digToward (position, { signal = null, range = 3, timeoutMs = DIG_
     if (onAbort) signal?.removeEventListener?.('abort', onAbort)
     if (onReset) bot.removeListener('path_reset', onReset)
     stopPathfinding()
+    if (timedOut || abortFired || stuckFired) await retour.neutraliser()
+    else retour.detacher()
     setNavigation('strict')
     try { bot.clearControlStates() } catch (_) {}
   }
@@ -1708,6 +1719,24 @@ function connectBot () {
     // Vitesse de casse des minerais en 26.1 (donnees du jeu, correctifs-jeu.js).
     bot.loadPlugin(correctifs.brancherCorrectifs)
     craft.trackWindowStateIds(bot)
+    // Mort : l etape s arrete, la mission reprend a la reapparition en le
+    // sachant (bot/mort.js, mission.signalerMort).
+    brancherMort(bot, {
+      onMort: mort => {
+        const p = mort.position
+        console.log(`[mort] en ${p ? `${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}` : '?'}, ${mort.objets} objet(s) laches`)
+        const suite = missionRunner.signalerMort(mort)
+        if (suite.fin) say(`Je suis mort ${suite.morts} fois, j abandonne la mission.`)
+      },
+      onReapparition: mort => {
+        // Reapparu ailleurs : la piste du chien de garde ne vaut plus.
+        safeTrail = []
+        lastSafePosition = bot?.entity?.position?.clone?.() ?? null
+        resetWatchdog()
+        console.log(`[mort] reapparu${mort.cause ? ` (${mort.cause})` : ''}`)
+        if (missionRunner.repriseApresMort({ cause: mort.cause })) say('Je suis mort, je reprends la mission.')
+      }
+    })
     // Le logger publie dans le chat des qu une instance est joignable.
     logger.attach(bot)
 

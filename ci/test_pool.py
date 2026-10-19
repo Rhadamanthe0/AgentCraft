@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(__file__))
 from capacity import Config, Controller, Decision  # noqa: E402
@@ -152,6 +153,56 @@ class PoolTest(unittest.TestCase):
         self.assertLessEqual(len(control.started), 5)
         self.assertEqual(len(pool.queue), 5, 'levels left queued fail in trees.run_levels, never dropped')
         self.assertTrue(any(e['event'] == 'abandon' for e in summary['events']))
+
+    def test_refused_launch_is_cleaned_and_bounded_even_in_a_batch(self):
+        for stage in ('bot', 'probe'):
+            for batch in (1, 5):
+                with self.subTest(stage=stage, batch=batch):
+                    control = FakeControl()
+                    pool, ran, _ = make_pool(range(2), control)
+                    decide = pool.controller.decide
+                    decisions = 0
+
+                    def bounded_decide(*args):
+                        nonlocal decisions
+                        decisions += 1
+                        self.assertLessEqual(decisions, pool.max_start_failures,
+                                             'run() must end after its launch failure budget')
+                        decision = decide(*args)
+                        decision.count = batch
+                        return decision
+
+                    with patch.object(control, 'start_' + stage, side_effect=OSError('launch refused')), \
+                            patch.object(pool.controller, 'decide', side_effect=bounded_decide):
+                        summary = pool.run()
+
+                    self.assertEqual(summary['startFailures'], 3)
+                    self.assertEqual(list(pool.workers), [1, 2, 3], 'failed indexes are never reused')
+                    self.assertEqual(control.stopped, [1, 2, 3], 'partial bots are stopped')
+                    self.assertEqual(control.probes,
+                                     {f'TestProbe{i}': 'retired' for i in (2, 3, 4)})
+                    self.assertEqual(ran, [])
+                    self.assertEqual(pool.queue, [0, 1], 'unstarted levels remain visible')
+                    self.assertTrue(any(e['event'] == 'abandon' for e in summary['events']))
+
+    def test_failed_probe_launch_does_not_block_other_workers(self):
+        class RefuseFirstProbe(FakeControl):
+            def start_probe(self, name):
+                super().start_probe(name)
+                if name == 'TestProbe2':
+                    raise OSError('launch response lost')
+
+        control = RefuseFirstProbe()
+        pool, ran, _ = make_pool(range(4), control)
+        pool.admit('test', None)
+        self.assertEqual(pool.start_failures, 1)
+        self.assertEqual(control.bots[1][0], 'retired')
+        self.assertEqual(control.probes['TestProbe2'], 'retired')
+
+        summary = pool.run()
+        self.assertEqual(sorted(i for i, _ in ran), list(range(4)))
+        self.assertEqual(control.started.count(1), 1, 'a failed launch is never retried')
+        self.assertEqual(summary['startFailures'], 1)
 
     def test_lower_target_delays_but_keeps_every_level(self):
         control = FakeControl()

@@ -181,30 +181,6 @@ describe('lecture d objectif sans relance', () => {
   })
 })
 
-// A/B `plan_sans_raisonnement` (mission.js) : le plan part avec thinking
-// desactive a la place de l effort ; un refus du champ ne retire jamais
-// l effort des autres usages.
-describe('plan sans raisonnement', () => {
-  it('thinking desactive, pas d effort ; sans le drapeau, l effort du plan', async () => {
-    const planner = await warmPlanner([async () => okPlan()], { PLANNER_REASONING_EFFORT_PLAN: 'low' })
-    await planner.plan({ consigne: 'test' }, 'recolte', 'harvest', {}, null, { sansRaisonnement: true })
-    assert.deepEqual(calls[0].options.thinking, { type: 'disabled' })
-    assert.equal(calls[0].options.reasoningEffort, null)
-    await planner.plan({ consigne: 'test' }, 'recolte', 'harvest')
-    assert.equal(calls[1].options.reasoningEffort, 'low')
-    assert.equal(calls[1].options.thinking ?? null, null)
-  })
-
-  it('champ refuse (400) : rejoue sans lui, l effort du plan normal reste', async () => {
-    const refus = async () => { throw Object.assign(new Error('HTTP 400 : thinking'), { code: 'LLM_HTTP', status: 400 }) }
-    const planner = await warmPlanner([refus, async () => okPlan(), refus, async () => okPlan(), async () => okPlan()], { PLANNER_REASONING_EFFORT_PLAN: 'low' })
-    await planner.plan({ consigne: 'test' }, 'recolte', 'harvest', {}, null, { sansRaisonnement: true })
-    await planner.plan({ consigne: 'test' }, 'recolte', 'harvest', {}, null, { sansRaisonnement: true })
-    await planner.plan({ consigne: 'test' }, 'recolte', 'harvest')
-    assert.equal(calls.at(-1).options.reasoningEffort, 'low', 'effort du plan intact apres deux refus de thinking')
-  })
-})
-
 // Pannes passageres (bancs du 2026-10-08 : 30 s de « fetch failed » sur 13
 // bots) : classees par le code, rejouees tant que dure le budget.
 describe('panne passagere', () => {

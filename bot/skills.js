@@ -542,8 +542,9 @@ const ACTIONS = {
   poser: {
     kinds: ['recolte', 'deplacement', 'construction', 'geste'],
     // Servie avec l un ou l autre mode (le lot 3 remplace poser_porte par elle).
+    // `poser` allume par defaut (A/B du 2026-10-17, 7 bancs : 5/14 contre 0/14).
     feature: ['poser', 'utiliser'],
-    featureDefault: false,
+    featureDefault: { poser: true, utiliser: false },
     summary: 'poser un objet de l inventaire dans le monde, ou une ligne d objets',
     scale: 'nombre d objets poses, de 1 a 40',
     secondes: 1.5,
@@ -1129,23 +1130,85 @@ const FR_ITEMS = {
 }
 const FR_STOP = new Set(['un', 'une', 'des', 'de', 'du', 'la', 'le', 'les', 'l', 'd', 'a', 'en', 'au'])
 
+// Mot du dictionnaire lui-meme, jamais une propriete heritee (« constructor »
+// donnait `function Object() ..._pickaxe`).
+const motDe = (dico, w) => Object.prototype.hasOwnProperty.call(dico, w) ? dico[w] : undefined
 function singular (word) {
-  if (FR_TOOLS[word] || FR_MATERIALS[word] || FR_ITEMS[word]) return word // « bois » n est pas un pluriel
+  if (motDe(FR_TOOLS, word) || motDe(FR_MATERIALS, word) || motDe(FR_ITEMS, word)) return word // « bois » n est pas un pluriel
   return word.length > 3 && /[sx]$/.test(word) ? word.slice(0, -1) : word
 }
 
 function frenchFabricationTarget (key) {
   const words = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim().split(' ')
   const content = words.map(singular)
-  const tool = content.find(w => FR_TOOLS[w])
+  const tool = content.find(w => motDe(FR_TOOLS, w))
   if (tool) {
-    const material = content.find(w => FR_MATERIALS[w])
+    const material = content.find(w => motDe(FR_MATERIALS, w))
     // Sans matiere : la famille (« une pioche » -> pioche, le code choisit).
     return material ? `${FR_MATERIALS[material]}_${FR_TOOLS[tool]}` : (FABRICATION_ALIASES[tool] ?? null)
   }
   const nouns = content.filter(w => !FR_STOP.has(w))
-  if (nouns.length === 1 && FR_ITEMS[nouns[0]]) return FR_ITEMS[nouns[0]]
+  if (nouns.length === 1 && motDe(FR_ITEMS, nouns[0])) return FR_ITEMS[nouns[0]]
   return null
+}
+
+// Outils nommes dans la phrase du joueur et la matiere de leur groupe :
+// « une pioche, une hache et une epee en pierre » -> les trois en pierre ;
+// « une pioche en bois et une hache en fer » -> chacun la sienne. Le groupe
+// ne contient que des outils, articles, « et » et virgules : tout autre mot
+// ou ponctuation forte (« . ; : ! ? », « puis ») le ferme, la matiere d une
+// autre demande (« une pioche. Construis une maison en pierre ») ne passe
+// pas. Le code lit la phrase, comme les dimensions.
+const LIENS_OUTILS = new Set(['une', 'un', 'des', 'la', 'le', 'les', 'l', 'et', ','])
+// Les nombres d un groupe (« deux pioches et trois pelles en fer ») le
+// prolongent : ils comptent les outils, ils ne commencent pas un autre objet.
+// Tout le vocabulaire des nombres en lettres (les composes, « dix-sept »,
+// « quatre-vingt-douze », se coupent en ces mots).
+const NOMBRES_OUTILS = new Set(['deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix',
+  'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize', 'vingt', 'vingts', 'trente', 'quarante',
+  'cinquante', 'soixante', 'cent', 'cents', 'mille'].map(singular))
+function outilsDuTexte (text) {
+  const mots = String(text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[.;:!?]/g, ' . ').replace(/,/g, ' , ').replace(/[^a-z0-9.,]+/g, ' ').trim().split(/\s+/).map(singular)
+  const out = Object.create(null)
+  mots.forEach((w, i) => {
+    if (!motDe(FR_TOOLS, w) || out[w]) return
+    for (let j = i + 1; j < mots.length; j++) {
+      const m = mots[j]
+      const matiere = m === 'en' ? motDe(FR_MATERIALS, mots[j + 1]) : undefined
+      if (matiere) { out[w] = `${matiere}_${FR_TOOLS[w]}`; return }
+      if (!motDe(FR_TOOLS, m) && !LIENS_OUTILS.has(m) && !NOMBRES_OUTILS.has(m) && !/^\d+$/.test(m)) return
+    }
+  })
+  return out
+}
+
+// Objet precis d un brut du brief (« pioche », « epee ») quand la phrase dit
+// sa matiere : la famille seule laissait le code choisir (pioche en bois) et
+// « epee » sans matiere n etait aucun objet (composite/stone-toolkit : epee
+// perdue, hache en bois fabriquee, mission close a 1 objet sur 3).
+function fabricationPrecisee (raw, text) {
+  const words = String(raw ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim().split(' ').map(singular)
+  if (words.some(w => motDe(FR_MATERIALS, w) || /^(wooden|stone|iron|golden|diamond|netherite)$/.test(w))) return null
+  const outils = outilsDuTexte(text)
+  const english = Object.assign(Object.create(null), Object.fromEntries(Object.entries(FR_TOOLS).map(([fr, en]) => [en, fr])))
+  for (const w of words) {
+    const fr = motDe(FR_TOOLS, w) ? w : english[w]
+    if (fr && outils[fr]) return outils[fr]
+  }
+  return null
+}
+
+// Objet que la phrase nomme au pluriel sans nombre (« des torches », « avec
+// des rails ») : au moins deux. Le nombre reste mesure par le code ; un
+// pluriel lu comme « un » laissait la mission close apres une seule pose
+// (composite/lit-cabin~avec-poser, banc da9ebbe : 1 torche posee).
+function nommeAuPluriel (text, objet) {
+  const words = String(text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9_]+/g, ' ').trim().split(' ')
+  return words.some(w => w.length > 3 && /[sx]$/.test(w) &&
+    (w.slice(0, -1) === objet || motDe(FR_ITEMS, w.slice(0, -1)) === objet))
 }
 
 function normalizeFabricationTarget (input) {
@@ -1801,6 +1864,9 @@ module.exports = {
   RESOURCE_ALIASES,
   FABRICATION_ALIASES,
   normalizeFabricationTarget,
+  outilsDuTexte,
+  fabricationPrecisee,
+  nommeAuPluriel,
   LANDMARKS,
   SCALE_LEVELS,
   resolve,

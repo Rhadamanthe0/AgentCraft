@@ -1,7 +1,8 @@
 'use strict'
 
 // Planificateur JSON : le cerveau du bot. Un appel rend **plusieurs** actions
-// d affilee (1 a PLANNER_PLAN_MAX), executees sans rien redemander tant
+// d affilee (1 a PLANNER_LONG_PLAN_MAX, PLANNER_PLAN_MAX sans plans_longs),
+// executees sans rien redemander tant
 // qu elles reussissent : la latence d une mission est celle d un appel PAR
 // PLAN, pas par action. La boucle reste fermee : **le premier echec vide la
 // file** et fait replanifier sur l etat reel (voir mission.js).
@@ -77,6 +78,20 @@ const PLAN_MAX = config.positiveIntOrThrow(process.env.PLANNER_PLAN_MAX, 5, 'PLA
 // temps de la cabane, revue du 2026-09-27). Consigne du prompt, jamais appliquee.
 const BUDGET_MIN_S = config.positiveInt(process.env.PLANNER_BUDGET_MIN_S, 6, 'PLANNER_BUDGET_MIN_S')
 const BUDGET_MAX_S = config.positiveInt(process.env.PLANNER_BUDGET_MAX_S, 10, 'PLANNER_BUDGET_MAX_S')
+// Plans longs (`plans_longs`, allume par defaut le 2026-10-17) : un programme des
+// agents Gemini qui finissent le jeu (arXiv 2610.22319) dure 33 s en mediane,
+// contre 6 a 10 s de jeu vises ici. Plus d actions et plus de jeu par plan :
+// moins d appels au modele (le quota est le facteur limitant), au prix d un
+// plan qui peut vieillir. Le premier echec vide toujours la file.
+const LONG_PLAN_MAX = config.positiveInt(process.env.PLANNER_LONG_PLAN_MAX, 10, 'PLANNER_LONG_PLAN_MAX')
+const LONG_BUDGET_MIN_S = config.positiveInt(process.env.PLANNER_LONG_BUDGET_MIN_S, 25, 'PLANNER_LONG_BUDGET_MIN_S')
+const LONG_BUDGET_MAX_S = config.positiveInt(process.env.PLANNER_LONG_BUDGET_MAX_S, 40, 'PLANNER_LONG_BUDGET_MAX_S')
+// Bornes d un plan : courtes par defaut, longues avec le mode.
+function bornesPlan (long = false) {
+  return long
+    ? { max: LONG_PLAN_MAX, min: LONG_BUDGET_MIN_S, maxS: LONG_BUDGET_MAX_S, enchaine: 'quatre a huit' }
+    : { max: PLAN_MAX, min: BUDGET_MIN_S, maxS: BUDGET_MAX_S, enchaine: 'deux a quatre' }
+}
 // Marge de sortie : les jetons de raisonnement comptent dans max_tokens. Avec
 // `deepseek-v4.1-flash` et le vrai prompt, 700 ne suffisait pas (raisonnement
 // seul, contenu vide) ; 2000 laisse la place au raisonnement ET au plan.
@@ -436,12 +451,12 @@ async function callWithProfileOnce (system, user, opts = {}) {
   }
 }
 
-async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan', sansRaisonnement = false } = {}) {
+async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan' } = {}) {
   // `none` (PLANNER_REASONING_EFFORT_<USAGE> ou A/B d effort) : raisonnement
-  // coupe, comme le plan sans raisonnement.
+  // coupe (thinking desactive a la place de l effort).
   const effortAsked = modelChain.effortFor(task)
   const EFFORT = effortAsked === 'none' ? null : effortAsked
-  if (effortAsked === 'none') sansRaisonnement = true
+  const sansRaisonnement = effortAsked === 'none'
   // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
   const target0 = forced ?? effectiveModel()
   // `openai/<modele>` : API OpenAI en direct (OPENAI_API_KEY), pour l offre de
@@ -467,9 +482,8 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     stats.tentatives += 1
     syncProfileStats()
     // `reasoning_effort` sur /chat/completions, `reasoning.effort` sur /responses (muse).
-    // Plan sans raisonnement (A/B `plan_sans_raisonnement`) : thinking
-    // desactive a la place de l effort, comme la sonde de cle (ci/keyprobe.py)
-    // que deepseek-v4.1-flash accepte. Un refus retire le champ pour CE
+    // Effort `none` : thinking desactive a la place de l effort, comme la
+    // sonde de cle (ci/keyprobe.py) que deepseek-v4.1-flash accepte. Un refus retire le champ pour CE
     // modele (thinkingOff), jamais l effort des autres usages.
     const effort = !sansRaisonnement && EFFORT && !effortOff.has(model) ? EFFORT : null
     // L effort remplace le champ thinking (space-bunny refuse thinking mais
@@ -715,8 +729,9 @@ function missionMemoryLayer () {
 // { bois, fabrication } ne garde que les regles utiles a la mission (pilier,
 // dirt secondaire et hache pour le bois ; prerequis pour une fabrication ;
 // besoins et chantier pour une construction). Sans profil : tout, comme avant.
-function buildSystemPrompt (kind, supply, profil = null) {
+function buildSystemPrompt (kind, supply, profil = null, long = false) {
   if (kind === 'geste') return buildGestePrompt()
+  const bornes = bornesPlan(long)
   const tout = !profil || profil.tout
   const bois = tout || profil.bois
   const fabrication = tout || profil.fabrication
@@ -741,15 +756,15 @@ liste ci-dessous lui demande. Tu decides toi-meme de ces valeurs. Exemples :
 
 - "fini" : de 0 a 1, ta certitude que TOUT ce que le joueur a demande est deja accompli.
   Au-dessus de ${DONE_THRESHOLD}, la mission est close et le plan est ignore.
-- "plan" : de 1 a ${PLAN_MAX} actions, executees dans l ordre, sans te redemander.
-  **Vise entre ${BUDGET_MIN_S} et ${BUDGET_MAX_S} secondes de jeu par plan.** Chaque action qui
+- "plan" : de 1 a ${bornes.max} actions, executees dans l ordre, sans te redemander.
+  **Vise entre ${bornes.min} et ${bornes.maxS} secondes de jeu par plan.** Chaque action qui
   dure ou se compte annonce sa valeur : casser 6 secondes coute six secondes,
   casser 1 seconde en coute une. La duree d avancer depend du chemin et de ses
   obstacles : distance est un budget de trajet, avec arret des que la cible
   devient accessible. Le code conserve la valeur demandee.
   Si tu ne vois rien d utile a faire tout de suite, prends "regarder_autour" :
   elle ne change pas le monde mais te rend de quoi decider au tour suivant.
-  Enchaine deux a quatre actions qui se suivent logiquement (aller, casser,
+  Enchaine ${bornes.enchaine} actions qui se suivent logiquement (aller, casser,
   ramasser) : le premier echec annule le reste du plan et tu es rappele avec
   l etat a jour.
 - Les actions sans valeur numerique (choisir_terrain, poser_porte,
@@ -949,6 +964,10 @@ ${si(chantier, `- chantier.emplacement_choisi faux => choisir_terrain avant tout
   (ramassage d objets tout pres, mise a l abri, pas de cote, fuite). Ta
   position ou ton inventaire ont pu changer : repars de l etat, ne refais
   pas ce geste.
+- bot.derniere_mort non nul => tu es mort et tu as reapparu ailleurs, poche
+  videe. objets_encore_au_sol vrai : tes objets sont au lieu de la mort
+  (position, distance), va les reprendre si c est plus court que les refaire ;
+  sinon repars de l inventaire reel. Evite la cause (chute, liquide).
 - Tu ne sais pas quoi faire, ou tu viens de te faire refuser un arret =>
   regarder_autour, jamais attendre : attendre ne t apprend rien, regarder_autour
   te dit ce qui est visible et dans quelle direction.
@@ -991,7 +1010,7 @@ let memoryGeneration = -1
 // des actions : un commit long terme, un effacement, ou un interrupteur A/B
 // bascule reconstruit la couche concernee, les autres appels relisent la base
 // octet pour octet.
-function basePrompt (kind, supply, profil = null) {
+function basePrompt (kind, supply, profil = null, long = false) {
   // Le catalogue a change (interrupteur A/B) : tous les prompts systeme doivent etre reconstruits, et les anciens
   // jetes, sinon le modele relirait les exemples perimes.
   if (skills.docGeneration !== promptGeneration || memory.generation !== memoryGeneration) {
@@ -1002,9 +1021,9 @@ function basePrompt (kind, supply, profil = null) {
 
   const cle = (!profil || profil.tout ? 'tout' : `${profil.bois ? 'b' : ''}${profil.fabrication ? 'f' : ''}`) +
     (profil?.sansDonner ? '-d' : '')
-  const key = `${kind}|${supply}|${cle}|${skills.docGeneration}|${memory.generation}`
+  const key = `${kind}|${supply}|${cle}${long ? '|long' : ''}|${skills.docGeneration}|${memory.generation}`
   if (!prompts.has(key)) {
-    prompts.set(key, buildSystemPrompt(kind, supply, profil))
+    prompts.set(key, buildSystemPrompt(kind, supply, profil, long))
     if (DEBUG) {
       console.log(
         `[planner] prompt systeme reconstruit (${key}, ${prompts.get(key).length} caracteres)`
@@ -1017,8 +1036,8 @@ function basePrompt (kind, supply, profil = null) {
 // Le prompt systeme complet = base cachee (couches 1-3) + memoire de mission
 // fraiche (couche 4). Seule la fin du prompt bouge entre deux appels d une
 // meme mission : le prefixe reste servi du cache cote gateway.
-function systemPrompt (kind, supply, profil = null) {
-  return basePrompt(kind, supply, profil) + missionMemoryLayer()
+function systemPrompt (kind, supply, profil = null, long = false) {
+  return basePrompt(kind, supply, profil, long) + missionMemoryLayer()
 }
 
 // ---------------------------------------------------------------------------
@@ -1045,8 +1064,7 @@ async function call (system, user, image = null, opts = {}) {
     // Relaunch only once warm: the warm-up delay covers a cold model
     // (callWithProfile also requires that very model to have answered once).
     relanceMs: warm ? (opts.relanceMs ?? 0) : 0,
-    task: opts.task ?? 'plan',
-    sansRaisonnement: opts.sansRaisonnement === true
+    task: opts.task ?? 'plan'
   })
 }
 
@@ -1106,7 +1124,8 @@ function coerceParams (action, entry) {
 
 const ACTION_ALIASES = { pilier: 'piler' }
 
-function validate (raw, kind, supply) {
+function validate (raw, kind, supply, opts = {}) {
+  const max = bornesPlan(opts.long === true).max
   const allowed = new Set(skills.actionsFor(kind, supply))
   const steps = []
   const rejected = []
@@ -1115,7 +1134,7 @@ function validate (raw, kind, supply) {
   const plan = Array.isArray(raw?.plan) ? raw.plan : []
 
   for (const entry of plan) {
-    if (steps.length >= PLAN_MAX) break
+    if (steps.length >= max) break
 
     const rawAction = typeof entry === 'string' ? entry : entry?.action
     if (typeof rawAction !== 'string') {
@@ -1218,14 +1237,13 @@ function validate (raw, kind, supply) {
 async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   if (!isEnabled()) throw new Error('planificateur JSON non configure (PLANNER_BASE_URL)')
 
-  const system = systemPrompt(kind, supply, opts.profil ?? null)
+  const system = systemPrompt(kind, supply, opts.profil ?? null, opts.plansLongs === true)
   const user = JSON.stringify({ ...state, ...extra })
 
   let response
   try {
     response = await call(system, user, image, {
-      signal: opts.signal ?? null, task: 'plan', relanceMs: opts.relance === false ? 0 : RELAUNCH_MS,
-      sansRaisonnement: opts.sansRaisonnement === true
+      signal: opts.signal ?? null, task: 'plan', relanceMs: opts.relance === false ? 0 : RELAUNCH_MS
     })
     lastError = null
   } catch (err) {
@@ -1248,7 +1266,7 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
     throw new Error(`planificateur illisible : ${err.message}`)
   }
 
-  const result = validate(parsed, kind, supply)
+  const result = validate(parsed, kind, supply, { long: opts.plansLongs === true })
   result.ms = response.ms
   result.usage = response.usage
 
@@ -1360,8 +1378,7 @@ fabrique), JAMAIS un "geste" : "fabrique une hache" -> type recolte,
 fabrication "hache", pas un geste a clore en un plan. Ne mets null que s il
 n y a vraiment aucun objet a fabriquer. Plusieurs objets demandes => une liste,
 dans l ordre dit, chacun avec la matiere dite meme une seule fois pour tous
-("une pioche, une hache et une epee en pierre" -> ["stone_pickaxe",
-"stone_axe", "stone_sword"]) ; "fabrication_quantite" vaut alors pour le
+("une pelle et une houe en fer" -> ["iron_shovel", "iron_hoe"]) ; "fabrication_quantite" vaut alors pour le
 premier.
 
 Ne reduis jamais la demande a la seule partie que le bot sait executer.

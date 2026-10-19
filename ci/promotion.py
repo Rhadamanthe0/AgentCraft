@@ -50,7 +50,7 @@ def summarize(rows):
     out = []
     for name, runs in sorted(rows.items()):
         passes = sum(1 for _, ok, _ in runs if ok)
-        both = [ok and (twin is not False) for _, ok, twin in runs]
+        both = [ok and (twin is True) for _, ok, twin in runs]
         streak = 0
         for ok in reversed(both):
             if not ok:

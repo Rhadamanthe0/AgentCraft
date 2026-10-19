@@ -25,6 +25,7 @@ const QUANTITE_MAX = 40
 const ANCRE_RAYON = 48
 const CASE_TIMEOUT_MS = 15000
 const ENTITE_ATTENTE_MS = 2000
+const ESSAIS_AUTOUR = 4
 // Case ou l on peut poser : air, ou plante qu une pose remplace.
 const LIBRE = /^(air|cave_air|void_air|short_grass|tall_grass|fern|large_fern|dead_bush|snow)$/
 
@@ -120,8 +121,36 @@ function caseDevant (bot) {
   return caseAuSol(bot, x, z, Math.floor(p.y))
 }
 
+// Sans lieu nomme : la case devant le bot d abord, puis les cases au sol
+// autour de lui (deux blocs au plus), les plus proches d abord, jamais celle
+// de son corps. Face a un mur (cabane finie, torche a poser), la seule case
+// devant etait pleine : « aucune case » alors que le sol autour etait libre.
+function casesAutour (bot) {
+  const p = bot.entity.position
+  const y = Math.floor(p.y)
+  const vues = new Set()
+  const cases = []
+  const ajouter = c => {
+    if (!c || vues.has(cle(c)) || build.bodyOverlaps(p, c)) return
+    vues.add(cle(c))
+    cases.push(c)
+  }
+  ajouter(caseDevant(bot))
+  const autour = []
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dz = -2; dz <= 2; dz++) {
+      if (dx || dz) autour.push(caseAuSol(bot, Math.floor(p.x) + dx, Math.floor(p.z) + dz, y))
+    }
+  }
+  autour.filter(Boolean)
+    .sort((a, b) => a.offset(0.5, 0.5, 0.5).distanceTo(p) - b.offset(0.5, 0.5, 0.5).distanceTo(p))
+    .forEach(ajouter)
+  return cases
+}
+
 // deps : { getBot, enInventaire(objet) -> item|null, rejoindre(stand) -> bool,
-//   signal, resoudreObjet(texte) -> nom d objet du registre ou null }
+//   signal, resoudreObjet(texte) -> nom d objet du registre ou null,
+//   reservee(case) -> bool : case qu un chantier doit encore remplir }
 function createPoser (deps) {
   // Rejoint un poste d ou la case est a portee, corps hors de la case.
   async function aPortee (bot, cellule, verifier) {
@@ -213,6 +242,9 @@ function createPoser (deps) {
     }
     let cibles
     let ligne = false
+    // Cases autour du bot : une case ratee (hors portee, refusee) passe a la
+    // suivante, quelques-unes au plus.
+    let autour = false
     if (!blocObjet) {
       // Objet-entite : pose SUR le bloc nomme, sinon sur l appui devant soi.
       const support = ancre ?? (() => { const c = caseDevant(bot); return c ? bot.blockAt(c.offset(0, -1, 0)) : null })()
@@ -228,13 +260,18 @@ function createPoser (deps) {
     } else if (ancre) {
       cibles = casesVoisines(bot, ancre)
     } else {
-      const c = caseDevant(bot)
-      cibles = c ? [c] : []
+      cibles = casesAutour(bot)
+      autour = true
     }
     if (blocObjet) {
       // Cases deja faites ou prises par autre chose : sautees, jamais cassees.
-      cibles = cibles.filter(c => libre(bot.blockAt(c)))
+      // Une case reservee (bloc ou porte d un chantier encore a poser) aussi :
+      // une torche posee sur un mur, dans la case du toit, bloquait le toit
+      // (composite/lit-cabin~avec-poser 86680bd : 25 min de « the block is
+      // still torch »).
+      cibles = cibles.filter(c => libre(bot.blockAt(c)) && !deps.reservee?.(c))
     }
+    if (autour) cibles = cibles.slice(0, ESSAIS_AUTOUR)
     if (cibles.length === 0) {
       return ligne
         ? { resultat: `ligne deja couverte : aucune case libre entre ${params.de} et ${params.vers}`, code: 'plan' }
@@ -273,9 +310,9 @@ function createPoser (deps) {
       if (r.pose) poses += 1
       else if (r.erreur) {
         derniere = r.erreur
-        // Ligne : une case ratee n arrete pas les suivantes ; ailleurs, une
-        // seule case visee.
-        if (!ligne || r.code === 'enfermement') break
+        // Ligne ou cases autour du bot : une case ratee n arrete pas les
+        // suivantes ; a cote d un bloc nomme, une seule case visee.
+        if ((!ligne && !autour) || r.code === 'enfermement') break
       }
     }
     if (poses > 0) deps.compter?.(objet, poses)
@@ -288,4 +325,5 @@ function createPoser (deps) {
   return { poser }
 }
 
-module.exports = { createPoser, casesLigne, casesVoisines, correspond, trouverAncre, caseDepuis, nomPropre }
+module.exports = {
+  casesAutour, createPoser, casesLigne, casesVoisines, correspond, trouverAncre, caseDepuis, nomPropre }
