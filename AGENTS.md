@@ -114,7 +114,8 @@ de l effort ; `avec(...)` sur trees/double et composite/stone-hut-from-scratch) 
 `buts_ouverts` (eteint : matiere ou lieu hors catalogue nomme par le brief au
 registre du jeu, cle `libre:<bloc>` decrite par `skills.resourceSpec` ; un
 nom absent du registre (nom francais : « magnetite ») est renvoye une fois
-au modele avec `bloc_refuse` (`readBrief`, `opts.blocConnu`) ; un
+au modele avec `bloc_refuse` (`readBrief`, `opts.blocConnu`) et les noms
+proches du registre (`noms_proches`) ; un
 deplacement vers un tel bloc est clos par le code des qu il est a portee ; et
 refus immediat d une capacite absente, identifiant de
 `skills.CAPACITES_ABSENTES`, jamais un texte libre ; niveaux `ouvert/*`,
@@ -369,7 +370,10 @@ Flux d une demande (details : ARCHITECTURE.md) :
    (`detectStuck`) dits dans le chat et journalises `[blocage] {json}`,
    avec un instantane du monde (`/api/mission/instantanes`). Tout echec porte
    un code et des remedes (`outcomes.js`) ; un echec nouveau sans remede
-   declare casse `tmp/outcomes.test.js`. La meme etape echouee (ou sans effet)
+   declare casse `tmp/outcomes.test.js`. Un nom refuse (`objet_inconnu`,
+   `ancre_inconnue`, fabrication inconnue) dit les noms proches du registre
+   (« voulais-tu dire « oak_planks » ? », `skills.suggestionNom`, idee de
+   Mindcraft) sans jamais corriger en silence. La meme etape echouee (ou sans effet)
    deux fois a l identique n est pas rejouee (`anti_boucle`). Preconditions
    et effets des actions : `CONTRATS` (mission.js). Un champ persiste se
    declare dans `mission-state.js`, nulle part ailleurs.

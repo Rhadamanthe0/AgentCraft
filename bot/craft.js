@@ -21,6 +21,7 @@
 
 const Vec3 = require('vec3').Vec3
 const build = require('./build')
+const skills = require('./skills')
 const { planCraft } = require('./recipe-plan')
 // R19 : parsing central des rayons (bot/config.js) : reglages non critiques,
 // valeur invalide => repli + warning, jamais de NaN silencieux.
@@ -646,7 +647,7 @@ async function makeOnce (bot, targetName, wanted = 1, opts = {}) {
 
   const resolved = resolveCandidates(bot, targetName)
   if (!resolved) throw Object.assign(
-    new Error(`fabrication inconnue : ${targetName}`),
+    new Error(`fabrication inconnue : ${targetName}${skills.suggestionNom(targetName, bot?.registry, { blocs: false })}`),
     { code: 'unknown', item: String(targetName ?? ''), wanted: wantedUnits, produced: 0, missing: [] }
   )
 
@@ -654,7 +655,7 @@ async function makeOnce (bot, targetName, wanted = 1, opts = {}) {
   // gardent leur ordre (ex : hache -> stone_axe puis wooden_axe).
   const validCandidates = resolved.candidates.filter(name => isKnownItem(bot, name))
   if (validCandidates.length === 0) {
-    const err = new Error(`fabrication inconnue : ${targetName}`)
+    const err = new Error(`fabrication inconnue : ${targetName}${skills.suggestionNom(resolved.candidates[0] ?? targetName, bot?.registry, { blocs: false })}`)
     err.code = 'unknown'
     err.item = resolved.candidates[0] ?? String(targetName)
     err.wanted = wantedUnits

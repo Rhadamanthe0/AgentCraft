@@ -983,6 +983,57 @@ function ressourceLibre (input, registry) {
   return LIBRE + nom
 }
 
+// Noms du registre les plus proches d un nom refuse (`objet_inconnu`,
+// `ancre_inconnue`, `bloc_refuse`), pour que le refus dise « voulais-tu
+// dire ... ? » (idee reprise de Mindcraft, revue du 2026-10-16) : un nom mal
+// forme (`oak_plank`, `cobble_stone`) coutait un tour de modele de plus. On
+// suggere, jamais on ne corrige en silence : le modele decide. Distance
+// d edition (transposition comptee 1) bornee au quart du nom, 3 au plus ;
+// au plus 3 noms a la meilleure distance, aucun si le nom est deja connu.
+function distanceEdition (a, b, borne) {
+  if (Math.abs(a.length - b.length) > borne) return borne + 1
+  let avant = null
+  let prec = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cour = [i]
+    let mini = i
+    for (let j = 1; j <= b.length; j++) {
+      let d = Math.min(prec[j] + 1, cour[j - 1] + 1, prec[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+      if (avant && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d = Math.min(d, avant[j - 2] + 1)
+      cour.push(d)
+      if (d < mini) mini = d
+    }
+    if (mini > borne) return borne + 1
+    avant = prec
+    prec = cour
+  }
+  return prec[b.length]
+}
+
+function nomsProches (input, registry, { blocs = true, objets = true } = {}) {
+  const nom = String(input ?? '').trim().toLowerCase().replace(/^minecraft:/, '').replace(/\s+/g, '_')
+  if (nom.length < 3 || !registry) return []
+  const noms = new Set()
+  if (blocs) for (const n of Object.keys(registry.blocksByName ?? {})) noms.add(n)
+  if (objets) for (const n of Object.keys(registry.itemsByName ?? {})) noms.add(n)
+  if (noms.has(nom)) return []
+  const borne = Math.min(3, Math.max(1, Math.floor(nom.length / 4)))
+  let meilleure = borne + 1
+  let proches = []
+  for (const n of noms) {
+    if (/(^|_)air$/.test(n)) continue
+    const d = distanceEdition(nom, n, Math.min(borne, meilleure))
+    if (d < meilleure) { meilleure = d; proches = [n] } else if (d === meilleure && d <= borne) proches.push(n)
+  }
+  return meilleure <= borne ? proches.sort().slice(0, 3) : []
+}
+
+// Fin de message de refus : « ; voulais-tu dire « x » ? » ou rien.
+function suggestionNom (input, registry, opts) {
+  const proches = nomsProches(input, registry, opts)
+  return proches.length ? ` ; voulais-tu dire ${proches.map(n => `« ${n} »`).join(' ou ')} ?` : ''
+}
+
 // Description d une matiere : celle du catalogue, sinon celle d un bloc ouvert
 // tiree du registre (null si inconnue). Meme forme que RESOURCES.
 function resourceSpec (key, registry) {
@@ -1741,6 +1792,8 @@ function audit (implemented, actionsImplemented) {
 }
 
 module.exports = {
+  nomsProches,
+  suggestionNom,
   COMMANDS,
   ACTIONS,
   KINDS,

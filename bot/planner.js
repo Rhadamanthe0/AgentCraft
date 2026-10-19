@@ -1317,7 +1317,9 @@ ${Object.entries(skills.CAPACITES_ABSENTES).map(([id, t]) => `- "${id}" : ${t}`)
 Ajoute ces deux champs au JSON : {"bloc": null, "hors_capacites": null}.
 Si l entree porte "bloc_refuse", ton identifiant precedent n existe pas au
 registre du jeu (souvent un nom francais ou invente) : rends l identifiant
-anglais exact du meme bloc, ou null si tu ne le connais pas.`
+anglais exact du meme bloc, ou null si tu ne le connais pas. "noms_proches",
+s il est la, liste des identifiants existants les plus proches a l ecriture :
+n en reprends un que s il designe bien le bloc voulu.`
 }
 
 // Section ajoutee au brief quand l action `poser` existe (A/B `poser`) :
@@ -1481,7 +1483,9 @@ async function readBrief (objective, opts = {}) {
   let ms = response.ms
   if (opts.ouvert === true && typeof parsed?.bloc === 'string' && typeof opts.blocConnu === 'function' && !opts.blocConnu(parsed.bloc)) {
     const refuse = parsed.bloc.slice(0, 60)
-    const second = await call(briefPrompt(true, opts.pose === true), JSON.stringify({ objectif: objective, bloc_refuse: refuse }), null, { ...opts, relanceMs: 0, task: 'readBrief' })
+    const proches = typeof opts.blocsProches === 'function' ? opts.blocsProches(refuse) : []
+    const entree = { objectif: objective, bloc_refuse: refuse, ...(proches.length ? { noms_proches: proches } : {}) }
+    const second = await call(briefPrompt(true, opts.pose === true), JSON.stringify(entree), null, { ...opts, relanceMs: 0, task: 'readBrief' })
     ms = (ms ?? 0) + (second.ms ?? 0)
     const bloc = parseJson(second.content)?.bloc
     parsed.bloc = typeof bloc === 'string' && opts.blocConnu(bloc) ? bloc : null

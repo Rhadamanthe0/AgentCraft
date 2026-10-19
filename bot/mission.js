@@ -4492,7 +4492,7 @@ function createMissionRunner (host, injected = {}) {
       const etape = acquisition()?.etapes?.find(e => e.op === 'cuire')
       if (!objet && etape) objet = etape.objet
       if (!objet && acquirePlan.SMELT[mission.fabricationCible]) objet = mission.fabricationCible
-      if (!objet) return { resultat: `cuisson impossible : objet non reconnu (${brut || 'vide'}) ; ex : iron_ingot, charcoal, glass`, echec: true, code: 'unknown' }
+      if (!objet) return { resultat: `cuisson impossible : objet non reconnu (${brut || 'vide'})${skills.suggestionNom(brut, bot?.registry, { blocs: false }) || ' ; ex : iron_ingot, charcoal, glass'}`, echec: true, code: 'unknown' }
       const demandee = Number.isFinite(Number(params.quantite))
         ? Math.max(1, Math.min(16, Math.round(Number(params.quantite))))
         : (etape?.objet === objet ? etape.quantite : scaled(scale, 1, 16))
@@ -5765,7 +5765,7 @@ function createMissionRunner (host, injected = {}) {
       const nom = String(params.objet ?? '').trim().toLowerCase().replace(/^minecraft:/, '').replace(/\s+/g, '_')
       if (!nom) return { resultat: 'utiliser : nommer le bloc a actionner (objet)', echec: true, code: 'objet_inconnu' }
       const ids = blocsNommes(bot.registry, nom)
-      if (ids.length === 0) return { resultat: `« ${nom} » n est pas un bloc du jeu (nom anglais du registre attendu)`, echec: true, code: 'objet_inconnu' }
+      if (ids.length === 0) return { resultat: `« ${nom} » n est pas un bloc du jeu (nom anglais du registre attendu)${skills.suggestionNom(nom, bot.registry, { objets: false })}`, echec: true, code: 'objet_inconnu' }
       return actionnerBloc(ids, { absent: `aucun bloc ${nom} a moins de 8 blocs`, codeAbsent: 'ancre_absente', libelle: nom })
     },
 
@@ -5783,7 +5783,7 @@ function createMissionRunner (host, injected = {}) {
         const bot = host.getBot()
         const objet = resolveFabricationCible(bot, params.objet)
         if (!objet || (bot?.registry?.itemsByName && !bot.registry.itemsByName[objet] && !craft.TARGETS[objet])) {
-          return { resultat: `objet inconnu : « ${params.objet} »`, echec: true, code: 'objet_inconnu' }
+          return { resultat: `objet inconnu : « ${params.objet} »${skills.suggestionNom(params.objet, bot?.registry, { blocs: false })}`, echec: true, code: 'objet_inconnu' }
         }
         const voulu = Number.isFinite(Number(params.quantite)) ? Math.max(1, Math.min(64, Math.round(Number(params.quantite)))) : 1
         const enPoche = () => (host.getBot()?.inventory?.items() ?? []).filter(i => i.name === objet).reduce((n, i) => n + i.count, 0)
@@ -6007,7 +6007,7 @@ function createMissionRunner (host, injected = {}) {
       if (!nomme || !featureOn('objet_vers', false)) return corps(scale, params)
       const matiere = matiereDe(nomme)
       if (!matiere || !ressource(matiere)) {
-        return { resultat: `${param} inconnu : « ${nomme} » n est ni une matiere ni un bloc du jeu`, echec: true, code: 'objet_inconnu' }
+        return { resultat: `${param} inconnu : « ${nomme} » n est ni une matiere ni un bloc du jeu${skills.suggestionNom(nomme, host.getBot()?.registry)}`, echec: true, code: 'objet_inconnu' }
       }
       // Arbre commence, arbre fini : aucune autre cible avant sa derniere buche.
       if (nom !== 'ramasser' && matiere !== 'bois' && arbreInacheve()) {
@@ -7253,9 +7253,10 @@ function createMissionRunner (host, injected = {}) {
       return value
     }
     const blocConnu = nom => !!skills.ressourceLibre(nom, host.getBot()?.registry)
+    const blocsProches = nom => skills.nomsProches(nom, host.getBot()?.registry, { objets: false })
     let brief
     const debutBrief = Date.now()
-    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), pose: featureOn('poser', false), blocConnu, relance: featureOn('relance_plan') }))
+    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), pose: featureOn('poser', false), blocConnu, blocsProches, relance: featureOn('relance_plan') }))
     try {
       try {
         brief = await lireBrief()

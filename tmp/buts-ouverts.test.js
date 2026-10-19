@@ -131,6 +131,14 @@ test('buts_ouverts : un bloc absent du registre est renvoye une fois au modele, 
     reponses.splice(0, 2, '{"bloc":"truc"}', '{"bloc":"machin"}')
     assert.equal((await planner.readBrief('Trouve un truc', { ouvert: true, blocConnu })).blocRegistre, null)
     assert.equal(entrees.length, 2)
+    // Un nom mal ecrit est renvoye avec les noms proches du registre, a reprendre ou non.
+    entrees.length = 0
+    const blocsProches = nom => skills.nomsProches(nom, registry, { objets: false })
+    reponses.splice(0, 2, '{"bloc":"crafting_tabel"}', '{"bloc":"crafting_table"}')
+    assert.equal((await planner.readBrief('Va a l etabli', { ouvert: true, blocConnu, blocsProches })).blocRegistre, 'crafting_table')
+    assert.deepEqual(entrees[1].noms_proches, ['crafting_table'])
+    assert.deepEqual(skills.nomsProches('magnetite', registry), [], 'nom francais sans voisin : rien a suggerer')
+    assert.deepEqual(skills.nomsProches('stone', registry), [], 'nom connu : aucune suggestion')
   } finally {
     llm.call = saved.call
     for (const [k, v] of [['PLANNER_BASE_URL', saved.url], ['PLANNER_MODEL', saved.model], ['PLANNER_SESSION_ID', saved.sid]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
