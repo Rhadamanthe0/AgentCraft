@@ -167,7 +167,6 @@ describe('llm.call : chemin responses (Muse Go)', () => {
     assert.equal(seen.body.model, 'n-importe-quel-modele')
     assert.equal(seen.body.max_output_tokens, 2000)
     assert.ok(!('max_tokens' in seen.body))
-    assert.ok(!('keep_alive' in seen.body))
     assert.deepEqual(seen.body.text, { format: { type: 'json_object' } })
     assert.deepEqual(seen.body.input, [{ role: 'system', content: 'sys' }, { role: 'user', content: 'jeu' }])
     assert.equal(res.content, '{"fini":0}')

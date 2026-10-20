@@ -10,7 +10,7 @@ const llm = require('../bot/llm')
 const PLANNER_PATH = require.resolve('../bot/planner')
 const KEYS = ['PLANNER_BASE_URL', 'PLANNER_MODEL', 'PLANNER_MODEL_PLAN', 'PLANNER_MODEL_CHAT', 'PLANNER_MODEL_BRIEF',
   'PLANNER_MODEL_REPAIR', 'PLANNER_API_KEY', 'PLANNER_THINKING', 'PLANNER_REASONING_EFFORT', 'PLANNER_REASONING_EFFORT_PLAN',
-  'PLANNER_REASONING_EFFORT_BRIEF', 'PLANNER_REASONING_EFFORT_REPAIR', 'PLANNER_TIMEOUT_MS_BRIEF', 'OPENCODE_SECONDARY_API_KEY', 'PLANNER_KEY_FIRST',
+  'PLANNER_REASONING_EFFORT_BRIEF', 'PLANNER_REASONING_EFFORT_REPAIR', 'PLANNER_TIMEOUT_MS_BRIEF',
   'BOT_USERNAME', 'OPENAI_API_KEY', 'OPENAI_BASE_URL']
 const saved = Object.fromEntries(KEYS.map(k => [k, process.env[k]]))
 const origCall = llm.call
@@ -100,31 +100,14 @@ test('muse (/responses) : effort envoye en reasoning.effort', async () => {
   assert.deepEqual(seen[0], ['muse-spark-1.3-contributor', 'responses', { effort: 'high' }, null])
 })
 
-test('repli de CLE : meme modele, autre cle sur quota ; ordre par PLANNER_KEY_FIRST', async () => {
-  assert.deepEqual(chain.keyOrder({ PLANNER_API_KEY: 'p', OPENCODE_SECONDARY_API_KEY: 's' }).map(k => k.name), ['primary', 'secondary'])
-  assert.deepEqual(chain.keyOrder({ PLANNER_API_KEY: 'p', OPENCODE_SECONDARY_API_KEY: 's', PLANNER_KEY_FIRST: 'secondary' }).map(k => k.name), ['secondary', 'primary'])
-  assert.deepEqual(chain.keyOrder({ OPENCODE_SECONDARY_API_KEY: 's' }).map(k => k.name), ['secondary'])
-  const seen = []
-  llm.call = async (s, u, o) => {
-    seen.push([o.model, o.apiKey])
-    if (o.apiKey === 'k-test') throw httpErr(429, 'GoUsageLimitError')
-    return { content: plan, usage: null, ms: 1 }
+test('une seule cle : un refus (429) ou une panne (503) remonte tel quel, jamais une autre cle ni un autre modele', async () => {
+  for (const status of [429, 503]) {
+    const seen = []
+    llm.call = async (s, u, o) => { seen.push([o.model, o.apiKey]); throw httpErr(status, 'refus') }
+    const p = load({ PLANNER_MODEL: 'd,e' })
+    await assert.rejects(p.plan({}, 'recolte', 'harvest'))
+    assert.deepEqual([...new Set(seen.map(x => x.join('/')))], ['d/k-test'])
   }
-  const p = load({ PLANNER_MODEL: 'd', OPENCODE_SECONDARY_API_KEY: 'k2' })
-  await p.plan({}, 'recolte', 'harvest')
-  assert.deepEqual(seen, [['d', 'k-test'], ['d', 'k2']])
-  assert.equal(p.stats.cle_servie, 'secondary')
-  seen.length = 0
-  await p.plan({}, 'recolte', 'harvest')
-  assert.deepEqual(seen, [['d', 'k2']], 'cle refusee mise de cote')
-})
-
-test('repli de cle : jamais sur 5xx ni delai, et jamais un autre modele', async () => {
-  const seen = []
-  llm.call = async (s, u, o) => { seen.push([o.model, o.apiKey]); throw httpErr(503, 'down') }
-  const p = load({ PLANNER_MODEL: 'd,e', OPENCODE_SECONDARY_API_KEY: 'k2' })
-  await assert.rejects(p.plan({}, 'recolte', 'harvest'))
-  assert.deepEqual([...new Set(seen.map(x => x.join('/')))], ['d/k-test'])
 })
 
 test('delai par usage : PLANNER_TIMEOUT_MS_<USAGE>, jamais plus court que le delai commun', async () => {
@@ -213,10 +196,10 @@ test('effort none : le plan part avec thinking disabled et sans effort', async (
   assert.equal(sent[0].reasoningEffort ?? null, null)
 })
 
-test('openai/<modele> : API OpenAI en direct avec OPENAI_API_KEY, sans en-tetes Zen ni bascule de cle', async () => {
+test('openai/<modele> : API OpenAI en direct avec OPENAI_API_KEY, sans en-tetes Zen', async () => {
   const seen = []
   llm.call = async (s, u, o) => { seen.push(o); return { content: plan, usage: null, ms: 1 } }
-  const p = load({ PLANNER_MODEL: 'claude-haiku-5-5', PLANNER_MODEL_PLAN: 'openai/gpt-5.4-mini', OPENAI_API_KEY: 'k-openai', OPENCODE_SECONDARY_API_KEY: 'k-go2' })
+  const p = load({ PLANNER_MODEL: 'claude-haiku-5-5', PLANNER_MODEL_PLAN: 'openai/gpt-5.4-mini', OPENAI_API_KEY: 'k-openai' })
   await p.plan({}, 'recolte', 'harvest')
   assert.equal(seen[0].baseUrl, 'https://api.openai.com/v1')
   assert.equal(seen[0].apiKey, 'k-openai')

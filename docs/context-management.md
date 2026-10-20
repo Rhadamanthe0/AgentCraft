@@ -83,7 +83,7 @@ Plafonds et refus :
 - un plafond par portée, pour qu'une mission bavarde n'affame pas la mémoire
   longue ;
 - estimation volontairement grossière, environ 3,5 caractères par jeton
-  (`memory.estimateTokens()`) : le but est d'empêcher un dépassement ;
+  (`estimateTokens()` de memory.js) : le but est d'empêcher un dépassement ;
 - une note isolée est bornée par `MEMORY_NOTE_MAX` (4 000 caractères) ;
 - une écriture qui dépasserait son plafond est refusée, avec le total visé, le
   plafond et les jetons restants, pour que le modèle oublie ou résume au lieu

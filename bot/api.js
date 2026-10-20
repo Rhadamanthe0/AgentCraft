@@ -72,6 +72,25 @@ function createApi (rt, deps) {
     }
   })
 
+  // Echec du slot physique : un refus (pause, arret, occupe, indisponible,
+  // annule) en 409, toute autre erreur en 500.
+  function echecPhysique (res, err) {
+    if (['paused', 'stopped', 'busy', 'unavailable', 'cancelled'].includes(err?.code)) {
+      return res.status(409).json({ ok: false, error: err.message, code: err.code })
+    }
+    return res.status(500).json({ ok: false, error: err.message, code: (err && err.code) || 'erreur' })
+  }
+
+  // Objectif (1 a 240 caracteres) et demandeur facultatif (1 a 32, defaut
+  // `api`) d une mission, valides avant tout effet.
+  function lireMission (body) {
+    const objective = config.parseRequestString(body.objective, { minLen: 1, maxLen: 240, name: 'objective' })
+    if (!objective.ok) return objective
+    if (body.requester === undefined) return { ok: true, objective: objective.value, requester: 'api' }
+    const requester = config.parseRequestString(body.requester, { minLen: 1, maxLen: 32, name: 'requester' })
+    return requester.ok ? { ok: true, objective: objective.value, requester: requester.value } : requester
+  }
+
   function etatComplet () {
     const position = rt.bot?.entity?.position
     return {
@@ -322,10 +341,7 @@ function createApi (rt, deps) {
         return { jumped: true }
       })
     } catch (err) {
-      if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable' || err.code === 'cancelled')) {
-        return res.status(409).json({ ok: false, error: err.message, code: err.code })
-      }
-      return res.status(500).json({ ok: false, error: err.message, code: (err && err.code) || 'erreur' })
+      return echecPhysique(res, err)
     }
     res.json({ ok: true })
   })
@@ -353,10 +369,7 @@ function createApi (rt, deps) {
       })
       res.json({ ok: true })
     } catch (err) {
-      if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable' || err.code === 'cancelled')) {
-        return res.status(409).json({ ok: false, error: err.message, code: err.code })
-      }
-      res.status(500).json({ ok: false, error: err.message, code: (err && err.code) || 'erreur' })
+      echecPhysique(res, err)
     }
   })
 
@@ -388,10 +401,7 @@ function createApi (rt, deps) {
       })
       res.json({ ok: true })
     } catch (err) {
-      if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable' || err.code === 'cancelled')) {
-        return res.status(409).json({ ok: false, error: err.message, code: err.code })
-      }
-      res.status(500).json({ ok: false, error: err.message, code: (err && err.code) || 'erreur' })
+      echecPhysique(res, err)
     }
   })
 
@@ -537,19 +547,9 @@ function createApi (rt, deps) {
     // les interpretations en vol meme pour un objectif vide ou trop long : une
     // 400 ne doit jamais modifier le runtime (ni cancel, ni objectif).
     const body = req.body ?? {}
-    const objectiveParsed = config.parseRequestString(body.objective, { minLen: 1, maxLen: 240, name: 'objective' })
-    if (!objectiveParsed.ok) {
-      return res.status(400).json({ ok: false, error: objectiveParsed.error })
-    }
-    let requester = 'api'
-    if (body.requester !== undefined) {
-      const requesterParsed = config.parseRequestString(body.requester, { minLen: 1, maxLen: 32, name: 'requester' })
-      if (!requesterParsed.ok) {
-        return res.status(400).json({ ok: false, error: requesterParsed.error })
-      }
-      requester = requesterParsed.value
-    }
-    const objective = objectiveParsed.value
+    const lu = lireMission(body)
+    if (!lu.ok) return res.status(400).json({ ok: false, error: lu.error })
+    const { objective, requester } = lu
     conversation.cancel(false)
     // Meme intake durable que le chat (hardstop + arbitrage), jamais direct.
     const result = await startObjectiveDurable(objective, requester, req.directMode ? { mode: req.directMode } : undefined)
@@ -564,18 +564,9 @@ function createApi (rt, deps) {
     if (process.env.MISSION_SCRIPT !== '1') return res.status(404).json({ ok: false, error: 'missions scriptees fermees (MISSION_SCRIPT)' })
     // Validation complete avant tout effet : 400/409 avant le cancel.
     const body = req.body ?? {}
-    const objectiveParsed = config.parseRequestString(body.objective, { minLen: 1, maxLen: 240, name: 'objective' })
-    if (!objectiveParsed.ok) {
-      return res.status(400).json({ ok: false, error: objectiveParsed.error })
-    }
-    let requester = 'api'
-    if (body.requester !== undefined) {
-      const requesterParsed = config.parseRequestString(body.requester, { minLen: 1, maxLen: 32, name: 'requester' })
-      if (!requesterParsed.ok) {
-        return res.status(400).json({ ok: false, error: requesterParsed.error })
-      }
-      requester = requesterParsed.value
-    }
+    const lu = lireMission(body)
+    if (!lu.ok) return res.status(400).json({ ok: false, error: lu.error })
+    const { objective, requester } = lu
     const scriptParsed = config.parseRequestArray(body.script, { minLen: 1, maxLen: 200, item: 'object', name: 'script' })
     if (!scriptParsed.ok) {
       return res.status(400).json({ ok: false, error: scriptParsed.error })
@@ -588,7 +579,6 @@ function createApi (rt, deps) {
       }
       brief = briefParsed.value
     }
-    const objective = objectiveParsed.value
     if (missionRunner.isRunning()) return res.status(409).json({ ok: false, error: 'mission en cours' })
     conversation.cancel(false)
     const result = await startObjectiveDurable(objective, requester, { script: scriptParsed.value, brief })

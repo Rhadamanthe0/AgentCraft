@@ -9,12 +9,9 @@
 //   PLANNER_MODEL_COMPACT=...   generation de la memoire (compact)
 //
 // Avec pour chacun PLANNER_REASONING_EFFORT_<USAGE> et PLANNER_TIMEOUT_MS_<USAGE>.
-// Tous les modeles passent par PLANNER_BASE_URL. Deux cles possibles pour ce
-// gateway : `primary` (PLANNER_API_KEY) et `secondary` (OPENCODE_SECONDARY_API_KEY,
-// second espace OpenCode). PLANNER_KEY_FIRST dit laquelle essayer d abord ; un
-// refus de cle (quota 429, 401/402/403) rejoue le MEME modele avec l autre cle
-// et met la cle refusee de cote PLANNER_KEY_COOLDOWN_MS. C est le seul repli :
-// jamais un autre modele. Tout `modele@...` est refuse (erreur claire).
+// Tous les modeles passent par PLANNER_BASE_URL avec une seule cle,
+// PLANNER_API_KEY (un seul abonnement OpenCode Go, 2026-10-20) : aucun repli,
+// ni de modele ni de cle. Tout `modele@...` est refuse (erreur claire).
 
 const TASK_VARS = {
   plan: 'PLANNER_MODEL_PLAN',
@@ -27,8 +24,7 @@ function parse (text) {
   return String(text ?? '').split(',').map(s => s.trim()).filter(Boolean).map(entry => {
     const at = entry.indexOf('@')
     if (at <= 0) return { model: entry, baseUrl: null, label: entry }
-    // Plus aucune base tierce (fournisseurs gratuits retires du code) ni alias :
-    // la cle se choisit par PLANNER_KEY_FIRST, pas par le nom du modele.
+    // Plus aucune base tierce (fournisseurs gratuits retires du code) ni alias.
     return { model: entry.slice(0, at).trim(), invalid: true, label: entry }
   })
 }
@@ -87,36 +83,4 @@ function timeoutFor (task, env = process.env) {
   return Number.isFinite(value) && value > 0 ? value : null
 }
 
-const KEY_VARS = { primary: 'PLANNER_API_KEY', secondary: 'OPENCODE_SECONDARY_API_KEY' }
-
-// Cles dans l ordre d essai (PLANNER_KEY_FIRST=primary|secondary, defaut
-// primary), sans les cles vides.
-function keyOrder (env = process.env) {
-  const first = String(env.PLANNER_KEY_FIRST ?? '').trim().toLowerCase() === 'secondary' ? 'secondary' : 'primary'
-  return [first, first === 'primary' ? 'secondary' : 'primary']
-    .map(name => ({ name, key: String(env[KEY_VARS[name]] ?? '').trim() }))
-    .filter(k => k.key)
-}
-
-// Refus qui tient a la CLE (quota, droits) : l autre cle peut passer. Un delai,
-// une 5xx ou un 400 de schema ne changent rien d une cle a l autre.
-function isKeySwitchError (err) {
-  return err?.code === 'LLM_HTTP' && [401, 402, 403, 429].includes(Number(err.status))
-}
-
-function createKeyState (cooldownMs = 600000) {
-  const until = new Map()
-  return {
-    order (keys, now = Date.now()) {
-      const ready = keys.filter(k => !(until.get(k.name) > now))
-      return [...ready, ...keys.filter(k => until.get(k.name) > now)]
-    },
-    bench (k, now = Date.now()) { until.set(k.name, now + cooldownMs) },
-    clear (k) { until.delete(k.name) },
-    status (now = Date.now()) {
-      return Object.fromEntries([...until].filter(([, t]) => t > now).map(([n, t]) => [n, new Date(t).toISOString()]))
-    }
-  }
-}
-
-module.exports = { parse, modelFor, setOverrides, effortFor, timeoutFor, keyOrder, isKeySwitchError, createKeyState, KEY_VARS, TASK_VARS }
+module.exports = { parse, modelFor, setOverrides, effortFor, timeoutFor }

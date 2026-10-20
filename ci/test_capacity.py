@@ -3,7 +3,6 @@
 A small simulator plays the CI envelope: cumulative cpu.stat counters driven by
 a load function, memory, host MemAvailable; the pool is modelled by worker
 start times and per-worker load. Time is simulated (no sleeping)."""
-import math
 import os
 import sys
 import unittest

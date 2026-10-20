@@ -131,7 +131,8 @@ function schemaReprise ({ landmarks = {}, defaultQuota = 16, craftMin = 1, craft
     // Objets a poser (A/B `poser`) et poses verifiees par objet.
     poses: {
       lire: v => Array.isArray(v) ? v.filter(p => typeof p?.objet === 'string')
-        .map(p => ({ objet: p.objet, quantite: Number.isInteger(p.quantite) ? p.quantite : null })) : [],
+        .map(p => ({ objet: p.objet, quantite: Number.isInteger(p.quantite) ? p.quantite : null,
+          ...(typeof p.de === 'string' && typeof p.vers === 'string' ? { de: p.de, vers: p.vers } : {}) })) : [],
       ecrire: v => v ?? []
     },
     posesFaites: {

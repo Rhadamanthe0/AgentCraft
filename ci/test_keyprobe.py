@@ -10,40 +10,26 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(__file__))
 import keyprobe  # noqa: E402
 
-ENV = {'OPENCODE_PRIMARY_API_KEY': 'k-primary', 'OPENCODE_SECONDARY_API_KEY': 'k-secondary'}
-
-
-def answering(*good):
-    return lambda key: {'ok': key in good, 'status': 200 if key in good else 401}
+ENV = {'PLANNER_API_KEY': 'k-go'}
 
 
 class Choice(unittest.TestCase):
-    def test_both_answer_primary(self):
-        self.assertEqual(keyprobe.select(ENV, answering('k-primary', 'k-secondary'))['chosen'], 'primary')
-
-    def test_only_one_answers(self):
-        self.assertEqual(keyprobe.select(ENV, answering('k-secondary'))['chosen'], 'secondary')
-        self.assertEqual(keyprobe.select(ENV, answering('k-primary'))['chosen'], 'primary')
-
-    def test_none_answers(self):
-        chosen = keyprobe.select(ENV, answering())
-        self.assertIsNone(chosen['chosen'])
-        self.assertEqual(set(chosen['probes']), {'primary', 'secondary'})
+    def test_key_answers_or_not(self):
+        self.assertEqual(keyprobe.select(ENV, lambda key: {'ok': key == 'k-go'})['chosen'], 'opencode')
+        refused = keyprobe.select(ENV, lambda key: {'ok': False, 'status': 401})
+        self.assertIsNone(refused['chosen'])
+        self.assertEqual(refused['probes']['opencode']['status'], 401)
 
     def test_missing_secret_is_not_probed(self):
         calls = []
-        result = keyprobe.select({'OPENCODE_SECONDARY_API_KEY': 'k-secondary'},
-                                 lambda key: calls.append(key) or {'ok': True, 'status': 200})
-        self.assertEqual(calls, ['k-secondary'])
-        self.assertEqual(result['chosen'], 'secondary')
-        self.assertEqual(result['probes']['primary']['error'], 'secret absent')
+        result = keyprobe.select({}, lambda key: calls.append(key) or {'ok': True})
+        self.assertEqual(calls, [])
+        self.assertIsNone(result['chosen'])
+        self.assertEqual(result['probes']['opencode']['error'], 'secret absent')
 
-    def test_bots_get_only_the_chosen_key(self):
-        env = dict(ENV, PLANNER_API_KEY='old', OTHER='x')
-        self.assertEqual(keyprobe.bot_env(env, 'secondary', ENV), {'OTHER': 'x', 'OPENCODE_SECONDARY_API_KEY': 'k-secondary'})
-        env = dict(ENV)
-        self.assertEqual(keyprobe.bot_env(env, 'primary', ENV), {'PLANNER_API_KEY': 'k-primary'})
-        self.assertEqual(keyprobe.bot_env(dict(ENV), None, ENV), {})
+    def test_bots_get_the_key_only_when_chosen(self):
+        self.assertEqual(keyprobe.bot_env(dict(ENV, OTHER='x'), 'opencode'), {'PLANNER_API_KEY': 'k-go', 'OTHER': 'x'})
+        self.assertEqual(keyprobe.bot_env(dict(ENV), None), {})
 
 
 class Probe(unittest.TestCase):
@@ -107,7 +93,7 @@ class Probe(unittest.TestCase):
             self.assertTrue(sent['url'].startswith('https://api.openai.com/v1/responses'))
             self.assertEqual(sent['body']['model'], 'gpt-5.4-mini')
             self.assertEqual(sent['auth'], 'Bearer k-openai')
-            self.assertEqual(keyprobe.bot_env(dict(ENV, OTHER='x'), 'openai', ENV), {'OTHER': 'x'})
+            self.assertEqual(keyprobe.bot_env(dict(ENV, OTHER='x'), 'openai'), {'OTHER': 'x'})
             self.assertIsNone(keyprobe.select(ENV, probe_fn=lambda k: {'ok': True})['chosen'], 'sans cle OpenAI')
         finally:
             keyprobe.MODEL = old

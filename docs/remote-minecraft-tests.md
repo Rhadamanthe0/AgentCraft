@@ -43,7 +43,7 @@ python ci/run.py --suite trees     # niveaux de mission
 
 Python 3.10+ et Docker Compose v2 (Docker Desktop en conteneurs Linux sous
 Windows) ; ni Node ni Java sur l'hôte. Les niveaux de mission exigent une clé
-du gateway (`OPENCODE_PRIMARY_API_KEY` ou `OPENCODE_SECONDARY_API_KEY`).
+du gateway (`PLANNER_API_KEY`).
 
 ### Lire un résultat
 
@@ -142,11 +142,10 @@ Les résultats vont dans `test-results/mc-ci-…/` et dans les artefacts du run
 
 ## 4. Clé du modèle
 
-Une seule clé par banc, sans repli silencieux. Au démarrage, `ci/keyprobe.py`
-envoie un mini prompt (modèle de plan de `ci/models.env`) avec chacune des
-clés `OPENCODE_PRIMARY_API_KEY` et `OPENCODE_SECONDARY_API_KEY` : primary si
-les deux répondent, sinon celle qui répond, sinon le banc échoue sans jouer de
-niveau (`report.keyProbe`). Seule la clé retenue va aux bots, et
+Une seule clé, `PLANNER_API_KEY` (lue par le workflow dans le secret GitHub
+`OPENCODE_SECONDARY_API_KEY`), sans aucun repli. Au démarrage, `ci/keyprobe.py`
+envoie un mini prompt (modèle de plan de `ci/models.env`) avec cette clé ; sans
+réponse, le banc échoue sans jouer de niveau (`report.keyProbe`).
 `report.keyCheck` vérifie qu'elle seule a servi. Un plafond de quota épuisé
 arrête donc le banc au démarrage plutôt qu'après une heure de niveaux rouges.
 

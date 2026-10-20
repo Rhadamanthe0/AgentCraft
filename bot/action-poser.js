@@ -102,6 +102,20 @@ function casesLigne (bot, a, b) {
 
 // Cases voisines d un bloc, a sa hauteur s il ne bouche pas (rail), sinon a
 // celle d au-dessus, puis le dessus lui-meme : libres et appuyees.
+// Etat d une ligne demandee par le brief, de `de` a `vers` : cases encore
+// libres sur sa partie praticable. Une case prise par un objet pose, quel
+// qu il soit (rail ou rail accelerateur sur la meme ligne), compte comme
+// faite. { erreur } quand une ancre n est pas en vue.
+function etatLigne (bot, de, vers) {
+  const a = trouverAncre(bot, nomPropre(de))
+  if (a.erreur) return { erreur: a.erreur }
+  const b = trouverAncre(bot, nomPropre(vers))
+  if (b.erreur) return { erreur: b.erreur }
+  const l = casesLigne(bot, caseDepuis(bot, a.bloc), caseDepuis(bot, b.bloc))
+  if (!l.cases?.length) return { erreur: l.erreur }
+  return { total: l.cases.length, libres: l.cases.filter(c => libre(bot.blockAt(c))).length, ...(l.erreur ? { coupee: l.erreur } : {}) }
+}
+
 function casesVoisines (bot, bloc) {
   const base = solide(bloc) ? bloc.position.offset(0, 1, 0) : bloc.position
   const cases = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => base.offset(dx, 0, dz))
@@ -277,9 +291,15 @@ function createPoser (deps) {
         ? { resultat: `ligne deja couverte : aucune case libre entre ${params.de} et ${params.vers}`, code: 'plan' }
         : { resultat: 'aucune case libre et appuyee ou poser', echec: true, code: 'aucune_case' }
     }
-    const demande = Number.isFinite(Number(params.quantite))
+    // Ligne : les cases gardees pour les autres objets a poser encore
+    // attendus (rails accelerateurs d une ligne de rails), jamais prises.
+    const garde = ligne ? Math.max(0, deps.casesGardees?.(objet) ?? 0) : 0
+    if (garde >= cibles.length) {
+      return { resultat: `les ${cibles.length} case(s) libre(s) de la ligne sont gardees pour les autres objets a poser`, code: 'plan' }
+    }
+    const demande = Math.min(cibles.length - garde, Number.isFinite(Number(params.quantite))
       ? Math.max(1, Math.min(QUANTITE_MAX, Math.round(Number(params.quantite))))
-      : (ligne ? Math.min(QUANTITE_MAX, cibles.length) : 1)
+      : (ligne ? Math.min(QUANTITE_MAX, cibles.length) : 1))
 
     let poses = 0
     let derniere = null
@@ -325,5 +345,5 @@ function createPoser (deps) {
   return { poser }
 }
 
-module.exports = {
-  casesAutour, createPoser, casesLigne, casesVoisines, correspond, trouverAncre, caseDepuis, nomPropre }
+module.exports = { createPoser, casesLigne, etatLigne, blocDeLObjet, correspond, nomPropre
+}

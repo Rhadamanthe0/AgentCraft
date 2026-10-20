@@ -1204,11 +1204,18 @@ function fabricationPrecisee (raw, text) {
 // des rails ») : au moins deux. Le nombre reste mesure par le code ; un
 // pluriel lu comme « un » laissait la mission close apres une seule pose
 // (composite/lit-cabin~avec-poser, banc da9ebbe : 1 torche posee).
+// Objet a nom compose (powered_rail) : son nom de tete au pluriel suivi d un
+// qualificatif accorde (« des rails accelerateurs ») ; « des rails et un rail
+// accelerateur » reste un seul (composite/powered-rail-line ac1001a : un seul
+// rail accelerateur pose, mission close).
 function nommeAuPluriel (text, objet) {
   const words = String(text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9_]+/g, ' ').trim().split(' ')
-  return words.some(w => w.length > 3 && /[sx]$/.test(w) &&
-    (w.slice(0, -1) === objet || motDe(FR_ITEMS, w.slice(0, -1)) === objet))
+  const pluriel = w => w?.length > 3 && /[sx]$/.test(w)
+  const tete = String(objet).includes('_') ? String(objet).split('_').pop() : null
+  return words.some((w, i) => pluriel(w) &&
+    (w.slice(0, -1) === objet || motDe(FR_ITEMS, w.slice(0, -1)) === objet ||
+     (tete && w.slice(0, -1) === tete && pluriel(words[i + 1]) && !FR_STOP.has(words[i + 1]))))
 }
 
 function normalizeFabricationTarget (input) {
@@ -1350,11 +1357,6 @@ function parameterized () {
 // composer, c est leur intent, leurs parametres, et les exemples concrets
 // ci-dessous. Un exemple n est PAS du code et n est jamais execute : c est un
 // modele de composition que le planificateur imite.
-//
-// La documentation est native seulement : l aide distante qui la reecrivait
-// (repair.js, overlay /data/actions-doc.json) est retiree le 2026-09-27, et
-// l overlay avec elle le 2026-09-28 (il n avait plus d auteur, et un vieux
-// fichier du volume aurait continue d egarer le modele).
 // ---------------------------------------------------------------------------
 
 const ACTION_EXEMPLES = {
@@ -1861,10 +1863,7 @@ module.exports = {
   ACTIONS,
   KINDS,
   RESOURCES,
-  RESOURCE_ALIASES,
-  FABRICATION_ALIASES,
   normalizeFabricationTarget,
-  outilsDuTexte,
   fabricationPrecisee,
   nommeAuPluriel,
   LANDMARKS,
@@ -1878,14 +1877,11 @@ module.exports = {
   setFeatureEnabled,
   jsonParamsFor,
   estimatedSecondsFromParams,
-  parameterized,
   // Documentation et exemples des actions (natifs).
   ACTION_EXEMPLES,
-  ACTION_CONTRE_EXEMPLES,
   actionDoc,
   documentedActions,
   describeAction,
-  champsCites,
   get docGeneration () { return docGeneration },
   kindCriteria,
   resourceCriteria,

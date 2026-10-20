@@ -101,4 +101,4 @@ function gardeRetour (bot, { maxTicks = 30, calmes = 2, tickMs = 50 } = {}) {
   return { neutraliser, detacher }
 }
 
-module.exports = { brancherCorrectifs, corrigerVitesseCasse, lianesGrimpables, cheminVideSansBut, gardeRetour }
+module.exports = { brancherCorrectifs, lianesGrimpables, cheminVideSansBut, gardeRetour }

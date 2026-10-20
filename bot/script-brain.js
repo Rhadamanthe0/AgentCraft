@@ -114,4 +114,4 @@ function createScriptBrain ({ script, brief } = {}) {
   }
 }
 
-module.exports = { createScriptBrain, lireScript, lireBrief, REPETER_MAX }
+module.exports = { createScriptBrain, lireScript, lireBrief }

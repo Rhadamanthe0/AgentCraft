@@ -97,4 +97,4 @@ function awayFrom (pos, from, distance) {
   return offset(pos, dx * distance, 0, dz * distance)
 }
 
-module.exports = { detectDanger, detectHostile, detectCrowding, detectDrops, awayFrom, FALLING, HOT }
+module.exports = { detectDanger, detectHostile, detectCrowding, detectDrops, awayFrom }

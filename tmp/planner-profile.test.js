@@ -1,6 +1,6 @@
 'use strict'
 
-// Profil pilote D37/D49 (bot/planner.js) : Muse par defaut, SANS repli (2026-09-26).
+// Profil pilote (bot/planner.js) : Muse par defaut, SANS repli (2026-09-26).
 // Tout le reseau est simule (llm.call moque) : aucun appel distant, aucun secret.
 
 const { describe, it, beforeEach, afterEach } = require('node:test')
@@ -51,7 +51,6 @@ beforeEach(() => {
     PLANNER_RELAUNCH_MS: process.env.PLANNER_RELAUNCH_MS,
     PLANNER_PILOT_MAX_TOKENS: process.env.PLANNER_PILOT_MAX_TOKENS,
     PLANNER_PILOT_RETRY_MAX_TOKENS: process.env.PLANNER_PILOT_RETRY_MAX_TOKENS,
-    PLANNER_PILOT_COOLDOWN_MS: process.env.PLANNER_PILOT_COOLDOWN_MS,
     BOT_USERNAME: process.env.BOT_USERNAME
   }
   process.env.PLANNER_BASE_URL = GO_BASE
@@ -59,7 +58,6 @@ beforeEach(() => {
   process.env.PLANNER_MAX_TOKENS = '2000'
   process.env.PLANNER_PILOT_MAX_TOKENS = '4096'
   process.env.PLANNER_PILOT_RETRY_MAX_TOKENS = '8192'
-  process.env.PLANNER_PILOT_COOLDOWN_MS = '60000'
   process.env.BOT_USERNAME = 'TestBot'
 })
 
@@ -114,8 +112,6 @@ describe('profil pilote : selection par defaut et gardes', () => {
     assert.equal(st.session, 'minecraft-bot-TestBot')
     assert.ok(st.maxTokens >= 2000)
     assert.equal(st.maxTokensOk, true)
-    assert.doesNotMatch(st.pilot, /astra/i)
-    assert.doesNotMatch(st.effective, /astra/i)
   })
 
   it('config DeepSeek explicite gardee, profil inactif, rien ne pretend Muse', async () => {
@@ -126,14 +122,9 @@ describe('profil pilote : selection par defaut et gardes', () => {
     assert.equal(st.configured, DEEPSEEK)
     assert.equal(st.effective, DEEPSEEK)
     mockLlm(async () => okPlan())
-    const events = []
-    const off = planner.onProfileEvent(e => events.push(e))
-    try {
-      await planner.plan({ consigne: 't' }, 'recolte', 'harvest')
-    } finally { off() }
+    await planner.plan({ consigne: 't' }, 'recolte', 'harvest')
     assert.equal(seen.length, 1)
     assert.equal(seen[0].options.model, DEEPSEEK)
-    assert.deepEqual(events, [])
   })
 })
 
@@ -154,32 +145,22 @@ describe('profil pilote : pas de repli hors disponibilite', () => {
   it('abort : aucun fallback, un seul appel', async () => {
     const planner = loadPlanner({ PLANNER_MODEL: undefined })
     mockLlm(async () => { throw new Error('appel annule') })
-    const events = []
-    const off = planner.onProfileEvent(e => events.push(e))
     const c = new AbortController()
     c.abort()
-    try {
-      await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest', {}, null, { signal: c.signal }), /annule/)
-    } finally { off() }
+    await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest', {}, null, { signal: c.signal }), /annule/)
     assert.equal(seen.length, 1)
     assert.equal(seen[0].options.model, MUSE)
-    assert.deepEqual(events, [])
   })
 
   it('mauvais JSON : pas de remplacement d objectif, pas de repli', async () => {
     const planner = loadPlanner({ PLANNER_MODEL: undefined })
     mockLlm(async () => ({ content: 'pas du json du tout', usage: null, ms: 1 }))
-    const events = []
-    const off = planner.onProfileEvent(e => events.push(e))
-    try {
-      await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest'), /illisible/)
-      assert.equal(seen.length, 1)
-      assert.deepEqual(events, [])
-      // readBrief : un JSON illisible leve, ne rend aucun objectif de remplacement.
-      seen = []
-      await assert.rejects(planner.readBrief('casse du bois'), /illisible/)
-      assert.equal(seen.length, 1)
-    } finally { off() }
+    await assert.rejects(planner.plan({ consigne: 't' }, 'recolte', 'harvest'), /illisible/)
+    assert.equal(seen.length, 1)
+    // readBrief : un JSON illisible leve, ne rend aucun objectif de remplacement.
+    seen = []
+    await assert.rejects(planner.readBrief('casse du bois'), /illisible/)
+    assert.equal(seen.length, 1)
   })
 })
 
@@ -217,7 +198,7 @@ describe('profil pilote : budget distinct et reessai troncature (D37 live)', () 
     assert.doesNotMatch(JSON.stringify(st), /oc_sk|apikey|Bearer/i)
   })
 
-  it('troncature pilote -> UN reessai elargi, meme delai, annonce et tentatives comptees', async () => {
+  it('troncature pilote -> UN reessai elargi, meme delai, tentatives comptees', async () => {
     const planner = loadPlanner({ PLANNER_MODEL: undefined })
     const t0 = planner.stats.tentatives
     const trunc0 = planner.stats.troncatures
@@ -226,12 +207,7 @@ describe('profil pilote : budget distinct et reessai troncature (D37 live)', () 
       if (o.model === MUSE && seen.length === 1) throw new Error('reponse incomplete (max_output_tokens)')
       return okPlan()
     })
-    const events = []
-    const off = planner.onProfileEvent(e => events.push(e))
-    let res
-    try {
-      res = await planner.plan({ consigne: 't' }, 'recolte', 'harvest')
-    } finally { off() }
+    const res = await planner.plan({ consigne: 't' }, 'recolte', 'harvest')
     assert.ok(res.steps.length >= 1)
     assert.equal(seen.length, 2)
     assert.equal(seen[0].options.model, MUSE)
@@ -241,8 +217,7 @@ describe('profil pilote : budget distinct et reessai troncature (D37 live)', () 
     assert.equal(seen[1].options.maxTokens, 8192)
     assert.equal(seen[1].options.timeoutMs, seen[0].options.timeoutMs)
     assert.equal(seen[1].options.protocol, 'responses')
-    // Annonce + stats : toutes les tentatives comptent.
-    assert.equal(events.filter(e => e.type === 'truncation-retry').length, 1)
+    // Stats : toutes les tentatives comptent.
     assert.equal(planner.stats.tentatives, t0 + 2)
     assert.equal(planner.stats.troncatures, trunc0 + 1)
     assert.equal(planner.stats.reessais, retry0 + 1)

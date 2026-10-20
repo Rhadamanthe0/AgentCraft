@@ -124,6 +124,8 @@ test('cibles de fabrication en francais : outil a matiere, objets courants, plur
   assert.ok(skills.nommeAuPluriel('une ligne de rails', 'rail'))
   assert.ok(!skills.nommeAuPluriel('pose une torche', 'torch'))
   assert.ok(!skills.nommeAuPluriel('des torches', 'rail'))
+  assert.ok(skills.nommeAuPluriel('une ligne avec des rails accelerateurs', 'powered_rail'))
+  assert.ok(!skills.nommeAuPluriel('des rails et un rail accelerateur', 'powered_rail'))
 })
 
 test('four deja pose : pas de nouveau four ni de pierre pour lui', () => {
@@ -139,4 +141,18 @@ test('combustible : planches de toute essence en poche, aucune recolte de bois',
   const p = plan('iron_pickaxe', { raw_iron: 3, birch_planks: 4, stick: 4 }, { furnaceNearby: true, tableNearby: true })
   assert.equal(p.ok, true)
   assert.equal(p.etapes.some(e => e.op === 'recolter'), false)
+})
+
+test('combustible : charbon en vue mine plutot qu un arbre, batons comptes', () => {
+  // composite/powered-rail-line~aleatoire a309ebc : plus aucun arbre, charbon a cote.
+  const inv = { raw_iron: 5, stick: 4, wooden_pickaxe: 1 }
+  const cinq = extra => planAcquire({ registry: md, target: 'iron_ingot', count: 5, inventory: inv, resources: skills.RESOURCES, furnaceNearby: true, ...extra })
+  const sans = cinq({})
+  assert.ok(sans.etapes.some(e => e.op === 'recolter' && /_log$/.test(e.objet)))
+  const avec = cinq({ charbonVu: true })
+  assert.equal(avec.ok, true)
+  assert.ok(avec.etapes.some(e => e.op === 'recolter' && e.objet === 'coal' && e.bloc === 'coal_ore'))
+  assert.equal(avec.etapes.some(e => /_log$|_planks$/.test(e.objet)), false)
+  const batons = plan('iron_ingot', { raw_iron: 1, stick: 2 }, { furnaceNearby: true })
+  assert.equal(batons.etapes.some(e => e.op === 'recolter'), false)
 })
