@@ -124,6 +124,8 @@ test('cibles de fabrication en francais : outil a matiere, objets courants, plur
   assert.ok(skills.nommeAuPluriel('une ligne de rails', 'rail'))
   assert.ok(!skills.nommeAuPluriel('pose une torche', 'torch'))
   assert.ok(!skills.nommeAuPluriel('des torches', 'rail'))
+  assert.ok(skills.nommeAuPluriel('une ligne avec des rails accelerateurs', 'powered_rail'))
+  assert.ok(!skills.nommeAuPluriel('des rails et un rail accelerateur', 'powered_rail'))
 })
 
 test('four deja pose : pas de nouveau four ni de pierre pour lui', () => {

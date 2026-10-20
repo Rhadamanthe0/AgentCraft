@@ -128,7 +128,8 @@ mesuree), ou une ligne au sol d un bloc nomme a l autre ; le brief liste les
 objets a poser (`pose`, cle de prompt `brief|pose`), `consigne.poses` les
 sert, le solveur vise le premier qui manque en poche, `finishAllowed` exige
 chaque pose verifiee (`mission.posesFaites`), un pluriel sans nombre (« des
-torches ») en vaut deux (`skills.nommeAuPluriel`), `consigne.poses` dit
+torches », « des rails accelerateurs » pour un nom compose : tete au pluriel
+suivie d un qualificatif accorde) en vaut deux (`skills.nommeAuPluriel`), `consigne.poses` dit
 `en_poche` ; une pose en ligne (`de`/`vers` au brief : « une ligne de rails
 de A a B ») vaut toute la ligne, ses cases libres font le reste
 (`posesMesurees`, `action-poser.etatLigne`) ; plusieurs objets sur une
@@ -334,6 +335,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
   `/api/status` repond `spawned: false` sans monde au lieu d un 500. Causes
   trouvees le 2026-10-11 (pieges 17 et 18) : 628 puis 390 etats de mission de
   1 a 13,6 s par banc complet, tous bots et niveaux confondus.
+- Entites comptees par le banc (`entities`, minecart) : Paper 26.1 repond
+  « Test passed. Count: 1 », lu par `trees.entity_count` sans casse (avant
+  ac1001a, toujours 0 : `minecart_pose` rouge minecart pose).
 - Fin de banc : la lecture de `ops.json` (preuve de survie) est rejouee
   (`read_ops`, 3 x 90 s) et un echec s ajoute a `report.errors` sans perdre
   les resultats des niveaux (un `exec` de plus de 60 s sur machine saturee

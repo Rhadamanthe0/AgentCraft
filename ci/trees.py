@@ -1166,6 +1166,14 @@ def vary(level, seed, avoid=None):
     return out
 
 
+def entity_count(answer):
+    """Entities counted by `execute if entity` : Paper 26.1 answers
+    « Test passed. Count: 1 » (capital C) ; the lowercase match read 0 and
+    minecart_pose failed with the minecart on its rails (banc ac1001a)."""
+    match = re.search(r'count:\s*(\d+)', answer or '', re.I)
+    return int(match.group(1)) if match else 0
+
+
 def instruct(level, bot, bot_api, message, requester):
     """Give the level's order. A skill level (`skill`: brief + script) starts a
     scripted mission (bot/script-brain.js): same objective text, same checks,
@@ -1418,9 +1426,7 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         parts.append((got, minimum))
     for check, (entity, minimum) in level.get('entities', {}).items():
         # Entities the order asks for (a minecart on its rails...).
-        answer = rcon(f'execute if entity @e[type={entity},x={x0},y=200,z=0,dx={SIZE},dy={TOP_Y - 200},dz={SIZE}]')
-        match = re.search(r'count: (\d+)', answer or '')
-        got = int(match.group(1)) if match else 0
+        got = entity_count(rcon(f'execute if entity @e[type={entity},x={x0},y=200,z=0,dx={SIZE},dy={TOP_Y - 200},dz={SIZE}]'))
         checks[check] = got >= minimum
         parts.append((got, minimum))
     if level.get('minTop'):
