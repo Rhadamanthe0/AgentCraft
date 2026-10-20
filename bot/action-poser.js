@@ -15,6 +15,7 @@
 
 const { Vec3 } = require('vec3')
 const build = require('./build')
+const skills = require('./skills')
 const { awaitPhysicalWithTimeout } = require('./executor')
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -50,7 +51,7 @@ function correspond (nomBloc, objet) {
 // (anglais, comme dans le jeu), jamais une coordonnee.
 function trouverAncre (bot, nom) {
   const id = bot.registry?.blocksByName?.[nom]?.id
-  if (id === undefined) return { erreur: `« ${nom} » n est pas un bloc du jeu (nom anglais du registre attendu)`, code: 'ancre_inconnue' }
+  if (id === undefined) return { erreur: `« ${nom} » n est pas un bloc du jeu (nom anglais du registre attendu)${skills.suggestionNom(nom, bot.registry, { objets: false })}`, code: 'ancre_inconnue' }
   const positions = bot.findBlocks({ matching: id, maxDistance: ANCRE_RAYON, count: 32 }) ?? []
   if (positions.length === 0) return { erreur: `aucun bloc ${nom} a moins de ${ANCRE_RAYON} blocs`, code: 'ancre_absente' }
   const ici = bot.entity.position
@@ -243,7 +244,7 @@ function createPoser (deps) {
     const bot = deps.getBot()
     if (!bot?.entity) return { resultat: 'bot absent', echec: true, code: 'unavailable' }
     const objet = deps.resoudreObjet(params.objet)
-    if (!objet) return { resultat: `objet inconnu : « ${params.objet ?? ''} » (nom d objet Minecraft attendu)`, echec: true, code: 'objet_inconnu' }
+    if (!objet) return { resultat: `objet inconnu : « ${params.objet ?? ''} » (nom d objet Minecraft attendu)${skills.suggestionNom(params.objet, bot.registry, { blocs: false })}`, echec: true, code: 'objet_inconnu' }
     if (!deps.enInventaire(objet)) return { resultat: `aucun ${objet} en inventaire : l obtenir d abord`, echec: true, code: 'objet_absent' }
     const blocObjet = blocDeLObjet(bot.registry, objet)
 

@@ -179,10 +179,12 @@ test('obtenir : objet nomme deja en poche ou inconnu, dit sans rien jouer', asyn
     inventory: [{ name: 'rail', count: 5 }],
     brief: { type: 'recolte', matiere: 'aucune' },
     features: { poser: true, sous_buts: true },
-    script: [{ action: 'obtenir', objet: 'rail', quantite: 4 }, { action: 'obtenir', objet: 'licorne' }, { action: 'terminer' }]
+    script: [{ action: 'obtenir', objet: 'rail', quantite: 4 }, { action: 'obtenir', objet: 'licorne' }, { action: 'poser', objet: 'rail', de: 'cobble_stone' }, { action: 'terminer' }]
   })
   assert.ok(lignes.some(l => /obtenir .*-> 5 rail deja en poche/.test(l)), lignes.slice(-10).join('\n'))
   assert.ok(lignes.some(l => /objet inconnu : « licorne »/.test(l)), lignes.slice(-10).join('\n'))
+  // Un nom mal forme du registre est refuse avec le nom proche, jamais corrige en silence.
+  assert.ok(lignes.some(l => /« cobble_stone » n est pas un bloc du jeu .*voulais-tu dire « cobblestone » \?/.test(l)), lignes.slice(-10).join('\n'))
 })
 
 const { createExecutor } = require('../bot/executor')
