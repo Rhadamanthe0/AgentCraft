@@ -45,7 +45,7 @@ jobs:
     # MINIPC-CLEM : Linux, runner en conteneur, Podman rootless par socket
     # (clients docker et docker compose). Ports publies injoignables depuis le
     # conteneur du runner (localhost = le runner) : CI_ENDPOINT_MODE=ip, IP des conteneurs du projet.
-    runs-on: [self-hosted, linux, x64, minipc, podman]
+    runs-on: [self-hosted, linux, x64, minipc, rhada-persistent-v1, rhada-job-minecraft, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
     outputs:
       levels: ${{ steps.levels.outputs.levels }}
     # Scenarios composites jusqu a 45 min, lances en premier (chemin critique).
@@ -158,12 +158,12 @@ jobs:
   # le banc COMPLET (`tout`) de ce commit a reussi. Un banc partiel le laisse
   # rouge : choisir des niveaux accelere le travail, jamais la fusion. Check
   # requis de la protection de `main`. Toujours execute (un check requis
-  # SAUTE compte comme reussi) : banc saute = porte rouge. Runner heberge par
-  # GitHub, sans checkout ni secret : il ne lit que deux sorties du banc.
+  # SAUTE compte comme reussi) : banc saute = porte rouge. Runner isole
+  # MINIPC-CLEM, sans checkout : il ne lit que deux sorties du banc.
   banc-complet:
     needs: minecraft
     if: always()
-    runs-on: [self-hosted, linux, x64, minipc, podman]
+    runs-on: [self-hosted, linux, x64, minipc, rhada-persistent-v1, rhada-job-banc-complet, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
     timeout-minutes: 5
     steps:
       - name: Full bench passed on this commit

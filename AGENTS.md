@@ -709,6 +709,11 @@ dans `docs/journal.md` (section « Les pieges »).
 - Declenche par tout push sur `main` ou `claude/**` (workflow
   `.github/workflows/minecraft.yml`), runner self-hosted MINIPC-CLEM (Podman
   rootless), un seul job a la fois, 75 min max.
+- Inscription GitHub permanente propre a ce depot Linux ; environnement
+  neuf par job, magasin et socket Podman dedies. Les labels
+  `rhada-persistent-v1`, `rhada-run-<run>-<tentative>` et
+  `rhada-job-minecraft` ou `rhada-job-banc-complet` reservent le runner
+  au job attendu. Le bail global garde un seul job Linux/Windows a la fois.
 - Ce qui se joue (2026-10-01, demande du proprietaire) : **tout** sur `main` ;
   sur une branche, ce que demande la ligne finale du message de commit
   (trailer, dans le dernier paragraphe avec `Co-Authored-By`) :
