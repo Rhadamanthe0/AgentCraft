@@ -437,7 +437,10 @@ Connaissances calculees par le code, servies au modele dans l etat :
   manque et que le materiau en poche ne suffit pas ;
   `harvestResource()` vise la premiere recolte du plan en vue ; chantier
   pose sans sa porte demandee : la porte est la cible (`porteCible`, sinon la
-  pierre du brief etait recoltee jusqu au plafond, 2026-10-19) ;
+  pierre du brief etait recoltee jusqu au plafond, 2026-10-19) ; combustible
+  d une cuisson : ce qui est en poche (charbon, buches, planches, batons),
+  puis du charbon mine s il y a un minerai de charbon en vue (`charbonVu`),
+  sinon des planches (2026-10-20 : le dernier bois partait au four) ;
 - **besoins d un chantier** (`state.besoins`) : blocs restants, planches,
   porte, etabli, buches a recolter d un coup ;
 - **arbre entier** (`arbre_demande`), arbre commence a finir (`arbre_en_cours`), `objets_au_sol` (nom, nombre, hauteur

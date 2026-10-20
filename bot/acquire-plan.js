@@ -86,7 +86,7 @@ function blockResource (resources, name) {
 }
 
 function planAcquire (args) {
-  const { registry, target, count = 1, inventory = {}, resources = null, prefer = [], tableNearby = false, furnaceNearby = false } = args ?? {}
+  const { registry, target, count = 1, inventory = {}, resources = null, prefer = [], tableNearby = false, furnaceNearby = false, charbonVu = false } = args ?? {}
   if (!registry?.itemsByName) throw new TypeError('registry manquant (minecraft-data ou bot.registry)')
   const maxSteps = args?.maxSteps ?? 40
   const stock = new Map()
@@ -280,7 +280,7 @@ function planAcquire (args) {
     // Combustible deja en poche, toute essence (charbon, buches, planches ;
     // jamais le cru) : avant, seules les oak_planks comptaient (iron-pickaxe
     // b7421cc : 4 birch_planks en poche, « recolter 1 oak_log » sans arbre).
-    const FUEL = [[/^(coal|charcoal)$/, 8], [/_log$|_stem$/, 1.5], [/_planks$/, 1.5]]
+    const FUEL = [[/^(coal|charcoal)$/, 8], [/_log$|_stem$/, 1.5], [/_planks$/, 1.5], [/^stick$/, 0.5]]
     let reste = need
     const brule = []
     for (const [motif, par] of FUEL) {
@@ -289,6 +289,23 @@ function planAcquire (args) {
         const pris = Math.min(n, Math.ceil(reste / par))
         brule.push([nom, pris])
         reste -= pris * par
+      }
+    }
+    // Charbon en vue : un minerai cuit 8 objets, une buche 1,5. Sans lui, le
+    // dernier bois de l arene partait en combustible et le minecart restait
+    // sans cuisson, charbon a cote (composite/powered-rail-line~aleatoire
+    // a309ebc : 20 min a chercher un arbre).
+    if (reste > 0 && charbonVu && raw !== 'coal' && raw !== 'oak_log') {
+      const n = Math.ceil(reste / 8)
+      const saved = { stock: new Map(stock), steps: steps.length, blocked: blocked.length }
+      if (ensure('coal', have('coal') + n, depth + 1, next)) {
+        brule.push(['coal', n])
+        reste = 0
+      } else {
+        stock.clear()
+        for (const [k, v] of saved.stock) stock.set(k, v)
+        steps.length = saved.steps
+        blocked.length = saved.blocked
       }
     }
     if (reste > 0) {

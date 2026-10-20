@@ -882,10 +882,12 @@ function createMissionRunner (host, injected = {}) {
         const logIds = Object.values(bot.registry?.blocksByName ?? {}).filter(b => /_log$/.test(b.name)).map(b => b.id)
         const seen = logIds.length ? bot.findBlock({ matching: logIds, maxDistance: SEARCH_RADIUS }) : null
         if (seen) mission.essenceVue = seen.name
+        const charbonIds = ['coal_ore', 'deepslate_coal_ore'].map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id !== undefined)
+        mission.charbonVu = Boolean(charbonIds.length && bot.findBlock({ matching: charbonIds, maxDistance: SEARCH_RADIUS }))
       } catch (_) { /* chunk absent */ }
     }
     if (mission.essenceVue) prefer.push(mission.essenceVue, mission.essenceVue.replace(/_log$/, '_planks'))
-    const key = JSON.stringify([cible, mission.fabricationQuantite, aPoser?.manque ?? null, inv, tableNearby, furnaceNearby, prefer])
+    const key = JSON.stringify([cible, mission.fabricationQuantite, aPoser?.manque ?? null, inv, tableNearby, furnaceNearby, prefer, Boolean(mission.charbonVu)])
     if (cache?.key === key) return cache.plan
     // Alias FR (pioche, hache...) : le candidat au plan le plus court.
     const alias = craft.TARGETS[cible]
@@ -895,7 +897,7 @@ function createMissionRunner (host, injected = {}) {
     for (const target of candidates) {
       let plan
       try {
-        plan = acquirePlan.planAcquire({ registry, target, count: wanted, inventory: inv, resources: skills.RESOURCES, tableNearby, furnaceNearby, prefer })
+        plan = acquirePlan.planAcquire({ registry, target, count: wanted, inventory: inv, resources: skills.RESOURCES, tableNearby, furnaceNearby, prefer, charbonVu: Boolean(mission.charbonVu) })
       } catch (_) { continue }
       if (!best || (plan.ok && !best.ok) || (plan.ok === best.ok && plan.etapes.length < best.etapes.length)) best = plan
     }
