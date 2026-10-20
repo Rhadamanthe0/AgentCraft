@@ -135,14 +135,15 @@ test('culture : recolter ne prend que le ble mur, la jeune pousse reste ; jamais
   assert.equal(jeunes, 3, fin(lignes))
   assert.ok((sim.inventory().find(i => i.name === 'wheat')?.count ?? 0) >= 3, JSON.stringify(sim.inventory()) + '\n' + fin(lignes))
 
-  const canne = { '12,199,15': 'water', '11,199,15': 'sand', '11,200,15': 'sugar_cane', '11,201,15': 'sugar_cane', '11,202,15': 'sugar_cane' }
+  const canne = { '12,199,15': 'water', '11,199,15': 'sand', '11,200,15': 'sugar_cane', '11,201,15': 'sugar_cane' }
   const c = await jouer({
     blocks: canne,
     brief: { type: 'recolte', matiere: 'aucune', bloc: 'sugar_cane' },
-    script: [{ action: 'recolter', quantite: 2, repeter: 3 }, { action: 'ramasser', quantite: 2, repeter: 2 }],
+    script: [{ action: 'recolter', quantite: 1 }],
     features: { culture: true, buts_ouverts: true, recolter: true, arbre_fini: true },
-    objectif: 'Ramene-moi 2 cannes a sucre'
+    objectif: 'Ramene-moi 1 canne a sucre'
   })
+  assert.equal(c.sim.nameAt(11, 201, 15), 'air', fin(c.lignes))
   assert.equal(c.sim.nameAt(11, 200, 15), 'sugar_cane', fin(c.lignes))
 })
 

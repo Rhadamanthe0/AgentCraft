@@ -39,8 +39,15 @@ const nom = brut => String(brut).replace(/^minecraft:/, '').replace(/\[.*$/, '')
 
 // Numero d etat d un nom avec proprietes ('wheat[age=7]') : base mixte de
 // minecraft-data, la derniere propriete varie le plus vite ; une propriete
-// non dite garde sa valeur par defaut.
+// non dite garde sa valeur par defaut. Memorise par nom : blockAt est la
+// boucle chaude du simulateur (findBlocks).
+const ETATS = new Map()
 function etatDe (brut) {
+  let etat = ETATS.get(brut)
+  if (etat === undefined) { etat = calculerEtat(brut); ETATS.set(brut, etat) }
+  return etat
+}
+function calculerEtat (brut) {
   const m = /^([a-z0-9_]+)(?:\[(.*)\])?$/.exec(nom(String(brut)) + (String(brut).match(/\[.*\]$/)?.[0] ?? ''))
   const def = registry.blocksByName[m?.[1]] ?? registry.blocksByName.stone
   if (!m?.[2]) return def.defaultState
