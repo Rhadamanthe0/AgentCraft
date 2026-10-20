@@ -211,26 +211,13 @@ function normalizeRecipe (entry, index) {
     }
     shapeInfo = { rows, cols, count }
     ingredients = [...agg.values()]
-  } else if (entry.ingredients !== undefined && entry.ingredients !== null) {
+  } else if ((entry.ingredients ?? entry.inputs) !== undefined && (entry.ingredients ?? entry.inputs) !== null) {
+    // `ingredients` (minecraft-data) ou `inputs` : meme liste sans forme.
     kind = 'shapeless'
-    if (!Array.isArray(entry.ingredients)) return null
+    const list = entry.ingredients ?? entry.inputs
+    if (!Array.isArray(list)) return null
     const agg = new Map()
-    for (const elem of entry.ingredients) {
-      if (elem === null || elem === undefined) continue
-      const ref = normalizeRef(elem, false)
-      if (!ref) continue
-      const units = Number.isInteger(ref.count) && ref.count > 0 ? ref.count : 1
-      const k = exactKey(ref.id, ref.metadata)
-      const prev = agg.get(k)
-      if (prev) prev.count += units
-      else agg.set(k, { id: ref.id, metadata: ref.metadata, count: units, nameHint: ref.nameHint })
-    }
-    ingredients = [...agg.values()]
-  } else if (entry.inputs !== undefined && entry.inputs !== null) {
-    kind = 'shapeless'
-    if (!Array.isArray(entry.inputs)) return null
-    const agg = new Map()
-    for (const elem of entry.inputs) {
+    for (const elem of list) {
       if (elem === null || elem === undefined) continue
       const ref = normalizeRef(elem, false)
       if (!ref) continue
@@ -417,7 +404,7 @@ function cloneStock (stock) {
 function consumeStock (stock, needId, needMeta, qty) {
   if (qty <= 0) return 0
   const matching = []
-  for (const [k, v] of stock.entries()) {
+  for (const v of stock.values()) {
     if (v.count <= 0) continue
     if (matchesVariant(needId, needMeta, v.id, v.metadata)) matching.push(v)
   }
@@ -698,38 +685,13 @@ function planCraft (args) {
   const ancestry = new Set()
   const top = ensure(normTarget.id, normTarget.metadata, normTarget.name, wanted, 0, ancestry)
 
-  if (top.error === 'cycle') {
+  const refus = ['cycle', 'max-depth', 'max-operations'].includes(top.error)
+    ? top.error
+    : limitError === 'max-operations' ? 'max-operations' : null
+  if (refus) {
     return Object.freeze({
       ok: false,
-      reason: 'cycle',
-      target: { id: normTarget.id, name: normTarget.name, metadata: normTarget.metadata, wanted },
-      quantity: { wanted, planned: top.taken },
-      operations: Object.freeze([]),
-      requiresTable: false,
-      missing: Object.freeze([]),
-      surplus: Object.freeze([]),
-      provenance: Object.freeze({ source: 'recipes', origine: 'donnees-jeu', recettes: recipes.length }),
-      stats: Object.freeze({ depthMax: stats.depthMax, operations: 0, recipesConsidered: stats.recipesConsidered, invalidRecipes })
-    })
-  }
-  if (top.error === 'max-depth') {
-    return Object.freeze({
-      ok: false,
-      reason: 'max-depth',
-      target: { id: normTarget.id, name: normTarget.name, metadata: normTarget.metadata, wanted },
-      quantity: { wanted, planned: top.taken },
-      operations: Object.freeze([]),
-      requiresTable: false,
-      missing: Object.freeze([]),
-      surplus: Object.freeze([]),
-      provenance: Object.freeze({ source: 'recipes', origine: 'donnees-jeu', recettes: recipes.length }),
-      stats: Object.freeze({ depthMax: stats.depthMax, operations: 0, recipesConsidered: stats.recipesConsidered, invalidRecipes })
-    })
-  }
-  if (top.error === 'max-operations' || limitError === 'max-operations') {
-    return Object.freeze({
-      ok: false,
-      reason: 'max-operations',
+      reason: refus,
       target: { id: normTarget.id, name: normTarget.name, metadata: normTarget.metadata, wanted },
       quantity: { wanted, planned: top.taken },
       operations: Object.freeze([]),

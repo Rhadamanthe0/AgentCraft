@@ -562,41 +562,24 @@ function clear (portee) {
   // (invalide les compactions en vol). Echec R07 : sans mutation, sans bump.
   const ctx = activeContext()
 
-  if (scope === 'tout') {
-    // R07+R24 : meme contrat que commit (atomique puis publication, echec sans
-    // mutation). En etat corrompu : refus lecture seule, fichier preserve.
-    if (corrupted) {
-      return { ok: false, error: `memoire corrompue (${corruptError || 'fichier preserve'}) : reparation explicite requise avant tout effacement` }
-    }
-    const hadLong = Boolean(longTerm)
-    try {
-      persistAtomically('')
-    } catch (err) {
-      persistError = err.message
-      console.error(`[memoire] ecriture impossible dans ${FILE} : ${err.message}`)
-      return { ok: false, error: err.message }
-    }
-    ctx.work = ''
-    ctx.pending = ''
-    ctx.revision += 1
-    longTerm = ''
-    persistError = null
-    if (hadLong) generation += 1
-    return { ok: true, portee: 'tout', snapshot: snapshot() }
-  }
-  if (!SCOPES.includes(scope)) {
+  if (scope !== 'tout' && !SCOPES.includes(scope)) {
     return {
       ok: false,
       error: `portee invalide : "${scope || '(vide)'}" (attendu travail, long_terme ou tout)`
     }
   }
+  // R24 : lecture seule stricte en etat corrompu, meme pour le volatile, tant
+  // que la reparation explicite n a pas eu lieu (resetWork reste le seul
+  // vidage de debut de mission, sans ecriture fichier). Fichier preserve.
+  if (corrupted) {
+    return { ok: false, error: `memoire corrompue (${corruptError || 'fichier preserve'}) : reparation explicite requise avant tout effacement` }
+  }
 
-  if (scope === 'long_terme') {
-    // Effacer le long terme efface aussi ce qui attendait le commit : sinon
-    // une note « oubliee » reapparaitrait au prochain commitLongTerm().
-    if (corrupted) {
-      return { ok: false, error: `memoire corrompue (${corruptError || 'fichier preserve'}) : reparation explicite requise avant tout effacement` }
-    }
+  if (scope === 'tout' || scope === 'long_terme') {
+    // R07 : meme contrat que commit (atomique puis publication, echec sans
+    // mutation). Effacer le long terme efface aussi ce qui attendait le
+    // commit : sinon une note « oubliee » reapparaitrait au prochain
+    // commitLongTerm().
     const hadLong = Boolean(longTerm)
     try {
       persistAtomically('')
@@ -605,18 +588,13 @@ function clear (portee) {
       console.error(`[memoire] ecriture impossible dans ${FILE} : ${err.message}`)
       return { ok: false, error: err.message }
     }
+    if (scope === 'tout') ctx.work = ''
     longTerm = ''
     ctx.pending = ''
     ctx.revision += 1
     persistError = null
     if (hadLong) generation += 1
   } else {
-    // R24 : lecture seule stricte — meme le volatile est refuse tant que la
-    // reparation explicite n a pas eu lieu (resetWork reste le seul vidage
-    // de debut de mission, sans ecriture fichier).
-    if (corrupted) {
-      return { ok: false, error: `memoire corrompue (${corruptError || 'fichier preserve'}) : reparation explicite requise avant tout effacement` }
-    }
     ctx.work = ''
     ctx.revision += 1
   }
@@ -659,18 +637,10 @@ module.exports = {
   setCompactor,
   setActiveScope,
   getActiveScope,
-  DEFAULT_SCOPE,
   snapshot,
   status,
   repairCorrupted,
-  recoverCorrupted: repairCorrupted,
-  estimateTokens,
-  SCOPES,
   FILE,
-  LONG_TERM_TOKENS,
-  WORK_TOKENS,
-  WORK_COMPACT_AT,
-  WORK_COMPACT_TO,
   NOTE_MAX,
   get generation () { return generation },
   get persistError () { return persistError },

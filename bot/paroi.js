@@ -65,4 +65,4 @@ function brancherParoi (bot, { ecart = ECART } = {}) {
   })
 }
 
-module.exports = { brancherParoi, ecartAxe, ECART }
+module.exports = { brancherParoi, ecartAxe }

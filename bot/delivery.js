@@ -1030,19 +1030,5 @@ async function giveToPlayer (bot, opts = {}) {
 }
 
 module.exports = {
-  giveToPlayer,
-  countInventory,
-  resolvePlayerPos,
-  lineClear,
-  hasObservationApi,
-  isItemEntity,
-  metadataStack,
-  dropItemName,
-  dropCount,
-  DEFAULT_REACH_XZ,
-  DEFAULT_REACH_Y,
-  DEFAULT_TOSS_TIMEOUT_MS,
-  DEFAULT_PROOF_TIMEOUT_MS,
-  DEFAULT_DROP_RADIUS_XZ,
-  DEFAULT_DROP_RADIUS_Y
+  giveToPlayer
 }

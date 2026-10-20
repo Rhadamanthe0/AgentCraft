@@ -83,4 +83,4 @@ function timeoutFor (task, env = process.env) {
   return Number.isFinite(value) && value > 0 ? value : null
 }
 
-module.exports = { parse, modelFor, setOverrides, effortFor, timeoutFor, TASK_VARS }
+module.exports = { parse, modelFor, setOverrides, effortFor, timeoutFor }

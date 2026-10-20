@@ -128,18 +128,7 @@ const PILOT_EFFECTIVE_MAX_TOKENS = Math.max(
 const PILOT_RETRY_EFFECTIVE_MAX_TOKENS = Math.max(
   Number.isFinite(PILOT_RETRY_MAX_TOKENS) ? PILOT_RETRY_MAX_TOKENS : 8192,
   PILOT_EFFECTIVE_MAX_TOKENS)
-// Jamais de pilote Astra par ce profil : un modele configure contenant `astra`
-// desactive le profil (le modele explicite est alors utilise tel quel).
-const ASTRA_RE = /astra/i
 const TEMPERATURE = config.finiteNumber(process.env.PLANNER_TEMPERATURE, 0, 'PLANNER_TEMPERATURE')
-// Duree pendant laquelle Ollama garde le modele charge. Sans cela il le
-// decharge apres 5 min et la premiere etape suivante paie 2 a 4 s de chargement
-// en plein milieu d une mission.
-const KEEP_ALIVE = process.env.PLANNER_KEEP_ALIVE || '30m'
-// `keep_alive` est une extension d Ollama. Un fournisseur distant qui valide
-// son schema strictement repondrait 400 sur un champ inconnu, donc on ne
-// l envoie qu a un Ollama.
-const IS_OLLAMA = /:11434|ollama/i.test(BASE_URL)
 // Le gateway OpenCode Go (https://opencode.ai/zen/go/v1) exige un User-Agent
 // identifiable et un `x-opencode-session` **stable par conversation** : c est ce
 // dernier qui optimise le routage et le cache de prompt cote serveur. On le
@@ -181,11 +170,10 @@ const DONE_THRESHOLD = config.boundedNumber(process.env.JEV_DONE_THRESHOLD, 0.75
 const MIN_CONFIDENCE = config.boundedNumber(process.env.JEV_MIN_CONFIDENCE, 0.6, 0, 1, 'JEV_MIN_CONFIDENCE')
 const DOOR_THRESHOLD = config.boundedNumber(process.env.JEV_DOOR_THRESHOLD, 0.6, 0, 1, 'JEV_DOOR_THRESHOLD')
 
-// Charger 4,7 Go en VRAM prend 30 a 60 s la premiere fois. Tant que ce n est
-// pas fait, AUCUN appel ne tient dans le delai normal : le tout premier ordre
-// du joueur echouait sur « pas de reponse en 8000 ms ». On accorde donc un
-// delai large tant qu aucune reponse n est revenue, et `warmup()` paie ce
-// chargement au demarrage plutot qu au premier ordre.
+// Le premier appel peut etre bien plus lent que les suivants (le tout premier
+// ordre du joueur echouait sur « pas de reponse en 8000 ms »). On accorde donc
+// un delai large tant qu aucune reponse n est revenue, et `warmup()` paie ce
+// premier appel au demarrage plutot qu au premier ordre.
 const WARMUP_TIMEOUT_MS = config.positiveInt(process.env.PLANNER_WARMUP_TIMEOUT_MS, 180000, 'PLANNER_WARMUP_TIMEOUT_MS')
 
 const prompts = new Map()
@@ -193,30 +181,13 @@ let lastError = null
 let warm = false
 
 // ---------------------------------------------------------------------------
-// Profil pilote D37/D49 : Muse (`/responses`) quand PLANNER_MODEL le nomme.
-// Plus AUCUN repli vers un autre modele (2026-09-26) : `effective` vaut
-// toujours le modele configure ; seul reste le reessai du MEME modele sur
-// troncature (budget elargi). Garde-fous : base Go, session stable, jamais Astra.
+// Profil pilote : Muse (`/responses`) quand PLANNER_MODEL le nomme (ou est
+// vide). Plus AUCUN repli vers un autre modele (2026-09-26) ; seul reste le
+// reessai du MEME modele sur troncature (budget elargi).
 // ---------------------------------------------------------------------------
 
-const profileListeners = new Set()
-const _profile = {
-  configured: MODEL,
-  pilot: PILOT_MODEL
-}
-
 function isProfileEnabled () {
-  if (!BASE_URL) return false
-  if (!IS_ZEN) return false
-  if (!SESSION_ID) return false
-  if (ASTRA_RE.test(String(MODEL))) return false
-  if (ASTRA_RE.test(PILOT_MODEL)) return false
-  return String(MODEL) === String(PILOT_MODEL)
-}
-
-function effectiveModel (now = Date.now()) {
-  if (!isProfileEnabled()) return MODEL
-  return PILOT_MODEL
+  return Boolean(BASE_URL && IS_ZEN && SESSION_ID) && MODEL === PILOT_MODEL
 }
 
 function isAbortError (err, signal) {
@@ -236,30 +207,16 @@ function isTruncationError (err, signal) {
 
 function syncProfileStats () {
   stats.modele_configure = MODEL
-  stats.modele_effectif = effectiveModel()
-}
-
-function announceProfile (evt) {
-  for (const cb of [...profileListeners]) {
-    try { cb(evt) } catch (_) { /* un observateur ne doit jamais casser un plan */ }
-  }
-}
-
-// Annonce optionnelle pour l integrateur (callback). Compatibilite backward :
-// sans observateur, le reessai reste visible via profileStatus()/stats.
-function onProfileEvent (cb) {
-  if (typeof cb !== 'function') throw new Error('observateur de profil invalide')
-  profileListeners.add(cb)
-  return () => { profileListeners.delete(cb) }
+  stats.modele_effectif = MODEL
 }
 
 // Statut public SANS secret (jamais la cle) : configure/effectif.
-function profileStatus (now = Date.now()) {
+function profileStatus () {
   return {
     enabled: isProfileEnabled(),
     configured: MODEL,
     pilot: PILOT_MODEL,
-    effective: effectiveModel(now),
+    effective: MODEL,
     baseConfigured: Boolean(BASE_URL),
     isGo: IS_ZEN,
     sessionStable: Boolean(SESSION_ID),
@@ -441,7 +398,7 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
   const effortAsked = modelChain.effortFor(task)
   const EFFORT = effortAsked === 'none' ? null : effortAsked
   const sansRaisonnement = effortAsked === 'none'
-  const target0 = forced ?? effectiveModel()
+  const target0 = forced ?? MODEL
   // `openai/<modele>` : API OpenAI en direct (OPENAI_API_KEY), pour l offre de
   // jetons gratuits contre partage des donnees (2026-10-10) ; jamais un repli.
   const openai = isOpenAiModel(target0)
@@ -474,7 +431,7 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     const thinking = !effort && proto === 'chat' && (sansRaisonnement || THINKING === 'disabled') && !thinkingOff.has(model) ? { type: 'disabled' } : null
     const plain = {
       baseUrl: base, apiKey: key, model: openai ? model.slice(OPENAI_PREFIX.length) : model, temperature, maxTokens: budget, timeoutMs: timeLeft(),
-      keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null, headers, image, signal, protocol: proto,
+      headers, image, signal, protocol: proto,
       // The transport's own retry (transient 5xx/429/400) is a request too.
       onRetry: () => { stats.tentatives += 1 }
     }
@@ -538,7 +495,6 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
         ? Math.max(PILOT_RETRY_EFFECTIVE_MAX_TOKENS, pilotFirst)
         : Math.max(4000, 2 * (Number.isFinite(maxTokens) ? maxTokens : 2000))
       console.log(`[planner] reponse tronquee (${String(err?.message ?? '').slice(0, 80)}), reessai a ${retryBudget} jetons (delai inchange)`)
-      announceProfile({ type: 'truncation-retry', from: target0, to: target0, reason: String(err?.message ?? 'tronquee').slice(0, 200), maxTokens: retryBudget, at: new Date().toISOString() })
       const resRetry = await doCall(target0, proto0, retryBudget)
       return markSuccess(resRetry, target0)
     }
@@ -1763,7 +1719,6 @@ module.exports = {
   DONE_THRESHOLD,
   DOOR_THRESHOLD,
   profileStatus,
-  onProfileEvent,
   _resetProfile,
   get lastError () { return lastError }
 }

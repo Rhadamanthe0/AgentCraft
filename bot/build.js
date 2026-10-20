@@ -1194,11 +1194,9 @@ module.exports = {
   findVantage,
   findVantages,
   moveTo,
-  groundLevel,
   isFree,
   isSolid,
   MIN_SIZE,
   MAX_SIZE,
-  DEFAULT_SIZE,
   PLACE_REACH
 }

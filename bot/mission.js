@@ -2873,7 +2873,6 @@ function createMissionRunner (host, injected = {}) {
     // A portee = assez pres HORIZONTALEMENT, et le bloc vise assez BAS pour etre
     // casse depuis ici. Un tronc haut n est pas a portee meme au pied : c est
     // le bloc le plus bas, choisi par findTargetBlock, qu il faut casser.
-    const verticalGap = Math.max(0, target.position.y - here.y)
     const aPortee = blockInReach(bot, here, target.position.offset(0.5, 0.5, 0.5), REACH)
 
     return {
@@ -2884,7 +2883,8 @@ function createMissionRunner (host, injected = {}) {
     }
   }
 
-  // Fix 2 : indice vers l objet tombe le plus proche, pour que `ramasser` ait  // une direction meme quand aucun bloc n est en vue. Meme convention que
+  // Fix 2 : indice vers l objet tombe le plus proche, pour que `ramasser` ait
+  // une direction meme quand aucun bloc n est en vue. Meme convention que
   // navigationHint (angle positif = a gauche, distance HORIZONTALE XZ).
   // `a_portee` vaut vrai dans le rayon de ramassage automatique
   // (ITEM_AUTO_PICKUP) : marcher dessus suffit, pas besoin d etre a 4 blocs.
@@ -3257,7 +3257,6 @@ function createMissionRunner (host, injected = {}) {
     const horizontal = block
       ? Math.hypot(block.position.x + 0.5 - position.x, block.position.z + 0.5 - position.z)
       : null
-    const verticalGap = block ? Math.max(0, block.position.y - position.y) : null
     const dims = mission.dimensions
 
     // Un geste est court et sans ressource : on ne lui envoie pas l etat d une
@@ -5763,7 +5762,6 @@ function createMissionRunner (host, injected = {}) {
 
       const started = Date.now()
       let placed = 0
-      let skipped = 0
       let failure = null
       // Fix 3 : un poste injoignable ne doit pas figer la rafale sur un seul
       // bloc. On saute le bloc et on tente le suivant, jusqu a 3 echecs de
@@ -5793,10 +5791,7 @@ function createMissionRunner (host, injected = {}) {
         if (placed >= budget || Date.now() - started > PLACE_BURST_MS) break
 
         const existing = bot.blockAt(entry.position)
-        if (existing && mission.buildMatch.test(existing.name)) {
-          skipped += 1
-          continue
-        }
+        if (existing && mission.buildMatch.test(existing.name)) continue
 
         // Le stock se vide en cours de rafale : on relit le materiau a chaque
         // bloc, ce qui permet aussi d enchainer deux essences de planches.
@@ -5820,7 +5815,6 @@ function createMissionRunner (host, injected = {}) {
             'pose trop longue'
           )
           if (result === 'pose') placed += 1
-          else skipped += 1
         } catch (err) {
           const message = err?.message ?? String(err)
           // `pose trop longue` compte comme ralliement : apres 18 s sans pose,
@@ -5902,7 +5896,7 @@ function createMissionRunner (host, injected = {}) {
 
     async sortir () {
       // `escalate` : sans lui, un bot encastre sur la terre ferme n etait meme
-      // pas amene au sauvetage (walkToSafety), donc `sortir` ne faisait rien.
+      // pas amene au sauvetage (marche vers une position sure), donc `sortir` ne faisait rien.
       await host.rescue('action de mission "sortir"', { escalate: true })
       const encore = host.inLiquid()
       // Un `sortir` qui n a pas sorti le bot est un echec : sinon la boucle le
@@ -8368,4 +8362,4 @@ function createMissionRunner (host, injected = {}) {
   }
 }
 
-module.exports = { createMissionRunner, sondeAlentours, capDepuisVecteur, choisirCoteContournement, fabTargetName, countFabricationItems, fabricationWanted, resolveFabricationCible, fabricationUtile }
+module.exports = { createMissionRunner, sondeAlentours, capDepuisVecteur, choisirCoteContournement, fabTargetName, fabricationWanted, resolveFabricationCible, fabricationUtile }

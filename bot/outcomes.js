@@ -168,4 +168,4 @@ function refusRepetition (action, precedent, actions) {
   }, actions)
 }
 
-module.exports = { SANS_GARDE, REMEDES, REMEDES_PAR_ACTION, codeGenerique, normaliser, signature, createLoopGuard, refusRepetition }
+module.exports = { SANS_GARDE, REMEDES, REMEDES_PAR_ACTION, normaliser, signature, createLoopGuard, refusRepetition }

@@ -18,7 +18,6 @@ import urllib.request
 from pathlib import Path
 
 BASE = 'https://opencode.ai/zen/go/v1'
-URL = BASE + '/chat/completions'
 MODELS_ENV = Path(__file__).with_name('models.env')
 DEFAULT_MODEL = 'deepseek-v4.1-flash'
 

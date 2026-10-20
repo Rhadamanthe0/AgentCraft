@@ -18,7 +18,7 @@ const casse = require('./casse')
 const paroi = require('./paroi')
 const correctifs = require('./correctifs-jeu')
 const { brancherMort } = require('./mort')
-const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText, parseArbitrationChoice } = require('./conversation')
+const { createConversation, isSoftStop: isSoftStopText, isHardStop: isHardStopText, isResume: isResumeText } = require('./conversation')
 const { createExecutor, awaitPhysicalWithTimeout, createControlLease, runPhysicalOrThrow } = require('./executor')
 const { createStateStore } = require('./state-store')
 const { createObjectiveController } = require('./objective-controller')
@@ -227,7 +227,7 @@ function createDurableStack (overrides = {}) {
   const executor = overrides.executor ?? (() => {
     try {
       return createExecutor({
-        stopControls: overrides.stopControls ?? ((reason) => {
+        stopControls: overrides.stopControls ?? (() => {
           // R01 : un creusage en vol est annule lui aussi, sinon son settle
           // tardif chevaucherait l operation suivante.
           try { bot?.stopDigging?.() } catch (_) {}
@@ -741,8 +741,8 @@ function sleepAbortable (ms, signal) {
   })
 }
 
-// Marche vers `destination` SANS prendre de slot : l appelant detient deja le
-// slot survie (rescue en une seule prise) ou en prend un (walkToSafety).
+// Marche vers `destination` SANS prendre de slot : l appelant (rescue) detient
+// deja le slot survie.
 // R01 : le timeout annule le goto (setGoal(null)) puis attend son settle reel
 // avant de rendre 'trajet trop long' ; le slot reste tenu jusque-la.
 async function walkToDestination (destination, signal) {
@@ -760,52 +760,7 @@ async function walkToDestination (destination, signal) {
   if (signal?.aborted) throw Object.assign(new Error('sauvetage annule'), { code: 'cancelled' })
 }
 
-async function walkToSafety (reason) {
-  const destination = escapePosition()
-
-  if (!destination) {
-    lastRescue = { at: new Date().toISOString(), reason, action: 'none', detail: 'aucune position sure memorisee' }
-    return false
-  }
-
-  const { x, y, z } = destination
-
-  try {
-    // Sauvetage DANS le slot survie : le timeout borne l attente mais ne
-    // libere jamais le slot (resolution reelle du callback uniquement).
-    // R03 : echec et annulation ne sont jamais comptes comme un succes.
-    await runPhysicalOrThrow(runPhysical, `rescue-walk-${Date.now()}`, 'survival', async ({ signal }) => {
-      await walkToDestination(destination, signal)
-      return { walked: true }
-    })
-    rescueCount += 1
-    lastRescue = {
-      at: new Date().toISOString(),
-      reason,
-      action: 'walk',
-      to: { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)), z: Number(z.toFixed(2)) }
-    }
-    console.log(`[rescue] ${reason} -> rejoint a pied ${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`)
-    return true
-  } catch (err) {
-    try { bot.pathfinder.setGoal(null) } catch (_) {}
-    if (err && err.code === 'cancelled') {
-      lastRescue = { at: new Date().toISOString(), reason, action: 'cancelled' }
-      return false
-    }
-    if (err && (err.code === 'paused' || err.code === 'stopped' || err.code === 'busy' || err.code === 'unavailable')) {
-      lastRescue = { at: new Date().toISOString(), reason, action: `refused-${err.code}`, detail: err.message }
-      return false
-    }
-    lastRescue = { at: new Date().toISOString(), reason, action: 'failed', detail: err.message }
-    console.error(`[rescue] ${reason} -> impossible de rejoindre la terre ferme : ${err.message}`)
-    // Sans pouvoir se teleporter, le bot n a plus qu a demander de l aide.
-    say(`Coincé (${reason}), aide-moi.`)
-    return false
-  }
-}
-
-// On tente d abord de nager seul ; le reste se fait a pied (voir walkToSafety).
+// On tente d abord de nager seul ; le reste se fait a pied (walkToDestination).
 //
 // `escalate` signifie "on lui a demande de bouger et il n a pas bouge". Sur la
 // terre ferme, annuler l objectif ne degage pas un bot encastre dans le decor :
@@ -858,8 +813,8 @@ async function rescue (reason, { escalate = false } = {}) {
         const stillStuck = inLiquid() || (escalate && moved < 0.5)
 
         if (stillStuck) {
-          // Meme marche que walkToSafety, mais DANS ce slot (pas de run
-          // imbrique, qui serait refuse busy par soi-meme).
+          // Marche DANS ce slot (pas de run imbrique, qui serait refuse busy
+          // par soi-meme).
           const destination = escapePosition()
           if (!destination) {
             lastRescue = { at: new Date().toISOString(), reason, action: 'none', detail: 'aucune position sure memorisee' }
@@ -1935,32 +1890,11 @@ if (planner.isEnabled()) {
     `seuil de fin ${planner.DONE_THRESHOLD}`
   )
   // En arriere-plan : le bot peut se connecter et obeir aux commandes prefixees
-  // pendant que le modele monte en VRAM.
+  // pendant ce premier appel.
   planner.warmup()
 } else {
   console.log(`[planner] INACTIF (PLANNER_BASE_URL vide) - le bot n obeira qu aux commandes ${CMD_PREFIX}`)
 }
-
-// Annonce vraie degradation/recovery du profil pilote (D49) : uniquement sur
-// transition reelle, jamais a chaque plan. Fail-closed : l observateur ne casse
-// jamais un plan.
-let lastProfileDegraded = false
-try {
-  if (planner && typeof planner.onProfileEvent === 'function') {
-    planner.onProfileEvent((evt) => {
-      try {
-        if (!evt || typeof evt.type !== 'string') return
-        if (evt.type === 'fallback' && !lastProfileDegraded) {
-          lastProfileDegraded = true
-          say(`Mode degrade : pilote ${evt.from} indisponible (${evt.reason || 'panne'}), repli ${evt.to}.`)
-        } else if ((evt.type === 'recovered' || evt.type === 'recovery') && lastProfileDegraded) {
-          lastProfileDegraded = false
-          say('Pilote retabli, retour au profil normal.')
-        }
-      } catch (_) {}
-    })
-  }
-} catch (_) {}
 
 let watchdogTimer = null
 let server = null
@@ -2019,18 +1953,14 @@ module.exports = {
   app,
   createDurableStack,
   createOwnerAwareNavigator,
-  ownerBypassCheck,
   startObjectiveDurable,
   runPhysical,
   isOwnerBypass,
   requireAdmissionOrThrow,
-  totalStopAll,
-  resumeAll,
   objectivesSnapshotSafe,
   durableCorrupted,
   durablePersistError,
   isHardStopped,
-  startRuntime,
   HANDLERS,
   handleHardStop,
   handleResume,
@@ -2038,10 +1968,7 @@ module.exports = {
   missionRunner,
   conversation,
   resolveIntent,
-  handleObjectiveEvent,
   getController: () => objectives,
   getExecutor: () => physicalExecutor,
-  getControlLease: () => controlLease,
-  getNavigator: () => navigator,
   readDirectMode
 }

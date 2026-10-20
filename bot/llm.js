@@ -133,10 +133,6 @@ async function call (system, user, options = {}) {
     temperature = 0,
     maxTokens = 400,
     timeoutMs = 8000,
-    // `keep_alive` est une extension d Ollama : un fournisseur qui valide son
-    // schema strictement repondrait 400 sur un champ inconnu, donc l appelant ne
-    // le fournit que pour un Ollama. Jamais envoye sur `/responses`.
-    keepAlive = null,
     // En-tetes supplementaires propres au fournisseur. Le gateway OpenCode Zen
     // exige un User-Agent identifiable et un `x-opencode-session` stable (c est
     // ce dernier qui optimise le routage et le cache de prompt cote serveur).
@@ -176,7 +172,7 @@ async function call (system, user, options = {}) {
 
   // Corps strictement separes par protocole : le chemin chat est inchange octet
   // pour octet (messages + response_format json_object) ; le chemin responses
-  // porte l entree et demande aussi un objet JSON, sans `keep_alive`.
+  // porte l entree et demande aussi un objet JSON.
   let body
   if (proto === 'messages') {
     // Ni temperature (valeur non par defaut refusee en 400 par Claude Haiku
@@ -231,7 +227,6 @@ async function call (system, user, options = {}) {
       // Sans cela un petit modele encadre son JSON de ``` et la reponse
       // devient inexploitable une fois sur trois.
       response_format: { type: 'json_object' },
-      ...(keepAlive ? { keep_alive: keepAlive } : {}),
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: userContent }
@@ -367,4 +362,4 @@ function parseJson (text) {
   }
 }
 
-module.exports = { call, parseJson, resolveProtocol, messagesUsage }
+module.exports = { call, parseJson, resolveProtocol }

@@ -572,7 +572,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
 
     def bot_api(port, route, body=None, method=None):
         # Every pool bot is a process of the shared `bots` container; its API
-        # port (3000+N, see trees.bot_services) is its identity.
+        # port (API_BASE_PORT+N) is its identity.
         return http(BOTS_SERVICE, port, route, body, method)
 
     def size_mb(text):

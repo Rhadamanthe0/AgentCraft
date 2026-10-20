@@ -561,8 +561,7 @@ function lireInstantane (snap) {
 }
 
 module.exports = {
-  REACH, PILER_MAX, MAX_REACH_UP, PILER_DIRT, scaffoldingStock,
-  SONDE_DIRS, estAir, estLiquide, estSolide, blocExpose, laisseVoir, trouverBlocs, paletteSection, brancherRecherche, colonnesSousHitbox, peutSauter,
-  JUMP_LOOKAHEAD, marcheDevant, CHUTE_MAX, videDevant, sondeAlentours, capDepuisVecteur, CASE_PAR_CAP,
+  REACH, PILER_MAX, MAX_REACH_UP, PILER_DIRT, scaffoldingStock, estLiquide, estSolide, blocExpose, trouverBlocs, paletteSection, brancherRecherche, colonnesSousHitbox, peutSauter,
+  JUMP_LOOKAHEAD, marcheDevant, videDevant, sondeAlentours, capDepuisVecteur,
   choisirCoteContournement, dansEmprise, hauteurDePilier, postesDePilier, instantane, lireInstantane
 }
