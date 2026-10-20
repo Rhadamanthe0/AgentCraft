@@ -110,14 +110,12 @@ jobs:
           sed -i -E "s#^(PLANNER_MODEL|PLANNER_MODEL_PLAN|PLANNER_MODEL_BRIEF|PLANNER_MODEL_CHAT|PLANNER_MODEL_COMPACT)=.*#\1=$BASE_MODEL#" ci/models.env
           grep -E '^PLANNER_MODEL' ci/models.env
       - name: Run unit regressions and real Minecraft tests
-        # Une seule cle par banc, choisie au demarrage (ci/keyprobe.py) : mini
-        # prompt sans raisonnement sur chaque cle ; primary si les deux
-        # repondent, sinon celle qui repond, sinon echec. Seule la cle retenue
-        # va au conteneur jetable des bots, jamais dans une image, un artefact
-        # ou un journal. report.keyCheck verifie qu aucune autre n a servi.
+        # Une seule cle OpenCode (un seul abonnement Go, 2026-10-20), sondee au
+        # demarrage (ci/keyprobe.py) : sans reponse, le banc echoue. Elle va au
+        # conteneur jetable des bots, jamais dans une image, un artefact ou un
+        # journal. report.keyCheck verifie qu aucune autre n a servi.
         env:
-          OPENCODE_PRIMARY_API_KEY: ${{ secrets.OPENCODE_PRIMARY_API_KEY }}
-          OPENCODE_SECONDARY_API_KEY: ${{ secrets.OPENCODE_SECONDARY_API_KEY }}
+          PLANNER_API_KEY: ${{ secrets.OPENCODE_SECONDARY_API_KEY }}
           # Modeles openai/* de l A/B de modele seulement (API OpenAI en direct,
           # jamais un repli) ; absent, ces variantes ne se jouent pas.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

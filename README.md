@@ -233,7 +233,7 @@ quelle.
 | `PLANNER_MODEL_PLAN`, `_BRIEF`, `_CHAT`, `_COMPACT` | plan d'actions, lecture d'objectif, chat, résumé de mémoire |
 | `PLANNER_REASONING_EFFORT_<USAGE>` | effort de raisonnement (`low` partout par défaut) |
 | `PLANNER_TIMEOUT_MS_<USAGE>` | délai d'un appel |
-| `PLANNER_API_KEY`, `OPENCODE_SECONDARY_API_KEY` | deux clés ; la seconde ne sert que sur un refus de quota ou d'accès de la première |
+| `PLANNER_API_KEY` | clé du gateway OpenCode Go (une seule, aucun repli) |
 
 Les modèles à raisonnement comptent leurs jetons de réflexion dans
 `PLANNER_MAX_TOKENS` (2000) : trop bas, la réponse revient vide

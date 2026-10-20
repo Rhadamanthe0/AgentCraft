@@ -48,9 +48,7 @@ async function one (entry) {
   console.log = (...a) => console.error(...a)
   Object.assign(process.env, {
     PLANNER_MODEL: entry, PLANNER_MODEL_PLAN: '', PLANNER_MODEL_BRIEF: '', PLANNER_MODEL_CHAT: '', PLANNER_MODEL_COMPACT: '',
-    PLANNER_TIMEOUT_MS: '30000', PLANNER_WARMUP_TIMEOUT_MS: '30000', BOT_USERNAME: 'ProbeModel',
-    // Mesure du modele, pas du repli de cle : la cle secondaire d abord.
-    PLANNER_KEY_FIRST: process.env.OPENCODE_SECONDARY_API_KEY ? 'secondary' : 'primary'
+    PLANNER_TIMEOUT_MS: '30000', PLANNER_WARMUP_TIMEOUT_MS: '30000', BOT_USERNAME: 'ProbeModel'
   })
   // Espion du transport : effort envoye, refus 400, jetons de raisonnement.
   const llm = require(path.join(__dirname, '..', 'bot', 'llm'))
@@ -99,8 +97,7 @@ async function briefOnly (spec) {
   const [model, effort] = spec.split(':')
   Object.assign(process.env, {
     PLANNER_MODEL: model, PLANNER_MODEL_BRIEF: model, PLANNER_REASONING_EFFORT_BRIEF: effort || '',
-    PLANNER_TIMEOUT_MS_BRIEF: '60000', PLANNER_WARMUP_TIMEOUT_MS: '60000', BOT_USERNAME: 'ProbeBrief',
-    PLANNER_KEY_FIRST: process.env.OPENCODE_SECONDARY_API_KEY ? 'secondary' : 'primary'
+    PLANNER_TIMEOUT_MS_BRIEF: '60000', PLANNER_WARMUP_TIMEOUT_MS: '60000', BOT_USERNAME: 'ProbeBrief'
   })
   const planner = require(path.join(__dirname, '..', 'bot', 'planner'))
   const rows = []
@@ -150,7 +147,7 @@ async function smartOnly (spec) {
   Object.assign(process.env, {
     PLANNER_MODEL: model, PLANNER_MODEL_BRIEF: model, PLANNER_REASONING_EFFORT_BRIEF: effort || '',
     PLANNER_TIMEOUT_MS_BRIEF: '60000', PLANNER_WARMUP_TIMEOUT_MS: '60000',
-    BOT_USERNAME: 'ProbeSmart', PLANNER_KEY_FIRST: process.env.OPENCODE_SECONDARY_API_KEY ? 'secondary' : 'primary'
+    BOT_USERNAME: 'ProbeSmart'
   })
   const planner = require(path.join(__dirname, '..', 'bot', 'planner'))
   const brief = []

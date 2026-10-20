@@ -223,11 +223,10 @@ UNIT = ['attendre-chunks.test.js', 'navigation.test.js', 'navigation-drop.test.j
 
 
 
-# Models served to the second OpenCode workspace key (secondary,
-# PLANNER_KEY_FIRST in ci/models.env), to pick PLANNER_MODEL_<USAGE> from facts.
+# Models served to the OpenCode key, to pick PLANNER_MODEL_<USAGE> from facts.
 # Ids only, never the key; skipped when the secret is absent.
 PROVIDER_MODEL_LISTS = {
-    'go2': ('OPENCODE_SECONDARY_API_KEY', 'https://opencode.ai/zen/go/v1/models'),
+    'go': ('PLANNER_API_KEY', 'https://opencode.ai/zen/go/v1/models'),
 }
 
 
@@ -373,9 +372,8 @@ def main():
         pass  # An exported source directory is supported, but never claims a tested SHA.
     report['providerModels'] = provider_models()
     if trees_wanted and not SCRIPTED_ONLY['value']:
-        # Une cle par banc (2026-10-01) : mini prompt sans raisonnement sur
-        # chaque cle ; primary si les deux repondent, sinon celle qui repond,
-        # sinon aucune et le banc echoue. Seule la cle retenue va aux bots.
+        # Mini prompt sans raisonnement sur la cle du banc : sans reponse, le
+        # banc echoue tout de suite.
         PLANNER_KEY.update(keyprobe.select())
         report['keyProbe'] = dict(PLANNER_KEY)
         keyprobe.bot_env(env, PLANNER_KEY['chosen'])
@@ -385,7 +383,7 @@ def main():
         if PLANNER_KEY['chosen']:
             print(f"Cle du banc : {PLANNER_KEY['chosen']}", flush=True)
         else:
-            report['errors'].append('Aucune cle OpenCode ne repond au test de demarrage : niveaux non joues')
+            report['errors'].append('La cle du banc ne repond pas au test de demarrage : niveaux non joues')
     elif trees_wanted:
         keyprobe.bot_env(env, None)
         print('Niveaux scriptes seuls : aucune cle, aucune sonde de modele', flush=True)
@@ -836,7 +834,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                         return
                     stats[worker.username] = {k: p.get(k) for k in (
                         'appels', 'etapes_servies', 'echecs', 'moyenne_ms', 'jetons_total', 'jetons_en_cache_total',
-                        'jetons_sortie_total', 'jetons_raisonnement_total', 'modele_servi', 'cle_servie', 'bascules_cle',
+                        'jetons_sortie_total', 'jetons_raisonnement_total', 'modele_servi', 'cle_servie',
                         'relances', 'relances_reussies', 'latences')}
 
                 def pool_factory(queue, run_one):
@@ -881,9 +879,8 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                     'jetons_sortie': sum(v.get('jetons_sortie_total') or 0 for v in stats.values()),
                     # Modeles par usage (ci/models.env) : dernier modele servi par bot.
                     'modeles_servis': sorted({v['modele_servi'] for v in stats.values() if v.get('modele_servi')}),
-                    # Repli de cle (PLANNER_KEY_FIRST) : cle du dernier appel servi, bascules.
+                    # Cle du dernier appel servi par bot (opencode ou openai).
                     'cles_servies': sorted({v['cle_servie'] for v in stats.values() if v.get('cle_servie')}),
-                    'bascules_cle': sum(v.get('bascules_cle') or 0 for v in stats.values()),
                     # Plan calls relaunched after PLANNER_RELAUNCH_MS of silence, and answered on relaunch.
                     'relances': sum(v.get('relances') or 0 for v in stats.values()),
                     'relances_reussies': sum(v.get('relances_reussies') or 0 for v in stats.values()),
@@ -893,20 +890,19 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
                 for v in stats.values():
                     v.pop('latences', None)
                 # Cle attendue (celle du test de demarrage) : toute autre cle
-                # servie, ou une bascule, rend le banc non conforme.
+                # servie rend le banc non conforme.
                 expected = PLANNER_KEY.get('chosen') or os.environ.get('CI_EXPECT_KEY')
                 if expected:
                     # The OpenAI key serves only openai/* model variants: not an OpenCode key.
                     served = [k for k in report['plannerSummary']['cles_servies'] if k != 'openai' or expected == 'openai']
-                    switches = report['plannerSummary']['bascules_cle']
-                    ok = served == [expected] and not switches
-                    report['keyCheck'] = {'expected': expected, 'served': served, 'switches': switches, 'ok': ok}
-                    print(f"Cle du planificateur : attendue {expected}, servie {served}, bascules {switches} -> {'OK' if ok else 'NON CONFORME'}", flush=True)
+                    ok = served == [expected]
+                    report['keyCheck'] = {'expected': expected, 'served': served, 'ok': ok}
+                    print(f"Cle du planificateur : attendue {expected}, servie {served} -> {'OK' if ok else 'NON CONFORME'}", flush=True)
                     if not ok:
-                        report['errors'].append(f'Cle du planificateur non conforme : attendue {expected}, servie {served}, {switches} bascule(s)')
+                        report['errors'].append(f'Cle du planificateur non conforme : attendue {expected}, servie {served}')
             else:
                 level_results = [{'test': level, 'success': False,
-                                  'error': 'aucune cle OpenCode ne repond (OPENCODE_PRIMARY_API_KEY, OPENCODE_SECONDARY_API_KEY) : voir report.keyProbe'}
+                                  'error': 'la cle OpenCode (PLANNER_API_KEY) ne repond pas : voir report.keyProbe'}
                                  for level in [level['name'] for level in levels()]]
         else:
             level_results = []

@@ -173,7 +173,6 @@ function isUpstreamRefusal (err) {
   return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(text) && !/model is unavailable/i.test(text)
 }
 const USER_AGENT = process.env.PLANNER_USER_AGENT || 'minecraft-bot/1.0'
-const keyState = modelChain.createKeyState(config.positiveInt(process.env.PLANNER_KEY_COOLDOWN_MS, 600000, 'PLANNER_KEY_COOLDOWN_MS'))
 const DEBUG = process.env.PLANNER_DEBUG === '1'
 
 // Seuils regles en jeu (noms JEV_* historiques, gardes pour les .env
@@ -418,7 +417,7 @@ async function callRelaunched (system, user, opts) {
 // budget elargi, meme delai et meme signal. Mauvais JSON (apres un call
 // reussi) : ni reessai ni repli ici (voir plan/readBrief : parse hors transport).
 async function callWithProfileOnce (system, user, opts = {}) {
-  const { image = null, signal = null, temperature = TEMPERATURE, task = 'plan' } = opts
+  const { task = 'plan' } = opts
   // UN seul modele par usage (bot/model-chain.js : PLANNER_MODEL_<USAGE>,
   // sinon PLANNER_MODEL) et AUCUN repli vers un autre modele (demande du
   // proprietaire, 2026-09-26) : une panne du fournisseur remonte telle quelle.
@@ -428,27 +427,12 @@ async function callWithProfileOnce (system, user, opts = {}) {
   // raisonne plus (muse pour la reflexion) a besoin de plus.
   const taskTimeout = modelChain.timeoutFor(task)
   if (taskTimeout && !opts.fixedTimeout) opts = { ...opts, timeoutMs: Math.max(taskTimeout, opts.timeoutMs ?? 0) }
-  // Repli de CLE seulement (PLANNER_KEY_FIRST) : meme modele, autre cle.
-  // Sans aucune cle (base locale type Ollama) : un appel sans cle, comme avant.
-  const configured = modelChain.keyOrder(process.env)
-  const keys = isOpenAiModel(entry.model)
-    ? [{ name: 'openai', key: process.env.OPENAI_API_KEY || '' }]
-    : configured.length ? keyState.order(configured) : [{ name: 'aucune', key: '' }]
-  for (const [i, k] of keys.entries()) {
-    try {
-      const res = await callSingle(system, user, { ...opts, model: entry.model, apiKey: k.key })
-      keyState.clear(k)
-      stats.modele_servi = entry.label
-      stats.cle_servie = k.name
-      return res
-    } catch (err) {
-      if (signal?.aborted || !modelChain.isKeySwitchError(err) || i === keys.length - 1) throw err
-      keyState.bench(k)
-      stats.bascules_cle = (stats.bascules_cle ?? 0) + 1
-      stats.cles_de_cote = keyState.status()
-      console.log(`[planner] cle ${k.name} refusee (${String(err.message).slice(0, 160)}) : cle ${keys[i + 1].name} pour ${task}`)
-    }
-  }
+  // Une seule cle : PLANNER_API_KEY, ou OPENAI_API_KEY pour `openai/<modele>`.
+  const openai = isOpenAiModel(entry.model)
+  const res = await callSingle(system, user, { ...opts, model: entry.model, apiKey: openai ? process.env.OPENAI_API_KEY || '' : API_KEY })
+  stats.modele_servi = entry.label
+  stats.cle_servie = openai ? 'openai' : 'opencode'
+  return res
 }
 
 async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan' } = {}) {
@@ -457,7 +441,6 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
   const effortAsked = modelChain.effortFor(task)
   const EFFORT = effortAsked === 'none' ? null : effortAsked
   const sansRaisonnement = effortAsked === 'none'
-  // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
   const target0 = forced ?? effectiveModel()
   // `openai/<modele>` : API OpenAI en direct (OPENAI_API_KEY), pour l offre de
   // jetons gratuits contre partage des donnees (2026-10-10) ; jamais un repli.
