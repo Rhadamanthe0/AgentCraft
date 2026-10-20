@@ -35,6 +35,7 @@
 
 const skills = require('./skills')
 const memory = require('./memory')
+const promptEn = require('./prompt-en')
 const llm = require('./llm')
 const modelChain = require('./model-chain')
 // R19 : parsing central des variables numeriques (bot/config.js), jamais de
@@ -524,8 +525,11 @@ function isEnabled () {
 // Le prompt systeme : la partie stable, donc la partie mise en cache
 // ---------------------------------------------------------------------------
 
-function actionCatalogue (kind, supply, { sansDonner = false } = {}) {
+function actionCatalogue (kind, supply, { sansDonner = false, langue = 'fr' } = {}) {
   const lines = []
+  // Consignes en anglais (A/B `prompt_anglais`, bot/prompt-en.js) : memes
+  // actions et bornes, texte traduit ; une action sans traduction garde le sien.
+  const en = langue === 'en'
 
   for (const name of skills.actionsFor(kind, supply)) {
     // `donner` n est montre que si le joueur a demande un don : sinon le
@@ -533,7 +537,8 @@ function actionCatalogue (kind, supply, { sansDonner = false } = {}) {
     // code, plan jete : craft/torches, craft/furnace 8779070).
     if (sansDonner && name === 'donner') continue
     const spec = skills.ACTIONS[name]
-    const intent = typeof spec.intent === 'string' ? spec.intent : spec.intent.what
+    const trad = en ? promptEn.ACTIONS[name] : null
+    const intent = trad?.intent ?? (typeof spec.intent === 'string' ? spec.intent : spec.intent.what)
     const jsonish = skills.jsonParamsFor(name)
     const bits = []
 
@@ -541,10 +546,15 @@ function actionCatalogue (kind, supply, { sansDonner = false } = {}) {
     // valide (oak_planks, stick, torch...) ou alias FR conservé (batons,
     // planches, etabli...) ; fabrications_possibles = suggestions, pas limite.
     // Les recettes du jeu font foi via planCraft, pas une liste en dur.
-    if (name === 'fabriquer') bits.push('objet = nom d objet Minecraft valide ou alias FR (ex : "oak_planks", "stick", "torch", "batons") pris librement, fabrications_possibles = suggestions')
+    if (name === 'fabriquer') bits.push(trad ? promptEn.FABRIQUER_OBJET : 'objet = nom d objet Minecraft valide ou alias FR (ex : "oak_planks", "stick", "torch", "batons") pris librement, fabrications_possibles = suggestions')
 
     for (const [param, descriptor] of Object.entries(jsonish ?? {})) {
       const j = descriptor.json
+      if (trad) {
+        const ligne = promptEn.paramLine(param, descriptor, trad.params?.[param] ?? descriptor.question, { action: name, secondes: spec.secondes })
+        if (ligne) bits.push(ligne)
+        continue
+      }
       if (j.kind === 'number') {
         // On dit l unite ET ce que coute une unite : c est ce qui fait le lien
         // entre « distance 12 » et « ~1,8 s ».
@@ -571,6 +581,11 @@ function actionCatalogue (kind, supply, { sansDonner = false } = {}) {
     // params = les bornes annoncees, preconditions = `quand`, exemples et
     // contre-exemples (`ne pas`) cites sur des champs de mission.buildState().
     const doc = skills.actionDoc(name)
+    if (trad) {
+      for (const exemple of trad.exemples ?? []) lines.push(`    ex: ${exemple}`)
+      for (const contre of trad.contre_exemples ?? []) lines.push(`    do not: ${contre}`)
+      continue
+    }
     if (doc.quand) lines.push(`    quand : ${doc.quand}`)
     for (const exemple of doc.exemples) lines.push(`    ex : ${exemple}`)
     for (const contre of doc.contre_exemples ?? []) lines.push(`    ne pas : ${contre}`)
@@ -643,34 +658,48 @@ Regles :
 // appel. Jamais mise en cache — sinon le fil de travail serait fige — mais
 // construite en AJOUT SEUL par memory.js : le prefixe deja servi du cache cote
 // gateway reste valide d un appel a l autre, seule la fin grandit.
-function missionMemoryLayer () {
+function missionMemoryLayer (langue = 'fr') {
   const snap = memory.snapshot()
   const parts = []
+  const en = langue === 'en' ? promptEn.MEMOIRE : null
 
-  if (snap.travail) parts.push(`Memoire de la mission en cours :\n${snap.travail}`)
+  if (snap.travail) parts.push(`${en ? en.travail : 'Memoire de la mission en cours :'}\n${snap.travail}`)
   if (snap.a_retenir) {
-    parts.push(
-      'Notes long terme en attente de commit (elles rejoindront ta memoire ' +
+    parts.push(en
+      ? `${en.aRetenir}\n${snap.a_retenir}`
+      : 'Notes long terme en attente de commit (elles rejoindront ta memoire ' +
       `permanente a la fin de la mission) :\n${snap.a_retenir}`
     )
   }
 
   if (parts.length === 0) return ''
 
-  return `\n\n--- Memoire de la mission ---\n${parts.join('\n\n')}`
+  return `\n\n--- ${en ? en.mission : 'Memoire de la mission'} ---\n${parts.join('\n\n')}`
 }
 
 // Prompt par type de mission (2026-09-27, A/B `prompt_type`) : `profil`
 // { bois, fabrication } ne garde que les regles utiles a la mission (pilier,
 // dirt secondaire et hache pour le bois ; prerequis pour une fabrication ;
 // besoins et chantier pour une construction). Sans profil : tout, comme avant.
-function buildSystemPrompt (kind, supply, profil = null, long = false) {
-  if (kind === 'geste') return buildGestePrompt()
+function buildSystemPrompt (kind, supply, profil = null, long = false, langue = 'fr') {
+  const en = langue === 'en'
+  if (kind === 'geste') {
+    return en
+      ? promptEn.gestePrompt({ catalogue: actionCatalogue('geste', 'harvest', { langue }), memoireLongTerme: longTermMemoryLayer(langue) })
+      : buildGestePrompt()
+  }
   const bornes = bornesPlan(long)
   const tout = !profil || profil.tout
   const bois = tout || profil.bois
   const fabrication = tout || profil.fabrication
   const chantier = tout || kind === 'construction'
+  if (en) {
+    return promptEn.missionPrompt({
+      kind, supply, bornes, seuil: DONE_THRESHOLD, bois, fabrication, chantier,
+      catalogue: actionCatalogue(kind, supply, { sansDonner: Boolean(profil?.sansDonner), langue }),
+      memoireLongTerme: longTermMemoryLayer(langue)
+    })
+  }
   const si = (cond, texte) => cond ? texte : ''
 
   return `Tu pilotes un bot Minecraft. Tu recois l etat reel du jeu en JSON et tu rends un plan JSON.
@@ -930,11 +959,12 @@ ${si(chantier, `- chantier.emplacement_choisi faux => choisir_terrain avant tout
 // pendant toute la mission elle reste octet pour octet, donc servie du cache.
 // Les notes en attente de commit restent, elles, dans la couche volatile
 // (missionMemoryLayer), sous « a retenir ».
-function longTermMemoryLayer () {
+function longTermMemoryLayer (langue = 'fr') {
   const snap = memory.snapshot()
   if (!snap.long_terme) return ''
 
-  return `\n\n--- Ta memoire long terme (ce qui survit aux missions) ---\n${snap.long_terme}`
+  const titre = langue === 'en' ? promptEn.MEMOIRE.longTerme : 'Ta memoire long terme (ce qui survit aux missions)'
+  return `\n\n--- ${titre} ---\n${snap.long_terme}`
 }
 
 let promptGeneration = -1
@@ -945,7 +975,7 @@ let memoryGeneration = -1
 // des actions : un commit long terme, un effacement, ou un interrupteur A/B
 // bascule reconstruit la couche concernee, les autres appels relisent la base
 // octet pour octet.
-function basePrompt (kind, supply, profil = null, long = false) {
+function basePrompt (kind, supply, profil = null, long = false, langue = 'fr') {
   // Le catalogue a change (interrupteur A/B) : tous les prompts systeme doivent etre reconstruits, et les anciens
   // jetes, sinon le modele relirait les exemples perimes.
   if (skills.docGeneration !== promptGeneration || memory.generation !== memoryGeneration) {
@@ -956,9 +986,9 @@ function basePrompt (kind, supply, profil = null, long = false) {
 
   const cle = (!profil || profil.tout ? 'tout' : `${profil.bois ? 'b' : ''}${profil.fabrication ? 'f' : ''}`) +
     (profil?.sansDonner ? '-d' : '')
-  const key = `${kind}|${supply}|${cle}${long ? '|long' : ''}|${skills.docGeneration}|${memory.generation}`
+  const key = `${kind}|${supply}|${cle}${long ? '|long' : ''}${langue === 'en' ? '|en' : ''}|${skills.docGeneration}|${memory.generation}`
   if (!prompts.has(key)) {
-    prompts.set(key, buildSystemPrompt(kind, supply, profil, long))
+    prompts.set(key, buildSystemPrompt(kind, supply, profil, long, langue))
     if (DEBUG) {
       console.log(
         `[planner] prompt systeme reconstruit (${key}, ${prompts.get(key).length} caracteres)`
@@ -971,8 +1001,8 @@ function basePrompt (kind, supply, profil = null, long = false) {
 // Le prompt systeme complet = base cachee (couches 1-3) + memoire de mission
 // fraiche (couche 4). Seule la fin du prompt bouge entre deux appels d une
 // meme mission : le prefixe reste servi du cache cote gateway.
-function systemPrompt (kind, supply, profil = null, long = false) {
-  return basePrompt(kind, supply, profil, long) + missionMemoryLayer()
+function systemPrompt (kind, supply, profil = null, long = false, langue = 'fr') {
+  return basePrompt(kind, supply, profil, long, langue) + missionMemoryLayer(langue)
 }
 
 // ---------------------------------------------------------------------------
@@ -1172,7 +1202,7 @@ function validate (raw, kind, supply, opts = {}) {
 async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
   if (!isEnabled()) throw new Error('planificateur JSON non configure (PLANNER_BASE_URL)')
 
-  const system = systemPrompt(kind, supply, opts.profil ?? null, opts.plansLongs === true)
+  const system = systemPrompt(kind, supply, opts.profil ?? null, opts.plansLongs === true, opts.langue === 'en' ? 'en' : 'fr')
   const user = JSON.stringify({ ...state, ...extra })
 
   let response

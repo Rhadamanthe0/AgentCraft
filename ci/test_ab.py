@@ -9,16 +9,17 @@ import trees  # noqa: E402
 
 
 def bench(sha, base_ok, variant_ok, base_s=60, variant_s=60, base_calls=5, variant_calls=5,
-          mode='acces_unifie', suffix='avec', acted=True, base_progress=None, variant_progress=None):
+          mode='acces_unifie', suffix='avec', acted=True, base_progress=None, variant_progress=None,
+          base_tokens=None, variant_tokens=None):
     on = suffix == 'avec'
     variant = {'test': f'trees/x~{suffix}-{mode}', 'informative': True, 'variantOf': 'trees/x',
                'features': {mode: on}, 'success': variant_ok, 'elapsedS': variant_s, 'plannerCalls': variant_calls,
-               'progress': variant_progress}
+               'progress': variant_progress, 'plannerTokens': variant_tokens}
     if acted:
         variant['modes'] = {'acces': {'appels': 1, 'atteints': 1}}
     return {'sha': sha, 'dirty': False, 'tests': [
         {'test': 'trees/x', 'success': base_ok, 'elapsedS': base_s, 'plannerCalls': base_calls,
-         'progress': base_progress},
+         'progress': base_progress, 'plannerTokens': base_tokens},
         variant,
         # A random twin is not an A/B pair.
         {'test': 'composite/a', 'success': True},
@@ -57,6 +58,16 @@ class AB(unittest.TestCase):
         self.assertEqual(row['verdict'], 'retirer')
         self.assertEqual(row['durationRatio'], 1.32)
         self.assertEqual(verdict([bench(str(i), True, True) for i in range(6)])['verdict'], 'egalite')
+
+    def test_cost_shown_not_judged(self):
+        # Model cost (prompt_anglais: a shorter prompt) is shown on double
+        # passes; it never changes the verdict on its own.
+        plan = {'plan': {'appels': 5, 'entree': 100000, 'cache_lu': 0, 'cache_ecrit': 0, 'sortie': 0}}
+        cheaper = {'plan': {**plan['plan'], 'entree': 80000}}
+        row = verdict([bench(str(i), True, True, base_tokens=plan, variant_tokens=cheaper) for i in range(6)])
+        self.assertEqual((row['costRatio'], row['verdict']), (0.8, 'egalite'))
+        self.assertIn('cout x0.8', ab.line('m', row))
+        self.assertIsNone(verdict([bench(str(i), True, True) for i in range(6)])['costRatio'])
 
     def test_progress_breaks_a_tie_of_double_failures(self):
         # Both arms fail every time: success says nothing, progress does.

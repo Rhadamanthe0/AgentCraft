@@ -443,3 +443,50 @@ it('plans longs (A/B plans_longs) : bornes du prompt et de la validation', () =>
   assert.equal(p.validate(douze, 'recolte', 'harvest').steps.length, 5)
   assert.equal(p.validate(douze, 'recolte', 'harvest', { long: true }).steps.length, 10)
 })
+
+it('prompt en anglais (A/B prompt_anglais) : meme vocabulaire, langue du joueur, cache distinct', async () => {
+  const skills = require('../bot/skills')
+  const en = require('../bot/prompt-en')
+  // Une traduction par action, memes parametres et autant d exemples : une
+  // action ou un exemple ajoute en francais sans sa traduction casse ici.
+  for (const [name, spec] of Object.entries(skills.ACTIONS)) {
+    const t = en.ACTIONS[name]
+    assert.ok(t?.intent, `traduction manquante : ${name}`)
+    const params = Object.keys(spec.params ?? {}).filter(k => spec.params[k].json)
+    assert.deepEqual(Object.keys(t.params ?? {}).sort(), params.sort(), `parametres de ${name}`)
+    const doc = skills.actionDoc(name)
+    assert.equal((t.exemples ?? []).length, doc.exemples.length, `exemples de ${name}`)
+    assert.equal((t.contre_exemples ?? []).length, doc.contre_exemples.length, `contre-exemples de ${name}`)
+  }
+  assert.deepEqual(Object.keys(en.ACTIONS).filter(n => !skills.ACTIONS[n]), [], 'traduction d une action retiree')
+
+  const planner = loadPlanner({ PLANNER_MODEL: DEEPSEEK })
+  const identifiants = t => new Set(t.match(/\b[a-z]+(?:[._][a-z0-9]+)+\b/g))
+  const cas = [['recolte', null], ['recolte', { bois: true }], ['recolte', { fabrication: true }],
+    ['construction', null], ['deplacement', { bois: false, fabrication: false }], ['geste', null]]
+  for (const [kind, profil] of cas) {
+    for (const long of [false, true]) {
+      const fr = planner.systemPrompt(kind, 'harvest', profil, long)
+      const anglais = planner.systemPrompt(kind, 'harvest', profil, long, 'en')
+      // Chaque champ de l etat, action et objet nomme en francais l est aussi en anglais.
+      const vus = identifiants(anglais)
+      const manquants = [...identifiants(fr)].filter(x => !vus.has(x))
+      assert.deepEqual(manquants, [], `${kind} ${JSON.stringify(profil)} long=${long}`)
+      assert.match(anglais, /player's language, French by\s+default/)
+      assert.doesNotMatch(anglais, /\$\{|quand : |ne pas : |Tu pilotes/)
+      assert.match(fr, /^Tu pilotes un bot Minecraft/)
+    }
+  }
+  // Les exemples de demandes et les textes dits au joueur restent en francais.
+  const geste = planner.systemPrompt('geste', 'harvest', null, false, 'en')
+  assert.match(geste, /consigne\.texte "tourne sur toi"/)
+  assert.match(geste, /"texte":"oui, je te vois"/)
+  assert.match(planner.systemPrompt('recolte', 'harvest', null, true, 'en'), /de 1 a 10|from 1 to 10 actions/)
+
+  // plan() sert le prompt de la langue demandee, le francais par defaut.
+  mockLlm(async () => okPlan())
+  await planner.plan({ consigne: 't' }, 'recolte', 'harvest', {}, null, { langue: 'en' })
+  await planner.plan({ consigne: 't' }, 'recolte', 'harvest')
+  assert.match(seen[0].system, /^You drive a Minecraft bot/)
+  assert.match(seen[1].system, /^Tu pilotes un bot Minecraft/)
+})

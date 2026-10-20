@@ -166,7 +166,19 @@ reussies : appels au modele -36 %, duree totale +3 %, trees/tall +33 % ;
 `sans(...)` sur terrain/plateau, gather/sand-walled, build/no-materials,
 trees/tall, trees/double, craft/iron-pickaxe et les composites cabane et
 maison en pierre, retires du banc complet ; compteur `modes.plans` : etapes
-et appels).
+et appels) ; `prompt_anglais` (eteint, 2026-10-20, idee validee par le
+proprietaire : consignes du prompt de PLAN en anglais, `bot/prompt-en.js` :
+regles, catalogue et exemples de composition traduits, prompt en cache
+distinct (`|en`) ; restent tels quels les noms d actions, de parametres et de
+champs de l etat, les noms d objets du jeu, les exemples de demandes du
+joueur et les textes dits (`dire`), en francais ; une regle LANGUAGE dit de
+lire le joueur dans sa langue et de lui repondre en francais par defaut ;
+lecture d objectif et chat inchanges ; une traduction par action, memes
+parametres et autant d exemples que le francais, sinon
+tmp/planner-profile.test.js casse ; `avec(...)` sur les quatre composites du
+palier 3, composite/stone-wall-question, composite/cabin-change-of-mind et
+route/wait-and-back, retires du banc complet ; `ab.py` donne aussi le cout
+en dollars des doubles reussites, `cout x`, hors verdict).
 
 A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
 liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)
@@ -730,7 +742,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  106 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
+  113 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
   reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -746,7 +758,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 158 niveaux avec variantes, 38 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 165 niveaux avec variantes, 38 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
@@ -878,6 +890,7 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `bot/action-sous-buts.js` | plan vide bloque/refuse = `obtenir_bloque`, jamais acquisition accomplie ; sous-buts `batir` et `obtenir {objet, quantite}` (A/B `sous_buts`) : un geste mesure a la fois jusqu au but ; `obtenir` nomme fait de l objet la cible du solveur le temps du sous-but (`mission.demandeObtenir`) |
 | `bot/action-poser.js` | action `poser` (interrupteur `poser`, allume par defaut) : timeout/abort attend le settle physique avant de rendre le writer ; aucune continuation apres equip/regard annule ; objets-entites verifies par nouvelle entite du type demande ET consommation du stock total (pas un mob ni un bloc modifie) |
 | `bot/planner.js` | prompts (systeme mis en cache), plan JSON, brief, chat, conception de plans libres |
+| `bot/prompt-en.js` | prompt de plan en anglais (A/B `prompt_anglais`) : regles, catalogue traduit par action |
 | `bot/script-brain.js` | cerveau scripte du banc de competences (`skill/*`, `MISSION_SCRIPT=1`) |
 | `bot/model-chain.js` / `bot/llm.js` | modele par usage et cles ; transport OpenAI partage |
 | `bot/skills.js` | table unique : commandes, actions, documentation native, matieres, audit |

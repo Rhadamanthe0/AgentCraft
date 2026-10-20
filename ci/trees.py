@@ -564,7 +564,7 @@ def base_levels():
             'name': 'route/wait-and-back',
             'about': '« Viens me voir, attends 3 secondes, puis retourne a ta place ».',
             'kind': 'route', 'instruction': 'Viens me voir, attends 3 secondes, puis retourne a ta place', 'probeAt': (26.5, 200, 18.5),
-            'visits': 1, 'back': True, 'leaves': [], 'logs': [], 'rules': {},
+            'visits': 1, 'back': True, 'leaves': [], 'logs': [], 'rules': {}, 'variants': [avec('prompt_anglais')],
         },
         # Tour 3 : chat, suivre, ramasser, construire, parcours.
         {
@@ -793,7 +793,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((28, 6), (30, 28))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((28, 6), (30, 28)) for i in range(5)]),
-            'rules': {}, 'variants': [*MODELES_AB],
+            'rules': {}, 'variants': [*MODELES_AB, avec('prompt_anglais')],
         },
         {
             'name': 'composite/cabin-change-of-mind',
@@ -806,7 +806,7 @@ def base_levels():
             'leaves': [box for (x, z) in COMPOSITE_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in COMPOSITE_TREES for i in range(5)]),
-            'rules': {}, 'variants': [*MODELES_AB],
+            'rules': {}, 'variants': [*MODELES_AB, avec('prompt_anglais')],
         },
         {
             'name': 'composite/cabin-across-water',
@@ -837,7 +837,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [avec('prompt_anglais')],
         },
         {
             'name': 'composite/bucket',
@@ -864,7 +864,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [avec('prompt_anglais')],
         },
         {
             'name': 'composite/lit-cabin',
@@ -882,7 +882,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31)) for i in range(5)]),
-            'rules': {}, 'variants': [sans('poser')],
+            'rules': {}, 'variants': [sans('poser'), avec('prompt_anglais')],
         },
         {
             # Demande du proprietaire (2026-10-10) : chaine la plus longue du
@@ -907,7 +907,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [sans('poser')],
+            'rules': {}, 'variants': [sans('poser'), avec('prompt_anglais')],
         },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
@@ -1993,6 +1993,13 @@ RETIRED = frozenset({
     'build/no-materials~sans-plans_longs', 'trees/tall~sans-plans_longs', 'trees/double~sans-plans_longs',
     'craft/iron-pickaxe~sans-plans_longs', 'composite/cabin-from-scratch~sans-plans_longs',
     'composite/stone-hut-from-scratch~sans-plans_longs',
+    # Consignes du prompt de plan en anglais (2026-10-20, A/B prompt_anglais) :
+    # niveaux durs et demandes a comprendre (question, changement d avis,
+    # geste en trois temps), joues par `Banc:` le temps de la campagne.
+    'composite/stone-wall-question~avec-prompt_anglais', 'composite/cabin-change-of-mind~avec-prompt_anglais',
+    'composite/stone-toolkit~avec-prompt_anglais', 'composite/big-stone-house~avec-prompt_anglais',
+    'composite/lit-cabin~avec-prompt_anglais', 'composite/powered-rail-line~avec-prompt_anglais',
+    'route/wait-and-back~avec-prompt_anglais',
 })
 
 # Owner's limit (2026-10-10): a full bench plays fewer than 50 tests (levels,
