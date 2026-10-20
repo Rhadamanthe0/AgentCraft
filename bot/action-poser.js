@@ -344,5 +344,5 @@ function createPoser (deps) {
   return { poser }
 }
 
-module.exports = {
-  casesAutour, createPoser, casesLigne, casesVoisines, etatLigne, blocDeLObjet, correspond, trouverAncre, caseDepuis, nomPropre }
+module.exports = { createPoser, casesLigne, etatLigne, blocDeLObjet, correspond, nomPropre
+}

@@ -119,11 +119,7 @@ services:
       PLANNER_REASONING_EFFORT_COMPACT: "${PLANNER_REASONING_EFFORT_COMPACT:-}"
       PLANNER_TIMEOUT_MS_BRIEF: "${PLANNER_TIMEOUT_MS_BRIEF:-}"
       PLANNER_TIMEOUT_MS_COMPACT: "${PLANNER_TIMEOUT_MS_COMPACT:-}"
-      # Deux cles pour le gateway : primary (PLANNER_API_KEY) et secondary ;
-      # PLANNER_KEY_FIRST dit laquelle essayer d abord (repli de cle seulement).
-      PLANNER_KEY_FIRST: "${PLANNER_KEY_FIRST:-primary}"
-      PLANNER_KEY_COOLDOWN_MS: "${PLANNER_KEY_COOLDOWN_MS:-600000}"
-      OPENCODE_SECONDARY_API_KEY: "${OPENCODE_SECONDARY_API_KEY:-}"
+      # Une seule cle pour le gateway (un seul abonnement OpenCode Go).
       PLANNER_API_KEY: "${PLANNER_API_KEY:-}"
       PLANNER_SESSION_ID: "${PLANNER_SESSION_ID:-minecraft-bot-TestBot}"
       PLANNER_USER_AGENT: "${PLANNER_USER_AGENT:-minecraft-bot/1.0}"

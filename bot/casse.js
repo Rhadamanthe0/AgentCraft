@@ -79,4 +79,4 @@ function brancherCasse (bot, { attenteMs = CONFIRMATION_MS } = {}) {
   }
 }
 
-module.exports = { brancherCasse, CONFIRMATION_MS }
+module.exports = { brancherCasse }

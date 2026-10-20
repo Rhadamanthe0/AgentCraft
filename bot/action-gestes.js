@@ -292,4 +292,4 @@ function createGestes ({ host, getMission, findTargetBlock, scaled }) {
   }
 }
 
-module.exports = { createGestes, WAIT_MIN_MS, WAIT_MAX_MS, DIRE_COOLDOWN_MS }
+module.exports = { createGestes, DIRE_COOLDOWN_MS }

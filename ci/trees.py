@@ -24,7 +24,6 @@ import os
 import random
 import re
 import secrets
-import threading
 import time
 
 INSTRUCTION = 'coupe moi un arbre'
@@ -1579,7 +1578,7 @@ def run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     start_wait = round(time.monotonic() - started, 1)
     time.sleep(2)
     probe = list(path[0])
-    lags, walked, stop_at, stop_pos, drift = [], 0, None, None, 0.0
+    lags, walked, stop_pos, drift = [], 0, None, 0.0
     last_sample = 0
 
     def sample():
@@ -1602,7 +1601,6 @@ def run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
             if level.get('stopAfter') and walked == level['stopAfter']:
                 answers['stop'] = bot_api(bot, '/api/instruction', {'message': 'Stop', 'requester': probe_name})
                 time.sleep(2)
-                stop_at = time.monotonic()
                 stop_pos = sample()[1]
             if time.monotonic() - last_sample >= 1:
                 last_sample = time.monotonic()
@@ -1655,9 +1653,6 @@ def run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         or (None if running_at_walk else f'pas de reponse en {start_wait} s : mission pas encore lancee au depart du joueur'),
         'damageTaken': damage, 'botFinalPosition': final.get('position'), 'probe': probe_name,
     }
-
-
-CHAT_SCRIPT_CAP_S = 180
 
 
 def run_chat_script(level, x0, bot, username, output, rcon, bot_api, measure, probe_name):
@@ -1855,17 +1850,6 @@ POOL_MAX = 32
 BOTS_SERVICE = 'bots'
 PROBES_SERVICE = 'probes'
 API_BASE_PORT = 3000
-
-
-def bot_services():
-    """(API port inside the `bots` container, username) per pool worker.
-
-    The port is the bot's identity for `bot_api(port, route)`."""
-    return [(API_BASE_PORT + i, f'TreeBot{i}') for i in range(1, POOL_MAX + 1)]
-
-
-def probe_names():
-    return [f'TestProbe{i + 1}' for i in range(1, POOL_MAX + 1)]
 
 
 def arena_origins():

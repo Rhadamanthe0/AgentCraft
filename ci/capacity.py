@@ -281,16 +281,12 @@ class Collector:
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.containers = {}
-        self.containers_at = None
         self.errors = collections.Counter()
         # Whole-run summary (CPU-seconds, peaks, minima), updated at every sample.
         self.summary = {'samples': 0, 'first': None, 'last': None, 'cpu1s': [], 'memPeak': 0,
                         'minMemMargin': None, 'minHostAvailable': None, 'throttleMax': 0.0,
                         'cpuPressureMax': 0.0, 'memEventsStart': None, 'memEventsEnd': None}
         self.timeline = []   # one point per second for the report
-
-    def usable(self):
-        return self.envelope is not None and self.host is not None
 
     def sample_once(self):
         t = self.clock()
@@ -331,7 +327,6 @@ class Collector:
         """{'bots': (mem, limit)} from the 5 s `docker stats` sampler of ci/run.py."""
         with self.lock:
             self.containers = dict(values)
-            self.containers_at = self.clock()
 
     def _back(self, seconds):
         # Newest sample at least `seconds` older than the latest one.

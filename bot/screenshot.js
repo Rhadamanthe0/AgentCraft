@@ -213,4 +213,4 @@ function miniCartePng (bot, options = {}) {
   }
 }
 
-module.exports = { miniCartePng, couleurDe, encoderPng }
+module.exports = { miniCartePng }

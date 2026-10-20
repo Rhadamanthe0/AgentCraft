@@ -683,7 +683,6 @@ async function makeOnce (bot, targetName, wanted = 1, opts = {}) {
   let bestMissing = null
   let bestPlan = null
   let bestItem = null
-  let fellBack = false
 
   if (dataset) {
     for (const candidate of validCandidates) {
@@ -693,7 +692,6 @@ async function makeOnce (bot, targetName, wanted = 1, opts = {}) {
       try {
         plan = planCraft({ registry: dataset, target: candidate, count: wantedUnits, inventory: inv })
       } catch (_) {
-        fellBack = true
         continue
       }
       if (plan.ok) {
@@ -707,8 +705,6 @@ async function makeOnce (bot, targetName, wanted = 1, opts = {}) {
         bestItem = candidate
       }
     }
-  } else {
-    fellBack = true
   }
 
   if (!bestPlan) {
@@ -1159,16 +1155,12 @@ module.exports = {
   options,
   targetCriteria,
   make,
-  recipeFor,
   ensureTable,
   equipForBlock,
   harvestCheck,
   bestToolOfKind,
-  toolKindFor,
   countOf,
-  findItem,
   mostAbundant,
-  plankNameFor,
   inventoryMap,
   getDataset,
   TARGETS

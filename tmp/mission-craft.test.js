@@ -309,7 +309,6 @@ test('primitif live 2 buches -> 8 planches : pas de regression', async () => {
   ]
   const state = { oak_log: 2 }
   const itemsByName = { oak_log: { id: 'oak_log', name: 'oak_log' }, oak_planks: { id: 'oak_planks', name: 'oak_planks' } }
-  const needsOf = (r) => ({ oak_log: 1 })
   const bot = {
     version: '26.1',
     registry: { itemsByName, blocksByName: {}, recipes },

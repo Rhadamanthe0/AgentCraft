@@ -104,18 +104,14 @@ const EFFECTIVE_MAX_TOKENS = Math.max(Number.isFinite(MAX_TOKENS) ? MAX_TOKENS :
 // `incomplete (max_output_tokens)` a 2000 jetons sur le vrai prompt, avant
 // toute stat d appel. Le pilote vise donc 4096 par defaut, avec UN reessai a
 // 8192 sur troncature ; DeepSeek garde 2000 (EFFECTIVE_MAX_TOKENS). Revisable
-// par env, sans changer de fournisseur ni toucher au transport.
-// Note contrat transport (llm.js) : aucune option `reasoning`/`effort` n y
-// existe ; le seul levier est maxTokens (max_tokens / max_output_tokens selon
-// protocole). D ou ce budget par modele, sans modifier llm.js.
-// Raisonnement du modele unique (chat) : `PLANNER_THINKING=disabled` envoie
-// `thinking: {type: 'disabled'}` (deja utilise par le mode dual). Mesure CI :
+// par env.
+// `PLANNER_THINKING=disabled` envoie `thinking: {type: 'disabled'}`. Mesure CI :
 // 86 % des jetons produits etaient du raisonnement, ~3,9 s par plan. Un 400
 // sur ce champ fait rejouer l appel sans lui ; deux refus suivis d un succes
 // sans le champ le retirent pour la session (annonce une fois).
 const THINKING = (process.env.PLANNER_THINKING || '').trim().toLowerCase()
-// Refus du champ comptes PAR MODELE : un modele gratuit qui le refuse ne doit
-// pas rendre le raisonnement aux autres modeles de la chaine.
+// Refus du champ comptes PAR MODELE : un modele qui le refuse ne doit pas
+// rendre le raisonnement aux modeles des autres usages.
 const thinkingRefusals = new Map()
 const thinkingOff = new Set()
 // Meme regle pour `reasoning_effort` (PLANNER_REASONING_EFFORT[_<USAGE>]).
@@ -128,18 +124,7 @@ const PILOT_EFFECTIVE_MAX_TOKENS = Math.max(
 const PILOT_RETRY_EFFECTIVE_MAX_TOKENS = Math.max(
   Number.isFinite(PILOT_RETRY_MAX_TOKENS) ? PILOT_RETRY_MAX_TOKENS : 8192,
   PILOT_EFFECTIVE_MAX_TOKENS)
-// Jamais de pilote Astra par ce profil : un modele configure contenant `astra`
-// desactive le profil (le modele explicite est alors utilise tel quel).
-const ASTRA_RE = /astra/i
 const TEMPERATURE = config.finiteNumber(process.env.PLANNER_TEMPERATURE, 0, 'PLANNER_TEMPERATURE')
-// Duree pendant laquelle Ollama garde le modele charge. Sans cela il le
-// decharge apres 5 min et la premiere etape suivante paie 2 a 4 s de chargement
-// en plein milieu d une mission.
-const KEEP_ALIVE = process.env.PLANNER_KEEP_ALIVE || '30m'
-// `keep_alive` est une extension d Ollama. Un fournisseur distant qui valide
-// son schema strictement repondrait 400 sur un champ inconnu, donc on ne
-// l envoie qu a un Ollama.
-const IS_OLLAMA = /:11434|ollama/i.test(BASE_URL)
 // Le gateway OpenCode Go (https://opencode.ai/zen/go/v1) exige un User-Agent
 // identifiable et un `x-opencode-session` **stable par conversation** : c est ce
 // dernier qui optimise le routage et le cache de prompt cote serveur. On le
@@ -168,12 +153,11 @@ function currentSession () {
 }
 function isUpstreamRefusal (err) {
   // « Model is unavailable » : le modele lui-meme est absent, changer de
-  // session n y fait rien (la chaine de modeles passe au suivant).
+  // session n y fait rien.
   const text = String(err?.message ?? '')
   return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(text) && !/model is unavailable/i.test(text)
 }
 const USER_AGENT = process.env.PLANNER_USER_AGENT || 'minecraft-bot/1.0'
-const keyState = modelChain.createKeyState(config.positiveInt(process.env.PLANNER_KEY_COOLDOWN_MS, 600000, 'PLANNER_KEY_COOLDOWN_MS'))
 const DEBUG = process.env.PLANNER_DEBUG === '1'
 
 // Seuils regles en jeu (noms JEV_* historiques, gardes pour les .env
@@ -182,11 +166,10 @@ const DONE_THRESHOLD = config.boundedNumber(process.env.JEV_DONE_THRESHOLD, 0.75
 const MIN_CONFIDENCE = config.boundedNumber(process.env.JEV_MIN_CONFIDENCE, 0.6, 0, 1, 'JEV_MIN_CONFIDENCE')
 const DOOR_THRESHOLD = config.boundedNumber(process.env.JEV_DOOR_THRESHOLD, 0.6, 0, 1, 'JEV_DOOR_THRESHOLD')
 
-// Charger 4,7 Go en VRAM prend 30 a 60 s la premiere fois. Tant que ce n est
-// pas fait, AUCUN appel ne tient dans le delai normal : le tout premier ordre
-// du joueur echouait sur « pas de reponse en 8000 ms ». On accorde donc un
-// delai large tant qu aucune reponse n est revenue, et `warmup()` paie ce
-// chargement au demarrage plutot qu au premier ordre.
+// Le premier appel peut etre bien plus lent que les suivants (le tout premier
+// ordre du joueur echouait sur « pas de reponse en 8000 ms »). On accorde donc
+// un delai large tant qu aucune reponse n est revenue, et `warmup()` paie ce
+// premier appel au demarrage plutot qu au premier ordre.
 const WARMUP_TIMEOUT_MS = config.positiveInt(process.env.PLANNER_WARMUP_TIMEOUT_MS, 180000, 'PLANNER_WARMUP_TIMEOUT_MS')
 
 const prompts = new Map()
@@ -194,30 +177,13 @@ let lastError = null
 let warm = false
 
 // ---------------------------------------------------------------------------
-// Profil pilote D37/D49 : Muse (`/responses`) quand PLANNER_MODEL le nomme.
-// Plus AUCUN repli vers un autre modele (2026-09-26) : `effective` vaut
-// toujours le modele configure ; seul reste le reessai du MEME modele sur
-// troncature (budget elargi). Garde-fous : base Go, session stable, jamais Astra.
+// Profil pilote : Muse (`/responses`) quand PLANNER_MODEL le nomme (ou est
+// vide). Plus AUCUN repli vers un autre modele (2026-09-26) ; seul reste le
+// reessai du MEME modele sur troncature (budget elargi).
 // ---------------------------------------------------------------------------
 
-const profileListeners = new Set()
-const _profile = {
-  configured: MODEL,
-  pilot: PILOT_MODEL
-}
-
 function isProfileEnabled () {
-  if (!BASE_URL) return false
-  if (!IS_ZEN) return false
-  if (!SESSION_ID) return false
-  if (ASTRA_RE.test(String(MODEL))) return false
-  if (ASTRA_RE.test(PILOT_MODEL)) return false
-  return String(MODEL) === String(PILOT_MODEL)
-}
-
-function effectiveModel (now = Date.now()) {
-  if (!isProfileEnabled()) return MODEL
-  return PILOT_MODEL
+  return Boolean(BASE_URL && IS_ZEN && SESSION_ID) && MODEL === PILOT_MODEL
 }
 
 function isAbortError (err, signal) {
@@ -237,30 +203,16 @@ function isTruncationError (err, signal) {
 
 function syncProfileStats () {
   stats.modele_configure = MODEL
-  stats.modele_effectif = effectiveModel()
-}
-
-function announceProfile (evt) {
-  for (const cb of [...profileListeners]) {
-    try { cb(evt) } catch (_) { /* un observateur ne doit jamais casser un plan */ }
-  }
-}
-
-// Annonce optionnelle pour l integrateur (callback). Compatibilite backward :
-// sans observateur, le reessai reste visible via profileStatus()/stats.
-function onProfileEvent (cb) {
-  if (typeof cb !== 'function') throw new Error('observateur de profil invalide')
-  profileListeners.add(cb)
-  return () => { profileListeners.delete(cb) }
+  stats.modele_effectif = MODEL
 }
 
 // Statut public SANS secret (jamais la cle) : configure/effectif.
-function profileStatus (now = Date.now()) {
+function profileStatus () {
   return {
     enabled: isProfileEnabled(),
     configured: MODEL,
     pilot: PILOT_MODEL,
-    effective: effectiveModel(now),
+    effective: MODEL,
     baseConfigured: Boolean(BASE_URL),
     isGo: IS_ZEN,
     sessionStable: Boolean(SESSION_ID),
@@ -418,7 +370,7 @@ async function callRelaunched (system, user, opts) {
 // budget elargi, meme delai et meme signal. Mauvais JSON (apres un call
 // reussi) : ni reessai ni repli ici (voir plan/readBrief : parse hors transport).
 async function callWithProfileOnce (system, user, opts = {}) {
-  const { image = null, signal = null, temperature = TEMPERATURE, task = 'plan' } = opts
+  const { task = 'plan' } = opts
   // UN seul modele par usage (bot/model-chain.js : PLANNER_MODEL_<USAGE>,
   // sinon PLANNER_MODEL) et AUCUN repli vers un autre modele (demande du
   // proprietaire, 2026-09-26) : une panne du fournisseur remonte telle quelle.
@@ -428,27 +380,12 @@ async function callWithProfileOnce (system, user, opts = {}) {
   // raisonne plus (muse pour la reflexion) a besoin de plus.
   const taskTimeout = modelChain.timeoutFor(task)
   if (taskTimeout && !opts.fixedTimeout) opts = { ...opts, timeoutMs: Math.max(taskTimeout, opts.timeoutMs ?? 0) }
-  // Repli de CLE seulement (PLANNER_KEY_FIRST) : meme modele, autre cle.
-  // Sans aucune cle (base locale type Ollama) : un appel sans cle, comme avant.
-  const configured = modelChain.keyOrder(process.env)
-  const keys = isOpenAiModel(entry.model)
-    ? [{ name: 'openai', key: process.env.OPENAI_API_KEY || '' }]
-    : configured.length ? keyState.order(configured) : [{ name: 'aucune', key: '' }]
-  for (const [i, k] of keys.entries()) {
-    try {
-      const res = await callSingle(system, user, { ...opts, model: entry.model, apiKey: k.key })
-      keyState.clear(k)
-      stats.modele_servi = entry.label
-      stats.cle_servie = k.name
-      return res
-    } catch (err) {
-      if (signal?.aborted || !modelChain.isKeySwitchError(err) || i === keys.length - 1) throw err
-      keyState.bench(k)
-      stats.bascules_cle = (stats.bascules_cle ?? 0) + 1
-      stats.cles_de_cote = keyState.status()
-      console.log(`[planner] cle ${k.name} refusee (${String(err.message).slice(0, 160)}) : cle ${keys[i + 1].name} pour ${task}`)
-    }
-  }
+  // Une seule cle : PLANNER_API_KEY, ou OPENAI_API_KEY pour `openai/<modele>`.
+  const openai = isOpenAiModel(entry.model)
+  const res = await callSingle(system, user, { ...opts, model: entry.model, apiKey: openai ? process.env.OPENAI_API_KEY || '' : API_KEY })
+  stats.modele_servi = entry.label
+  stats.cle_servie = openai ? 'openai' : 'opencode'
+  return res
 }
 
 async function callSingle (system, user, { image = null, signal = null, maxTokens = EFFECTIVE_MAX_TOKENS, temperature = TEMPERATURE, timeoutMs = TIMEOUT_MS, deadline = null, model: forced = null, apiKey = null, task = 'plan' } = {}) {
@@ -457,8 +394,7 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
   const effortAsked = modelChain.effortFor(task)
   const EFFORT = effortAsked === 'none' ? null : effortAsked
   const sansRaisonnement = effortAsked === 'none'
-  // Cle choisie par callWithProfile (PLANNER_KEY_FIRST), sinon la principale.
-  const target0 = forced ?? effectiveModel()
+  const target0 = forced ?? MODEL
   // `openai/<modele>` : API OpenAI en direct (OPENAI_API_KEY), pour l offre de
   // jetons gratuits contre partage des donnees (2026-10-10) ; jamais un repli.
   const openai = isOpenAiModel(target0)
@@ -491,7 +427,7 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
     const thinking = !effort && proto === 'chat' && (sansRaisonnement || THINKING === 'disabled') && !thinkingOff.has(model) ? { type: 'disabled' } : null
     const plain = {
       baseUrl: base, apiKey: key, model: openai ? model.slice(OPENAI_PREFIX.length) : model, temperature, maxTokens: budget, timeoutMs: timeLeft(),
-      keepAlive: IS_OLLAMA && proto === 'chat' ? KEEP_ALIVE : null, headers, image, signal, protocol: proto,
+      headers, image, signal, protocol: proto,
       // The transport's own retry (transient 5xx/429/400) is a request too.
       onRetry: () => { stats.tentatives += 1 }
     }
@@ -555,7 +491,6 @@ async function callSingle (system, user, { image = null, signal = null, maxToken
         ? Math.max(PILOT_RETRY_EFFECTIVE_MAX_TOKENS, pilotFirst)
         : Math.max(4000, 2 * (Number.isFinite(maxTokens) ? maxTokens : 2000))
       console.log(`[planner] reponse tronquee (${String(err?.message ?? '').slice(0, 80)}), reessai a ${retryBudget} jetons (delai inchange)`)
-      announceProfile({ type: 'truncation-retry', from: target0, to: target0, reason: String(err?.message ?? 'tronquee').slice(0, 200), maxTokens: retryBudget, at: new Date().toISOString() })
       const resRetry = await doCall(target0, proto0, retryBudget)
       return markSuccess(resRetry, target0)
     }
@@ -1277,8 +1212,7 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
     ((stats.moyenne_ms ?? response.ms) * (stats.appels - 1) + response.ms) / stats.appels
   )
   stats.derniers_jetons = response.usage?.prompt_tokens ?? null
-  // DeepSeek nomme ainsi la part servie depuis son cache ; Ollama ne renseigne
-  // rien, son gain se lit dans la latence.
+  // DeepSeek nomme ainsi la part servie depuis son cache.
   stats.jetons_en_cache = response.usage?.prompt_cache_hit_tokens ??
     response.usage?.prompt_tokens_details?.cached_tokens ?? null
   stats.jetons_total += response.usage?.prompt_tokens ?? 0
@@ -1780,7 +1714,6 @@ module.exports = {
   DONE_THRESHOLD,
   DOOR_THRESHOLD,
   profileStatus,
-  onProfileEvent,
   _resetProfile,
   get lastError () { return lastError }
 }

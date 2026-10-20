@@ -388,4 +388,4 @@ function describe (plan, max = 8) {
   return lines
 }
 
-module.exports = { planAcquire, describe, summarize, resourceOf, SMELT }
+module.exports = { planAcquire, describe, summarize, SMELT }

@@ -1,16 +1,13 @@
-"""Choose the one OpenCode key of a bench (owner's rule, 2026-10-01).
+"""Check the one OpenCode key of a bench (PLANNER_API_KEY) before the levels.
 
-At start, a tiny prompt without reasoning goes, with each key, to the model
-the bots plan with (PLANNER_MODEL_PLAN of ci/models.env, 2026-10-09: each
-model was thought to have its own Go quota, and a DeepSeek probe let a bench
-with Haiku's 5-hour quota spent play 75 min of red levels; 2026-10-10: a spent
-Go limit refuses every model). Both answer: primary. One answers: that one. None: the bench fails.
-An `openai/<model>` bench model (manual run, input base_model) is probed with
-OPENAI_API_KEY at the OpenAI API instead, and no OpenCode key reaches the bots.
-Only the chosen key then reaches the bots, so no switch can happen mid-bench
-(report.keyCheck). A key is never printed, logged or put in the report.
+At start, a tiny prompt without reasoning goes to the model the bots plan with
+(PLANNER_MODEL_PLAN of ci/models.env; 2026-10-10: a spent Go limit refuses
+every model). It answers: the bench plays. It does not: the bench fails at once
+instead of 75 min of red levels. An `openai/<model>` bench model (manual run,
+input base_model) is probed with OPENAI_API_KEY at the OpenAI API instead, and
+the OpenCode key does not reach the bots (report.keyCheck). A key is never
+printed, logged or put in the report.
 """
-import concurrent.futures
 import json
 import os
 import time
@@ -21,7 +18,6 @@ import urllib.request
 from pathlib import Path
 
 BASE = 'https://opencode.ai/zen/go/v1'
-URL = BASE + '/chat/completions'
 MODELS_ENV = Path(__file__).with_name('models.env')
 DEFAULT_MODEL = 'deepseek-v4.1-flash'
 
@@ -42,24 +38,9 @@ def bench_model(path=MODELS_ENV):
 MODEL = bench_model()
 PROMPT = "Pas de réflexion, répond uniquement 'test validé'"
 TIMEOUT_S = 20
-# GitHub secret(s) holding each key, in order; PLANNER_API_KEY stays accepted
-# for a local machine.
-SOURCES = {'primary': ('OPENCODE_PRIMARY_API_KEY', 'PLANNER_API_KEY'),
-           'secondary': ('OPENCODE_SECONDARY_API_KEY',)}
-# Variable the bot reads for each key (bot/model-chain.js KEY_VARS).
-BOT_VARS = {'primary': 'PLANNER_API_KEY', 'secondary': 'OPENCODE_SECONDARY_API_KEY'}
-ORDER = ('primary', 'secondary')
+KEY_VAR = 'PLANNER_API_KEY'
 OPENAI_PREFIX = 'openai/'
 OPENAI_BASE = (os.environ.get('OPENAI_BASE_URL') or 'https://api.openai.com/v1').rstrip('/')
-
-
-def key_value(name, environ=None):
-    environ = os.environ if environ is None else environ
-    for var in SOURCES[name]:
-        value = (environ.get(var) or '').strip()
-        if value:
-            return value
-    return ''
 
 
 def plain(text):
@@ -122,33 +103,18 @@ def probe(key, urlopen=urllib.request.urlopen, model=None):
     return result
 
 
-def choose(results):
-    """primary if it answers, else secondary if it answers, else None."""
-    return next((name for name in ORDER if (results.get(name) or {}).get('ok')), None)
-
-
 def select(environ=None, probe_fn=probe):
-    """{'chosen': name or None, 'probes': {name: result}} for the keys present."""
-    if MODEL.startswith(OPENAI_PREFIX):
-        key = ((os.environ if environ is None else environ).get('OPENAI_API_KEY') or '').strip()
-        result = probe_fn(key) if key else {'ok': False, 'error': 'secret absent'}
-        return {'model': MODEL, 'prompt': PROMPT, 'chosen': 'openai' if result.get('ok') else None,
-                'probes': {'openai': result}}
-    keys = {name: key_value(name, environ) for name in ORDER}
-    results = {name: {'ok': False, 'error': 'secret absent'} for name, key in keys.items() if not key}
-    present = [name for name, key in keys.items() if key]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(ORDER)) as pool:
-        for name, result in zip(present, pool.map(lambda n: probe_fn(keys[n]), present)):
-            results[name] = result
-    return {'model': MODEL, 'prompt': PROMPT, 'chosen': choose(results),
-            'probes': {name: results[name] for name in ORDER}}
+    """{'chosen': 'opencode', 'openai' or None, 'probes': {name: result}}."""
+    environ = os.environ if environ is None else environ
+    name, var = ('openai', 'OPENAI_API_KEY') if MODEL.startswith(OPENAI_PREFIX) else ('opencode', KEY_VAR)
+    key = (environ.get(var) or '').strip()
+    result = probe_fn(key) if key else {'ok': False, 'error': 'secret absent'}
+    return {'model': MODEL, 'prompt': PROMPT, 'chosen': name if result.get('ok') else None,
+            'probes': {name: result}}
 
 
-def bot_env(env, chosen, environ=None):
-    """Leave only the chosen key to the bots, under the name they read."""
-    for name in ORDER:
-        for var in (*SOURCES[name], BOT_VARS[name]):
-            env.pop(var, None)
-    if chosen in BOT_VARS:
-        env[BOT_VARS[chosen]] = key_value(chosen, environ)
+def bot_env(env, chosen):
+    """The OpenCode key reaches the bots only when it is the bench key."""
+    if chosen != 'opencode':
+        env.pop(KEY_VAR, None)
     return env

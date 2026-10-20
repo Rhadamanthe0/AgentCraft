@@ -258,13 +258,14 @@ au demarrage au lieu de 75 min de niveaux rouges.
   exception non capturee le fait quitter en code 1 (logger.js) et Docker le
   relance ; la mission durable reprend depuis `/data`, l arret total persiste.
 - Jamais de secret committe, journalise, mis dans un artefact ou une image.
-- Banc CI : **une seule cle**, sans repli silencieux ; `report.keyCheck` le
-  verifie. Choisie au demarrage (`ci/keyprobe.py`, 2026-10-01) : mini prompt
-  sans raisonnement (modele de plan de `ci/models.env`) sur `OPENCODE_PRIMARY_API_KEY` et
-  `OPENCODE_SECONDARY_API_KEY` ; primary si les deux repondent, sinon celle
-  qui repond, sinon le banc echoue (`report.keyProbe`). Seule la cle retenue
-  va aux bots. Ne jamais contourner un 403
-  `FreeTierError` d OpenCode.
+- **Une seule cle OpenCode Go** (`PLANNER_API_KEY`, proprietaire, 2026-10-20 :
+  OpenCode n admet plus qu un abonnement ; la cle primary est morte, 401
+  « Invalid credential », et la bascule de cle est retiree). Au banc, le
+  workflow la lit dans le secret GitHub `OPENCODE_SECONDARY_API_KEY` ; sondee
+  au demarrage (`ci/keyprobe.py`) : mini prompt sans raisonnement (modele de
+  plan de `ci/models.env`), sans reponse le banc echoue (`report.keyProbe`) ;
+  `report.keyCheck` verifie qu aucune autre cle n a servi. Ne jamais
+  contourner un 403 `FreeTierError` d OpenCode.
 - Runner MINIPC-CLEM : pas de Docker Engine, pas de DinD, pas de privilege en
   plus ; ne supprimer que les ressources du job (`mc-ci-*`, `minebot-ci:*`) ;
   ne jamais toucher `/root/infra-deploy` ni les images
@@ -303,6 +304,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
 | Overlay de documentation (`/data/actions-doc.json`, `DELETE /api/actions`) | 2026-09-28 | plus aucun auteur depuis repair.js ; un vieux fichier aurait continue d egarer le modele |
 | Reflexion de fond (`planner.strategize`) | 2026-09-27 | A/B cabane sur 5 bancs sans gain ; inventait des etapes (« livrer ») |
 | Chaines de modeles, bascule sur refus/delai, fournisseurs gratuits (Zen anonyme, Groq, Gemini, OpenRouter) | 2026-09-26 | un modele par usage, une panne remonte telle quelle ; bascule sur limite de debit essayee puis retiree le 2026-10-12 (§3) |
+| Deuxieme cle OpenCode et bascule de cle (`PLANNER_KEY_FIRST`, `OPENCODE_SECONDARY_API_KEY` cote bot) | 2026-10-20 | OpenCode n admet plus qu un abonnement Go ; la cle primary renvoyait 401 |
 | Routage double MiMo/Muse, supervisor/, kernel/, bridge/, unlock-service | 2026-09-27 | jamais branches au bot |
 | `approcher`, ancien `explorer` (GoalNearXZ) | 2026-09-22 | pathfinder 26.1 peu fiable ; remplaces par le navigateur partage |
 | Double appel au modele par tour (deux appels en parallele) | refuse | sur-ingenierie ; la relance `relance_plan` reste sequentielle |
@@ -472,17 +474,14 @@ accord ; un niveau qui ne passe qu avec Haiku se mesure par `base_model`
 free essaye en tete d une chaine a bascule sur limite de debit, 0 reponse sur
 deux bancs cibles (429 « Endpoint is unavailable ») ; Step 5 et la bascule
 retires le meme jour a sa demande, « exo free » abandonne (aucun
-identifiant). Le meme jour, la cle primary renvoyait 400 « This Go model
-requires Global regions » (reglage Privacy de son espace OpenCode, autorise
-par le proprietaire) : la sonde de demarrage l ecarte d elle-meme. Effort low pour TOUS les usages (choix du
+identifiant). Effort low pour TOUS les usages (choix du
 proprietaire, 2026-10-10) ;
 plus aucune variante de modele au banc (`MODELES_AB = []`, quota epargne).
 
 Seuls rejeux admis, toujours le MEME modele : reponse tronquee (budget
 double), panne passagere du gateway (silence, reseau coupe, 5xx, 429, 400
 « Upstream request failed » : `planner.estPassager`), reaiguillage de session (`x-opencode-session` suffixe `-rN`, apres un delai ou un 400 upstream ; six d affilee SANS reponse au plus, compteur remis a zero a chaque reponse),
-retrait d un champ thinking/effort refuse, et changement de CLE (primary <->
-secondary) sur 429/401-403 (`PLANNER_KEY_FIRST`).
+et retrait d un champ thinking/effort refuse. Jamais une autre cle.
 
 ## 4. Pieges toujours valides
 
@@ -826,9 +825,8 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | Variable | Defaut code | Role |
 | --- | --- | --- |
 | `PLANNER_BASE_URL` | vide (compose : gateway Go) | sans elle, aucun cerveau : les missions echouent en le disant |
-| `PLANNER_API_KEY` / `OPENCODE_SECONDARY_API_KEY` | vide | cles primary / secondary du gateway Go |
+| `PLANNER_API_KEY` | vide | cle unique du gateway Go |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | vide / `https://api.openai.com/v1` | modeles `openai/<modele>` seulement (A/B), jamais un repli |
-| `PLANNER_KEY_FIRST` | `primary` | cle essayee d abord ; l autre sur 429/401-403 |
 | `PLANNER_MODEL[_PLAN/_BRIEF/_CHAT/_COMPACT]` | `PLANNER_MODEL` | un modele par usage (une liste ne garde que sa tete) |
 | `PLANNER_REASONING_EFFORT[_<USAGE>]` | vide | `reasoning_effort` (ou `reasoning.effort`) |
 | `PLANNER_TIMEOUT_MS[_<USAGE>]` | 12000 | delai d un appel |

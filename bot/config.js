@@ -265,7 +265,6 @@ module.exports = {
   parseRequestObject,
   parseRequestArray,
   isPlainObject,
-  isSecretName,
   effectiveConfig,
   logEffectiveConfig,
   _clearRegistry

@@ -559,15 +559,21 @@ function createObjectiveController (options = {}) {
     const contraintesCopy = deepCopy(contraintes)
     const date = isoNow(now)
 
+    // Nouvel objectif et son message d entree, dans la transaction appelante.
+    const recevoir = statut => {
+      const objective = {
+        id: nextId('obj'), version: 1, auteur, mode, texte,
+        statut, progression: {}, contraintes: deepCopy(contraintesCopy),
+        createdAt: date, updatedAt: date
+      }
+      state.inbox = [...state.inbox, { id: nextId('msg'), auteur, date, texte, kind: 'message' }]
+      return objective
+    }
+
     if (state.hardstop) {
       let queued = null
       commit(() => {
-        queued = {
-          id: nextId('obj'), version: 1, auteur, mode, texte,
-          statut: 'pending', progression: {}, contraintes: deepCopy(contraintesCopy),
-          createdAt: date, updatedAt: date
-        }
-        state.inbox = [...state.inbox, { id: nextId('msg'), auteur, date, texte, kind: 'message' }]
+        queued = recevoir('pending')
         state.pending = [...state.pending, queued]
       }, () => ({ type: 'objective-queued', objective: deepCopy(queued), reason: 'hardstop' }))
       return { status: 'pending', objective: deepCopy(queued), question: null }
@@ -576,13 +582,7 @@ function createObjectiveController (options = {}) {
     if (!state.current && !state.arbitration) {
       let started = null
       commit(() => {
-        started = {
-          id: nextId('obj'), version: 1, auteur, mode, texte,
-          statut: 'active',
-          progression: {}, contraintes: deepCopy(contraintesCopy),
-          createdAt: date, updatedAt: date
-        }
-        state.inbox = [...state.inbox, { id: nextId('msg'), auteur, date, texte, kind: 'message' }]
+        started = recevoir('active')
         state.current = started
         state.workPaused = false
         state.workPausedReason = null
@@ -593,12 +593,7 @@ function createObjectiveController (options = {}) {
     if (state.arbitration) {
       let queued = null
       commit(() => {
-        queued = {
-          id: nextId('obj'), version: 1, auteur, mode, texte,
-          statut: 'pending', progression: {}, contraintes: deepCopy(contraintesCopy),
-          createdAt: date, updatedAt: date
-        }
-        state.inbox = [...state.inbox, { id: nextId('msg'), auteur, date, texte, kind: 'message' }]
+        queued = recevoir('pending')
         state.pending = [...state.pending, queued]
       }, () => ({ type: 'objective-queued', objective: deepCopy(queued) }))
       return { status: 'queued', objective: deepCopy(queued), question: state.arbitration.question }
@@ -607,15 +602,10 @@ function createObjectiveController (options = {}) {
     let candidate = null
     let question = null
     commit(() => {
-      candidate = {
-        id: nextId('obj'), version: 1, auteur, mode, texte,
-        statut: 'pending', progression: {}, contraintes: deepCopy(contraintesCopy),
-        createdAt: date, updatedAt: date
-      }
+      candidate = recevoir('pending')
       const previous = { ...state.current, statut: 'paused', updatedAt: date }
       question = buildArbitrationQuestion(previous, candidate, arbitrationMs)
       state.generation += 1
-      state.inbox = [...state.inbox, { id: nextId('msg'), auteur, date, texte, kind: 'message' }]
       state.current = previous
       state.workPaused = false
       state.workPausedReason = null
