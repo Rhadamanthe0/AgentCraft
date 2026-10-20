@@ -103,15 +103,15 @@ const DEFAULT_QUOTA = config.positiveInt(process.env.MISSION_DEFAULT_QUOTA, 16, 
 // chaque tour. `RAYON` est la demi-cote de la carte, en blocs.
 const SCREENSHOT_ON = process.env.MISSION_SCREENSHOT === '1'
 
-// Interrupteurs A/B du banc : chaque nouveau mode peut etre coupe (ou la vue
-// allumee) pour mesurer ce qu il apporte, sans redemarrer le bot. Priorite :
-// /api/features, puis la variable FEATURE_<NOM> ('0'/'1'), puis le defaut du
-// mode. Un processus = un bot, donc un etat par bot.
 // Tree in progress and its scaffold, carried across a revision or a restart:
 // declared once in mission-state.js (read and written from the same schema).
 const { celluleValide } = missionState
 const suiviArbre = source => missionState.restaurer(missionState.SUIVI_ARBRE, source)
 
+// Interrupteurs A/B du banc : chaque nouveau mode peut etre coupe (ou la vue
+// allumee) pour mesurer ce qu il apporte, sans redemarrer le bot. Priorite :
+// /api/features, puis la variable FEATURE_<NOM> ('0'/'1'), puis le defaut du
+// mode. Un processus = un bot, donc un etat par bot.
 const featureOverrides = {}
 function featureOn (name, fallback = true) {
   if (Object.prototype.hasOwnProperty.call(featureOverrides, name)) return featureOverrides[name]

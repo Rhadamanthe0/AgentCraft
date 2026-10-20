@@ -459,9 +459,6 @@ function planCraft (args) {
       if (!Number.isInteger(limits.maxOperations) || limits.maxOperations < 1) throw new TypeError('limits.maxOperations doit etre un entier >= 1')
       maxOperations = limits.maxOperations
     }
-    if (limits.maxDepth !== undefined && limits.maxOperations !== undefined) {
-      // borne explicite anti-explosion : les deux plafonds s'appliquent ensemble
-    }
   }
 
   const maps = buildNameMaps(registry)
@@ -651,12 +648,9 @@ function planCraft (args) {
       if (take) {
         best = branchResult
         best._chosenStock = branchResult._restore
-        // Succes parfait minimal : on peut arreter l'exploration.
-        if (!best.error && best.missing.length === 0 && best.ops.length > 0) {
-          // Continue quand meme si une recette ulterieure ferait moins d'ops ?
-          // Non : l'ordre est par index, pas par cout. On explore tout pour
-          // garantir le choix stock/min-ops, sauf budget epuise.
-        }
+        // Meme un succes parfait n arrete pas l exploration : l ordre est par
+        // index, pas par cout ; on explore tout pour garantir le choix
+        // stock/min-ops, sauf budget epuise.
       }
       // Restaure le stock d'entree avant la prochaine candidate.
       stock.clear()

@@ -24,7 +24,6 @@ import os
 import random
 import re
 import secrets
-import threading
 import time
 
 INSTRUCTION = 'coupe moi un arbre'

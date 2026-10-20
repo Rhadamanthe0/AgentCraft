@@ -581,12 +581,7 @@ function terminal (fields) {
 // Le job annule ne conduit jamais un toss : l'appelant tranche sur la mesure
 // fraiche suivante.
 async function boundedNavigate (navigator, method, arg, { signal, timeoutMs, onActivity, note }) {
-  let navPromise
-  try {
-    navPromise = Promise.resolve().then(() => method === 'player' ? navigator.toPlayer(arg, { signal }) : navigator.toPosition(arg, { signal }))
-  } catch (err) {
-    throw err
-  }
+  const navPromise = Promise.resolve().then(() => method === 'player' ? navigator.toPlayer(arg, { signal }) : navigator.toPosition(arg, { signal }))
   let timer = null
   let timedOut = false
   const timeoutGate = new Promise(resolve => {
