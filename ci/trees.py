@@ -825,12 +825,13 @@ def base_levels():
         },
         # Palier 3 (2026-10-10, demande du proprietaire) : taches qu un vrai
         # joueur donnerait, plus longues que les cabanes, depuis un inventaire
-        # vide. Informatifs, sans variante (modele unique : Haiku effort low).
+        # vide. Informatifs au depart ; stone-toolkit, big-stone-house,
+        # lit-cabin et powered-rail-line bloquants depuis le 2026-10-20.
         {
             'name': 'composite/stone-toolkit',
             'about': 'Inventaire vide, deux arbres et un rocher, « Equipe-toi : fabrique-toi une pioche, une hache et une epee en pierre » : '
                      'bois, etabli, pioche en bois, pierre, puis les trois outils en pierre en inventaire.',
-            'kind': 'gather', 'cap': PALIER3_CAP_S, 'informative': True,
+            'kind': 'gather', 'cap': PALIER3_CAP_S,
             'instruction': 'Equipe-toi : fabrique-toi une pioche, une hache et une epee en pierre',
             'items': ['stone_pickaxe', 'stone_axe', 'stone_sword'], 'target': 3, 'each': True,
             'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
@@ -857,7 +858,7 @@ def base_levels():
             'name': 'composite/big-stone-house',
             'about': 'Inventaire vide, deux arbres et un grand rocher, « Construis-moi une maison en pierre de 5 par 5 par 3 avec une porte » : '
                      'pioche, une quarantaine de pierres extraites, porte en bois fabriquee, maison posee.',
-            'kind': 'build', 'cap': PALIER3_CAP_S, 'informative': True,
+            'kind': 'build', 'cap': PALIER3_CAP_S,
             'instruction': 'Construis-moi une maison en pierre de 5 par 5 par 3 avec une porte',
             'blocks': ['minecraft:cobblestone'], 'target': 40, 'door': True, 'minTop': 3,
             'terrain': [(20, 200, 2, 32, 203, 10, 'stone')],
@@ -870,7 +871,7 @@ def base_levels():
             'name': 'composite/lit-cabin',
             'about': 'Inventaire vide, trois arbres et un rocher avec du charbon, « Construis-moi une cabane en bois de 4 par 4 par 3 '
                      'avec une porte, et eclaire-la avec des torches » : cabane, porte, charbon extrait, torches fabriquees et posees.',
-            'kind': 'build', 'cap': PALIER3_CAP_S, 'informative': True,
+            'kind': 'build', 'cap': PALIER3_CAP_S,
             'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 3 avec une porte, et eclaire-la avec des torches',
             'blocks': ['#minecraft:planks'], 'target': 30, 'door': True,
             'also': {'torches_posees': (['minecraft:torch', 'minecraft:wall_torch'], 2)},
@@ -891,7 +892,7 @@ def base_levels():
             'about': 'Inventaire vide, trois arbres, un rocher avec fer, or, redstone et charbon, deux reperes de laine au sol : '
                      '« Fais-moi une ligne de minecart entre la laine rouge et la laine bleue, avec des rails accelerateurs » : '
                      'pioches, minerais extraits, four, lingots, rails, rails accelerateurs alimentes, minecart pose.',
-            'kind': 'build', 'cap': PALIER3_CAP_S, 'informative': True,
+            'kind': 'build', 'cap': PALIER3_CAP_S,
             'instruction': 'Fais-moi une ligne de minecart entre la laine rouge et la laine bleue, avec des rails accelerateurs',
             'blocks': ['minecraft:rail', 'minecraft:powered_rail'], 'target': 12,
             'also': {'rails_accelerateurs': (['minecraft:powered_rail'], 2),
@@ -1166,6 +1167,14 @@ def vary(level, seed, avoid=None):
     return out
 
 
+def entity_count(answer):
+    """Entities counted by `execute if entity` : Paper 26.1 answers
+    « Test passed. Count: 1 » (capital C) ; the lowercase match read 0 and
+    minecart_pose failed with the minecart on its rails (banc ac1001a)."""
+    match = re.search(r'count:\s*(\d+)', answer or '', re.I)
+    return int(match.group(1)) if match else 0
+
+
 def instruct(level, bot, bot_api, message, requester):
     """Give the level's order. A skill level (`skill`: brief + script) starts a
     scripted mission (bot/script-brain.js): same objective text, same checks,
@@ -1418,9 +1427,7 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         parts.append((got, minimum))
     for check, (entity, minimum) in level.get('entities', {}).items():
         # Entities the order asks for (a minecart on its rails...).
-        answer = rcon(f'execute if entity @e[type={entity},x={x0},y=200,z=0,dx={SIZE},dy={TOP_Y - 200},dz={SIZE}]')
-        match = re.search(r'count: (\d+)', answer or '')
-        got = int(match.group(1)) if match else 0
+        got = entity_count(rcon(f'execute if entity @e[type={entity},x={x0},y=200,z=0,dx={SIZE},dy={TOP_Y - 200},dz={SIZE}]'))
         checks[check] = got >= minimum
         parts.append((got, minimum))
     if level.get('minTop'):
@@ -1991,6 +1998,10 @@ RETIRED = frozenset({
     # Dedoublonnage (proprietaire, 2026-10-14 : un niveau inclus dans un plus
     # complexe part, le plus complexe reste ; refait a chaque ajout de niveau).
     'composite/cabin-from-scratch', 'composite/bucket',
+    # Promotion de sa couverture le 2026-10-20 (5 bancs sur 5, jumeau compris).
+    'composite/stone-hut-from-scratch',
+    # Idem le 2026-10-20 : powered-rail-line bloquant (trois bancs d affilee).
+    'craft/iron-pickaxe',
     # Plans longs (2026-10-16, idee des agents Gemini, arXiv 2610.22319),
     # allumes par defaut le 2026-10-17 (A/B : 16 paires, -36 % d appels) :
     # le bras sans le mode se joue par `Banc:`.
@@ -2014,8 +2025,9 @@ COVERED_BY = {
     'build/tower': 'composite/big-stone-house', 'build/wall': 'composite/stone-wall-question',
     'build/door': 'composite/cabin-across-water', 'chat/chatter-ignored': 'chat/question-keeps-mission',
     'chat/stop-resume': 'chat/stop-tree', 'chat/join-then-tree': 'chat/replace-and-join',
-    'craft/from-tree': 'craft/iron-pickaxe', 'craft/planks': 'build/no-materials', 'craft/sticks': 'craft/iron-pickaxe',
-    'craft/table': 'craft/iron-pickaxe', 'craft/stone-pickaxe': 'craft/iron-pickaxe', 'craft/furnace': 'craft/iron-pickaxe',
+    'craft/from-tree': 'composite/powered-rail-line', 'craft/planks': 'build/no-materials',
+    'craft/sticks': 'composite/powered-rail-line', 'craft/table': 'composite/powered-rail-line',
+    'craft/stone-pickaxe': 'composite/powered-rail-line', 'craft/furnace': 'composite/powered-rail-line',
     'craft/axe': 'composite/stone-toolkit', 'craft/door': 'composite/cabin-across-water',
     'craft/torches': 'composite/lit-cabin',
     'follow/corner': 'follow/winding', 'follow/ledge-down': 'follow/winding', 'follow/stairs': 'follow/winding',
@@ -2037,6 +2049,8 @@ COVERED_BY = {
     'skill/tree-reachable': 'skill/tree-pillar', 'skill/dirt-box': 'skill/stone-hut-batir',
     'skill/cabin-batir': 'skill/stone-hut-batir', 'trees/skirted': 'trees/tall',
     'composite/cabin-from-scratch': 'composite/cabin-across-water', 'composite/bucket': 'composite/powered-rail-line',
+    'composite/stone-hut-from-scratch': 'composite/big-stone-house',
+    'craft/iron-pickaxe': 'composite/powered-rail-line',
 }
 
 

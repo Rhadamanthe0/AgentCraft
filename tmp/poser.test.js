@@ -74,16 +74,66 @@ test('poser : ligne de rails entre deux blocs nommes, torche a cote, minecart su
   assert.ok(lignes.some(l => /Objectif atteint/.test(l)), lignes.slice(-8).join('\n'))
 })
 
-test('poser : terminer avant tous les objets poses est refuse, chiffres a l appui', async () => {
+test('poser : construction sans matiere ni dimension = pose ; la ligne entiere puis chaque objet avant la fin', async () => {
   const { sim, lignes } = await jouer({
     blocks: { '10,199,15': 'red_wool', '20,199,15': 'blue_wool' },
     inventory: [{ name: 'rail', count: 16 }, { name: 'minecart', count: 1 }],
-    brief: { type: 'recolte', matiere: 'aucune', pose: [{ objet: 'rail' }, { objet: 'minecart', quantite: 1 }] },
-    script: [{ action: 'poser', objet: 'rail', de: 'red_wool', vers: 'blue_wool' }, { action: 'terminer' }]
+    brief: { type: 'construction', matiere: 'aucune', pose: [{ objet: 'rail', de: 'red_wool', vers: 'blue_wool' }, { objet: 'minecart', quantite: 1 }] },
+    script: [
+      { action: 'poser', objet: 'rail', quantite: 2, de: 'red_wool', vers: 'blue_wool' },
+      { action: 'terminer' },
+      { action: 'poser', objet: 'rail', de: 'red_wool', vers: 'blue_wool' },
+      { action: 'terminer' }
+    ]
   })
+  assert.ok(lignes.some(l => /-> type recolte .*a poser rail \(ligne red_wool -> blue_wool\), minecart x1/.test(l)), lignes.filter(l => /\[mission\] "/.test(l)).join('\n'))
   assert.equal(sim.count(n => n === 'rail'), 11)
-  assert.ok(lignes.some(l => /terminer refuse \(1\/\d\) : 0 minecart pose\(s\) sur 1/.test(l)), lignes.slice(-8).join('\n'))
-  assert.ok(!lignes.some(l => /Objectif atteint/.test(l)))
+  assert.ok(lignes.some(l => /terminer refuse \(1\/\d\) : 2 rail pose\(s\) sur 11 \(9 case\(s\) libre\(s\) entre red_wool et blue_wool\)/.test(l)), lignes.slice(-12).join('\n'))
+  assert.ok(lignes.some(l => /terminer refuse \(2\/\d\) : 0 minecart pose\(s\) sur 1/.test(l)), lignes.slice(-8).join('\n'))
+  assert.ok(!lignes.some(l => /Objectif atteint|chantier/i.test(l)), lignes.filter(l => /chantier|Objectif/i.test(l)).join('\n'))
+})
+
+test('poser : les autres blocs a poser prennent des cases de la ligne, le solveur fabrique d autant moins', async () => {
+  const { lignes } = await jouer({
+    blocks: { '10,199,15': 'red_wool', '27,199,15': 'blue_wool' },
+    inventory: [{ name: 'iron_ingot', count: 40 }, { name: 'stick', count: 20 }, { name: 'crafting_table', count: 1 }],
+    brief: { type: 'recolte', matiere: 'aucune', pose: [{ objet: 'rail', de: 'red_wool', vers: 'blue_wool' }, { objet: 'powered_rail', quantite: 2 }, { objet: 'minecart', quantite: 1 }] },
+    script: [{ action: 'attendre', duree: 1 }]
+  })
+  // 18 cases, 2 rails accelerateurs : 16 rails, une seule fournee (6 fer), jamais 32.
+  const solveur = lignes.filter(l => /solveur/.test(l))
+  assert.ok(solveur.some(l => /fabriquer 16 rail\b/.test(l)), solveur.join('\n'))
+  assert.ok(!solveur.some(l => /fabriquer 32 rail\b/.test(l)), solveur.join('\n'))
+  // Minecart en tete et sur la ligne (brief du banc 39406009525) : un
+  // objet-entite n a pas de bloc, il ne couvre pas la ligne (13 minecarts,
+  // 65 fer : plus que l arene n en a) ; les rails la couvrent.
+  const enTete = await jouer({
+    blocks: { '10,199,15': 'red_wool', '27,199,15': 'blue_wool' },
+    inventory: [{ name: 'iron_ingot', count: 40 }, { name: 'stick', count: 20 }, { name: 'crafting_table', count: 1 }],
+    brief: { type: 'recolte', matiere: 'aucune', pose: [{ objet: 'minecart', de: 'red_wool', vers: 'blue_wool' }, { objet: 'rail', de: 'red_wool', vers: 'blue_wool' }, { objet: 'powered_rail', quantite: 2 }] },
+    script: [{ action: 'attendre', duree: 1 }]
+  })
+  assert.ok(enTete.lignes.some(l => /a poser minecart, rail \(ligne red_wool -> blue_wool\)/.test(l)), enTete.lignes.filter(l => /\[mission\] "/.test(l)).join('\n'))
+  const solveurTete = enTete.lignes.filter(l => /solveur/.test(l))
+  assert.ok(solveurTete.some(l => /fabriquer 1 minecart\b/.test(l)) && !solveurTete.some(l => /fabriquer \d{2,} minecart/.test(l)), solveurTete.join('\n'))
+})
+
+test('poser : deux objets sur la meme ligne, le premier garde la place du second, chacun compte', async () => {
+  const { sim, lignes } = await jouer({
+    blocks: { '10,199,15': 'red_wool', '20,199,15': 'blue_wool' },
+    inventory: [{ name: 'rail', count: 16 }, { name: 'powered_rail', count: 2 }],
+    brief: { type: 'recolte', matiere: 'aucune', pose: [{ objet: 'rail', de: 'red_wool', vers: 'blue_wool' }, { objet: 'powered_rail', quantite: 2, de: 'red_wool', vers: 'blue_wool' }] },
+    script: [
+      { action: 'poser', objet: 'rail', de: 'red_wool', vers: 'blue_wool' },
+      { action: 'terminer' },
+      { action: 'poser', objet: 'powered_rail', de: 'red_wool', vers: 'blue_wool' },
+      { action: 'terminer' }
+    ]
+  })
+  assert.equal(sim.count(n => n === 'rail'), 9, lignes.filter(l => /poser/.test(l)).join('\n'))
+  assert.ok(lignes.some(l => /terminer refuse \(1\/\d\) : 0 powered_rail pose\(s\) sur 2/.test(l)), lignes.slice(-10).join('\n'))
+  assert.equal(sim.count(n => n === 'powered_rail'), 2)
+  assert.ok(lignes.some(l => /Objectif atteint/.test(l)), lignes.slice(-8).join('\n'))
 })
 
 test('poser : un pluriel sans nombre (« des torches ») en veut deux, une seule pose ne clot pas', async () => {

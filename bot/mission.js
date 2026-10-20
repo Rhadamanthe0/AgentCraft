@@ -24,7 +24,7 @@ const perception = require('./perception')
 const missionState = require('./mission-state')
 const missionTrace = require('./trace')
 const { createGestes } = require('./action-gestes')
-const { createPoser } = require('./action-poser')
+const { createPoser, etatLigne, blocDeLObjet, nomPropre: nomDeBloc } = require('./action-poser')
 const { createSousButs, prochainGesteSolveur } = require('./action-sous-buts')
 const {
   PILER_DIRT, scaffoldingStock, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
@@ -337,8 +337,16 @@ function posesDuBrief (bot, brut, texte = '') {
     vus.add(objet)
     const q = Number(p?.quantite)
     const dite = p?.quantite !== null && Number.isFinite(q) ? Math.max(1, Math.min(64, Math.round(q))) : null
+    // Ligne entre deux blocs nommes : les deux noms valides au registre des
+    // blocs, sinon la pose reste un compte d objets. Seul un objet qui pose
+    // un bloc couvre une ligne : un objet-entite (minecart, bateau) garde son
+    // compte. Sinon « une ligne de minecart » voulait 13 minecarts, 65 fer
+    // (composite/powered-rail-line, banc 39406009525).
+    const bloc = n => { const b = nomDeBloc(n); return b && (!bot?.registry?.blocksByName || bot.registry.blocksByName[b]) ? b : null }
+    const poseUnBloc = !bot?.registry?.blocksByName || Boolean(bot.registry.blocksByName[objet])
+    const ligne = poseUnBloc && p?.de && p?.vers && bloc(p.de) && bloc(p.vers) ? { de: bloc(p.de), vers: bloc(p.vers) } : {}
     // Sans nombre, un pluriel de la phrase vaut deux (skills.nommeAuPluriel).
-    out.push({ objet, quantite: dite ?? (skills.nommeAuPluriel(texte, objet) ? 2 : null) })
+    out.push({ objet, quantite: dite ?? (skills.nommeAuPluriel(texte, objet) ? 2 : null), ...ligne })
   }
   return out
 }
@@ -737,26 +745,69 @@ function createMissionRunner (host, injected = {}) {
   // Objets a poser pas encore tous poses : voulus, poses (verifies), en poche,
   // et le manque a obtenir avant de poser le reste.
   function posesManquantes () {
-    const items = host.getBot()?.inventory?.items() ?? []
+    return posesMesurees().filter(p => p.libres === undefined ? p.posees < p.voulues : p.libres > p.gardees)
+  }
+
+  // Chaque objet a poser, mesure : voulu, pose (verifie), en poche. Une pose
+  // en ligne (`de`/`vers` du brief) vaut toute la ligne : ses cases libres
+  // font le reste a poser, quel que soit le nombre dit. Sans cela, « une
+  // ligne de rails » (pluriel : deux) se closait a deux rails sur dix-sept
+  // (composite/powered-rail-line~aleatoire, progression 0,35). Ancre hors de
+  // vue : la derniere mesure, sinon la quantite.
+  function posesMesurees () {
+    const bot = host.getBot()
+    const items = bot?.inventory?.items() ?? []
+    const lignesVues = new Set()
     return (mission?.poses ?? []).map(p => {
-      const voulues = p.quantite ?? 1
       const posees = mission.posesFaites?.[p.objet] ?? 0
       const enPoche = items.filter(i => i.name === p.objet).reduce((n, i) => n + i.count, 0)
-      return { objet: p.objet, voulues, posees, enPoche, manque: Math.max(0, voulues - posees - enPoche) }
-    }).filter(p => p.posees < p.voulues)
+      const cle = p.de && p.vers ? `${p.de}>${p.vers}` : null
+      // La premiere entree d une ligne porte sa couverture ; une autre sur la
+      // meme ligne (rails accelerateurs) compte sa quantite. Sans cela, la
+      // ligne couverte de rails closait les rails accelerateurs a 0 pose
+      // (composite/powered-rail-line, banc 39334343738).
+      if (cle && bot?.entity && !lignesVues.has(cle)) {
+        lignesVues.add(cle)
+        const l = etatLigne(bot, p.de, p.vers)
+        if (!l.erreur) mission.lignesMesurees = { ...(mission.lignesMesurees ?? {}), [cle]: l.libres }
+        const libres = l.erreur ? (mission.lignesMesurees?.[cle] ?? Math.max(1, (p.quantite ?? 1) - posees)) : l.libres
+        // Les autres blocs a poser prendront des cases : a fabriquer en
+        // moins. Sans cela, 17 cases faisaient fabriquer 32 rails (12 fer au
+        // lieu de 6) et le fer manquait au minecart (banc 39307567266). Une
+        // estimation : la ligne mesuree tranche.
+        const autres = casesGardees(p.objet)
+        return { objet: p.objet, voulues: posees + libres, posees, enPoche, manque: Math.max(0, libres - enPoche - autres), libres, gardees: autres,
+          ligne: { de: p.de, vers: p.vers, cases_libres: libres, ...(l.erreur ? { hors_de_vue: l.erreur } : { cases: l.total }), ...(l.coupee ? { coupee: l.coupee } : {}) } }
+      }
+      const voulues = p.quantite ?? 1
+      return { objet: p.objet, voulues, posees, enPoche, manque: Math.max(0, voulues - posees - enPoche),
+        ...(cle ? { ligne: { de: p.de, vers: p.vers } } : {}) }
+    })
+  }
+
+  // Cases d une ligne gardees pour les autres blocs a poser encore attendus
+  // (hors l objet pose et hors l entree qui porte la couverture d une ligne).
+  function casesGardees (objet) {
+    const bot = host.getBot()
+    const porteuses = new Set()
+    let n = 0
+    for (const o of mission?.poses ?? []) {
+      const cle = o.de && o.vers ? `${o.de}>${o.vers}` : null
+      if (cle && !porteuses.has(cle)) { porteuses.add(cle); continue }
+      if (o.objet === objet || !blocDeLObjet(bot?.registry, o.objet)) continue
+      n += Math.max(0, (o.quantite ?? 1) - (mission.posesFaites?.[o.objet] ?? 0))
+    }
+    return n
   }
 
   // Poses servies au modele : en poche compris. Sans ce chiffre, des torches
   // fabriquees restaient en poche 25 min, le modele cherchant du charbon
   // (composite/lit-cabin~avec-poser, banc da9ebbe).
   function posesEtat () {
-    const items = host.getBot()?.inventory?.items() ?? []
-    return mission.poses.map(p => {
-      const voulues = p.quantite ?? 1
-      const posees = mission.posesFaites?.[p.objet] ?? 0
-      const enPoche = items.filter(i => i.name === p.objet).reduce((n, i) => n + i.count, 0)
-      return { objet: p.objet, voulues, posees, en_poche: enPoche,
-        ...(posees < voulues && enPoche > 0 ? { a_faire: `poser ${p.objet}` } : {}) }
+    return posesMesurees().map(p => {
+      const reste = p.libres === undefined ? p.posees < p.voulues : p.libres > p.gardees
+      return { objet: p.objet, voulues: p.voulues, posees: p.posees, en_poche: p.enPoche, ...(p.ligne ? { ligne: p.ligne } : {}),
+        ...(reste && p.enPoche > 0 ? { a_faire: `poser ${p.objet}${p.ligne ? ` de=${p.ligne.de} vers=${p.ligne.vers}` : ''}` } : {}) }
     })
   }
 
@@ -770,12 +821,24 @@ function createMissionRunner (host, injected = {}) {
     const items = bot.inventory?.items() ?? []
     if (items.some(item => ids.includes(item.type))) return null
     // Chantier dont le materiau en poche suffit (pierre donnee) : pas d outil.
+    // Chantier pose : plus aucun bloc de la matiere a obtenir.
     if (mission.kind === 'construction') {
       const stock = items.filter(i => mission.buildMatch?.test(i.name)).reduce((n, i) => n + i.count, 0)
-      if (stock > 0 && stock >= (mission.plan ? buildProgress().left : 1)) return null
+      if (mission.plan ? stock >= buildProgress().left : stock > 0) return null
     }
     const noms = ids.map(id => bot.registry?.items?.[id]?.name).filter(Boolean)
     return noms.sort((a, b) => TOOL_TIERS.indexOf(a.split('_')[0]) - TOOL_TIERS.indexOf(b.split('_')[0]))[0] ?? null
+  }
+
+  // Chantier pose, porte demandee ni posee ni en poche : la porte devient la
+  // cible du solveur (bois, planches, etabli). Sans elle, une maison en
+  // pierre finie sans porte recoltait encore de la pierre, la matiere du
+  // brief, jusqu au plafond (composite/big-stone-house, banc 39067397552 :
+  // 64/64 blocs, « il me manque du bois pour la porte » 20 min).
+  function porteCible () {
+    if (mission?.kind !== 'construction' || !mission.wantsDoor || !mission.plan || mission.fabricationCible) return null
+    if (buildProgress().left > 0 || doorPlaced() || doorItem()) return null
+    return 'porte'
   }
 
   // `demande` : objet et manque nommes par le modele (`obtenir {objet,
@@ -789,8 +852,8 @@ function createMissionRunner (host, injected = {}) {
     // Cible du plan : l objet a fabriquer, sinon l outil qu exige la matiere
     // de la mission (le plan disparait des qu il est en poche).
     // Puis le premier objet a poser qui manque en poche (A/B `poser`).
-    const aPoser = demande ?? (mission.fabricationCible || outilManquant(bot) ? null : posesManquantes().find(p => p.manque > 0))
-    const cible = demande?.objet ?? mission.fabricationCible ?? outilManquant(bot) ?? aPoser?.objet
+    const aPoser = demande ?? (mission.fabricationCible || outilManquant(bot) || porteCible() ? null : posesManquantes().find(p => p.manque > 0))
+    const cible = demande?.objet ?? mission.fabricationCible ?? outilManquant(bot) ?? porteCible() ?? aPoser?.objet
     if (!cible) return null
     const registry = craft.getDataset(bot)
     if (!registry?.itemsByName) return null
@@ -823,10 +886,12 @@ function createMissionRunner (host, injected = {}) {
         const logIds = Object.values(bot.registry?.blocksByName ?? {}).filter(b => /_log$/.test(b.name)).map(b => b.id)
         const seen = logIds.length ? bot.findBlock({ matching: logIds, maxDistance: SEARCH_RADIUS }) : null
         if (seen) mission.essenceVue = seen.name
+        const charbonIds = ['coal_ore', 'deepslate_coal_ore'].map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id !== undefined)
+        mission.charbonVu = Boolean(charbonIds.length && bot.findBlock({ matching: charbonIds, maxDistance: SEARCH_RADIUS }))
       } catch (_) { /* chunk absent */ }
     }
     if (mission.essenceVue) prefer.push(mission.essenceVue, mission.essenceVue.replace(/_log$/, '_planks'))
-    const key = JSON.stringify([cible, mission.fabricationQuantite, aPoser?.manque ?? null, inv, tableNearby, furnaceNearby, prefer])
+    const key = JSON.stringify([cible, mission.fabricationQuantite, aPoser?.manque ?? null, inv, tableNearby, furnaceNearby, prefer, Boolean(mission.charbonVu)])
     if (cache?.key === key) return cache.plan
     // Alias FR (pioche, hache...) : le candidat au plan le plus court.
     const alias = craft.TARGETS[cible]
@@ -836,7 +901,7 @@ function createMissionRunner (host, injected = {}) {
     for (const target of candidates) {
       let plan
       try {
-        plan = acquirePlan.planAcquire({ registry, target, count: wanted, inventory: inv, resources: skills.RESOURCES, tableNearby, furnaceNearby, prefer })
+        plan = acquirePlan.planAcquire({ registry, target, count: wanted, inventory: inv, resources: skills.RESOURCES, tableNearby, furnaceNearby, prefer, charbonVu: Boolean(mission.charbonVu) })
       } catch (_) { continue }
       if (!best || (plan.ok && !best.ok) || (plan.ok === best.ok && plan.etapes.length < best.etapes.length)) best = plan
     }
@@ -3903,6 +3968,7 @@ function createMissionRunner (host, injected = {}) {
       return Boolean((porte && (porte.equals(c) || porte.offset(0, 1, 0).equals(c))) ||
         plan.blocks?.some(b => b.position.equals(c)))
     },
+    casesGardees: objet => casesGardees(objet),
     compter: (objet, n) => {
       mission.posesFaites = { ...(mission.posesFaites ?? {}), [objet]: (mission.posesFaites?.[objet] ?? 0) + n }
     }
@@ -6630,7 +6696,8 @@ function createMissionRunner (host, injected = {}) {
     // dans le monde, autant de fois que dit (au moins une).
     const aPoser = posesManquantes()[0]
     if (aPoser) {
-      return { ok: false, why: `${aPoser.posees} ${aPoser.objet} pose(s) sur ${aPoser.voulues} : ${aPoser.enPoche > 0 ? 'poser' : 'obtenir puis poser'} le reste` }
+      const ligne = aPoser.ligne ? ` (${aPoser.ligne.cases_libres} case(s) libre(s) entre ${aPoser.ligne.de} et ${aPoser.ligne.vers})` : ''
+      return { ok: false, why: `${aPoser.posees} ${aPoser.objet} pose(s) sur ${aPoser.voulues}${ligne} : ${aPoser.enPoche > 0 ? 'poser' : 'obtenir puis poser'} le reste` }
     }
     // Un geste n a ni quota ni chantier a verifier : le planificateur decide seul
     // quand la demande est satisfaite — mais pas avant d avoir agi. Un petit
@@ -7513,7 +7580,12 @@ function createMissionRunner (host, injected = {}) {
     // registre, quantite dite ou au moins un. La revision garde les siens.
     let poses = featureOn('poser') ? posesDuBrief(host.getBot(), brief.pose, texteSansCoord) : []
     if (poses.length === 0 && Array.isArray(opts.revisionOf?.poses)) poses = opts.revisionOf.poses
-    if (poses.length > 0 && !brief.route && kind !== 'construction') kind = 'recolte'
+    // Une « construction » sans matiere ni dimension dont la demande pose des
+    // objets n a pas de chantier : c est une pose. Sinon un chantier 5x5x5 de
+    // terre par defaut refusait la fin, les objets poses (« ligne de
+    // minecart » : construction 0,75, matiere aucune, 4 bancs sur 6).
+    const chantierSansForme = kind === 'construction' && resource === 'aucune' && dimensions.source === 'aucune dimension lue'
+    if (poses.length > 0 && !brief.route && (kind !== 'construction' || chantierSansForme)) kind = 'recolte'
     // Bloc ouvert qui ne lache rien (spawner) ou incassable : il se rejoint,
     // il ne se recolte pas. Une « recolte » de ce bloc devient un deplacement
     // mesure (bloc cible a portee), plutot qu un quota jamais atteignable.
@@ -7744,7 +7816,8 @@ function createMissionRunner (host, injected = {}) {
       `porte ${mission.wantsDoor ? 'oui' : (brief.door ? 'non (non demandee)' : 'non')}, ${dimensions.width}x${dimensions.depth}x${dimensions.height} ` +
       `(${dimensions.source}), ${known} bloc(s) connu(s), approvisionnement ${SUPPLY}` +
       (mission.fabricationCible ? `, fabrication ${mission.fabricationCible} x${mission.fabricationQuantite} (stock initial ${mission.fabricationInitial})` : '') +
-      (mission.fabricationSuite.length ? `, puis ${mission.fabricationSuite.map(f => f.objet).join(', ')}` : '')
+      (mission.fabricationSuite.length ? `, puis ${mission.fabricationSuite.map(f => f.objet).join(', ')}` : '') +
+      (mission.poses?.length ? `, a poser ${mission.poses.map(p => `${p.objet}${p.de ? ` (ligne ${p.de} -> ${p.vers})` : (p.quantite ? ` x${p.quantite}` : '')}`).join(', ')}` : '')
     )
 
     // Un geste ou une question n a pas d « objectif accepte » a annoncer : le

@@ -128,8 +128,18 @@ mesuree), ou une ligne au sol d un bloc nomme a l autre ; le brief liste les
 objets a poser (`pose`, cle de prompt `brief|pose`), `consigne.poses` les
 sert, le solveur vise le premier qui manque en poche, `finishAllowed` exige
 chaque pose verifiee (`mission.posesFaites`), un pluriel sans nombre (« des
-torches ») en vaut deux (`skills.nommeAuPluriel`), `consigne.poses` dit
-`en_poche` ; `sans(...)` sur composite/lit-cabin et
+torches », « des rails accelerateurs » pour un nom compose : tete au pluriel
+suivie d un qualificatif accorde) en vaut deux (`skills.nommeAuPluriel`), `consigne.poses` dit
+`en_poche` ; une pose en ligne (`de`/`vers` au brief : « une ligne de rails
+de A a B ») vaut toute la ligne, ses cases libres font le reste
+(`posesMesurees`, `action-poser.etatLigne`) ; plusieurs objets sur une
+meme ligne : la premiere entree porte la couverture, les autres comptent leur
+quantite, et une pose en ligne garde les cases des autres blocs encore
+attendus (`casesGardees`, rails accelerateurs d une ligne de rails) ; seul un objet
+qui pose un bloc couvre une ligne, un objet-entite (minecart) garde son compte
+(`posesDuBrief`, 2026-10-20 : « ligne de minecart » visait 13 minecarts) ; une « construction » sans
+matiere ni dimension lue qui pose des objets devient une pose (pas de
+chantier 5x5x5 par defaut qui refusait la fin, 2026-10-19) ; `sans(...)` sur composite/lit-cabin et
 composite/powered-rail-line ; tmp/poser.test.js) ;
 `objet_vers` (eteint, 2026-10-11, lot 2 des actions generiques : `objet` sur
 casser, recolter, ramasser et `vers` sur avancer, explorer, piler, servis au
@@ -223,7 +233,10 @@ au demarrage au lieu de 75 min de niveaux rouges.
   45 min et ~370 requetes ; reussite la plus longue 490 s) ; la duree
   (`elapsedS`) est suivie d un banc a l autre et doit baisser.
 - Palier 3 (2026-10-10, proprietaire) : taches qu un vrai joueur donnerait,
-  informatives, sans variante : `composite/stone-toolkit` (trois outils en
+  informatives au depart, sans variante ; le proprietaire veut leur passage
+  obligatoire (2026-10-19) : les quatre restants promus bloquants le
+  2026-10-20 (stone-toolkit, big-stone-house, lit-cabin : 5 bancs sur 5 ;
+  powered-rail-line : 3 d affilee ; jumeaux compris, ci/promotion.py) : `composite/stone-toolkit` (trois outils en
   pierre, `each` : chaque objet en inventaire), `composite/bucket` (seau :
   fer, four, cuisson), `composite/big-stone-house` (5x5x3 en pierre avec
   porte), `composite/lit-cabin` (cabane avec torches, `also` : blocs
@@ -327,6 +340,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
   `/api/status` repond `spawned: false` sans monde au lieu d un 500. Causes
   trouvees le 2026-10-11 (pieges 17 et 18) : 628 puis 390 etats de mission de
   1 a 13,6 s par banc complet, tous bots et niveaux confondus.
+- Entites comptees par le banc (`entities`, minecart) : Paper 26.1 repond
+  « Test passed. Count: 1 », lu par `trees.entity_count` sans casse (avant
+  ac1001a, toujours 0 : `minecart_pose` rouge minecart pose).
 - Fin de banc : la lecture de `ops.json` (preuve de survie) est rejouee
   (`read_ops`, 3 x 90 s) et un echec s ajoute a `report.errors` sans perdre
   les resultats des niveaux (un `exec` de plus de 60 s sur machine saturee
@@ -350,9 +366,10 @@ au demarrage au lieu de 75 min de niveaux rouges.
   ou elle devient bloquante, sans demander (proprietaire, 2026-10-17 : tout
   retrait d un doublon est automatique). Passe du 2026-10-14 : cabin-from-scratch (dans
   cabin-across-water) et bucket (dans powered-rail-line) retires ;
-  stone-hut-from-scratch (dans big-stone-house), craft/iron-pickaxe (dans
-  powered-rail-line) et chat/question-keeps-mission (dans stone-wall-question)
-  attendent la promotion de leur couverture ; 14 tests unitaires retires. Un
+  stone-hut-from-scratch (dans big-stone-house) retire le 2026-10-20 a la
+  promotion de sa couverture, craft/iron-pickaxe (dans powered-rail-line) le
+  meme jour ; chat/question-keeps-mission (dans stone-wall-question) attend
+  la promotion de la sienne ; 14 tests unitaires retires. Un
   niveau `skill/*` ne double pas son jumeau joue par le modele : il mesure le
   code seul.
 - Avant de proposer un changement d architecture, le chiffrer sur les bancs
@@ -424,7 +441,12 @@ Connaissances calculees par le code, servies au modele dans l etat :
   cible = l objet a fabriquer, sinon l outil qu exige la matiere d une
   construction ou d une recolte (pioche en bois pour la pierre) tant qu il
   manque et que le materiau en poche ne suffit pas ;
-  `harvestResource()` vise la premiere recolte du plan en vue ;
+  `harvestResource()` vise la premiere recolte du plan en vue ; chantier
+  pose sans sa porte demandee : la porte est la cible (`porteCible`, sinon la
+  pierre du brief etait recoltee jusqu au plafond, 2026-10-19) ; combustible
+  d une cuisson : ce qui est en poche (charbon, buches, planches, batons),
+  puis du charbon mine s il y a un minerai de charbon en vue (`charbonVu`),
+  sinon des planches (2026-10-20 : le dernier bois partait au four) ;
 - **besoins d un chantier** (`state.besoins`) : blocs restants, planches,
   porte, etabli, buches a recolter d un coup ;
 - **arbre entier** (`arbre_demande`), arbre commence a finir (`arbre_en_cours`), `objets_au_sol` (nom, nombre, hauteur
@@ -705,7 +727,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  104 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
+  106 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
   reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -713,13 +735,15 @@ dans `docs/journal.md` (section « Les pieges »).
   retire se joue seulement si `Banc:` ou `levels` le nomme exactement ; un
   niveau simple qui protege un correctif recent se remet en le retirant de la
   liste. Promus bloquants le meme jour (ci/promotion.py) :
-  `composite/stone-hut-from-scratch`, `composite/cabin-across-water`,
-  `ouvert/hors-capacite`, `skill/stone-hut-batir`.
+  `composite/stone-hut-from-scratch` (retire depuis), `composite/cabin-across-water`,
+  `ouvert/hors-capacite`, `skill/stone-hut-batir` ; le 2026-10-20 :
+  `composite/stone-toolkit`, `composite/big-stone-house`, `composite/lit-cabin`,
+  `composite/powered-rail-line` (craft/iron-pickaxe retire).
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 158 niveaux avec variantes, 41 joues par defaut dont 22 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 158 niveaux avec variantes, 38 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,

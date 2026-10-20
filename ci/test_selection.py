@@ -32,7 +32,7 @@ class Selection(unittest.TestCase):
         self.assertNotIn('craft/planks', every)
         self.assertNotIn('build/wall~sans-plans', every)
         self.assertNotIn('craft/torches~sans-solveur', every)
-        self.assertIn('craft/iron-pickaxe', every)
+        self.assertIn('trees/tall', every)
         self.assertNotIn('craft/planks', names('craft/*'))
         self.assertEqual(names('build/wall~sans-plans'), ['build/wall~sans-plans'])
         with mock.patch.dict(os.environ, {'CI_LEVELS': ''}):
@@ -117,6 +117,15 @@ class RandomTwin(unittest.TestCase):
         trees._RANDOM_SEED.clear()
 
 
+class EntityCount(unittest.TestCase):
+    def test_paper_answer_is_read(self):
+        # Paper 26.1 : « Test passed. Count: 1 » ; read as 0 before (banc ac1001a).
+        self.assertEqual(trees.entity_count('Test passed. Count: 1'), 1)
+        self.assertEqual(trees.entity_count('Test passed, count: 3'), 3)
+        self.assertEqual(trees.entity_count('Test failed'), 0)
+        self.assertEqual(trees.entity_count(None), 0)
+
+
 if __name__ == '__main__':
     unittest.main()
 
@@ -129,3 +138,4 @@ class SkillExport(unittest.TestCase):
         with open(path, encoding='utf-8') as handle:
             committed = json.load(handle)
         self.assertEqual(committed, json.loads(json.dumps(trees.export_skills())))
+
