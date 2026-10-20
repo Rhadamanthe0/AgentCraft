@@ -2711,6 +2711,53 @@ function createMissionRunner (host, injected = {}) {
     return { detecte: false, raison: null }
   }
 
+  // Replanification sur evenement (idee d Astra, rmalde/minecraft-agent,
+  // proprietaire 2026-10-20). Un echec vide deja la file ; deux interrupteurs
+  // A/B, eteints, ajoutent d autres evenements :
+  //   - `replan_probleme` : un probleme rencontre interrompt le plan (etape
+  //     sans son effet mesure, degats subis, blocage qui apparait) ; `terminer`
+  //     prend une `raison` : le bot dit qu il est bloque et s arrete, accepte
+  //     seulement si une impasse est mesuree ;
+  //   - `replan_etape` : l etape du solveur franchie interrompt aussi le plan.
+  // La file est jetee (sauf les etapes d une reparation par le code) avec le
+  // plan anticipe en vol : le tour suivant planifie sur l etat reel.
+  function interrompreLePlan (genre, cause) {
+    if (mission.queue.length === 0 && !mission.prefetch) return false
+    const jetees = mission.queue.filter(e => !e.reparation).length
+    mission.queue = mission.queue.filter(e => e.reparation)
+    abortPrefetch(`plan interrompu (${cause})`)
+    const r = mission.replans = mission.replans ?? { probleme: 0, etape: 0, etapesJetees: 0, causes: {} }
+    r[genre] += 1
+    r.etapesJetees += jetees
+    r.causes[cause] = (r.causes[cause] ?? 0) + 1
+    traceDe(mission)?.push({ type: 'replan', genre, cause, jetees })
+    console.log(`[mission] plan interrompu (${genre} : ${cause}, ${jetees} etape(s) jetee(s))`)
+    return true
+  }
+
+  // Tete du plan du solveur (operation et objet) : son changement apres une
+  // etape reussie dit que l etape de la chaine est franchie.
+  function teteSolveur () {
+    const premiere = acquisition()?.etapes?.[0]
+    return premiere ? `${premiere.op}:${premiere.objet}` : null
+  }
+
+  // Probleme rencontre par une etape qui n a pas echoue (A/B replan_probleme).
+  function problemeDeLEtape (outcome, vieAvant) {
+    if (outcome.sansEffet) return 'etape sans effet mesure'
+    const vie = host.getBot()?.health
+    if (Number.isFinite(vieAvant) && Number.isFinite(vie) && vie < vieAvant) return 'degats subis'
+    return null
+  }
+
+  // Un arret pour blocage n est accepte que sur une impasse mesuree : blocage
+  // detecte, echec ou etape sans effet parmi les trois dernieres (l etape
+  // `terminer` elle-meme exclue).
+  function impasseMesuree () {
+    return Boolean(mission.stuck) || mission.failures > 0 ||
+      mission.history.slice(-4, -1).some(h => h.echec || h.sans_effet)
+  }
+
   // -------------------------------------------------------------------------
   // Inventaire : en survie, c est lui qui decide de ce qui est possible
   // -------------------------------------------------------------------------
@@ -6764,6 +6811,7 @@ function createMissionRunner (host, injected = {}) {
       if (state.blocage?.detecte && !mission.stuckAnnounced) {
         mission.stuckAnnounced = true
         signalBlocage(state.blocage.raison)
+        if (featureOn('replan_probleme', false)) interrompreLePlan('probleme', 'blocage detecte')
       } else if (!state.blocage?.detecte) {
         mission.stuckAnnounced = false
       }
@@ -6897,6 +6945,8 @@ function createMissionRunner (host, injected = {}) {
       const effetAttendu = CONTRATS[decision.step]?.effet ?? null
       const avantEffet = effetAttendu && !outcome ? mesuresEffet() : null
       const debutEtape = Date.now()
+      const vieAvant = featureOn('replan_probleme', false) ? host.getBot()?.health : null
+      const teteAvant = featureOn('replan_etape', false) ? teteSolveur() : null
       const departEtape = host.getBot()?.entity?.position?.clone?.() ?? null
 
       if (!outcome) try {
@@ -7101,6 +7151,25 @@ function createMissionRunner (host, injected = {}) {
       // (docs/journal.md, piege 17).
       if (outcome.fin) {
         const allowed = finishAllowed(buildState())
+        // Arret motive (A/B replan_probleme) : « je suis bloque, parce que... ».
+        // Jamais sur un arbre commence ; sans impasse mesuree, refuse comme un
+        // arret premature (3 fois au plus), puis accepte.
+        const raison = featureOn('replan_probleme', false) && !allowed.ok && !arbreOuvert
+          ? String(outcome.raison ?? '').trim().slice(0, 120) : ''
+        if (raison) {
+          if (impasseMesuree() || mission.finishRefused >= REFUSALS_BEFORE_YIELD) {
+            traceDe(mission)?.push({ type: 'arret_motive', raison })
+            console.log(`[mission] arret motive : ${raison}`)
+            finish('failed', `bloque : ${raison}`)
+            return
+          }
+          mission.finishRefused += 1
+          mission.refusalNote = `arret pour blocage refuse : aucune impasse mesuree (ni echec recent ni blocage detecte) ; ${allowed.why}`
+          mission.queue = []
+          abortPrefetch('arret motive refuse')
+          console.log(`[mission] arret motive refuse (${mission.finishRefused}/${REFUSALS_BEFORE_YIELD}) : ${raison}`)
+          continue
+        }
         // Quantite explicite pas encore en inventaire, ou arbre demande pas
         // fini : meme refus reinjecte que pour `fini` (3 au plus), au lieu de
         // clore la mission en echec (chat/replace-and-join 73b4876 : plan
@@ -7141,6 +7210,17 @@ function createMissionRunner (host, injected = {}) {
         ]
         if (!outcome.echec) abortPrefetch('reparation par le code, plan speculatif jete')
         console.log(`[mission] reparation (${outcome.code}) : ${remedes.map(m => `${m.action} (${m.pourquoi})`).join(', ')}${outcome.echec ? `, puis ${decision.step} rejoue` : ''}`)
+      }
+
+      // Replanification sur evenement (voir interrompreLePlan) : l echec est
+      // traite plus bas ; ici les evenements d une etape qui n a pas echoue.
+      if (!outcome.echec) {
+        const probleme = featureOn('replan_probleme', false) ? problemeDeLEtape(outcome, vieAvant) : null
+        if (probleme) {
+          interrompreLePlan('probleme', probleme)
+        } else if (teteAvant && teteSolveur() !== teteAvant) {
+          interrompreLePlan('etape', 'etape du solveur franchie')
+        }
       }
 
       // Repeter la meme action ratee indefiniment ne mene nulle part : mieux
@@ -8252,6 +8332,8 @@ function createMissionRunner (host, injected = {}) {
       acces: mission.acces ?? null,
       // Reparations par le code (A/B reparer) : nombre et codes.
       reparations: mission.reparations ?? null,
+      // Plans interrompus sur evenement (A/B replan_probleme, replan_etape).
+      replans: mission.replans ?? null,
       // Reconnexion : sans monde avant le spawn, la derniere mesure vaut.
       arbre_entier: mission.wholeTree ? (etatArbreSur() ?? { commence: false }) : null,
       echafaudage_laisse: mission.echafaudageLaisse ?? 0,

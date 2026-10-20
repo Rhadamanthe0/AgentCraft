@@ -820,7 +820,7 @@ def base_levels():
             'leaves': [box for (x, z) in ACROSS_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ACROSS_TREES for i in range(5)]),
-            'rules': {}, 'variants': [*MODELES_AB],
+            'rules': {}, 'variants': [*REPLAN_AB, *MODELES_AB],
         },
         # Palier 3 (2026-10-10, demande du proprietaire) : taches qu un vrai
         # joueur donnerait, plus longues que les cabanes, depuis un inventaire
@@ -837,7 +837,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [*REPLAN_AB],
         },
         {
             'name': 'composite/bucket',
@@ -864,7 +864,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [*REPLAN_AB],
         },
         {
             'name': 'composite/lit-cabin',
@@ -882,7 +882,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31)) for i in range(5)]),
-            'rules': {}, 'variants': [sans('poser')],
+            'rules': {}, 'variants': [*REPLAN_AB, sans('poser')],
         },
         {
             # Demande du proprietaire (2026-10-10) : chaine la plus longue du
@@ -907,7 +907,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [sans('poser')],
+            'rules': {}, 'variants': [*REPLAN_AB, sans('poser')],
         },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
@@ -1885,6 +1885,14 @@ def modele(name):
 MODELES_AB = []
 
 
+# Replanification sur evenement (proprietaire, 2026-10-20, idee d Astra) :
+# un probleme rencontre interrompt le plan et `terminer {raison}` arrete le bot
+# bloque (`replan_probleme`) ; l etape du solveur franchie l interrompt aussi
+# (`replan_etape`). Poses sur les composites durs, retires du banc complet
+# (RETIRED) : la campagne les joue par `Banc:`.
+REPLAN_AB = [avec('replan_probleme'), avec('replan_etape')]
+
+
 # Reasoning effort A/B (owner's request, 2026-10-09): plans and chat at
 # another effort (`none` = thinking disabled); the brief keeps its own.
 # Measured on 3 benches (33 pairs each, AGENTS.md): `low` stays; no level
@@ -1993,6 +2001,10 @@ RETIRED = frozenset({
     'build/no-materials~sans-plans_longs', 'trees/tall~sans-plans_longs', 'trees/double~sans-plans_longs',
     'craft/iron-pickaxe~sans-plans_longs', 'composite/cabin-from-scratch~sans-plans_longs',
     'composite/stone-hut-from-scratch~sans-plans_longs',
+    # Replanification sur evenement (2026-10-20) : campagne A/B par `Banc:`.
+    *[f'{n}~{v}' for n in ('composite/cabin-across-water', 'composite/stone-toolkit', 'composite/big-stone-house',
+                           'composite/lit-cabin', 'composite/powered-rail-line')
+      for v in ('avec-replan_probleme', 'avec-replan_etape')],
 })
 
 # Owner's limit (2026-10-10): a full bench plays fewer than 50 tests (levels,
@@ -2455,6 +2467,9 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
                 modes['acces'] = m['acces']
             if m.get('reparations'):
                 modes['reparations'] = m['reparations']
+            # replan_probleme / replan_etape: plans cut short, by event.
+            if m.get('replans'):
+                modes['replans'] = m['replans']
             par_action = (result.get('trace') or {}).get('parAction') or {}
             for action in ('batir', 'obtenir', 'poser', 'utiliser'):
                 if par_action.get(action):

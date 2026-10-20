@@ -166,7 +166,22 @@ reussies : appels au modele -36 %, duree totale +3 %, trees/tall +33 % ;
 `sans(...)` sur terrain/plateau, gather/sand-walled, build/no-materials,
 trees/tall, trees/double, craft/iron-pickaxe et les composites cabane et
 maison en pierre, retires du banc complet ; compteur `modes.plans` : etapes
-et appels).
+et appels) ; `replan_probleme` et `replan_etape` (eteints, 2026-10-20,
+demande du proprietaire, idee d Astra : replanifier sur evenement ; un echec
+vide deja la file. `replan_probleme` : une etape sans effet mesure, des
+degats subis ou un blocage qui apparait (`detectStuck`) jettent aussi la file
+et le plan anticipe (`interrompreLePlan`, etapes d une reparation gardees) ;
+`terminer {raison}` (parametre servi avec le mode) arrete le bot bloque,
+« Échec : bloque : <raison> » dans le chat, accepte seulement sur une impasse
+mesuree (`impasseMesuree` : blocage detecte, echec ou etape sans effet parmi
+les trois dernieres ; sinon refuse comme un arret premature, 3 fois au plus),
+jamais sur un arbre commence. `replan_etape` : la tete du plan du solveur
+(operation et objet, `teteSolveur`) changee par une etape reussie jette la
+file (proprietaire : « une etape franchie pas forcement », a mesurer).
+`avec(...)` (`REPLAN_AB`) sur cabin-across-water, stone-toolkit,
+big-stone-house, lit-cabin et powered-rail-line, retires du banc complet ;
+compteur `modes.replans` : interruptions par genre et cause, etapes jetees ;
+tmp/replan.test.js).
 
 A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
 liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)
@@ -730,8 +745,8 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  106 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
-  reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
+  116 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
+  reste jouee ; les variantes `REPLAN_AB` y sont, jouees par `Banc:`) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
   (`terrain/far-hedge-pit` remplace far-tree, pit et hedge-pit). Un niveau
@@ -746,7 +761,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 158 niveaux avec variantes, 38 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 168 niveaux avec variantes, 38 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
