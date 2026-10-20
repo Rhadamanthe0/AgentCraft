@@ -104,18 +104,14 @@ const EFFECTIVE_MAX_TOKENS = Math.max(Number.isFinite(MAX_TOKENS) ? MAX_TOKENS :
 // `incomplete (max_output_tokens)` a 2000 jetons sur le vrai prompt, avant
 // toute stat d appel. Le pilote vise donc 4096 par defaut, avec UN reessai a
 // 8192 sur troncature ; DeepSeek garde 2000 (EFFECTIVE_MAX_TOKENS). Revisable
-// par env, sans changer de fournisseur ni toucher au transport.
-// Note contrat transport (llm.js) : aucune option `reasoning`/`effort` n y
-// existe ; le seul levier est maxTokens (max_tokens / max_output_tokens selon
-// protocole). D ou ce budget par modele, sans modifier llm.js.
-// Raisonnement du modele unique (chat) : `PLANNER_THINKING=disabled` envoie
-// `thinking: {type: 'disabled'}` (deja utilise par le mode dual). Mesure CI :
+// par env.
+// `PLANNER_THINKING=disabled` envoie `thinking: {type: 'disabled'}`. Mesure CI :
 // 86 % des jetons produits etaient du raisonnement, ~3,9 s par plan. Un 400
 // sur ce champ fait rejouer l appel sans lui ; deux refus suivis d un succes
 // sans le champ le retirent pour la session (annonce une fois).
 const THINKING = (process.env.PLANNER_THINKING || '').trim().toLowerCase()
-// Refus du champ comptes PAR MODELE : un modele gratuit qui le refuse ne doit
-// pas rendre le raisonnement aux autres modeles de la chaine.
+// Refus du champ comptes PAR MODELE : un modele qui le refuse ne doit pas
+// rendre le raisonnement aux modeles des autres usages.
 const thinkingRefusals = new Map()
 const thinkingOff = new Set()
 // Meme regle pour `reasoning_effort` (PLANNER_REASONING_EFFORT[_<USAGE>]).
@@ -157,7 +153,7 @@ function currentSession () {
 }
 function isUpstreamRefusal (err) {
   // « Model is unavailable » : le modele lui-meme est absent, changer de
-  // session n y fait rien (la chaine de modeles passe au suivant).
+  // session n y fait rien.
   const text = String(err?.message ?? '')
   return err?.code === 'LLM_HTTP' && err?.status === 400 && /upstream request failed/i.test(text) && !/model is unavailable/i.test(text)
 }
@@ -1216,8 +1212,7 @@ async function plan (state, kind, supply, extra = {}, image = null, opts = {}) {
     ((stats.moyenne_ms ?? response.ms) * (stats.appels - 1) + response.ms) / stats.appels
   )
   stats.derniers_jetons = response.usage?.prompt_tokens ?? null
-  // DeepSeek nomme ainsi la part servie depuis son cache ; Ollama ne renseigne
-  // rien, son gain se lit dans la latence.
+  // DeepSeek nomme ainsi la part servie depuis son cache.
   stats.jetons_en_cache = response.usage?.prompt_cache_hit_tokens ??
     response.usage?.prompt_tokens_details?.cached_tokens ?? null
   stats.jetons_total += response.usage?.prompt_tokens ?? 0

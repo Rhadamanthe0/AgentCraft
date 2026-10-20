@@ -1306,11 +1306,6 @@ function parameterized () {
 // composer, c est leur intent, leurs parametres, et les exemples concrets
 // ci-dessous. Un exemple n est PAS du code et n est jamais execute : c est un
 // modele de composition que le planificateur imite.
-//
-// La documentation est native seulement : l aide distante qui la reecrivait
-// (repair.js, overlay /data/actions-doc.json) est retiree le 2026-09-27, et
-// l overlay avec elle le 2026-09-28 (il n avait plus d auteur, et un vieux
-// fichier du volume aurait continue d egarer le modele).
 // ---------------------------------------------------------------------------
 
 const ACTION_EXEMPLES = {

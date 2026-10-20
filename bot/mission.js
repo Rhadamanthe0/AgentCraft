@@ -3427,8 +3427,7 @@ function createMissionRunner (host, injected = {}) {
         bloc_cible_a_portee: Boolean(block && blockInReach(bot, position, block.position.offset(0.5, 0.5, 0.5), REACH)),
         // Indice de navigation : le code mesure, le modele ne compte pas. Il
         // lit l angle a tourner (positif = a gauche, negatif = a droite) puis
-        // demande `avancer` de la distance indiquee. C est ce qui remplace
-        // `approcher`/`explorer`, delegues au pathfinder et retires.
+        // demande `avancer` de la distance indiquee.
         navigation: nav,
         objets_au_sol_a_proximite: nearbyItems().length,
         // Nom, nombre et hauteur relative (dy) des objets tombes : un minerai
@@ -4083,13 +4082,6 @@ function createMissionRunner (host, injected = {}) {
   }
 
   const ACTIONS = {
-    // Il y avait ici `approcher`, qui deleguait au pathfinder (GoalNearXZ). Le
-    // pathfinder est casse au-dela de quelques blocs sur cette version (arret a
-    // distance en annoncant success, ou timeout) : le deplacement de mission est
-    // desormais compose par le planificateur avec les gestes unitaires
-    // `regarder`/`pivoter` + `avancer`, guides par l indice de navigation
-    // (environnement.navigation) mesure dans buildState().
-
     // Meme navigateur que !viens : A* pour le chemin, execution locale verifiee.
     // Le modele choisit la destination, jamais les touches du trajet.
     async rejoindre_demandeur (scale, params = {}) {
@@ -4958,11 +4950,6 @@ function createMissionRunner (host, injected = {}) {
       }
       return { resultat: `don impossible (${res.reason}) : ${res.deposited}/${res.requested} depose(s)${notePlafond}`, echec: true, code: res.reason, livraison: vue }
     },
-
-    // Il y avait ici `explorer`, qui deleguait au pathfinder (GoalNearXZ sur un
-    // cap des HEADINGS). Retire du catalogue : le planificateur navigue
-    // desormais lui-meme avec `pivoter`/`regarder` + `avancer`, et l indice
-    // `environnement.navigation` de buildState() lui dit ou aller.
 
     // Avec cible : trajet A* vers un poste d interaction. Sans cible : geste
     // dans le cap courant, avec budget de distance mesure.
