@@ -178,8 +178,9 @@ les trois dernieres ; sinon refuse comme un arret premature, 3 fois au plus),
 jamais sur un arbre commence. `replan_etape` : la tete du plan du solveur
 (operation et objet, `teteSolveur`) changee par une etape reussie jette la
 file (proprietaire : « une etape franchie pas forcement », a mesurer).
-`avec(...)` (`REPLAN_AB`) sur cabin-across-water, stone-toolkit,
-big-stone-house, lit-cabin et powered-rail-line, retires du banc complet ;
+`avec(...)` (`REPLAN_AB`) sur big-stone-house, lit-cabin et
+powered-rail-line (les composites qui echouent encore parfois ; banc A/B 1 :
+5/5 contre 5/5, ne departageait pas), retires du banc complet ;
 compteur `modes.replans` : interruptions par genre et cause, etapes jetees ;
 tmp/replan.test.js).
 
@@ -745,7 +746,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  116 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
+  112 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
   reste jouee ; les variantes `REPLAN_AB` y sont, jouees par `Banc:`) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -761,7 +762,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 168 niveaux avec variantes, 38 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 164 niveaux avec variantes, 38 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,

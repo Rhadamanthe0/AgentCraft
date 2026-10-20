@@ -820,7 +820,7 @@ def base_levels():
             'leaves': [box for (x, z) in ACROSS_TREES
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ACROSS_TREES for i in range(5)]),
-            'rules': {}, 'variants': [*REPLAN_AB, *MODELES_AB],
+            'rules': {}, 'variants': [*MODELES_AB],
         },
         # Palier 3 (2026-10-10, demande du proprietaire) : taches qu un vrai
         # joueur donnerait, plus longues que les cabanes, depuis un inventaire
@@ -837,7 +837,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [*REPLAN_AB],
+            'rules': {},
         },
         {
             'name': 'composite/bucket',
@@ -1888,8 +1888,10 @@ MODELES_AB = []
 # Replanification sur evenement (proprietaire, 2026-10-20, idee d Astra) :
 # un probleme rencontre interrompt le plan et `terminer {raison}` arrete le bot
 # bloque (`replan_probleme`) ; l etape du solveur franchie l interrompt aussi
-# (`replan_etape`). Poses sur les composites durs, retires du banc complet
-# (RETIRED) : la campagne les joue par `Banc:`.
+# (`replan_etape`). Poses sur les composites qui echouent encore parfois au
+# banc complet (un A/B departage sur des niveaux durs, proprietaire
+# 2026-10-20 : cabane et outils en pierre, toujours reussis, n en sont plus),
+# retires du banc complet (RETIRED) : la campagne les joue par `Banc:`.
 REPLAN_AB = [avec('replan_probleme'), avec('replan_etape')]
 
 
@@ -2002,8 +2004,7 @@ RETIRED = frozenset({
     'craft/iron-pickaxe~sans-plans_longs', 'composite/cabin-from-scratch~sans-plans_longs',
     'composite/stone-hut-from-scratch~sans-plans_longs',
     # Replanification sur evenement (2026-10-20) : campagne A/B par `Banc:`.
-    *[f'{n}~{v}' for n in ('composite/cabin-across-water', 'composite/stone-toolkit', 'composite/big-stone-house',
-                           'composite/lit-cabin', 'composite/powered-rail-line')
+    *[f'{n}~{v}' for n in ('composite/big-stone-house', 'composite/lit-cabin', 'composite/powered-rail-line')
       for v in ('avec-replan_probleme', 'avec-replan_etape')],
 })
 
