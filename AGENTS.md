@@ -244,7 +244,15 @@ au demarrage au lieu de 75 min de niveaux rouges.
   supplementaires comptes, dans l arene ou une zone qui suit rotation et
   miroir), `composite/powered-rail-line` (ligne de minecart entre deux
   laines avec rails accelerateurs : fer, or, redstone, cuisson ; `entities` :
-  minecart present) ; ces deux derniers gardent la variante `~sans-poser`. Une ferme a canne a sucre exige `culture` et `mecanisme`
+  minecart present) ; ces deux derniers gardent la variante `~sans-poser`. Imprevu du monde
+  (proprietaire, 2026-10-20, « important qu il s adapte aux changements »,
+  idee des `missing_items` de Mindcraft) : cle `perturbations` d un niveau
+  `gather` ou `build` (`trees.perturbateur`) ; des que le bot tient l objet
+  `quand`, le banc lui retire des objets (`retirer`) et enleve des blocs de
+  l arene (`enlever`), une fois, sans le dire ; check `imprevus_subis`.
+  `composite/stolen-pickaxe` (informatif, avec jumeau) : four demande, pioche
+  en bois et etabli pris des que la pioche est faite. Pas encore d action
+  retiree (`blocked_actions`) : a faire si ce niveau ne differencie plus. Une ferme a canne a sucre exige `culture` et `mecanisme`
   (circuits) : ce n est pas encore un niveau.
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
   escalier (jamais un puits vertical). Difficulte paisible pour l instant.
@@ -746,7 +754,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 158 niveaux avec variantes, 38 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 160 niveaux avec variantes, 40 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,

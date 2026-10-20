@@ -884,6 +884,25 @@ def base_levels():
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31)) for i in range(5)]),
             'rules': {}, 'variants': [sans('poser')],
         },
+        # Imprevu du monde (proprietaire, 2026-10-20 : « important qu il s adapte
+        # aux changements »). Rien n est dit au bot : pioche et etabli
+        # disparaissent des que la pioche est faite ; il doit voir le manque,
+        # refaire etabli et pioche, puis le four (qui exige un etabli).
+        {
+            'name': 'composite/stolen-pickaxe',
+            'about': 'Inventaire vide, deux arbres et un rocher, « Fabrique-moi un four » ; des que le bot tient une pioche '
+                     'en bois, le banc lui prend pioche et etabli (poche et arene), sans rien dire : il doit refaire les deux.',
+            'kind': 'gather', 'cap': PALIER3_CAP_S, 'informative': True,
+            'instruction': 'Fabrique-moi un four',
+            'items': ['furnace'], 'target': 1,
+            'perturbations': [{'quand': 'wooden_pickaxe', 'retirer': ['wooden_pickaxe', 'crafting_table'],
+                               'enlever': ['crafting_table']}],
+            'terrain': [(4, 200, 24, 10, 202, 30, 'stone')],
+            'leaves': [box for (x, z) in ((28, 6), (30, 28))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((28, 6), (30, 28)) for i in range(5)]),
+            'rules': {},
+        },
         {
             # Demande du proprietaire (2026-10-10) : chaine la plus longue du
             # banc, fer et or cuits, redstone, rails poses entre deux reperes.
@@ -1338,6 +1357,33 @@ BUILD_CAP_S = 300
 BUILD_IDLE_S = 600
 
 
+def perturbateur(level, x0, username, rcon, started):
+    """Imprevus du monde (proprietaire, 2026-10-20, idee des `missing_items` de
+    Mindcraft) : des que le bot tient l objet `quand`, le banc lui retire les
+    objets `retirer` et enleve de l arene les blocs `enlever` (un autre joueur
+    prend l outil et l etabli). Chacun une fois, dans l ordre. Le bot n en est
+    pas averti : il doit voir le manque a l inventaire et au monde, puis
+    refaire ce qu il faut. Rend (pas, faits) ; pas() a chaque tour de boucle."""
+    pending, done = list(level.get('perturbations', [])), []
+
+    def step():
+        while pending:
+            p = pending[0]
+            match = re.search(r'Found (\d+)', rcon(f"clear {username} minecraft:{p['quand']} 0"))
+            if not match or int(match.group(1)) < 1:
+                return
+            pending.pop(0)
+            for item in p.get('retirer', []):
+                rcon(f'clear {username} minecraft:{item}')
+            for block in p.get('enlever', []):
+                rcon(f'fill {x0} 200 0 {x0 + SIZE} {TOP_Y} {SIZE} air replace minecraft:{block}')
+            done.append({'t': round(time.monotonic() - started, 1), 'quand': p['quand'],
+                         'retire': p.get('retirer', []), 'enleve': p.get('enlever', [])})
+            print(f"{level['name']} : imprevu a {done[-1]['t']} s, {p['quand']} en poche : "
+                  f"retire {p.get('retirer', [])}, enleve {p.get('enlever', [])}", flush=True)
+    return step, done
+
+
 def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count):
     """Materials given by RCON, then « Construis ... » from the silent probe;
     blocks placed above the floor are counted in the arena by RCON. The bot
@@ -1358,6 +1404,7 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     # une fois chacun, mission en cours, par la meme voie que l ordre initial.
     events = sorted(level.get('events', []))
     event_answers = []
+    perturber, perturbations = perturbateur(level, x0, username, rcon, started)
     seen, end_reason, last_count_at, now_placed = False, f'plafond de {cap} s hors attente du modele', 0, before
     signature, changed_at = None, time.monotonic()
     plafond = Plafond(cap)
@@ -1380,6 +1427,8 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
             event_answers.append({'t': round(time.monotonic() - started, 1), 'message': message,
                                   'relation': reply.get('relation') if isinstance(reply, dict) else None})
             continue
+        if seen:
+            perturber()
         if time.monotonic() - last_count_at >= 5:
             now_placed, last_count_at = placed(), time.monotonic()
         timeline.append({'t': round(time.monotonic() - started, 1), 'pos': s.get('position'), 'running': running,
@@ -1438,11 +1487,13 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     if level.get('events'):
         # Un imprevu jamais dit (mission finie avant) ne teste rien.
         checks['imprevus_envoyes'] = len(event_answers) == len(level['events'])
+    if level.get('perturbations'):
+        checks['imprevus_subis'] = len(perturbations) == len(level['perturbations'])
     failed = [k for k, v in checks.items() if not v]
     return {
         'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
         'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
-        'events': event_answers, 'blocksPlaced': built, 'target': level['target'], 'doorBlocks': doors,
+        'events': event_answers, 'perturbations': perturbations, 'blocksPlaced': built, 'target': level['target'], 'doorBlocks': doors,
         'progress': progression(parts),
         'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
         'botFinalPosition': final.get('position'), 'probe': probe_name,
@@ -1465,6 +1516,7 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     started = time.monotonic()
     timeline = []
     answer = instruct(level, bot, bot_api, level['instruction'], probe_name)
+    perturber, perturbations = perturbateur(level, x0, username, rcon, started)
 
     def held_each():
         found = {}
@@ -1489,6 +1541,8 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         seen = seen or running
         if s.get('onGround') and p.get('y') is not None:
             lowest = min(lowest, p['y'])
+        if seen:
+            perturber()
         if time.monotonic() - last_count_at >= 3:
             count, last_count_at = held(), time.monotonic()
         timeline.append({'t': round(time.monotonic() - started, 1), 'pos': p, 'running': running, 'count': count,
@@ -1531,8 +1585,12 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         error = str((answer or {}).get('error') or '')
         checks = {'refus_dit': 'je ne sais pas encore' in error, 'aucune_mission': not seen,
                   'refus_rapide': time.monotonic() - started < 60, 'aucun_degat': damage == 0}
+    if level.get('perturbations'):
+        # Un imprevu jamais declenche (objet jamais tenu) ne teste rien.
+        checks['imprevus_subis'] = len(perturbations) == len(level['perturbations'])
     (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
-        json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
+        json.dumps({'bot': username, 'answer': answer, 'perturbations': perturbations, 'timeline': timeline},
+                   indent=1), encoding='utf-8')
     if level.get('expectRefusal'):
         progress = None
     elif each:
@@ -1544,6 +1602,7 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
         'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
         'itemsHeld': count, 'target': level['target'], 'lowestStandingY': round(lowest, 2),
+        **({'perturbations': perturbations} if level.get('perturbations') else {}),
         'progress': progress,
         **({'tirage': level['tirage']} if level.get('tirage') else {}),
         'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
