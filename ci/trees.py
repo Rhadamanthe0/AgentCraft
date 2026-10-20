@@ -825,12 +825,13 @@ def base_levels():
         },
         # Palier 3 (2026-10-10, demande du proprietaire) : taches qu un vrai
         # joueur donnerait, plus longues que les cabanes, depuis un inventaire
-        # vide. Informatifs, sans variante (modele unique : Haiku effort low).
+        # vide. Informatifs au depart ; stone-toolkit, big-stone-house et
+        # lit-cabin bloquants depuis le 2026-10-20 (5 bancs sur 5).
         {
             'name': 'composite/stone-toolkit',
             'about': 'Inventaire vide, deux arbres et un rocher, « Equipe-toi : fabrique-toi une pioche, une hache et une epee en pierre » : '
                      'bois, etabli, pioche en bois, pierre, puis les trois outils en pierre en inventaire.',
-            'kind': 'gather', 'cap': PALIER3_CAP_S, 'informative': True,
+            'kind': 'gather', 'cap': PALIER3_CAP_S,
             'instruction': 'Equipe-toi : fabrique-toi une pioche, une hache et une epee en pierre',
             'items': ['stone_pickaxe', 'stone_axe', 'stone_sword'], 'target': 3, 'each': True,
             'terrain': [(22, 200, 2, 30, 202, 8, 'stone')],
@@ -857,7 +858,7 @@ def base_levels():
             'name': 'composite/big-stone-house',
             'about': 'Inventaire vide, deux arbres et un grand rocher, « Construis-moi une maison en pierre de 5 par 5 par 3 avec une porte » : '
                      'pioche, une quarantaine de pierres extraites, porte en bois fabriquee, maison posee.',
-            'kind': 'build', 'cap': PALIER3_CAP_S, 'informative': True,
+            'kind': 'build', 'cap': PALIER3_CAP_S,
             'instruction': 'Construis-moi une maison en pierre de 5 par 5 par 3 avec une porte',
             'blocks': ['minecraft:cobblestone'], 'target': 40, 'door': True, 'minTop': 3,
             'terrain': [(20, 200, 2, 32, 203, 10, 'stone')],
@@ -870,7 +871,7 @@ def base_levels():
             'name': 'composite/lit-cabin',
             'about': 'Inventaire vide, trois arbres et un rocher avec du charbon, « Construis-moi une cabane en bois de 4 par 4 par 3 '
                      'avec une porte, et eclaire-la avec des torches » : cabane, porte, charbon extrait, torches fabriquees et posees.',
-            'kind': 'build', 'cap': PALIER3_CAP_S, 'informative': True,
+            'kind': 'build', 'cap': PALIER3_CAP_S,
             'instruction': 'Construis-moi une cabane en bois de 4 par 4 par 3 avec une porte, et eclaire-la avec des torches',
             'blocks': ['#minecraft:planks'], 'target': 30, 'door': True,
             'also': {'torches_posees': (['minecraft:torch', 'minecraft:wall_torch'], 2)},
@@ -1997,6 +1998,8 @@ RETIRED = frozenset({
     # Dedoublonnage (proprietaire, 2026-10-14 : un niveau inclus dans un plus
     # complexe part, le plus complexe reste ; refait a chaque ajout de niveau).
     'composite/cabin-from-scratch', 'composite/bucket',
+    # Promotion de sa couverture le 2026-10-20 (5 bancs sur 5, jumeau compris).
+    'composite/stone-hut-from-scratch',
     # Plans longs (2026-10-16, idee des agents Gemini, arXiv 2610.22319),
     # allumes par defaut le 2026-10-17 (A/B : 16 paires, -36 % d appels) :
     # le bras sans le mode se joue par `Banc:`.
@@ -2043,6 +2046,7 @@ COVERED_BY = {
     'skill/tree-reachable': 'skill/tree-pillar', 'skill/dirt-box': 'skill/stone-hut-batir',
     'skill/cabin-batir': 'skill/stone-hut-batir', 'trees/skirted': 'trees/tall',
     'composite/cabin-from-scratch': 'composite/cabin-across-water', 'composite/bucket': 'composite/powered-rail-line',
+    'composite/stone-hut-from-scratch': 'composite/big-stone-house',
 }
 
 
