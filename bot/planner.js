@@ -1349,7 +1349,9 @@ chantier de blocs (rails, torches, levier, cloture, minecart, bateau...),
 la liste de ces objets, nom d objet Minecraft en anglais comme dans le jeu,
 avec la quantite si elle est dite : [{"objet": "torch", "quantite": 4}] ;
 sinon null. Chaque objet que la demande fait poser y figure, meme implicite
-(un objet qui roule sur des rails exige ces rails). Des objets en ligne d un
+(un objet qui roule sur des rails exige ces rails), et l objet qui donne son
+nom a l ouvrage aussi (« un quai a bateaux » pose au moins un bateau). Des
+objets en ligne d un
 bloc nomme a un autre : l entree porte aussi "de" et "vers", noms de bloc
 anglais du jeu, et le bot couvre toute la ligne ("une cloture du chene au
 bouleau" -> [{"objet": "oak_fence", "de": "oak_log", "vers": "birch_log"}]).

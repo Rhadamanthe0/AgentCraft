@@ -290,9 +290,15 @@ function createPoser (deps) {
         ? { resultat: `ligne deja couverte : aucune case libre entre ${params.de} et ${params.vers}`, code: 'plan' }
         : { resultat: 'aucune case libre et appuyee ou poser', echec: true, code: 'aucune_case' }
     }
-    const demande = Number.isFinite(Number(params.quantite))
+    // Ligne : les cases gardees pour les autres objets a poser encore
+    // attendus (rails accelerateurs d une ligne de rails), jamais prises.
+    const garde = ligne ? Math.max(0, deps.casesGardees?.(objet) ?? 0) : 0
+    if (garde >= cibles.length) {
+      return { resultat: `les ${cibles.length} case(s) libre(s) de la ligne sont gardees pour les autres objets a poser`, code: 'plan' }
+    }
+    const demande = Math.min(cibles.length - garde, Number.isFinite(Number(params.quantite))
       ? Math.max(1, Math.min(QUANTITE_MAX, Math.round(Number(params.quantite))))
-      : (ligne ? Math.min(QUANTITE_MAX, cibles.length) : 1)
+      : (ligne ? Math.min(QUANTITE_MAX, cibles.length) : 1))
 
     let poses = 0
     let derniere = null

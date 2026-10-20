@@ -741,7 +741,7 @@ function createMissionRunner (host, injected = {}) {
   // Objets a poser pas encore tous poses : voulus, poses (verifies), en poche,
   // et le manque a obtenir avant de poser le reste.
   function posesManquantes () {
-    return posesMesurees().filter(p => p.libres === undefined ? p.posees < p.voulues : p.libres > 0)
+    return posesMesurees().filter(p => p.libres === undefined ? p.posees < p.voulues : p.libres > p.gardees)
   }
 
   // Chaque objet a poser, mesure : voulu, pose (verifie), en poche. Une pose
@@ -753,27 +753,47 @@ function createMissionRunner (host, injected = {}) {
   function posesMesurees () {
     const bot = host.getBot()
     const items = bot?.inventory?.items() ?? []
+    const lignesVues = new Set()
     return (mission?.poses ?? []).map(p => {
       const posees = mission.posesFaites?.[p.objet] ?? 0
       const enPoche = items.filter(i => i.name === p.objet).reduce((n, i) => n + i.count, 0)
-      if (p.de && p.vers && bot?.entity) {
-        const cle = `${p.de}>${p.vers}`
+      const cle = p.de && p.vers ? `${p.de}>${p.vers}` : null
+      // La premiere entree d une ligne porte sa couverture ; une autre sur la
+      // meme ligne (rails accelerateurs) compte sa quantite. Sans cela, la
+      // ligne couverte de rails closait les rails accelerateurs a 0 pose
+      // (composite/powered-rail-line, banc 39334343738).
+      if (cle && bot?.entity && !lignesVues.has(cle)) {
+        lignesVues.add(cle)
         const l = etatLigne(bot, p.de, p.vers)
         if (!l.erreur) mission.lignesMesurees = { ...(mission.lignesMesurees ?? {}), [cle]: l.libres }
         const libres = l.erreur ? (mission.lignesMesurees?.[cle] ?? Math.max(1, (p.quantite ?? 1) - posees)) : l.libres
-        // Les autres blocs a poser hors ligne (rails accelerateurs d une
-        // ligne de rails) prendront des cases : a fabriquer en moins. Sans
-        // cela, 17 cases faisaient fabriquer 32 rails (12 fer au lieu de 6)
-        // et le fer manquait au minecart (composite/powered-rail-line,
-        // banc 39307567266). Une estimation : la ligne mesuree tranche.
-        const autres = (mission.poses ?? []).filter(o => o !== p && !(o.de && o.vers) && blocDeLObjet(bot.registry, o.objet))
-          .reduce((n, o) => n + Math.max(0, (o.quantite ?? 1) - (mission.posesFaites?.[o.objet] ?? 0)), 0)
-        return { objet: p.objet, voulues: posees + libres, posees, enPoche, manque: Math.max(0, libres - enPoche - autres), libres,
+        // Les autres blocs a poser prendront des cases : a fabriquer en
+        // moins. Sans cela, 17 cases faisaient fabriquer 32 rails (12 fer au
+        // lieu de 6) et le fer manquait au minecart (banc 39307567266). Une
+        // estimation : la ligne mesuree tranche.
+        const autres = casesGardees(p.objet)
+        return { objet: p.objet, voulues: posees + libres, posees, enPoche, manque: Math.max(0, libres - enPoche - autres), libres, gardees: autres,
           ligne: { de: p.de, vers: p.vers, cases_libres: libres, ...(l.erreur ? { hors_de_vue: l.erreur } : { cases: l.total }), ...(l.coupee ? { coupee: l.coupee } : {}) } }
       }
       const voulues = p.quantite ?? 1
-      return { objet: p.objet, voulues, posees, enPoche, manque: Math.max(0, voulues - posees - enPoche) }
+      return { objet: p.objet, voulues, posees, enPoche, manque: Math.max(0, voulues - posees - enPoche),
+        ...(cle ? { ligne: { de: p.de, vers: p.vers } } : {}) }
     })
+  }
+
+  // Cases d une ligne gardees pour les autres blocs a poser encore attendus
+  // (hors l objet pose et hors l entree qui porte la couverture d une ligne).
+  function casesGardees (objet) {
+    const bot = host.getBot()
+    const porteuses = new Set()
+    let n = 0
+    for (const o of mission?.poses ?? []) {
+      const cle = o.de && o.vers ? `${o.de}>${o.vers}` : null
+      if (cle && !porteuses.has(cle)) { porteuses.add(cle); continue }
+      if (o.objet === objet || !blocDeLObjet(bot?.registry, o.objet)) continue
+      n += Math.max(0, (o.quantite ?? 1) - (mission.posesFaites?.[o.objet] ?? 0))
+    }
+    return n
   }
 
   // Poses servies au modele : en poche compris. Sans ce chiffre, des torches
@@ -781,7 +801,7 @@ function createMissionRunner (host, injected = {}) {
   // (composite/lit-cabin~avec-poser, banc da9ebbe).
   function posesEtat () {
     return posesMesurees().map(p => {
-      const reste = p.libres === undefined ? p.posees < p.voulues : p.libres > 0
+      const reste = p.libres === undefined ? p.posees < p.voulues : p.libres > p.gardees
       return { objet: p.objet, voulues: p.voulues, posees: p.posees, en_poche: p.enPoche, ...(p.ligne ? { ligne: p.ligne } : {}),
         ...(reste && p.enPoche > 0 ? { a_faire: `poser ${p.objet}${p.ligne ? ` de=${p.ligne.de} vers=${p.ligne.vers}` : ''}` } : {}) }
     })
@@ -3942,6 +3962,7 @@ function createMissionRunner (host, injected = {}) {
       return Boolean((porte && (porte.equals(c) || porte.offset(0, 1, 0).equals(c))) ||
         plan.blocks?.some(b => b.position.equals(c)))
     },
+    casesGardees: objet => casesGardees(objet),
     compter: (objet, n) => {
       mission.posesFaites = { ...(mission.posesFaites ?? {}), [objet]: (mission.posesFaites?.[objet] ?? 0) + n }
     }

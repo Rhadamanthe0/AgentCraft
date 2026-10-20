@@ -106,6 +106,24 @@ test('poser : les autres blocs a poser prennent des cases de la ligne, le solveu
   assert.ok(!solveur.some(l => /fabriquer 32 rail\b/.test(l)), solveur.join('\n'))
 })
 
+test('poser : deux objets sur la meme ligne, le premier garde la place du second, chacun compte', async () => {
+  const { sim, lignes } = await jouer({
+    blocks: { '10,199,15': 'red_wool', '20,199,15': 'blue_wool' },
+    inventory: [{ name: 'rail', count: 16 }, { name: 'powered_rail', count: 2 }],
+    brief: { type: 'recolte', matiere: 'aucune', pose: [{ objet: 'rail', de: 'red_wool', vers: 'blue_wool' }, { objet: 'powered_rail', quantite: 2, de: 'red_wool', vers: 'blue_wool' }] },
+    script: [
+      { action: 'poser', objet: 'rail', de: 'red_wool', vers: 'blue_wool' },
+      { action: 'terminer' },
+      { action: 'poser', objet: 'powered_rail', de: 'red_wool', vers: 'blue_wool' },
+      { action: 'terminer' }
+    ]
+  })
+  assert.equal(sim.count(n => n === 'rail'), 9, lignes.filter(l => /poser/.test(l)).join('\n'))
+  assert.ok(lignes.some(l => /terminer refuse \(1\/\d\) : 0 powered_rail pose\(s\) sur 2/.test(l)), lignes.slice(-10).join('\n'))
+  assert.equal(sim.count(n => n === 'powered_rail'), 2)
+  assert.ok(lignes.some(l => /Objectif atteint/.test(l)), lignes.slice(-8).join('\n'))
+})
+
 test('poser : un pluriel sans nombre (« des torches ») en veut deux, une seule pose ne clot pas', async () => {
   const { sim, lignes } = await jouer({
     objectif: 'Pose des torches a cote de la laine rouge',
