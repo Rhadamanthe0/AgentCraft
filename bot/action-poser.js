@@ -16,6 +16,7 @@
 const { Vec3 } = require('vec3')
 const build = require('./build')
 const skills = require('./skills')
+const culture = require('./culture')
 const { awaitPhysicalWithTimeout } = require('./executor')
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -26,6 +27,12 @@ const ANCRE_RAYON = 48
 const CASE_TIMEOUT_MS = 15000
 const ENTITE_ATTENTE_MS = 2000
 const ESSAIS_AUTOUR = 4
+// Plantation (A/B `culture`) : rayon de recherche des sols, cases essayees,
+// distance de l eau qui garde une terre labouree humide.
+const SOL_RAYON = 16
+const ESSAIS_CULTURE = 12
+const EAU_HUMIDE = 4
+const LABOUR_ATTENTE_MS = 1500
 // Case ou l on peut poser : air, ou plante qu une pose remplace.
 const LIBRE = /^(air|cave_air|void_air|short_grass|tall_grass|fern|large_fern|dead_bush|snow)$/
 
@@ -162,9 +169,47 @@ function casesAutour (bot) {
   return cases
 }
 
+// Cases ou planter (A/B `culture`) : au-dessus d un sol de la plante, libres
+// (une petite plante s y remplace), jamais dans le corps du bot. Canne a
+// sucre : sol touchant l eau. Graines : terre labouree d abord, puis terre a
+// labourer si une houe est en poche, humide (eau a 4 blocs) d abord. Pres du
+// bloc nomme (`ancre`) s il y en a un, sinon du bot.
+function casesDeCulture (bot, spec, { ancre = null, houe = false } = {}) {
+  const reg = bot.registry?.blocksByName ?? {}
+  const noms = [...spec.sols, ...(spec.labour && houe ? culture.LABOURABLES : [])]
+  const ids = [...new Set(noms.map(n => reg[n]?.id).filter(id => id !== undefined))]
+  if (ids.length === 0) return []
+  const centre = (ancre?.position ?? bot.entity.position.floored())
+  const sols = bot.findBlocks({ matching: ids, maxDistance: SOL_RAYON, count: 96, point: centre }) ?? []
+  const eaux = (spec.eau || spec.labour) && reg.water
+    ? (bot.findBlocks({ matching: reg.water.id, maxDistance: SOL_RAYON + EAU_HUMIDE, count: 64, point: centre }) ?? [])
+    : []
+  const ici = bot.entity.position
+  const eauVoisine = p => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => {
+    const b = bot.blockAt(p.offset(dx, 0, dz))
+    return b && (b.name === 'water' || b.getProperties?.()?.waterlogged === true)
+  })
+  const humide = p => eaux.some(e => Math.abs(e.x - p.x) <= EAU_HUMIDE && Math.abs(e.z - p.z) <= EAU_HUMIDE && (e.y === p.y || e.y === p.y + 1))
+  const cases = []
+  for (const sol of sols) {
+    const c = sol.offset(0, 1, 0)
+    const dessus = bot.blockAt(c)
+    if (!libre(dessus) || build.bodyOverlaps(ici, c)) continue
+    const nom = bot.blockAt(sol)?.name
+    // Une terre a labourer garde son herbe : `labourer` la casse d abord.
+    const prete = spec.sols.includes(nom)
+    if (spec.eau && !eauVoisine(sol)) continue
+    cases.push({ c, prete, humide: spec.labour ? humide(sol) : true, d: c.distanceTo(centre) })
+  }
+  cases.sort((a, b) => (b.prete - a.prete) || (b.humide - a.humide) || (a.d - b.d))
+  return cases.map(x => x.c)
+}
+
 // deps : { getBot, enInventaire(objet) -> item|null, rejoindre(stand) -> bool,
 //   signal, resoudreObjet(texte) -> nom d objet du registre ou null,
-//   reservee(case) -> bool : case qu un chantier doit encore remplir }
+//   reservee(case) -> bool : case qu un chantier doit encore remplir,
+//   plante(objet) -> culture.plante() ou null (A/B `culture` coupe : null),
+//   houe() -> houe en poche ou null }
 function createPoser (deps) {
   // Rejoint un poste d ou la case est a portee, corps hors de la case.
   async function aPortee (bot, cellule, verifier) {
@@ -182,15 +227,53 @@ function createPoser (deps) {
     return false
   }
 
-  // Pose un bloc-objet dans `cellule`, appuye sur le bloc du dessous.
-  async function poserBloc (bot, cellule, item, objet, verifier) {
-    if (correspond(bot.blockAt(cellule)?.name, objet)) return { deja: true }
+  // Terre a labourer sous `cellule` (plante `labour`) : herbe dessus cassee,
+  // houe en main, clic droit sur le dessus ; la terre labouree fait foi.
+  async function labourer (bot, cellule, verifier) {
+    const sol = bot.blockAt(cellule.offset(0, -1, 0))
+    if (sol?.name === 'farmland') return { ok: true }
+    const houe = deps.houe?.()
+    if (!houe) return { erreur: 'aucune houe en poche pour labourer', code: 'houe_absente' }
+    if (!await aPortee(bot, cellule, verifier)) return { erreur: 'aucun poste a portee de la case n est rejoint', code: 'pose_hors_portee' }
+    try {
+      const dessus = bot.blockAt(cellule)
+      if (dessus && dessus.name !== 'air' && dessus.name !== 'cave_air') {
+        verifier()
+        await bot.dig(dessus, true)
+      }
+      verifier()
+      await bot.equip(houe, 'hand')
+      verifier()
+      await bot.lookAt(cellule.offset(0.5, 0, 0.5), true)
+      verifier()
+      await bot.activateBlock(bot.blockAt(sol.position), new Vec3(0, 1, 0))
+    } catch (err) {
+      verifier()
+      return { erreur: `labour refuse : ${err.message}` }
+    }
+    const fin = Date.now() + LABOUR_ATTENTE_MS
+    while (Date.now() < fin) {
+      verifier()
+      if (bot.blockAt(sol.position)?.name === 'farmland') return { ok: true }
+      await sleep(100)
+    }
+    return { erreur: `labour refuse par le serveur (${bot.blockAt(sol.position)?.name} toujours la)` }
+  }
+
+  // Pose un bloc-objet dans `cellule`, appuye sur le bloc du dessous. `bloc` :
+  // le bloc que la pose doit montrer (une graine pose du ble).
+  async function poserBloc (bot, cellule, item, bloc, verifier, spec = null) {
+    if (correspond(bot.blockAt(cellule)?.name, bloc)) return { deja: true }
     if (!libre(bot.blockAt(cellule))) return { erreur: `case ${cellule.x} ${cellule.y} ${cellule.z} occupee (${bot.blockAt(cellule)?.name})` }
+    if (spec?.labour) {
+      const l = await labourer(bot, cellule, verifier)
+      if (l.erreur) return l
+    }
     const appui = bot.blockAt(cellule.offset(0, -1, 0))
     if (!solide(appui)) return { erreur: 'aucun appui sous la case' }
     // Jamais s enfermer (piege 5) : un objet plein qui fermerait la derniere
     // sortie a pied n est pas pose.
-    if (bot.registry?.blocksByName?.[objet]?.boundingBox === 'block' && build.enclosureBy(bot, cellule)) {
+    if (bot.registry?.blocksByName?.[bloc]?.boundingBox === 'block' && build.enclosureBy(bot, cellule)) {
       return { erreur: 'cette pose enfermerait le bot', code: 'enfermement' }
     }
     if (!await aPortee(bot, cellule, verifier)) return { erreur: 'aucun poste a portee de la case n est rejoint', code: 'pose_hors_portee' }
@@ -203,9 +286,9 @@ function createPoser (deps) {
       await bot.placeBlock(appui, new Vec3(0, 1, 0))
     } catch (err) {
       verifier()
-      if (!correspond(bot.blockAt(cellule)?.name, objet)) return { erreur: `pose refusee : ${err.message}` }
+      if (!correspond(bot.blockAt(cellule)?.name, bloc)) return { erreur: `pose refusee : ${err.message}` }
     }
-    return correspond(bot.blockAt(cellule)?.name, objet) ? { pose: true } : { erreur: 'pose refusee par le serveur (case toujours vide)' }
+    return correspond(bot.blockAt(cellule)?.name, bloc) ? { pose: true } : { erreur: 'pose refusee par le serveur (case toujours vide)' }
   }
 
   // Pose un objet-entite (minecart, bateau...) SUR `bloc` : clic droit, puis
@@ -246,7 +329,9 @@ function createPoser (deps) {
     const objet = deps.resoudreObjet(params.objet)
     if (!objet) return { resultat: `objet inconnu : « ${params.objet ?? ''} » (nom d objet Minecraft attendu)${skills.suggestionNom(params.objet, bot.registry, { blocs: false })}`, echec: true, code: 'objet_inconnu' }
     if (!deps.enInventaire(objet)) return { resultat: `aucun ${objet} en inventaire : l obtenir d abord`, echec: true, code: 'objet_absent' }
-    const blocObjet = blocDeLObjet(bot.registry, objet)
+    // Une plante (A/B `culture`) pose son bloc (graine -> ble) sur son sol.
+    const spec = deps.plante?.(objet) ?? null
+    const blocObjet = spec?.bloc ?? blocDeLObjet(bot.registry, objet)
 
     let ancre = null
     if (params.de) {
@@ -259,7 +344,17 @@ function createPoser (deps) {
     // Cases autour du bot : une case ratee (hors portee, refusee) passe a la
     // suivante, quelques-unes au plus.
     let autour = false
-    if (!blocObjet) {
+    if (spec) {
+      cibles = casesDeCulture(bot, spec, { ancre, houe: Boolean(deps.houe?.()) })
+      if (cibles.length === 0) {
+        const sols = spec.sols.join(', ')
+        const raison = spec.eau ? `aucun sol (${sols}) touchant l eau` : spec.labour
+          ? `aucune terre labouree libre${deps.houe?.() ? ' ni terre a labourer' : ' et aucune houe en poche pour labourer la terre'}`
+          : `aucun sol (${sols}) libre`
+        return { resultat: `${raison} a moins de ${SOL_RAYON} blocs`, echec: true, code: spec.labour && !deps.houe?.() ? 'houe_absente' : 'aucune_case' }
+      }
+      autour = true
+    } else if (!blocObjet) {
       // Objet-entite : pose SUR le bloc nomme, sinon sur l appui devant soi.
       const support = ancre ?? (() => { const c = caseDevant(bot); return c ? bot.blockAt(c.offset(0, -1, 0)) : null })()
       if (!support) return { resultat: 'aucun bloc ou poser l objet devant le bot', echec: true, code: 'aucune_case' }
@@ -285,7 +380,7 @@ function createPoser (deps) {
       // still torch »).
       cibles = cibles.filter(c => libre(bot.blockAt(c)) && !deps.reservee?.(c))
     }
-    if (autour) cibles = cibles.slice(0, ESSAIS_AUTOUR)
+    if (autour) cibles = cibles.slice(0, spec ? ESSAIS_CULTURE : ESSAIS_AUTOUR)
     if (cibles.length === 0) {
       return ligne
         ? { resultat: `ligne deja couverte : aucune case libre entre ${params.de} et ${params.vers}`, code: 'plan' }
@@ -319,7 +414,7 @@ function createPoser (deps) {
       let r
       try {
         r = await awaitPhysicalWithTimeout(
-          blocObjet ? poserBloc(bot, cible, item, objet, verifier) : poserEntite(bot, cible, item, objet, verifier),
+          blocObjet ? poserBloc(bot, cible, item, blocObjet, verifier, spec) : poserEntite(bot, cible, item, objet, verifier),
           CASE_TIMEOUT_MS, 'pose trop longue', { signal, onTimeout: () => controller.abort() })
       } catch (err) {
         derniere = err.message
@@ -332,18 +427,18 @@ function createPoser (deps) {
         derniere = r.erreur
         // Ligne ou cases autour du bot : une case ratee n arrete pas les
         // suivantes ; a cote d un bloc nomme, une seule case visee.
-        if ((!ligne && !autour) || r.code === 'enfermement') break
+        if ((!ligne && !autour) || r.code === 'enfermement' || r.code === 'houe_absente') break
       }
     }
     if (poses > 0) deps.compter?.(objet, poses)
     const reste = ligne ? cibles.length - poses : null
     const texte = `${poses} ${objet} pose(s)` + (ligne ? `, ${reste} case(s) de la ligne encore libre(s)` : '') +
       (derniere ? ` ; ${derniere}` : '')
-    return poses > 0 ? { resultat: texte } : { resultat: texte, echec: true, code: 'pose_refusee' }
+    return poses > 0 ? { resultat: texte } : { resultat: texte, echec: true, code: /houe/.test(derniere ?? '') ? 'houe_absente' : 'pose_refusee' }
   }
 
   return { poser }
 }
 
-module.exports = { createPoser, casesLigne, etatLigne, blocDeLObjet, correspond, nomPropre
+module.exports = { createPoser, casesLigne, etatLigne, blocDeLObjet, correspond, nomPropre, casesDeCulture
 }

@@ -158,7 +158,7 @@ une récolte vise 16 unités (`MISSION_DEFAULT_QUOTA`).
 Le bot compose ses missions à partir d'une trentaine d'**actions
 génériques** : `recolter`, `casser`, `ramasser`, `fabriquer`, `cuire`,
 `avancer`, `explorer`, `piler`, `construire`, `poser`, `utiliser`,
-`donner`, et des gestes de bas niveau (`regarder`, `sauter`, `appuyer`,
+`donner`, `deposer` et `retirer` (conteneurs, A/B), et des gestes de bas niveau (`regarder`, `sauter`, `appuyer`,
 `dire`, `memoriser`…). Chaque action prend ses objets, quantités et
 emplacements en paramètres ; aucune n'est propre à un objet ou à un lieu. Le
 catalogue exact, tel que le modèle le lit : `GET /api/actions`.

@@ -909,6 +909,52 @@ def base_levels():
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
             'rules': {}, 'variants': [sans('poser')],
         },
+        # Coffres et culture (2026-10-20, idee 5 de la revue du 2026-10-16,
+        # prerequis d une ferme a canne a sucre) : A/B `coffres` et `culture`,
+        # eteints par defaut, informatifs ; le bras sans le mode se joue par
+        # `Banc:` (trees.RETIRED).
+        {
+            'name': 'composite/chest-pickaxe',
+            'about': 'Inventaire vide, deux arbres, aucune pierre en vue, un coffre avec 3 pierres taillees : '
+                     '« Fabrique-moi une pioche en pierre et range-la dans le coffre » : bois, etabli, pierre prise '
+                     '(coffre ou sous-sol), pioche fabriquee puis deposee dans le coffre.',
+            'kind': 'gather', 'cap': PALIER3_CAP_S, 'informative': True,
+            'instruction': 'Fabrique-moi une pioche en pierre et range-la dans le coffre',
+            'items': [], 'target': 0,
+            'terrain': [(26, 200, 10, 26, 200, 10,
+                         'chest{Items:[{Slot:0b,id:"minecraft:cobblestone",count:3},{Slot:4b,id:"minecraft:dirt",count:6},'
+                         '{Slot:9b,id:"minecraft:wheat_seeds",count:2}]}')],
+            'stored': {'pioche_au_coffre': ((26, 200, 10), ['stone_pickaxe'], 1)},
+            'leaves': [box for (x, z) in ((4, 6), (30, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
+            'rules': {}, 'features': {'coffres': True}, 'variants': [sans('coffres')],
+        },
+        {
+            'name': 'composite/wheat-field',
+            'about': 'Inventaire vide, deux arbres, une mare, de l herbe haute : « Plante-moi 4 graines de ble au bord de l eau » : '
+                     'graines tirees de l herbe, bois, houe fabriquee, terre labouree, 4 plants de ble poses.',
+            'kind': 'build', 'cap': PALIER3_CAP_S, 'informative': True,
+            'instruction': 'Plante-moi 4 graines de ble au bord de l eau',
+            'blocks': ['minecraft:wheat'], 'target': 4,
+            'terrain': [(14, 199, 24, 16, 199, 26, 'water'), (20, 200, 14, 32, 200, 22, 'short_grass')],
+            'leaves': [box for (x, z) in ((4, 6), (6, 30))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (6, 30)) for i in range(5)]),
+            'rules': {}, 'features': {'culture': True}, 'variants': [sans('culture')],
+        },
+        {
+            'name': 'gather/ripe-wheat',
+            'about': 'Un champ de ble pres de l eau, quatre plants murs et quatre jeunes : « Ramene-moi 4 bles » : '
+                     'les murs recoltes, les jeunes laisses en place.',
+            'kind': 'gather', 'informative': True, 'instruction': 'Ramene-moi 4 bles', 'items': ['wheat'], 'target': 4,
+            'terrain': [(20, 199, 18, 20, 199, 18, 'water'),
+                        (16, 199, 16, 19, 199, 16, 'farmland[moisture=7]'), (16, 200, 16, 19, 200, 16, 'wheat[age=7]'),
+                        (16, 199, 20, 19, 199, 20, 'farmland[moisture=7]'), (16, 200, 20, 19, 200, 20, 'wheat[age=1]')],
+            'also': {'jeunes_pousses_intactes': (['minecraft:wheat'], 4, (16, 200, 20, 19, 200, 20))},
+            'leaves': [], 'logs': [], 'rules': {},
+            'features': {'culture': True, 'buts_ouverts': True}, 'variants': [sans('culture')],
+        },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
         # (graine du banc, CI_RANDOM_SEED la rejoue) : un correctif doit valoir
@@ -1161,6 +1207,9 @@ def vary(level, seed, avoid=None):
         out['target'] = (cx, ty, cz)
     if 'loot' in level:
         out['loot'] = [(item, *_cell(dx, dz, turns, mirror)) for item, dx, dz in level['loot']]
+    if 'stored' in level:  # containers checked follow the arena
+        out['stored'] = {k: ((*_cell(p[0], p[2], turns, mirror)[:1], p[1], _cell(p[0], p[2], turns, mirror)[1]), items, n)
+                         for k, (p, items, n) in level['stored'].items()}
     if 'also' in level:  # zones of extra block counts follow the arena
         out['also'] = {k: (v[0], v[1], *[_box(z, turns, mirror) for z in v[2:]]) for k, v in level['also'].items()}
     return out
@@ -1172,6 +1221,54 @@ def entity_count(answer):
     minecart_pose failed with the minecart on its rails (banc ac1001a)."""
     match = re.search(r'count:\s*(\d+)', answer or '', re.I)
     return int(match.group(1)) if match else 0
+
+
+def container_items(answer):
+    """Items of a container from `data get block <pos> Items` (Paper 26.1:
+    « ... has the following block data: [{Slot: 0b, id: "minecraft:x", count: 3}, ...] »),
+    as {name: count}; {} for an empty or missing container."""
+    out = {}
+    text = answer or ''
+    start = text.find('[')
+    if start < 0:
+        return out
+    depth, item = 0, ''
+    for ch in text[start + 1:]:
+        if ch == '{':
+            depth += 1
+        if depth > 0:
+            item += ch
+        if ch == '}':
+            depth -= 1
+            if depth == 0:
+                name = re.search(r'\bid:\s*"minecraft:([a-z0-9_]+)"', item)
+                count = re.search(r'\bcount:\s*(\d+)', item)
+                if name:
+                    out[name.group(1)] = out.get(name.group(1), 0) + (int(count.group(1)) if count else 1)
+                item = ''
+        if ch == ']' and depth == 0:
+            break
+    return out
+
+
+def extra_checks(level, x0, rcon, count, checks, parts):
+    """Checks shared by the gather and build scripts: `also`, extra blocks
+    counted in the arena or in a zone (x0, y0, z0, x1, y1, z1, relative), and
+    `stored`, items found in a container (position relative to the arena)."""
+    above = f'{x0} 200 0 {x0 + SIZE} {TOP_Y} {SIZE}'
+    for check, (blocks, minimum, *zone) in level.get('also', {}).items():
+        area = above
+        if zone:
+            a, b0, c, d, e, f = zone[0]
+            area = f'{x0 + a} {b0} {c} {x0 + d} {e} {f}'
+        got = sum(count(area, b) for b in blocks)
+        checks[check] = got >= minimum
+        parts.append((got, minimum))
+    for check, ((x, y, z), items, minimum) in level.get('stored', {}).items():
+        held = container_items(rcon(f'data get block {x0 + x} {y} {z} Items'))
+        got = sum(n for name, n in held.items() if name in items)
+        checks[check] = got >= minimum
+        parts.append((got, minimum))
 
 
 def instruct(level, bot, bot_api, message, requester):
@@ -1414,16 +1511,8 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
         layer_count = lambda y: sum(count(f'{x0} {y} 0 {x0 + SIZE} {y} {SIZE}', b) for b in level['blocks'])
         bottom, top = layer_count(200), layer_count(200 + level['minTop'] - 1)
         checks['forme_ouverte'] = 0 < top and bottom < top
-    for check, (blocks, minimum, *zone) in level.get('also', {}).items():
-        # Extra blocks the order names (torches...): counted like the build,
-        # in the whole arena or in a zone (x0, y0, z0, x1, y1, z1, relative).
-        area = above
-        if zone:
-            a, b0, c, d, e, f = zone[0]
-            area = f'{x0 + a} {b0} {c} {x0 + d} {e} {f}'
-        got = sum(count(area, b) for b in blocks)
-        checks[check] = got >= minimum
-        parts.append((got, minimum))
+    # Extra blocks the order names (torches...), items stored in a container.
+    extra_checks(level, x0, rcon, count, checks, parts)
     for check, (entity, minimum) in level.get('entities', {}).items():
         # Entities the order asks for (a minecart on its rails...).
         got = entity_count(rcon(f'execute if entity @e[type={entity},x={x0},y=200,z=0,dx={SIZE},dy={TOP_Y - 200},dz={SIZE}]'))
@@ -1454,7 +1543,7 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
 GATHER_CAP_S = 180
 
 
-def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_name):
+def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count_blocks=None):
     """« Ramasse N ... » from a silent probe player; the bot must hold N of the
     items (counted by RCON, `clear <bot> <item> 0` removes nothing), never
     stand below the floor (no pit) and take no damage."""
@@ -1533,12 +1622,16 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
                   'refus_rapide': time.monotonic() - started < 60, 'aucun_degat': damage == 0}
     (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
         json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
+    # Blocks left in a zone (young crops), items stored in a container.
+    parts = []
+    if count_blocks and (level.get('also') or level.get('stored')):
+        extra_checks(level, x0, rcon, count_blocks, checks, parts)
     if level.get('expectRefusal'):
         progress = None
     elif each:
-        progress = progression([(1 if n else 0, 1) for n in each.values()])
+        progress = progression([(1 if n else 0, 1) for n in each.values()] + parts)
     else:
-        progress = progression([(count, level['target'])])
+        progress = progression([(count, level['target'])] + parts)
     failed = [k for k, v in checks.items() if not v]
     return {
         'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
@@ -1993,6 +2086,9 @@ RETIRED = frozenset({
     'build/no-materials~sans-plans_longs', 'trees/tall~sans-plans_longs', 'trees/double~sans-plans_longs',
     'craft/iron-pickaxe~sans-plans_longs', 'composite/cabin-from-scratch~sans-plans_longs',
     'composite/stone-hut-from-scratch~sans-plans_longs',
+    # Coffres et culture (2026-10-20) : le bras sans le mode se joue par
+    # `Banc:` le temps de la campagne A/B, jamais au banc complet (quota).
+    'composite/chest-pickaxe~sans-coffres', 'composite/wheat-field~sans-culture', 'gather/ripe-wheat~sans-culture',
 })
 
 # Owner's limit (2026-10-10): a full bench plays fewer than 50 tests (levels,
@@ -2166,7 +2262,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
         if level.get('kind') == 'build':
             return run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count)
         if level.get('kind') == 'gather':
-            return run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_name)
+            return run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count)
         if level.get('kind') == 'follow':
             return run_follow_script(level, x0, bot, username, output, rcon, bot_api, probe_name)
         if level.get('kind') == 'chat_script':
@@ -2456,7 +2552,7 @@ def run_levels(output, rcon, bot_api, pool_factory, before_level=None):
             if m.get('reparations'):
                 modes['reparations'] = m['reparations']
             par_action = (result.get('trace') or {}).get('parAction') or {}
-            for action in ('batir', 'obtenir', 'poser', 'utiliser'):
+            for action in ('batir', 'obtenir', 'poser', 'utiliser', 'deposer', 'retirer'):
                 if par_action.get(action):
                     modes[action] = {k: par_action[action].get(k) for k in ('n', 'echecs', 'ms')}
             # plans_longs (on by default): model calls and steps, steps per

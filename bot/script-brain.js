@@ -63,6 +63,9 @@ function lireBrief (brief = {}) {
     horsCapacites: typeof brief.hors_capacites === 'string' ? brief.hors_capacites : null,
     // Objets a poser (A/B poser).
     pose: Array.isArray(brief.pose) ? brief.pose : null,
+    // Objets a ranger ou a prendre dans un conteneur (A/B coffres).
+    depot: Array.isArray(brief.depot) ? brief.depot : null,
+    retrait: Array.isArray(brief.retrait) ? brief.retrait : null,
     door: brief.porte === true,
     doorProbability: brief.porte === true ? 1 : 0,
     usage: null,

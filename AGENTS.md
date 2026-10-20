@@ -166,7 +166,30 @@ reussies : appels au modele -36 %, duree totale +3 %, trees/tall +33 % ;
 `sans(...)` sur terrain/plateau, gather/sand-walled, build/no-materials,
 trees/tall, trees/double, craft/iron-pickaxe et les composites cabane et
 maison en pierre, retires du banc complet ; compteur `modes.plans` : etapes
-et appels).
+et appels) ; `coffres` (eteint, 2026-10-20, idee 5 de la revue du
+2026-10-16 validee par le proprietaire : actions `deposer` et `retirer
+{objet, quantite, dans}`, `bot/action-conteneur.js` ; le conteneur nomme (ou
+famille : `chest` couvre le coffre piege) ou le plus proche a 24 blocs est
+rejoint et ouvert, chaque transfert compte par l inventaire ; `retirer` sans
+objet lit le contenu ; le contenu vu est retenu par position et servi dans
+l etat (`conteneurs` : contenu ou « jamais ouvert », `utiles` = ce que le
+solveur ou un retrait demande) ; brief `depot`/`retrait` (cle `|coffres`),
+objet du registre ou famille (`buches`, `planches`), quantite nulle = tout le
+stock ; fin mesuree, une fabrication rangee reste fabriquee
+(`fabricationProduced`, `collected` comptent les depots) ; capacite
+`conteneur` retiree des refus ; `sans(...)` sur composite/chest-pickaxe) ;
+`culture` (eteint, 2026-10-20, meme idee : planter = `poser` d une graine,
+d un plant ou d une pousse, `bot/culture.js` : sol de chaque plante, terre
+labouree par le code si une houe est en poche (humide d abord, eau a 4
+blocs), canne a sucre sur un sol touchant l eau ; sans terre labouree ni
+houe, la houe en bois devient la cible du solveur (`houeAObtenir`) ;
+`recolter` ne vise qu une culture mure (age maximal decode du numero d etat)
+et jamais le pied d une plante en colonne (canne, bambou, cactus) ; phrase
+ajoutee a l intent de `poser` (`ajouts`, `skills.intentDe`) et au brief (cle
+`|culture`) ; capacite `culture` retiree des refus ; `sans(...)` sur
+composite/wheat-field et gather/ripe-wheat ; une matiere ouverte d une
+culture compte son produit, le ble et non ses graines, mode allume ou non :
+minecraft-data ne fait lacher au ble que ses graines ; tmp/coffres-culture.test.js).
 
 A/B de MODELE (2026-10-09) : variante `modele('<modele>')` (ci/trees.py,
 liste `MODELES_AB` posee sur 11 niveaux, 4 composites compris)
@@ -244,8 +267,16 @@ au demarrage au lieu de 75 min de niveaux rouges.
   supplementaires comptes, dans l arene ou une zone qui suit rotation et
   miroir), `composite/powered-rail-line` (ligne de minecart entre deux
   laines avec rails accelerateurs : fer, or, redstone, cuisson ; `entities` :
-  minecart present) ; ces deux derniers gardent la variante `~sans-poser`. Une ferme a canne a sucre exige `culture` et `mecanisme`
-  (circuits) : ce n est pas encore un niveau.
+  minecart present) ; ces deux derniers gardent la variante `~sans-poser`. Une ferme a canne a sucre exige `culture` (A/B
+  `culture` depuis le 2026-10-20 : planter, recolter mur) et `mecanisme`
+  (circuits) : ce n est pas encore un niveau. Coffres et culture (2026-10-20,
+  informatifs) : `composite/chest-pickaxe` (pioche en pierre sans pierre en
+  vue, 3 pierres taillees dans un coffre, pioche rangee dans le coffre ;
+  `stored` : objets lus dans un conteneur par `data get block`,
+  `trees.container_items`), `composite/wheat-field` (graines de l herbe, houe,
+  labour, 4 plants pres d une mare) et `gather/ripe-wheat` (4 bles murs
+  recoltes, 4 jeunes laisses : `also` en zone, aussi lu par le script de
+  recolte).
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
   escalier (jamais un puits vertical). Difficulte paisible pour l instant.
 
@@ -432,9 +463,9 @@ Flux d une demande (details : ARCHITECTURE.md) :
    modele decide de les reprendre ou de refaire ; `MISSION_MORTS_MAX` (3)
    morts : echec. Comportement toujours actif, sans interrupteur : le banc
    paisible ne fait presque jamais mourir le bot, aucun A/B ne le mesurerait.
-4. **Actions** (`skills.ACTIONS`, 28 hors sous-buts) : `casser`, `recolter`, `ramasser`,
+4. **Actions** (`skills.ACTIONS`, 30 hors sous-buts) : `casser`, `recolter`, `ramasser`,
    `donner`, `cuire`, `fabriquer`, `avancer`, `explorer`, `choisir_terrain`,
-   `piler`, `construire`, `poser`, `poser_porte`, `ouvrir_porte`, `utiliser` (A/B), `sortir`, `attendre`, `terminer`,
+   `piler`, `construire`, `poser`, `poser_porte`, `ouvrir_porte`, `utiliser` (A/B), `deposer` et `retirer` (A/B `coffres`), `sortir`, `attendre`, `terminer`,
    `dire`, `regarder`, `sauter`, `appuyer`, `regarder_autour`, `pivoter`,
    `memoriser`, `oublier`, `rejoindre_demandeur`, `tourner_vers_demandeur`.
    Chacune est parametree (duree, distance, quantite, objet...) ; le modele
@@ -730,8 +761,8 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  106 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
-  reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
+  109 dont les variantes A/B tranchees ou deja mesurees, et les bras sans
+  `coffres`/`culture` joues par `Banc:` ; seule `~sans-poser` reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
   (`terrain/far-hedge-pit` remplace far-tree, pit et hedge-pit). Un niveau
@@ -746,7 +777,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 158 niveaux avec variantes, 38 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 166 niveaux avec variantes, 43 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
@@ -904,6 +935,9 @@ La liste exhaustive se lit par `grep -o "process.env.[A-Z_]*" bot/*.js`.
 | `tmp/sim-server.js`, `tmp/skill-sim.js`, `tmp/skill-levels.json` | banc de competences hors ligne : serveur simule (vrai A*, vraie physique), joueur de niveau `skill/*`, niveaux exportes par `ci/trees.py --export-skills` |
 | `ci/promotion.py` | taux de reussite des niveaux informatifs sur N bancs, serie avec le jumeau |
 | `tmp/reparer.test.js`, `tmp/buts-ouverts.test.js` | reparations par le code, matieres ouvertes et refus (serveur simule) |
+| `bot/action-conteneur.js` | actions `deposer` et `retirer` (A/B `coffres`) : conteneur rejoint et ouvert, transferts comptes par l inventaire, contenu vu retenu par position |
+| `bot/culture.js` | cultures (A/B `culture`) : objet plante -> bloc et sol, labourables, age d un numero d etat (base mixte de minecraft-data), maturite, produit recolte |
+| `tmp/coffres-culture.test.js` | coffres et culture sur le serveur simule (etats de bloc `wheat[age=7]`, houe, conteneurs `conteneurs`) ; `ci/test_conteneur.py` : lecture d un conteneur au banc |
 | `tmp/arbitrage-options.test.js` | une demande qui en remplace une autre (arbitrage automatique) garde ses options de demarrage : sans cela, une mission scriptee `skill/*` lancee pendant qu une autre tournait etait planifiee par le modele (`aucun_appel_modele` rouge) |
 | `ci/ab_modele.py` | A/B de modele (variantes `~modele-*`) : reussite, duree, attente, cout par bras aux prix OpenCode Go |
 | `ci/ab.py` | decision A/B sur N bancs, par mode et par niveau : gains/pertes de reussite, progression sur les doubles echecs, duree et appels medians, mode reellement actif, verdict garder/retirer/egalite/insuffisant |

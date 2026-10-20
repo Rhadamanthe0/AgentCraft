@@ -18,6 +18,10 @@
 //     apres `herbeMs` (SIM_HERBE_MS, 0 par defaut : jamais), comme au serveur ou un
 //     pilier de terre verdit en quelques secondes (skill/tree-pillar, banc
 //     d67a3cb : pilier d herbe pris pour le sol).
+//   - etats de bloc : 'wheat[age=7]' dans `blocks` ; une graine se pose sur
+//     son sol (culture.js), une houe laboure la terre, un conteneur s ouvre
+//     (fenetre deposit/withdraw, contenu initial par `conteneurs`), une
+//     culture mure lache son produit, une jeune ses graines.
 // Hors champ : fabrication (fenetres), four, liquides, autres joueurs. Un
 // niveau qui en a besoin reste au banc.
 
@@ -28,15 +32,38 @@ const { Physics, PlayerState } = require('prismarine-physics')
 const registry = require('prismarine-registry')('26.1')
 const Block = require('prismarine-block')(registry)
 const { createNavigator } = require('../bot/navigation')
+const culture = require('../bot/culture')
 
 const key = (x, y, z) => `${x},${y},${z}`
 const nom = brut => String(brut).replace(/^minecraft:/, '').replace(/\[.*$/, '')
+
+// Numero d etat d un nom avec proprietes ('wheat[age=7]') : base mixte de
+// minecraft-data, la derniere propriete varie le plus vite ; une propriete
+// non dite garde sa valeur par defaut.
+function etatDe (brut) {
+  const m = /^([a-z0-9_]+)(?:\[(.*)\])?$/.exec(nom(String(brut)) + (String(brut).match(/\[.*\]$/)?.[0] ?? ''))
+  const def = registry.blocksByName[m?.[1]] ?? registry.blocksByName.stone
+  if (!m?.[2]) return def.defaultState
+  const dites = Object.fromEntries(m[2].split(',').map(kv => kv.split('=').map(x => x.trim())))
+  const etats = def.states ?? []
+  let reste = def.defaultState - def.minStateId
+  const valeurs = []
+  for (let i = etats.length - 1; i >= 0; i--) { valeurs[i] = reste % (etats[i].num_values ?? 1); reste = Math.floor(reste / (etats[i].num_values ?? 1)) }
+  etats.forEach((st, i) => {
+    if (dites[st.name] === undefined) return
+    const v = st.type === 'bool' ? (dites[st.name] === 'true' ? 0 : 1) : (st.values ?? []).indexOf(dites[st.name])
+    if (v >= 0) valeurs[i] = v
+  })
+  return def.minStateId + etats.reduce((idx, st, i) => idx * (st.num_values ?? 1) + valeurs[i], 0)
+}
 
 // blocks : Map ou objet 'x,y,z' -> nom ; sol : fonction (x, y, z) -> nom pour
 // les cases non listees (defaut : herbe en 199, pierre dessous, air dessus) ;
 // borne : { x0, x1, z0, z1 } au-dela de laquelle tout est barriere.
 function createSimServer ({ blocks = {}, sol = null, borne = null, start = new Vec3(0.5, 200, 0.5),
-  inventory = [], tickMs = 50, herbeMs = Number(process.env.SIM_HERBE_MS ?? 0) } = {}) {
+  inventory = [], tickMs = 50, herbeMs = Number(process.env.SIM_HERBE_MS ?? 0), conteneurs = {} } = {}) {
+  // Contenu des conteneurs : 'x,y,z' -> [{ name, count }].
+  const contenus = new Map(Object.entries(conteneurs).map(([k, v]) => [k, v.map(i => ({ ...i }))]))
   const cells = new Map(blocks instanceof Map ? blocks : Object.entries(blocks))
   const fond = sol ?? ((x, y) => y === 199 ? 'grass_block' : y < 199 && y >= 189 ? 'stone' : 'air')
   const nameAt = (x, y, z) => {
@@ -46,8 +73,7 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
   }
   const blockAt = pos => {
     const p = pos.floored()
-    const def = registry.blocksByName[nameAt(p.x, p.y, p.z)] ?? registry.blocksByName.stone
-    const block = Block.fromStateId(def.defaultState, 0)
+    const block = Block.fromStateId(etatDe(nameAt(p.x, p.y, p.z)), 0)
     block.position = p
     return block
   }
@@ -111,6 +137,16 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
     // apparait dessus, l objet est consomme, comme au serveur.
     activateBlock: async block => {
       const tenu = bot.heldItem && bot.heldItem.count > 0 ? bot.heldItem : null
+      // Houe sur une terre a l air libre : terre labouree, comme au serveur.
+      if (tenu && /_hoe$/.test(tenu.name)) {
+        const p = block.position
+        if (culture.LABOURABLES.includes(nom(nameAt(p.x, p.y, p.z))) && nameAt(p.x, p.y + 1, p.z) === 'air') {
+          const avant = blockAt(p)
+          setBlock(p, 'farmland')
+          bot.emit('blockUpdate', avant, blockAt(p))
+        }
+        return
+      }
       if (!tenu || registry.blocksByName[tenu.name] || !registry.entitiesByName?.[tenu.name]) return
       const entity = { id: nextId++, uuid: `sim-${nextId}`, name: tenu.name, type: 'other',
         position: block.position.offset(0.5, 0.1, 0.5), velocity: new Vec3(0, 0, 0) }
@@ -130,7 +166,12 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
       journal.digs.push(b.name)
       const outil = b.harvestTools ? Object.keys(b.harvestTools).map(Number) : null
       const bonOutil = !outil || (bot.heldItem && outil.includes(bot.heldItem.type))
-      const drops = bonOutil ? (b.drops ?? []).map(d => typeof d === 'number' ? d : d?.drop?.id ?? d?.id).filter(Number.isInteger) : []
+      let drops = bonOutil ? (b.drops ?? []).map(d => typeof d === 'number' ? d : d?.drop?.id ?? d?.id).filter(Number.isInteger) : []
+      // Culture : mure (ou plante en colonne), son produit ; jeune, ses graines.
+      const produit = culture.produitDe(b.name)
+      if (produit && (culture.CULTURES[b.name].base || culture.recoltable(registry, b.name, b.stateId, null))) {
+        drops = [registry.itemsByName[produit]?.id].filter(Number.isInteger)
+      }
       for (const id of drops.slice(0, 1)) {
         const name = registry.items[id]?.name
         if (!name) continue
@@ -150,8 +191,11 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
         cell.y + 1 > p.y && cell.y < p.y + 1.8
       const plein = blockAt(cell).boundingBox === 'block'
       const tenu = bot.heldItem && bot.heldItem.count > 0 ? bot.heldItem : null
-      if (plein || corps || !tenu || !registry.blocksByName[tenu.name]) throw new Error('the block is still air')
-      setBlock(cell, tenu.name)
+      // Une graine ou un plant pose sa plante, seulement sur son sol.
+      const plante = tenu && !registry.blocksByName[tenu.name] ? culture.plante(tenu.name, registry) : null
+      if (plante && !plante.sols.includes(nom(nameAt(ref.position.x, ref.position.y, ref.position.z)))) throw new Error('the block is still air')
+      if (plein || corps || !tenu || !(registry.blocksByName[tenu.name] || plante)) throw new Error('the block is still air')
+      setBlock(cell, plante?.bloc ?? tenu.name)
       tenu.count -= 1
       if (tenu.count <= 0) bot.heldItem = null
       journal.places.push(tenu.name)
@@ -183,6 +227,37 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
     findBlock (opts) {
       const p = bot.findBlocks({ ...opts, count: 1 })[0]
       return p ? blockAt(p) : null
+    },
+    // Conteneur ouvert : fenetre a la mineflayer (containerItems, deposit,
+    // withdraw, close) sur le contenu simule de la case.
+    openContainer: async block => {
+      const k = key(block.position.x, block.position.y, block.position.z)
+      if (!/chest|barrel|shulker_box/.test(nom(nameAt(block.position.x, block.position.y, block.position.z)))) throw new Error('not a container')
+      if (!contenus.has(k)) contenus.set(k, [])
+      const dedans = contenus.get(k)
+      const vivants = () => dedans.filter(i => i.count > 0)
+      return {
+        type: 'minecraft:generic_9x3',
+        containerItems: () => vivants().map(i => ({ name: i.name, count: i.count, type: registry.itemsByName[i.name]?.id })),
+        deposit: async (type, _meta, count) => {
+          const name = registry.items[type]?.name
+          const possede = stock.filter(i => i.name === name).reduce((n, i) => n + i.count, 0)
+          if (possede < count) throw new Error(`Can't find ${name} in slots`)
+          let reste = count
+          for (const i of stock) if (i.name === name && reste > 0) { const n = Math.min(i.count, reste); i.count -= n; reste -= n }
+          const pile = dedans.find(i => i.name === name)
+          if (pile) pile.count += count
+          else dedans.push({ name, count })
+        },
+        withdraw: async (type, _meta, count) => {
+          const name = registry.items[type]?.name
+          const pile = dedans.find(i => i.name === name && i.count >= count)
+          if (!pile) throw new Error(`Can't find ${name} in slots`)
+          pile.count -= count
+          ajouter(name, count)
+        },
+        close () {}
+      }
     },
     recipesFor: () => [],
     recipesAll: () => []
@@ -270,7 +345,7 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
         const ch = new Chunk({ minY: -64, worldHeight: 384 })
         for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) for (let y = 185; y < 225; y++) {
           const n = nameAt(cx * 16 + x, y, cz * 16 + z)
-          if (n !== 'air') ch.setBlockStateId(new Vec3(x, y, z), registry.blocksByName[n].defaultState)
+          if (n !== 'air') ch.setBlockStateId(new Vec3(x, y, z), etatDe(n))
         }
         monde.setColumn(cx, cz, ch)
       }
@@ -306,10 +381,13 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
   return {
     bot, host, navigator, journal,
     nameAt, setBlock,
+    contenu: k => (contenus.get(k) ?? []).filter(i => i.count > 0).map(i => ({ ...i })),
     count: test => [...cells.entries()].filter(([, n]) => test(n)).length,
     inventory: () => stock.filter(i => i.count > 0).map(i => ({ name: i.name, count: i.count })),
+    // Objet donne en cours de mission (fabrication hors champ du simulateur).
+    donner: (name, count = 1) => ajouter(name, count),
     close: () => { clearInterval(timer); navigator.cancel() }
   }
 }
 
-module.exports = { createSimServer, registry, nom }
+module.exports = { createSimServer, registry, nom, etatDe }
