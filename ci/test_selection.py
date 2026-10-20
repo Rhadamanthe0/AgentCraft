@@ -32,7 +32,7 @@ class Selection(unittest.TestCase):
         self.assertNotIn('craft/planks', every)
         self.assertNotIn('build/wall~sans-plans', every)
         self.assertNotIn('craft/torches~sans-solveur', every)
-        self.assertIn('craft/iron-pickaxe', every)
+        self.assertIn('trees/tall', every)
         self.assertNotIn('craft/planks', names('craft/*'))
         self.assertEqual(names('build/wall~sans-plans'), ['build/wall~sans-plans'])
         with mock.patch.dict(os.environ, {'CI_LEVELS': ''}):

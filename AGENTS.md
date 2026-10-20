@@ -232,9 +232,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
   (`elapsedS`) est suivie d un banc a l autre et doit baisser.
 - Palier 3 (2026-10-10, proprietaire) : taches qu un vrai joueur donnerait,
   informatives au depart, sans variante ; le proprietaire veut leur passage
-  obligatoire (2026-10-19) : stone-toolkit, big-stone-house et lit-cabin
-  promus bloquants le 2026-10-20 (5 bancs sur 5, jumeaux compris,
-  ci/promotion.py), powered-rail-line le sera a son tour : `composite/stone-toolkit` (trois outils en
+  obligatoire (2026-10-19) : les quatre restants promus bloquants le
+  2026-10-20 (stone-toolkit, big-stone-house, lit-cabin : 5 bancs sur 5 ;
+  powered-rail-line : 3 d affilee ; jumeaux compris, ci/promotion.py) : `composite/stone-toolkit` (trois outils en
   pierre, `each` : chaque objet en inventaire), `composite/bucket` (seau :
   fer, four, cuisson), `composite/big-stone-house` (5x5x3 en pierre avec
   porte), `composite/lit-cabin` (cabane avec torches, `also` : blocs
@@ -365,9 +365,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
   retrait d un doublon est automatique). Passe du 2026-10-14 : cabin-from-scratch (dans
   cabin-across-water) et bucket (dans powered-rail-line) retires ;
   stone-hut-from-scratch (dans big-stone-house) retire le 2026-10-20 a la
-  promotion de sa couverture ; craft/iron-pickaxe (dans powered-rail-line) et
-  chat/question-keeps-mission (dans stone-wall-question) attendent la
-  promotion de la leur ; 14 tests unitaires retires. Un
+  promotion de sa couverture, craft/iron-pickaxe (dans powered-rail-line) le
+  meme jour ; chat/question-keeps-mission (dans stone-wall-question) attend
+  la promotion de la sienne ; 14 tests unitaires retires. Un
   niveau `skill/*` ne double pas son jumeau joue par le modele : il mesure le
   code seul.
 - Avant de proposer un changement d architecture, le chiffrer sur les bancs
@@ -725,7 +725,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  105 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
+  106 dont les variantes A/B tranchees ou deja mesurees ; seule `~sans-poser`
   reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -735,12 +735,13 @@ dans `docs/journal.md` (section « Les pieges »).
   liste. Promus bloquants le meme jour (ci/promotion.py) :
   `composite/stone-hut-from-scratch` (retire depuis), `composite/cabin-across-water`,
   `ouvert/hors-capacite`, `skill/stone-hut-batir` ; le 2026-10-20 :
-  `composite/stone-toolkit`, `composite/big-stone-house`, `composite/lit-cabin`.
+  `composite/stone-toolkit`, `composite/big-stone-house`, `composite/lit-cabin`,
+  `composite/powered-rail-line` (craft/iron-pickaxe retire).
 - Une image `minebot-ci:<projet>` par execution, Paper pre-patche
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 158 niveaux avec variantes, 39 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 158 niveaux avec variantes, 38 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,

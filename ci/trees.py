@@ -825,8 +825,8 @@ def base_levels():
         },
         # Palier 3 (2026-10-10, demande du proprietaire) : taches qu un vrai
         # joueur donnerait, plus longues que les cabanes, depuis un inventaire
-        # vide. Informatifs au depart ; stone-toolkit, big-stone-house et
-        # lit-cabin bloquants depuis le 2026-10-20 (5 bancs sur 5).
+        # vide. Informatifs au depart ; stone-toolkit, big-stone-house,
+        # lit-cabin et powered-rail-line bloquants depuis le 2026-10-20.
         {
             'name': 'composite/stone-toolkit',
             'about': 'Inventaire vide, deux arbres et un rocher, « Equipe-toi : fabrique-toi une pioche, une hache et une epee en pierre » : '
@@ -892,7 +892,7 @@ def base_levels():
             'about': 'Inventaire vide, trois arbres, un rocher avec fer, or, redstone et charbon, deux reperes de laine au sol : '
                      '« Fais-moi une ligne de minecart entre la laine rouge et la laine bleue, avec des rails accelerateurs » : '
                      'pioches, minerais extraits, four, lingots, rails, rails accelerateurs alimentes, minecart pose.',
-            'kind': 'build', 'cap': PALIER3_CAP_S, 'informative': True,
+            'kind': 'build', 'cap': PALIER3_CAP_S,
             'instruction': 'Fais-moi une ligne de minecart entre la laine rouge et la laine bleue, avec des rails accelerateurs',
             'blocks': ['minecraft:rail', 'minecraft:powered_rail'], 'target': 12,
             'also': {'rails_accelerateurs': (['minecraft:powered_rail'], 2),
@@ -2000,6 +2000,8 @@ RETIRED = frozenset({
     'composite/cabin-from-scratch', 'composite/bucket',
     # Promotion de sa couverture le 2026-10-20 (5 bancs sur 5, jumeau compris).
     'composite/stone-hut-from-scratch',
+    # Idem le 2026-10-20 : powered-rail-line bloquant (trois bancs d affilee).
+    'craft/iron-pickaxe',
     # Plans longs (2026-10-16, idee des agents Gemini, arXiv 2610.22319),
     # allumes par defaut le 2026-10-17 (A/B : 16 paires, -36 % d appels) :
     # le bras sans le mode se joue par `Banc:`.
@@ -2023,8 +2025,9 @@ COVERED_BY = {
     'build/tower': 'composite/big-stone-house', 'build/wall': 'composite/stone-wall-question',
     'build/door': 'composite/cabin-across-water', 'chat/chatter-ignored': 'chat/question-keeps-mission',
     'chat/stop-resume': 'chat/stop-tree', 'chat/join-then-tree': 'chat/replace-and-join',
-    'craft/from-tree': 'craft/iron-pickaxe', 'craft/planks': 'build/no-materials', 'craft/sticks': 'craft/iron-pickaxe',
-    'craft/table': 'craft/iron-pickaxe', 'craft/stone-pickaxe': 'craft/iron-pickaxe', 'craft/furnace': 'craft/iron-pickaxe',
+    'craft/from-tree': 'composite/powered-rail-line', 'craft/planks': 'build/no-materials',
+    'craft/sticks': 'composite/powered-rail-line', 'craft/table': 'composite/powered-rail-line',
+    'craft/stone-pickaxe': 'composite/powered-rail-line', 'craft/furnace': 'composite/powered-rail-line',
     'craft/axe': 'composite/stone-toolkit', 'craft/door': 'composite/cabin-across-water',
     'craft/torches': 'composite/lit-cabin',
     'follow/corner': 'follow/winding', 'follow/ledge-down': 'follow/winding', 'follow/stairs': 'follow/winding',
@@ -2047,6 +2050,7 @@ COVERED_BY = {
     'skill/cabin-batir': 'skill/stone-hut-batir', 'trees/skirted': 'trees/tall',
     'composite/cabin-from-scratch': 'composite/cabin-across-water', 'composite/bucket': 'composite/powered-rail-line',
     'composite/stone-hut-from-scratch': 'composite/big-stone-house',
+    'craft/iron-pickaxe': 'composite/powered-rail-line',
 }
 
 
