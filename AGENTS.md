@@ -177,7 +177,9 @@ solveur ou un retrait demande) ; brief `depot`/`retrait` (cle `|coffres`),
 objet du registre ou famille (`buches`, `planches`), quantite nulle = tout le
 stock ; fin mesuree, une fabrication rangee reste fabriquee
 (`fabricationProduced`, `collected` comptent les depots) ; capacite
-`conteneur` retiree des refus ; `sans(...)` sur composite/chest-pickaxe) ;
+`conteneur` retiree des refus ; `sans(...)` sur composite/chest-pickaxe,
+`avec(...)` sur les niveaux durs big-stone-house et powered-rail-line, car
+un A/B departage toujours sur des niveaux durs, proprietaire 2026-10-20) ;
 `culture` (eteint, 2026-10-20, meme idee : planter = `poser` d une graine,
 d un plant ou d une pousse, `bot/culture.js` : sol de chaque plante, terre
 labouree par le code si une houe est en poche (humide d abord, eau a 4
@@ -187,7 +189,8 @@ houe, la houe en bois devient la cible du solveur (`houeAObtenir`) ;
 et jamais le pied d une plante en colonne (canne, bambou, cactus) ; phrase
 ajoutee a l intent de `poser` (`ajouts`, `skills.intentDe`) et au brief (cle
 `|culture`) ; capacite `culture` retiree des refus ; `sans(...)` sur
-composite/wheat-field et gather/ripe-wheat ; une matiere ouverte d une
+composite/wheat-field et gather/ripe-wheat, `avec(...)` sur big-stone-house
+et powered-rail-line ; une matiere ouverte d une
 culture compte son produit, le ble et non ses graines, mode allume ou non :
 minecraft-data ne fait lacher au ble que ses graines ; tmp/coffres-culture.test.js).
 
@@ -761,7 +764,7 @@ dans `docs/journal.md` (section « Les pieges »).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
-  109 dont les variantes A/B tranchees ou deja mesurees, et les bras sans
+  113 dont les variantes A/B tranchees ou deja mesurees, et les bras
   `coffres`/`culture` joues par `Banc:` ; seule `~sans-poser` reste jouee) ; chacun est couvert par un niveau joue plus dur qui exige la
   meme competence (`trees.COVERED_BY`, teste). Ajouter un niveau = en retirer
   un plus simple qu il couvre, ou creer un niveau qui en reunit plusieurs
@@ -777,7 +780,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 166 niveaux avec variantes, 43 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 170 niveaux avec variantes, 43 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,

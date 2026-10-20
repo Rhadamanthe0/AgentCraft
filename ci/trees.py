@@ -864,7 +864,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {},
+            'rules': {}, 'variants': [avec('coffres'), avec('culture')],
         },
         {
             'name': 'composite/lit-cabin',
@@ -907,7 +907,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [sans('poser')],
+            'rules': {}, 'variants': [sans('poser'), avec('coffres'), avec('culture')],
         },
         # Coffres et culture (2026-10-20, idee 5 de la revue du 2026-10-16,
         # prerequis d une ferme a canne a sucre) : A/B `coffres` et `culture`,
@@ -2089,6 +2089,11 @@ RETIRED = frozenset({
     # Coffres et culture (2026-10-20) : le bras sans le mode se joue par
     # `Banc:` le temps de la campagne A/B, jamais au banc complet (quota).
     'composite/chest-pickaxe~sans-coffres', 'composite/wheat-field~sans-culture', 'gather/ripe-wheat~sans-culture',
+    # Un A/B departage sur des niveaux durs (proprietaire, 2026-10-20) : les
+    # deux modes allumes sur les composites les plus longs du palier 3, pour
+    # mesurer ce que les actions et phrases en plus coutent hors de leur usage.
+    'composite/big-stone-house~avec-coffres', 'composite/big-stone-house~avec-culture',
+    'composite/powered-rail-line~avec-coffres', 'composite/powered-rail-line~avec-culture',
 })
 
 # Owner's limit (2026-10-10): a full bench plays fewer than 50 tests (levels,
