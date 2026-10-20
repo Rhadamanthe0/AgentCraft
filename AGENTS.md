@@ -248,11 +248,15 @@ au demarrage au lieu de 75 min de niveaux rouges.
   (proprietaire, 2026-10-20, « important qu il s adapte aux changements »,
   idee des `missing_items` de Mindcraft) : cle `perturbations` d un niveau
   `gather` ou `build` (`trees.perturbateur`) ; des que le bot tient l objet
-  `quand`, le banc lui retire des objets (`retirer`) et enleve des blocs de
-  l arene (`enlever`), une fois, sans le dire ; check `imprevus_subis`.
-  `composite/stolen-pickaxe` (informatif, avec jumeau) : four demande, pioche
-  en bois et etabli pris des que la pioche est faite. Pas encore d action
-  retiree (`blocked_actions`) : a faire si ce niveau ne differencie plus. Une ferme a canne a sucre exige `culture` et `mecanisme`
+  `quand` (`seuil` fois), le banc lui retire des objets (`retirer`, nom ou
+  etiquette `#...`) et enleve des blocs de l arene (`enlever`), une fois,
+  sans le dire ; check `imprevus_subis`. `composite/stolen-pickaxe`
+  (informatif, avec jumeau) : four demande ; pioche faite : pioche, etabli et
+  tout le bois pris ; 5 pierres en poche : pierres et pioche prises. Durci le
+  2026-10-20 (proprietaire : un A/B doit toujours departager sur des niveaux
+  durs) : la premiere version, un seul imprevu, passait du premier coup
+  (158 s). Pas encore d action retiree (`blocked_actions`) : a faire si ce
+  niveau ne differencie plus. Une ferme a canne a sucre exige `culture` et `mecanisme`
   (circuits) : ce n est pas encore un niveau.
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
   escalier (jamais un puits vertical). Difficulte paisible pour l instant.

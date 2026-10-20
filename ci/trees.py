@@ -885,22 +885,28 @@ def base_levels():
             'rules': {}, 'variants': [sans('poser')],
         },
         # Imprevu du monde (proprietaire, 2026-10-20 : « important qu il s adapte
-        # aux changements »). Rien n est dit au bot : pioche et etabli
-        # disparaissent des que la pioche est faite ; il doit voir le manque,
-        # refaire etabli et pioche, puis le four (qui exige un etabli).
+        # aux changements » ; un A/B doit toujours departager : niveau dur).
+        # Rien n est dit au bot. Pioche faite : pioche, etabli et tout le bois
+        # disparaissent (couper un autre arbre, tout refaire). Cinq pierres en
+        # poche : pierres et pioche disparaissent (refaire la pioche, miner).
         {
             'name': 'composite/stolen-pickaxe',
-            'about': 'Inventaire vide, deux arbres et un rocher, « Fabrique-moi un four » ; des que le bot tient une pioche '
-                     'en bois, le banc lui prend pioche et etabli (poche et arene), sans rien dire : il doit refaire les deux.',
+            'about': 'Inventaire vide, trois arbres et un rocher, « Fabrique-moi un four » ; sans rien dire, le banc prend '
+                     'pioche, etabli (poche et arene) et tout le bois des que la pioche en bois est faite, puis pierres et '
+                     'pioche des que le bot tient 5 pierres : il doit voir chaque manque et refaire.',
             'kind': 'gather', 'cap': PALIER3_CAP_S, 'informative': True,
             'instruction': 'Fabrique-moi un four',
             'items': ['furnace'], 'target': 1,
-            'perturbations': [{'quand': 'wooden_pickaxe', 'retirer': ['wooden_pickaxe', 'crafting_table'],
-                               'enlever': ['crafting_table']}],
+            'perturbations': [{'quand': 'wooden_pickaxe',
+                               'retirer': ['wooden_pickaxe', 'crafting_table', '#minecraft:logs', '#minecraft:planks', 'stick'],
+                               'enlever': ['crafting_table']},
+                              {'quand': 'cobblestone', 'seuil': 5, 'retirer': ['cobblestone', 'wooden_pickaxe']}],
             'terrain': [(4, 200, 24, 10, 202, 30, 'stone')],
-            'leaves': [box for (x, z) in ((28, 6), (30, 28))
+            # Trois arbres : le premier entame est fini (arbre fini) puis son bois
+            # pris ; un des deux autres suffit a tout refaire (~12 planches).
+            'leaves': [box for (x, z) in ((28, 6), (30, 28), (6, 8))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
-            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((28, 6), (30, 28)) for i in range(5)]),
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((28, 6), (30, 28), (6, 8)) for i in range(5)]),
             'rules': {},
         },
         {
@@ -1359,9 +1365,10 @@ BUILD_IDLE_S = 600
 
 def perturbateur(level, x0, username, rcon, started):
     """Imprevus du monde (proprietaire, 2026-10-20, idee des `missing_items` de
-    Mindcraft) : des que le bot tient l objet `quand`, le banc lui retire les
-    objets `retirer` et enleve de l arene les blocs `enlever` (un autre joueur
-    prend l outil et l etabli). Chacun une fois, dans l ordre. Le bot n en est
+    Mindcraft) : des que le bot tient `seuil` (1 par defaut) objets `quand`, le
+    banc lui retire les objets `retirer` (nom ou etiquette `#minecraft:logs`)
+    et enleve de l arene les blocs `enlever` (un autre joueur prend l outil,
+    l etabli, le bois). Chacun une fois, dans l ordre. Le bot n en est
     pas averti : il doit voir le manque a l inventaire et au monde, puis
     refaire ce qu il faut. Rend (pas, faits) ; pas() a chaque tour de boucle."""
     pending, done = list(level.get('perturbations', [])), []
@@ -1370,11 +1377,11 @@ def perturbateur(level, x0, username, rcon, started):
         while pending:
             p = pending[0]
             match = re.search(r'Found (\d+)', rcon(f"clear {username} minecraft:{p['quand']} 0"))
-            if not match or int(match.group(1)) < 1:
+            if not match or int(match.group(1)) < p.get('seuil', 1):
                 return
             pending.pop(0)
             for item in p.get('retirer', []):
-                rcon(f'clear {username} minecraft:{item}')
+                rcon(f"clear {username} {item if item.startswith('#') else 'minecraft:' + item}")
             for block in p.get('enlever', []):
                 rcon(f'fill {x0} 200 0 {x0 + SIZE} {TOP_Y} {SIZE} air replace minecraft:{block}')
             done.append({'t': round(time.monotonic() - started, 1), 'quand': p['quand'],

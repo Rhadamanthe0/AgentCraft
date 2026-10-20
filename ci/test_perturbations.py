@@ -48,6 +48,19 @@ class PerturbateurTest(unittest.TestCase):
         self.assertEqual(len(done), 1)
         self.assertEqual(len(rcon.sent), sent)
 
+    def test_threshold_and_tags(self):
+        rcon = FakeRcon()
+        level = {'name': 'x', 'perturbations': [
+            {'quand': 'cobblestone', 'seuil': 5, 'retirer': ['cobblestone', '#minecraft:logs']}]}
+        step, done = trees.perturbateur(level, 100, 'TestBot', rcon, 0)
+        rcon.held['cobblestone'] = 4
+        step()
+        self.assertEqual(done, [])
+        rcon.held['cobblestone'] = 5
+        step()
+        self.assertEqual(len(done), 1)
+        self.assertIn('clear TestBot #minecraft:logs', rcon.sent)
+
     def test_level_without_surprise_sends_nothing(self):
         rcon = FakeRcon()
         step, done = trees.perturbateur({'name': 'x'}, 100, 'TestBot', rcon, 0)
