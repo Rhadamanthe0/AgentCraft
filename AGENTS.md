@@ -135,7 +135,9 @@ de A a B ») vaut toute la ligne, ses cases libres font le reste
 (`posesMesurees`, `action-poser.etatLigne`) ; plusieurs objets sur une
 meme ligne : la premiere entree porte la couverture, les autres comptent leur
 quantite, et une pose en ligne garde les cases des autres blocs encore
-attendus (`casesGardees`, rails accelerateurs d une ligne de rails) ; une « construction » sans
+attendus (`casesGardees`, rails accelerateurs d une ligne de rails) ; seul un objet
+qui pose un bloc couvre une ligne, un objet-entite (minecart) garde son compte
+(`posesDuBrief`, 2026-10-20 : « ligne de minecart » visait 13 minecarts) ; une « construction » sans
 matiere ni dimension lue qui pose des objets devient une pose (pas de
 chantier 5x5x5 par defaut qui refusait la fin, 2026-10-19) ; `sans(...)` sur composite/lit-cabin et
 composite/powered-rail-line ; tmp/poser.test.js) ;

@@ -104,6 +104,18 @@ test('poser : les autres blocs a poser prennent des cases de la ligne, le solveu
   const solveur = lignes.filter(l => /solveur/.test(l))
   assert.ok(solveur.some(l => /fabriquer 16 rail\b/.test(l)), solveur.join('\n'))
   assert.ok(!solveur.some(l => /fabriquer 32 rail\b/.test(l)), solveur.join('\n'))
+  // Minecart en tete et sur la ligne (brief du banc 39406009525) : un
+  // objet-entite n a pas de bloc, il ne couvre pas la ligne (13 minecarts,
+  // 65 fer : plus que l arene n en a) ; les rails la couvrent.
+  const enTete = await jouer({
+    blocks: { '10,199,15': 'red_wool', '27,199,15': 'blue_wool' },
+    inventory: [{ name: 'iron_ingot', count: 40 }, { name: 'stick', count: 20 }, { name: 'crafting_table', count: 1 }],
+    brief: { type: 'recolte', matiere: 'aucune', pose: [{ objet: 'minecart', de: 'red_wool', vers: 'blue_wool' }, { objet: 'rail', de: 'red_wool', vers: 'blue_wool' }, { objet: 'powered_rail', quantite: 2 }] },
+    script: [{ action: 'attendre', duree: 1 }]
+  })
+  assert.ok(enTete.lignes.some(l => /a poser minecart, rail \(ligne red_wool -> blue_wool\)/.test(l)), enTete.lignes.filter(l => /\[mission\] "/.test(l)).join('\n'))
+  const solveurTete = enTete.lignes.filter(l => /solveur/.test(l))
+  assert.ok(solveurTete.some(l => /fabriquer 1 minecart\b/.test(l)) && !solveurTete.some(l => /fabriquer \d{2,} minecart/.test(l)), solveurTete.join('\n'))
 })
 
 test('poser : deux objets sur la meme ligne, le premier garde la place du second, chacun compte', async () => {

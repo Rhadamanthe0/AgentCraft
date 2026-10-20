@@ -338,9 +338,13 @@ function posesDuBrief (bot, brut, texte = '') {
     const q = Number(p?.quantite)
     const dite = p?.quantite !== null && Number.isFinite(q) ? Math.max(1, Math.min(64, Math.round(q))) : null
     // Ligne entre deux blocs nommes : les deux noms valides au registre des
-    // blocs, sinon la pose reste un compte d objets.
+    // blocs, sinon la pose reste un compte d objets. Seul un objet qui pose
+    // un bloc couvre une ligne : un objet-entite (minecart, bateau) garde son
+    // compte. Sinon « une ligne de minecart » voulait 13 minecarts, 65 fer
+    // (composite/powered-rail-line, banc 39406009525).
     const bloc = n => { const b = nomDeBloc(n); return b && (!bot?.registry?.blocksByName || bot.registry.blocksByName[b]) ? b : null }
-    const ligne = p?.de && p?.vers && bloc(p.de) && bloc(p.vers) ? { de: bloc(p.de), vers: bloc(p.vers) } : {}
+    const poseUnBloc = !bot?.registry?.blocksByName || Boolean(bot.registry.blocksByName[objet])
+    const ligne = poseUnBloc && p?.de && p?.vers && bloc(p.de) && bloc(p.vers) ? { de: bloc(p.de), vers: bloc(p.vers) } : {}
     // Sans nombre, un pluriel de la phrase vaut deux (skills.nommeAuPluriel).
     out.push({ objet, quantite: dite ?? (skills.nommeAuPluriel(texte, objet) ? 2 : null), ...ligne })
   }
