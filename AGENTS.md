@@ -714,6 +714,10 @@ dans `docs/journal.md` (section « Les pieges »).
   `rhada-persistent-v1`, `rhada-run-<run>-<tentative>` et
   `rhada-job-minecraft` ou `rhada-job-banc-complet` reservent le runner
   au job attendu. Le bail global garde un seul job Linux/Windows a la fois.
+- Build Compose via l API native Podman : `DOCKER_BUILDKIT=0` et
+  `COMPOSE_BAKE=false` dans les deux jobs. Buildx choisit sinon
+  `/docker/buildx` avec cgroupfs, hors du cgroup delegue du job ; ne pas
+  desserrer l isolation pour le rendre accessible.
 - Ce qui se joue (2026-10-01, demande du proprietaire) : **tout** sur `main` ;
   sur une branche, ce que demande la ligne finale du message de commit
   (trailer, dans le dernier paragraphe avec `Co-Authored-By`) :

@@ -46,6 +46,10 @@ jobs:
     # (clients docker et docker compose). Ports publies injoignables depuis le
     # conteneur du runner (localhost = le runner) : CI_ENDPOINT_MODE=ip, IP des conteneurs du projet.
     runs-on: [self-hosted, linux, x64, minipc, rhada-persistent-v1, rhada-job-minecraft, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
+    # API Podman rootless : Buildx impose sinon /docker/buildx hors du cgroup delegue.
+    env:
+      DOCKER_BUILDKIT: '0'
+      COMPOSE_BAKE: 'false'
     outputs:
       levels: ${{ steps.levels.outputs.levels }}
     # Scenarios composites jusqu a 45 min, lances en premier (chemin critique).
@@ -164,6 +168,10 @@ jobs:
     needs: minecraft
     if: always()
     runs-on: [self-hosted, linux, x64, minipc, rhada-persistent-v1, rhada-job-banc-complet, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
+    # API Podman rootless : Buildx impose sinon /docker/buildx hors du cgroup delegue.
+    env:
+      DOCKER_BUILDKIT: '0'
+      COMPOSE_BAKE: 'false'
     timeout-minutes: 5
     steps:
       - name: Full bench passed on this commit
