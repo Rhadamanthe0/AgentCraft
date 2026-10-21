@@ -262,7 +262,8 @@ au demarrage au lieu de 75 min de niveaux rouges.
 - **Une seule cle OpenCode Go** (`PLANNER_API_KEY`, proprietaire, 2026-10-20 :
   OpenCode n admet plus qu un abonnement ; la cle primary est morte, 401
   « Invalid credential », et la bascule de cle est retiree). Au banc, le
-  workflow la lit dans le secret GitHub `OPENCODE_SECONDARY_API_KEY` ; sondee
+  workflow la lit dans le secret GitHub `OPENCODE_API_KEY` (nouvel abonnement
+  du 2026-10-21, seul secret du depot ; plus de `OPENAI_API_KEY`) ; sondee
   au demarrage (`ci/keyprobe.py`) : mini prompt sans raisonnement (modele de
   plan de `ci/models.env`), sans reponse le banc echoue (`report.keyProbe`) ;
   `report.keyCheck` verifie qu aucune autre cle n a servi. Ne jamais
