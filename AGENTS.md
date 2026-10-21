@@ -297,11 +297,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
   banc partiel ne suffit jamais. Le check `banc-complet` du workflow n est
   vert que dans ce cas (prerequis de fusion sur `main`, 2026-10-01).
   Exception (proprietaire, 2026-10-21) : une PR qui ne modifie pas le bot
-  (rien sous `bot/` ni dans `compose.yaml` : outillage d analyse comme
-  `ci/ab.py`, documentation) se fusionne directement, sans banc complet,
-  une fois ses tests unitaires verts (`Banc: unitaires`). Le banc ne
-  mesurerait rien de nouveau ; le doute (harnais, niveaux, workflow du
-  banc) se tranche en faveur du banc complet.
+  (rien sous `bot/`, ni prompt ni comportement : doc, secrets et reglages
+  du workflow, outillage) se fusionne directement, sans banc complet : le
+  banc n y mesurerait rien de nouveau. Ses tests unitaires restent verts.
 
 ### Decisions de retrait (ne pas remettre sans A/B favorable)
 
