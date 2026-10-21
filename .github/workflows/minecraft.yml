@@ -119,7 +119,7 @@ jobs:
         # conteneur jetable des bots, jamais dans une image, un artefact ou un
         # journal. report.keyCheck verifie qu aucune autre n a servi.
         env:
-          PLANNER_API_KEY: ${{ secrets.OPENCODE_SECONDARY_API_KEY }}
+          PLANNER_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           # Modeles openai/* de l A/B de modele seulement (API OpenAI en direct,
           # jamais un repli) ; absent, ces variantes ne se jouent pas.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
