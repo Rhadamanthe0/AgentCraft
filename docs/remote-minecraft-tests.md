@@ -143,7 +143,7 @@ Les résultats vont dans `test-results/mc-ci-…/` et dans les artefacts du run
 ## 4. Clé du modèle
 
 Une seule clé, `PLANNER_API_KEY` (lue par le workflow dans le secret GitHub
-`OPENCODE_SECONDARY_API_KEY`), sans aucun repli. Au démarrage, `ci/keyprobe.py`
+`OPENCODE_API_KEY`), sans aucun repli. Au démarrage, `ci/keyprobe.py`
 envoie un mini prompt (modèle de plan de `ci/models.env`) avec cette clé ; sans
 réponse, le banc échoue sans jouer de niveau (`report.keyProbe`).
 `report.keyCheck` vérifie qu'elle seule a servi. Un plafond de quota épuisé
