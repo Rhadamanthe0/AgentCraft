@@ -262,7 +262,8 @@ au demarrage au lieu de 75 min de niveaux rouges.
 - **Une seule cle OpenCode Go** (`PLANNER_API_KEY`, proprietaire, 2026-10-20 :
   OpenCode n admet plus qu un abonnement ; la cle primary est morte, 401
   « Invalid credential », et la bascule de cle est retiree). Au banc, le
-  workflow la lit dans le secret GitHub `OPENCODE_SECONDARY_API_KEY` ; sondee
+  workflow la lit dans le secret GitHub `OPENCODE_API_KEY` (nouvel abonnement
+  du 2026-10-21, seul secret du depot ; plus de `OPENAI_API_KEY`) ; sondee
   au demarrage (`ci/keyprobe.py`) : mini prompt sans raisonnement (modele de
   plan de `ci/models.env`), sans reponse le banc echoue (`report.keyProbe`) ;
   `report.keyCheck` verifie qu aucune autre cle n a servi. Ne jamais
@@ -295,6 +296,10 @@ au demarrage au lieu de 75 min de niveaux rouges.
   `keyCheck` est ok, sur un banc COMPLET de la tete de la PR (voir §5) ; un
   banc partiel ne suffit jamais. Le check `banc-complet` du workflow n est
   vert que dans ce cas (prerequis de fusion sur `main`, 2026-10-01).
+  Exception (proprietaire, 2026-10-21) : une PR qui ne modifie pas le bot
+  (rien sous `bot/`, ni prompt ni comportement : doc, secrets et reglages
+  du workflow, outillage) se fusionne directement, sans banc complet : le
+  banc n y mesurerait rien de nouveau. Ses tests unitaires restent verts.
 
 ### Decisions de retrait (ne pas remettre sans A/B favorable)
 
