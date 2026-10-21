@@ -12,7 +12,9 @@ ci/fetch-results.py) and gives, per mode and per level:
   mode-off run passed (losses), and each side's pass rate with its 95 %
   Wilson interval;
 - cost, on pairs where both passed: median duration and model calls, mode on
-  against mode off;
+  against mode off, and the median dollar cost of the model (`plannerTokens`
+  at the ci/ab_modele.py prices of the bench model), shown but not part of
+  the verdict;
 - progress, on pairs where both failed: the share of the measured goal each
   run reached (`progress`, trees.progression, 0 to 1); a gap of at least
   TIE counts as a progress gain or loss;
@@ -32,6 +34,7 @@ from pathlib import Path
 import statistics
 import sys
 
+from ab_modele import BASE_MODEL, cost as model_cost
 from promotion import wilson
 
 MIN_PAIRS = 6
@@ -57,6 +60,7 @@ def run_view(test):
     return {'success': bool(test.get('success')), 'elapsedS': test.get('elapsedS'),
             'calls': test.get('plannerCalls'), 'damage': test.get('damageTaken'),
             'progress': test.get('progress'),
+            'cost': model_cost(test.get('plannerTokens'), BASE_MODEL),
             'modes': test.get('modes') or {}}
 
 
@@ -91,6 +95,7 @@ def judge(group):
     both = [p for p in group if p['on']['success'] and p['off']['success']]
     duration = ratio([p['on']['elapsedS'] for p in both], [p['off']['elapsedS'] for p in both])
     calls = ratio([p['on']['calls'] for p in both], [p['off']['calls'] for p in both])
+    dollars = ratio([p['on']['cost'] for p in both], [p['off']['cost'] for p in both])
     failed = [p for p in group if not p['on']['success'] and not p['off']['success']
               and p['on']['progress'] is not None and p['off']['progress'] is not None]
     progress_gains = sum(1 for p in failed if p['on']['progress'] - p['off']['progress'] >= TIE)
@@ -113,7 +118,7 @@ def judge(group):
     return {'pairs': n, 'gains': gains, 'losses': losses,
             'passOn': on_pass, 'passOff': off_pass,
             'wilsonOn': list(wilson(on_pass, n)), 'wilsonOff': list(wilson(off_pass, n)),
-            'durationRatio': duration, 'callsRatio': calls, 'bothPassed': len(both),
+            'durationRatio': duration, 'callsRatio': calls, 'costRatio': dollars, 'bothPassed': len(both),
             'bothFailed': len(failed), 'progressGains': progress_gains, 'progressLosses': progress_losses,
             'modeActed': acted, 'verdict': verdict}
 
@@ -144,6 +149,8 @@ def line(name, j):
         cost.append(f"duree x{j['durationRatio']}")
     if j['callsRatio'] is not None:
         cost.append(f"appels x{j['callsRatio']}")
+    if j.get('costRatio') is not None:
+        cost.append(f"cout x{j['costRatio']}")
     progress = (f" ; progression gains {j['progressGains']}, pertes {j['progressLosses']} (deux echecs)"
                 if j['bothFailed'] else '')
     return (f"{name}: {j['pairs']} paires, reussite avec {j['passOn']}/{j['pairs']} (IC95 {j['wilsonOn'][0]}-{j['wilsonOn'][1]})"
