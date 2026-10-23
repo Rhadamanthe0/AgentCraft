@@ -865,6 +865,10 @@ def base_levels():
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
             'rules': {},
+            # Imprevu en plein chantier : 20 pierres en poche, pierres et pioches
+            # prises (refaire une pioche, miner encore).
+            'variants': [imprevus({'quand': 'cobblestone', 'seuil': 20,
+                                   'retirer': ['cobblestone', '#minecraft:pickaxes']})],
         },
         {
             'name': 'composite/lit-cabin',
@@ -1937,6 +1941,13 @@ def avec(mode):
 # Model A/B (owner's request, 2026-10-09): the same level with another model
 # for plans, brief and chat (POST /api/models, reset after the level). Same
 # efforts as ci/models.env; informative like every variant.
+def imprevus(*perturbations):
+    """Variante d un niveau avec des imprevus du monde (`perturbations`,
+    perturbateur) : meme arene et memes modes, l adaptation se mesure la ou le
+    niveau est deja dur (proprietaire, 2026-10-20 : un A/B doit departager)."""
+    return ('imprevus', {}, None, {'perturbations': list(perturbations)})
+
+
 def modele(name):
     return (f"modele-{name.replace('/', '-')}", {}, {'plan': name, 'brief': name, 'chat': name})
 
@@ -1977,10 +1988,11 @@ def all_levels_unfiltered():
     out = []
     for level in base_levels():
         out.append(level)
-        for suffix, features, *models in level.get('variants', ()):
-            out.append(dict(level, name=f"{level['name']}~{suffix}", variants=(),
+        for suffix, features, *rest in level.get('variants', ()):
+            models, extra = (rest + [None, {}])[:2]
+            out.append(dict(level, **extra, name=f"{level['name']}~{suffix}", variants=(),
                             features={**level.get('features', {}), **features},
-                            models=models[0] if models else None,
+                            models=models,
                             informative=True, variantOf=level['name'],
                             about=f"[{suffix}] {level['about']}"))
         if level['name'].split('/')[0] in RANDOM_TWIN_FAMILIES:
@@ -2052,6 +2064,9 @@ RETIRED = frozenset({
     'composite/stone-hut-from-scratch',
     # Idem le 2026-10-20 : powered-rail-line bloquant (trois bancs d affilee).
     'craft/iron-pickaxe',
+    # Imprevus du monde (2026-10-22) : passe du premier coup (177 s, 198 s),
+    # ne departage rien ; les imprevus vont sur un composite dur.
+    'composite/stolen-pickaxe',
     # Plans longs (2026-10-16, idee des agents Gemini, arXiv 2610.22319),
     # allumes par defaut le 2026-10-17 (A/B : 16 paires, -36 % d appels) :
     # le bras sans le mode se joue par `Banc:`.
@@ -2101,6 +2116,7 @@ COVERED_BY = {
     'composite/cabin-from-scratch': 'composite/cabin-across-water', 'composite/bucket': 'composite/powered-rail-line',
     'composite/stone-hut-from-scratch': 'composite/big-stone-house',
     'craft/iron-pickaxe': 'composite/powered-rail-line',
+    'composite/stolen-pickaxe': 'composite/big-stone-house~imprevus',
 }
 
 

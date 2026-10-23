@@ -250,13 +250,13 @@ au demarrage au lieu de 75 min de niveaux rouges.
   `gather` ou `build` (`trees.perturbateur`) ; des que le bot tient l objet
   `quand` (`seuil` fois), le banc lui retire des objets (`retirer`, nom ou
   etiquette `#...`) et enleve des blocs de l arene (`enlever`), une fois,
-  sans le dire ; check `imprevus_subis`. `composite/stolen-pickaxe`
-  (informatif, avec jumeau) : four demande ; pioche faite : pioche, etabli et
-  tout le bois pris ; 5 pierres en poche : pierres et pioche prises. Durci le
-  2026-10-20 (proprietaire : un A/B doit toujours departager sur des niveaux
-  durs) : la premiere version, un seul imprevu, passait du premier coup
-  (158 s). Pas encore d action retiree (`blocked_actions`) : a faire si ce
-  niveau ne differencie plus. Une ferme a canne a sucre exige `culture` et `mecanisme`
+  sans le dire ; check `imprevus_subis`. Une variante `imprevus(...)` (meme
+  arene, informative) les pose sur un niveau existant :
+  `composite/big-stone-house~imprevus` (20 pierres en poche : pierres et
+  pioches prises en plein chantier). `composite/stolen-pickaxe` (four, deux
+  imprevus) est retire le 2026-10-22 : passe du premier coup (177 s, jumeau
+  198 s), il ne departageait rien ; les imprevus vont la ou le bot est
+  fragile. Pas encore d action retiree (`blocked_actions`). Une ferme a canne a sucre exige `culture` et `mecanisme`
   (circuits) : ce n est pas encore un niveau.
 - Minage : monde NATUREL (graine fixe, zone variee). Grotte d abord, sinon
   escalier (jamais un puits vertical). Difficulte paisible pour l instant.
@@ -773,7 +773,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 160 niveaux avec variantes, 40 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 161 niveaux avec variantes, 39 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,

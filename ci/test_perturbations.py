@@ -1,6 +1,6 @@
 """World surprises of a level (ci/trees.py, perturbateur): once the bot holds
 the trigger item, the bench takes items and removes blocks, once, unannounced
-(owner, 2026-10-20: the bot must adapt to changes, composite/stolen-pickaxe).
+(owner, 2026-10-20: the bot must adapt to changes, composite/big-stone-house~imprevus).
 """
 import re
 import sys
@@ -67,10 +67,13 @@ class PerturbateurTest(unittest.TestCase):
         step()
         self.assertEqual((done, rcon.sent), ([], []))
 
-    def test_stolen_pickaxe_level_is_informative_with_its_twin(self):
+    def test_imprevus_variant_carries_its_surprises(self):
         names = {lv['name']: lv for lv in trees.all_levels_unfiltered()}
-        self.assertTrue(names['composite/stolen-pickaxe']['informative'])
-        self.assertIn('composite/stolen-pickaxe~aleatoire', names)
+        variant = names['composite/big-stone-house~imprevus']
+        self.assertTrue(variant['informative'])
+        self.assertEqual(variant['perturbations'][0]['quand'], 'cobblestone')
+        self.assertNotIn('perturbations', names['composite/big-stone-house'])
+        self.assertIn('composite/big-stone-house~imprevus', [lv['name'] for lv in trees.levels()])
 
 
 if __name__ == '__main__':
