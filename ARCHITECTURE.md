@@ -49,7 +49,8 @@ Trois principes structurent le code :
 | `executor.js` | slot physique unique : une action du monde à la fois, annulable |
 | `mission.js` | boucle de mission, état servi au modèle (`buildState`), actions, contrats (`CONTRATS`), garde-fous, blocages |
 | `mission-state.js` | état persisté déclaré une fois (suivi d'arbre, reprise) : lecture et écriture du même schéma |
-| `action-gestes.js`, `action-poser.js`, `action-sous-buts.js` | modules d'actions : gestes, attente, fin, mémoire ; `poser` ; sous-buts `batir` et `obtenir` |
+| `action-gestes.js`, `action-poser.js`, `action-sous-buts.js`, `action-conteneur.js` | modules d'actions : gestes, attente, fin, mémoire ; `poser` (et planter, A/B `culture`) ; sous-buts `batir` et `obtenir` ; `deposer` et `retirer` (A/B `coffres`) |
+| `culture.js` | connaissances du jeu sur les cultures : sol de chaque plante, labour, maturité décodée de l'état du bloc, produit récolté |
 | `outcomes.js` | contrat des résultats : code d'échec, remèdes, garde anti-répétition |
 | `trace.js` | trace structurée de mission (plans, étapes, blocages, fin) et son résumé |
 | `planner.js` | prompts, plan JSON, brief, chat, plans libres (`designBlueprint`), coercition des paramètres |
@@ -171,7 +172,8 @@ quantités et emplacements sont des paramètres**, jamais figés dans une action
 | `piler` | pilier de terre ou de planches de l'inventaire réel, hauteur jamais rabotée |
 | `fabriquer`, `cuire` | recette du registre, établi ou four rejoint ou posé, produit mesuré en inventaire |
 | `choisir_terrain`, `construire`, `poser_porte` | plan (boîte ou plan libre vérifié), pose depuis un poste de tir |
-| `poser`, `utiliser` | poser un objet nommé (devant soi, à côté ou sur un bloc, en ligne) ; actionner le bloc nommé le plus proche (A/B) |
+| `poser`, `utiliser` | poser un objet nommé (devant soi, à côté ou sur un bloc, en ligne) ; avec `culture`, planter une graine sur son sol, terre labourée par le code avec une houe ; actionner le bloc nommé le plus proche (A/B) |
+| `deposer`, `retirer` | conteneur nommé (ou le plus proche) rejoint et ouvert ; objets déplacés comptés par l'inventaire ; contenu vu retenu et servi dans l'état (A/B `coffres`) |
 | `batir`, `obtenir` | sous-buts : le modèle choisit le but, le code le conduit geste par geste (A/B `sous_buts`) |
 | `rejoindre_demandeur` | navigateur, descente de pilier, escalade, pont, trajet qui creuse sans casser le construit |
 | `donner` | seulement si le joueur a demandé un don ; don prouvé par l'inventaire |

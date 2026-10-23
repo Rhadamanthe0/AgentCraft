@@ -1,5 +1,7 @@
 'use strict'
 
+const culture = require('./culture')
+
 // Catalogue unique de tout ce que le bot sait faire.
 //
 // Surfaces qui lisent cette table :
@@ -549,6 +551,10 @@ const ACTIONS = {
     scale: 'nombre d objets poses, de 1 a 40',
     secondes: 1.5,
     intent: "Poser un objet en poche hors du plan de chantier (rail, torche, levier, cloture, bloc isole ; minecart ou bateau ; une porte va dans l ouverture laissee par le chantier s il en a une). Sans lieu : devant le bot. `de` seul : a cote du bloc nomme le plus proche (un objet qui n est pas un bloc, comme un minecart, se pose SUR ce bloc). `de` et `vers` : une ligne de cases au sol d un bloc nomme a l autre, droite ou en L, cases deja prises sautees. Blocs nommes en anglais comme dans le jeu, jamais de coordonnees. Le code ne compte que les poses que le monde montre",
+    // Phrase ajoutee a l intent quand son mode est allume (A/B `culture`).
+    ajouts: {
+      culture: "Planter, c est poser : une graine, un plant ou une pousse (wheat_seeds, carrot, sugar_cane, oak_sapling...) se pose sur son sol, cherche par le code a 16 blocs (pres du bloc `de` s il est nomme) : terre labouree pour les graines, labouree par le code si une houe est en poche ; terre ou sable touchant l eau pour la canne a sucre"
+    },
     params: {
       objet: {
         json: { kind: 'text', max: 40 },
@@ -609,6 +615,56 @@ const ACTIONS = {
     }
   },
 
+  // Conteneurs (A/B `coffres`, idee 5 de la revue du 2026-10-16) : l objet,
+  // la quantite et le conteneur sont des parametres (regle immuable).
+  // bot/action-conteneur.js.
+  deposer: {
+    kinds: ['recolte', 'deplacement', 'construction', 'geste'],
+    feature: 'coffres',
+    featureDefault: false,
+    summary: 'ranger des objets de l inventaire dans un conteneur (coffre, tonneau)',
+    scale: 'nombre d objets deposes, de 1 a 256',
+    secondes: 3,
+    intent: "Rejoindre le conteneur nomme le plus proche (chest, barrel, shulker_box ; sans nom : le plus proche a 24 blocs), l ouvrir et y ranger l objet. Sans quantite : ce que demande la consigne, sinon tout le stock en poche. Le code ne compte que ce que l inventaire montre parti et retient le contenu vu",
+    params: {
+      objet: {
+        json: { kind: 'text', max: 40 },
+        question: 'Quel objet deposer (nom d objet Minecraft) ?'
+      },
+      quantite: {
+        json: { kind: 'number', min: 1, max: 256 },
+        question: 'Combien en deposer ?'
+      },
+      dans: {
+        json: { kind: 'text', max: 40 },
+        question: 'Dans quel conteneur (nom de bloc : chest, barrel..., optionnel) ?'
+      }
+    }
+  },
+  retirer: {
+    kinds: ['recolte', 'deplacement', 'construction', 'geste'],
+    feature: 'coffres',
+    featureDefault: false,
+    summary: 'prendre des objets dans un conteneur, ou lire son contenu',
+    scale: 'nombre d objets retires, de 1 a 256',
+    secondes: 3,
+    intent: "Rejoindre le conteneur nomme le plus proche (un conteneur dont le contenu vu a l objet passe avant, puis un jamais ouvert), l ouvrir et prendre l objet. Sans objet : l ouvrir et lire son contenu, rien ne bouge (un conteneur jamais ouvert peut contenir ce qui manque). Le code ne compte que ce que l inventaire montre arrive",
+    params: {
+      objet: {
+        json: { kind: 'text', max: 40 },
+        question: 'Quel objet prendre (nom d objet Minecraft ; sans lui, lire le contenu) ?'
+      },
+      quantite: {
+        json: { kind: 'number', min: 1, max: 256 },
+        question: 'Combien en prendre ?'
+      },
+      dans: {
+        json: { kind: 'text', max: 40 },
+        question: 'Dans quel conteneur (nom de bloc : chest, barrel..., optionnel) ?'
+      }
+    }
+  },
+
   attendre: {
     kinds: ['recolte', 'deplacement', 'construction', 'geste'],
     summary: 'laisser finir',
@@ -630,10 +686,9 @@ const ACTIONS = {
     secondes: 0,
     intent: "Rien d utile ne peut plus etre fait, ou l objectif est atteint : clore la mission",
     params: {
-      // Arret motive (A/B `replan_probleme`, eteint) : dire au joueur pourquoi
-      // le bot s arrete ; accepte seulement sur une impasse mesuree.
+      // Arret motive (proprietaire, 2026-10-20) : dire au joueur pourquoi le
+      // bot s arrete ; accepte seulement sur une impasse mesuree.
       raison: {
-        feature: 'replan_probleme',
         json: { kind: 'text', max: 120 },
         question: "Bloque : pourquoi t arreter (cause concrete, dite au joueur) ? Seulement si une impasse empeche d avancer ; omis quand l objectif est atteint"
       }
@@ -1058,7 +1113,10 @@ function resourceSpec (key, registry) {
     .filter(Number.isInteger)
     .map(id => registry.items?.[id]?.name)
     .filter(Boolean)
-  const objets = [...new Set(lachees)]
+  // Une culture compte son produit (le ble, pas ses graines) : minecraft-data
+  // ne fait lacher au bloc de ble que ses graines (culture.js).
+  const produit = culture.produitDe(nom)
+  const objets = produit && registry.itemsByName?.[produit] ? [produit] : [...new Set(lachees)]
   // Se batit seulement s il se ramasse tel quel (une citrouille, pas un melon).
   const seRamasse = objets.includes(nom)
   const spec = {
@@ -1089,6 +1147,14 @@ const CAPACITES_ABSENTES = {
   combat: 'combattre ou chasser des creatures',
   dimension: 'aller dans le Nether ou l End',
   echange: 'commercer avec des villageois'
+}
+
+// Capacites absentes servies au brief : une capacite couverte par un mode
+// allume (`coffres` -> conteneur, `culture` -> culture) n y est plus.
+const CAPACITE_COUVERTE = { conteneur: 'coffres', culture: 'culture' }
+function capacitesAbsentes () {
+  return Object.fromEntries(Object.entries(CAPACITES_ABSENTES)
+    .filter(([id]) => !CAPACITE_COUVERTE[id] || disabledFeatures.has(CAPACITE_COUVERTE[id])))
 }
 
 // ---------------------------------------------------------------------------
@@ -1426,6 +1492,11 @@ const ACTION_EXEMPLES = {
     'avancer ou recolter -> no_path et bot dans une piece fermee par une porte en bois -> {"action":"utiliser","objet":"door"}, puis reprendre le trajet',
     'levier a actionner pres du bot -> {"action":"utiliser","objet":"lever"}'
   ],
+  deposer: ['consigne.depots liste stone_pickaxe et une en poche -> {"action":"deposer","objet":"stone_pickaxe","dans":"chest"}'],
+  retirer: [
+    'conteneurs liste un chest jamais ouvert et il manque de la matiere introuvable alentour -> {"action":"retirer","dans":"chest"} (lire son contenu)',
+    'conteneurs[0].utiles liste cobblestone -> {"action":"retirer","objet":"cobblestone","quantite":3}'
+  ],
   attendre: ['une action longue est deja en cours -> attendre, mais preferer regarder_autour si on ne sait pas quoi faire'],
   terminer: ['objectif atteint et rien d utile ne reste -> terminer'],
   dire: ['signal de blocage -> {"action":"dire","texte":"coince : plus de bois"}'],
@@ -1662,12 +1733,22 @@ function actionDoc (name) {
 // Le gabarit rendu en texte : role (intent natif), params bornes, preconditions
 // (quand), exemples et contre-exemples. C est ce que le prompt met en forme
 // par action (voir planner.actionCatalogue).
+// L intent servi au modele : le texte natif, plus les phrases des modes
+// allumes (`ajouts`, ex. planter avec `culture`).
+function intentDe (name) {
+  const spec = ACTIONS[name]
+  if (!spec) return null
+  const base = typeof spec.intent === 'string' ? spec.intent : spec.intent.what
+  const ajouts = Object.entries(spec.ajouts ?? {}).filter(([f]) => !disabledFeatures.has(f)).map(([, t]) => t)
+  return [base, ...ajouts].join('. ')
+}
+
 function describeAction (name) {
   const nom = String(name ?? '').trim().toLowerCase()
   const spec = ACTIONS[nom]
   if (!spec) return null
   const doc = actionDoc(nom)
-  const intent = typeof spec.intent === 'string' ? spec.intent : spec.intent.what
+  const intent = intentDe(nom)
   const params = Object.entries(jsonParamsFor(nom) ?? {}).map(([param, descriptor]) => {
     const j = descriptor.json
     if (j.kind === 'number') return `${param} : nombre ${j.min}-${j.max}`
@@ -1882,6 +1963,8 @@ module.exports = {
   resourceSpec,
   ressourceLibre,
   CAPACITES_ABSENTES,
+  capacitesAbsentes,
+  intentDe,
   actionsFor,
   setFeatureEnabled,
   jsonParamsFor,
