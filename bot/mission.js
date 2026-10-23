@@ -24,7 +24,9 @@ const perception = require('./perception')
 const missionState = require('./mission-state')
 const missionTrace = require('./trace')
 const { createGestes } = require('./action-gestes')
-const { createPoser, etatLigne, blocDeLObjet, nomPropre: nomDeBloc } = require('./action-poser')
+const { createPoser, etatLigne, blocDeLObjet, nomPropre: nomDeBloc, casesDeCulture } = require('./action-poser')
+const { createConteneurs } = require('./action-conteneur')
+const culture = require('./culture')
 const { createSousButs, prochainGesteSolveur } = require('./action-sous-buts')
 const {
   PILER_DIRT, scaffoldingStock, estLiquide, estSolide, blocExpose, colonnesSousHitbox, peutSauter,
@@ -143,6 +145,9 @@ function syncActionFeatures () {
       if (d.feature) skills.setFeatureEnabled(d.feature, featureOn(d.feature, false))
     }
   }
+  // Modes sans action propre (A/B `culture`, eteint) : phrases ajoutees aux
+  // intents et capacites absentes du brief (skills.capacitesAbsentes).
+  skills.setFeatureEnabled('culture', featureOn('culture', false))
 }
 syncActionFeatures()
 const SCREENSHOT_EVERY = config.positiveInt(process.env.MISSION_SCREENSHOT_EVERY, 5, 'MISSION_SCREENSHOT_EVERY')
@@ -350,6 +355,30 @@ function posesDuBrief (bot, brut, texte = '') {
   }
   return out
 }
+
+// Objets a deposer ou a retirer d un conteneur lus dans le brief (A/B
+// `coffres`) : [{ objet, quantite }] au registre des objets ou famille
+// (planches, porte...), six au plus, quantite 1 a 256 ou null (« tes buches » :
+// tout le stock).
+function objetsConteneurDuBrief (bot, brut) {
+  if (!Array.isArray(brut)) return []
+  const vus = new Set()
+  const out = []
+  for (const p of brut.slice(0, 6)) {
+    const brut = typeof p === 'string' ? p : p?.objet
+    const famille = Object.keys(FAMILLES_OBJETS).find(f => [f, f.replace(/s$/, '')].includes(fabTargetName(brut)))
+    const objet = famille ?? resolveFabricationCible(bot, brut)
+    if (!objet || vus.has(objet)) continue
+    if (bot?.registry?.itemsByName && !bot.registry.itemsByName[objet] && !Object.hasOwn(craft.TARGETS, objet) && !Object.hasOwn(FAMILLES_OBJETS, objet)) continue
+    vus.add(objet)
+    const q = Number(p?.quantite)
+    out.push({ objet, quantite: p?.quantite !== null && p?.quantite !== undefined && Number.isFinite(q) ? Math.max(1, Math.min(256, Math.round(q))) : null })
+  }
+  return out
+}
+
+// Familles d objets qu un joueur nomme sans essence (« range tes buches »).
+const FAMILLES_OBJETS = { planches: /_planks$/, buches: /_log$/, porte: /_door$/, laine: /_wool$/ }
 
 function resolveFabricationCible (bot, raw) {
   const norm = fabTargetName(raw)
@@ -811,6 +840,87 @@ function createMissionRunner (host, injected = {}) {
     })
   }
 
+  // Conteneurs (A/B `coffres`) : un nom du brief (objet du registre, alias de
+  // fabrication ou famille) couvre-t-il cet objet d inventaire ?
+  function correspondObjet (objet, nom) {
+    if (!objet || !nom) return false
+    if (objet === nom) return true
+    if (FAMILLES_OBJETS[objet]?.test(nom)) return true
+    try {
+      return Boolean(craft.TARGETS[objet]?.resolve?.(host.getBot())?.includes(nom))
+    } catch (_) {
+      return false
+    }
+  }
+  const sommeFaits = (faits, test) => Object.entries(faits ?? {}).reduce((n, [nom, k]) => n + (test(nom) ? k : 0), 0)
+  // Objets a deposer et a retirer, mesures : faits (comptes par l action sur
+  // l inventaire), voulus, en poche. Sans quantite dite : tout le stock pour
+  // un depot (au moins un, plus rien en poche), un objet pour un retrait.
+  function conteneurMesure () {
+    const items = host.getBot()?.inventory?.items() ?? []
+    const enPoche = objet => items.filter(i => correspondObjet(objet, i.name)).reduce((n, i) => n + i.count, 0)
+    const depots = (mission?.depots ?? []).map(d => {
+      const faits = sommeFaits(mission.depotsFaits, n => correspondObjet(d.objet, n))
+      const poche = enPoche(d.objet)
+      const fini = d.quantite !== null ? faits >= d.quantite : faits > 0 && poche === 0
+      return { objet: d.objet, voulus: d.quantite, deposes: faits, en_poche: poche, fini, manque: d.quantite !== null ? Math.max(0, d.quantite - faits - poche) : (faits + poche > 0 ? 0 : 1) }
+    })
+    const retraits = (mission?.retraits ?? []).map(r => {
+      const faits = sommeFaits(mission.retraitsFaits, n => correspondObjet(r.objet, n))
+      return { objet: r.objet, voulus: r.quantite ?? 1, retires: faits, en_poche: enPoche(r.objet), fini: faits >= (r.quantite ?? 1) }
+    })
+    return { depots, retraits }
+  }
+  function conteneurEnAttente () {
+    if (!mission?.depots?.length && !mission?.retraits?.length) return null
+    const m = conteneurMesure()
+    return m.depots.find(d => !d.fini) ?? m.retraits.find(r => !r.fini) ?? null
+  }
+  // Conteneurs en vue servis au modele : contenu vu (ou jamais ouvert) et ce
+  // qui y sert la mission (retrait demande, etape ou blocage du solveur).
+  function conteneursEtat () {
+    if (!featureOn('coffres', false)) return null
+    const bot = host.getBot()
+    const vus = conteneurs.enVue(bot)
+    if (vus.length === 0) return null
+    const plan = acquisition()
+    const voulus = new Set([...(mission?.retraits ?? []).map(r => r.objet),
+      ...(plan?.etapes ?? []).filter(e => e.op === 'recolter' || e.op === 'cuire').map(e => e.op === 'cuire' ? e.depuis : e.objet),
+      ...(plan?.bloque ?? []).map(b => b.objet)].filter(Boolean))
+    return vus.map(v => {
+      const utiles = v.contenu ? Object.keys(v.contenu).filter(n => [...voulus].some(o => correspondObjet(o, n))) : []
+      return { bloc: v.bloc.name, distance: v.distance, contenu: v.contenu ?? 'jamais ouvert : retirer sans objet pour le lire',
+        ...(utiles.length ? { utiles, a_faire: `retirer objet=${utiles[0]} dans=${v.bloc.name}` } : {}) }
+    })
+  }
+  // Depots deposes en tout pour un objet de fabrication (alias compris).
+  function deposesDe (cible) {
+    if (!cible || !mission?.depotsFaits) return 0
+    return sommeFaits(mission.depotsFaits, n => n === cible || correspondObjet(cible, n))
+  }
+
+  // Plantation (A/B `culture`) : une graine a poser sur terre labouree, en
+  // poche, sans assez de terre labouree libre en vue ni houe : la houe la
+  // moins chere devient la cible du solveur.
+  function houeAObtenir () {
+    if (!featureOn('culture', false) || !mission?.poses?.length) return null
+    const bot = host.getBot()
+    if (!bot?.entity || bot.inventory?.items().some(i => /_hoe$/.test(i.name))) return null
+    for (const p of posesManquantes()) {
+      const spec = culture.plante(p.objet, bot.registry)
+      if (!spec?.labour || p.enPoche === 0) continue
+      let pretes = 0
+      try { pretes = casesDeCulture(bot, spec, { houe: false }).length } catch (_) {}
+      if (pretes < p.voulues - p.posees) return { objet: 'wooden_hoe', manque: 1 }
+    }
+    return null
+  }
+  // Objet a deposer absent de la poche : la cible du solveur (sauf famille).
+  function depotAObtenir () {
+    const d = conteneurMesure().depots.find(x => !x.fini && x.manque > 0 && !FAMILLES_OBJETS[x.objet])
+    return d ? { objet: d.objet, manque: d.manque } : null
+  }
+
   function outilManquant (bot) {
     if (!mission || mission.fabricationCible || !['construction', 'recolte'].includes(mission.kind) ||
       mission.supply !== 'harvest') return null
@@ -852,7 +962,8 @@ function createMissionRunner (host, injected = {}) {
     // Cible du plan : l objet a fabriquer, sinon l outil qu exige la matiere
     // de la mission (le plan disparait des qu il est en poche).
     // Puis le premier objet a poser qui manque en poche (A/B `poser`).
-    const aPoser = demande ?? (mission.fabricationCible || outilManquant(bot) || porteCible() ? null : posesManquantes().find(p => p.manque > 0))
+    const aPoser = demande ?? (mission.fabricationCible || outilManquant(bot) || porteCible() ? null
+      : (posesManquantes().find(p => p.manque > 0) ?? depotAObtenir() ?? houeAObtenir()))
     const cible = demande?.objet ?? mission.fabricationCible ?? outilManquant(bot) ?? porteCible() ?? aPoser?.objet
     if (!cible) return null
     const registry = craft.getDataset(bot)
@@ -909,7 +1020,7 @@ function createMissionRunner (host, injected = {}) {
     // Trace a chaque changement : sans elle, un echec de fabrication ne dit
     // pas ce que le solveur a montre au modele (craft/furnace 89fa489 :
     // « il manque bois et etabli » avec etabli pose, cause illisible).
-    if (best) console.log(`[mission] solveur (etabli proche : ${tableNearby ? 'oui' : 'non'}, four : ${furnaceNearby ? 'oui' : 'non'}) : ${acquirePlan.describe(best, 4).join(' ; ') || 'rien a faire'}${best.bloque.length ? ` ; bloque : ${best.bloque.map(b => b.objet).join(', ')}` : ''}`)
+    if (best) console.log(`[mission] solveur vers ${cible} (etabli proche : ${tableNearby ? 'oui' : 'non'}, four : ${furnaceNearby ? 'oui' : 'non'}) : ${acquirePlan.describe(best, 4).join(' ; ') || 'rien a faire'}${best.bloque.length ? ` ; bloque : ${best.bloque.map(b => b.objet).join(', ')}` : ''}`)
     return best
   }
 
@@ -1910,6 +2021,18 @@ function createMissionRunner (host, injected = {}) {
       return true
     }
 
+    // Cultures (A/B `culture`) : une plante a age seulement mure, une plante
+    // en colonne (canne a sucre) jamais par son pied, comme un joueur qui
+    // garde sa ferme (culture.recoltable).
+    const cultures = featureOn('culture', false) && ids.some(id => culture.estCulture(bot.registry?.blocks?.[id]?.name))
+    const parEtat = bot.registry?.blocksByStateId ?? {}
+    const mure = (pos, lire) => {
+      if (!cultures) return true
+      const etat = lire ? lire(pos.x, pos.y, pos.z) : bot.blockAt(pos)?.stateId
+      const dessous = lire ? parEtat[lire(pos.x, pos.y - 1, pos.z)]?.name : bot.blockAt(pos.offset(0, -1, 0))?.name
+      return culture.recoltable(bot.registry, parEtat[etat]?.name ?? bot.blockAt(pos)?.name, etat, dessous)
+    }
+
     // Cible mise de cote (sans chemin) : ignoree tant qu il en reste une
     // autre, jamais quand c est la derniere. Vu sur terrain/plateau (a45b981,
     // 9b5fe31) : buche du haut mise de cote depuis le pied de la falaise, puis
@@ -1926,7 +2049,7 @@ function createMissionRunner (host, injected = {}) {
       // Le sol sous les pieds ne complete la liste que s il en manque. Le bois
       // garde sa recherche unique (tronc : le plus bas d abord).
       const chercher = f => {
-        const filtre = (pos, lire) => garde(pos) && admissible(pos) && f(pos, lire)
+        const filtre = (pos, lire) => garde(pos) && admissible(pos) && mure(pos, lire) && f(pos, lire)
         return perception.trouverBlocs(bot, { ids, filtre, maxDistance: SEARCH_RADIUS, count: 64 })
           .filter(p => filtre(p)).slice(0, 32)
       }
@@ -2506,8 +2629,10 @@ function createMissionRunner (host, injected = {}) {
     const pattern = mission && ressource(harvestResource())?.items
     if (!bot?.inventory || !pattern) return 0
 
+    // Ce qui a ete range dans un conteneur (A/B `coffres`) reste recolte.
     return bot.inventory.items()
-      .reduce((sum, item) => sum + (pattern.test(item.name) ? item.count : 0), 0)
+      .reduce((sum, item) => sum + (pattern.test(item.name) ? item.count : 0), 0) +
+      sommeFaits(mission.depotsFaits, n => pattern.test(n))
   }
 
   // Quantite recoltee depuis le debut. Memorisee, parce qu une mission peut se
@@ -2530,7 +2655,8 @@ function createMissionRunner (host, injected = {}) {
     try {
       const bot = host.getBot()
       if (!bot?.inventory) return 0
-      return Math.max(0, countFabricationItems(bot, mission.fabricationCible) - (mission.fabricationInitial ?? 0))
+      // Un objet range dans un conteneur (A/B `coffres`) reste fabrique.
+      return Math.max(0, countFabricationItems(bot, mission.fabricationCible) + deposesDe(mission.fabricationCible) - (mission.fabricationInitial ?? 0))
     } catch (_) {
       return 0
     }
@@ -3363,8 +3489,13 @@ function createMissionRunner (host, injected = {}) {
         // Objets a poser dans le monde (A/B `poser`), comptes par le code.
         poses: mission.poses?.length
           ? posesEtat()
-          : null
+          : null,
+        // Objets a ranger dans un conteneur ou a y prendre (A/B `coffres`).
+        ...(mission.depots?.length ? { depots: conteneurMesure().depots.map(({ manque, ...d }) => d) } : {}),
+        ...(mission.retraits?.length ? { retraits: conteneurMesure().retraits } : {})
       },
+      // Conteneurs en vue (A/B `coffres`), contenu vu ou jamais ouvert.
+      ...(featureOn('coffres', false) ? { conteneurs: chrono('conteneurs', () => conteneursEtat()) } : {}),
       quota_par_defaut: DEFAULT_QUOTA,
       // La quantite reellement visee (lue dans la consigne, sinon le defaut).
       // Le modele la lit ; c est `finishAllowed` qui s en sert pour juger.
@@ -3969,6 +4100,42 @@ function createMissionRunner (host, injected = {}) {
     casesGardees: objet => casesGardees(objet),
     compter: (objet, n) => {
       mission.posesFaites = { ...(mission.posesFaites ?? {}), [objet]: (mission.posesFaites?.[objet] ?? 0) + n }
+    },
+    // Plantation (A/B `culture`) : la graine pose sa plante sur son sol.
+    plante: objet => featureOn('culture', false) ? culture.plante(objet, host.getBot()?.registry) : null,
+    houe: () => host.getBot()?.inventory?.items().find(i => /_hoe$/.test(i.name)) ?? null
+  })
+  // Conteneurs (A/B `coffres`) : deposer et retirer, objet, quantite et
+  // conteneur en parametres ; chaque transfert compte par l inventaire.
+  const conteneurs = createConteneurs({
+    getBot: () => host.getBot(),
+    atteindre: async bloc => {
+      const centre = bloc.position.offset(0.5, 0.5, 0.5)
+      const aPortee = () => { const b = host.getBot(); return Boolean(b?.entity && blockInReach(b, b.entity.position, centre, REACH)) }
+      if (aPortee()) return { ok: true }
+      const r = await host.navigateToPosition(centre, {
+        signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, timeoutMs: 15000, distanceBudget: 40
+      })
+      return aPortee() ? { ok: true } : { ok: false, raison: r?.code ?? 'trajet impossible' }
+    },
+    signal: () => mission?.navigationAbort?.signal,
+    resoudreObjet: texte => {
+      const bot = host.getBot()
+      const exact = String(texte ?? '').trim().toLowerCase().replace(/^minecraft:/, '')
+      if (bot?.registry?.itemsByName && Object.hasOwn(bot.registry.itemsByName, exact)) return exact
+      const famille = Object.keys(FAMILLES_OBJETS).find(f => [f, f.replace(/s$/, '')].includes(fabTargetName(texte)))
+      return famille ?? resolveFabricationCible(bot, texte)
+    },
+    correspond: (objet, nom) => correspondObjet(objet, nom),
+    defaut: sens => {
+      const m = conteneurMesure()
+      const d = sens === 'deposer' ? m.depots.find(x => !x.fini) : m.retraits.find(x => !x.fini)
+      if (!d) return null
+      return { objet: d.objet, quantite: sens === 'deposer' ? (d.voulus !== null ? Math.max(1, d.voulus - d.deposes) : null) : Math.max(1, d.voulus - d.retires) }
+    },
+    compter: (sens, objet, n) => {
+      const champ = sens === 'deposer' ? 'depotsFaits' : 'retraitsFaits'
+      mission[champ] = { ...(mission[champ] ?? {}), [objet]: (mission[champ]?.[objet] ?? 0) + n }
     }
   })
   // Sous-buts (A/B sous_buts) : chantier et objet du solveur conduits jusqu au
@@ -5919,6 +6086,14 @@ function createMissionRunner (host, injected = {}) {
       await quitterPilier('poser')
       return poserObjet.poser(params)
     },
+    async deposer (scale, params = {}) {
+      await quitterPilier('deposer')
+      return conteneurs.deposer(params)
+    },
+    async retirer (scale, params = {}) {
+      await quitterPilier('retirer')
+      return conteneurs.retirer(params)
+    },
     async batir () { return sousButs.batir() },
     async obtenir (scale, params = {}) {
       // Objet nomme par le modele (regle immuable : l objet est un parametre),
@@ -6064,7 +6239,8 @@ function createMissionRunner (host, injected = {}) {
       objets: items.reduce((n, i) => n + (i.count ?? 0), 0),
       casses: mission?.broken ?? 0,
       poses: mission?.plan ? buildProgress().done : 0,
-      objetsPoses: Object.values(mission?.posesFaites ?? {}).reduce((n, k) => n + k, 0)
+      objetsPoses: Object.values(mission?.posesFaites ?? {}).reduce((n, k) => n + k, 0),
+      transferts: [mission?.depotsFaits, mission?.retraitsFaits].reduce((n, f) => n + Object.values(f ?? {}).reduce((a, k) => a + k, 0), 0)
     }
   }
   const deplace = (a, b) => Boolean(a.position && b.position && a.position.distanceTo(b.position) >= 0.5)
@@ -6080,7 +6256,9 @@ function createMissionRunner (host, injected = {}) {
     explorer: deplace,
     batir: (a, b) => b.poses > a.poses || b.inventaire !== a.inventaire,
     obtenir: (a, b) => b.inventaire !== a.inventaire,
-    poser: (a, b) => b.objetsPoses > a.objetsPoses
+    poser: (a, b) => b.objetsPoses > a.objetsPoses,
+    deposer: (a, b) => b.transferts > a.transferts,
+    retirer: (a, b) => b.transferts > a.transferts || b.inventaire !== a.inventaire
   }
 
   const CONTRATS = {
@@ -6096,7 +6274,9 @@ function createMissionRunner (host, injected = {}) {
     explorer: { effet: EFFETS.explorer },
     batir: { effet: EFFETS.batir },
     obtenir: { effet: EFFETS.obtenir },
-    poser: { effet: EFFETS.poser }
+    poser: { effet: EFFETS.poser },
+    deposer: { effet: EFFETS.deposer },
+    retirer: { effet: EFFETS.retirer }
   }
 
   for (const [nom, contrat] of Object.entries(CONTRATS)) {
@@ -6680,6 +6860,13 @@ function createMissionRunner (host, injected = {}) {
       const ligne = aPoser.ligne ? ` (${aPoser.ligne.cases_libres} case(s) libre(s) entre ${aPoser.ligne.de} et ${aPoser.ligne.vers})` : ''
       return { ok: false, why: `${aPoser.posees} ${aPoser.objet} pose(s) sur ${aPoser.voulues}${ligne} : ${aPoser.enPoche > 0 ? 'poser' : 'obtenir puis poser'} le reste` }
     }
+    // Conteneurs (A/B `coffres`) : chaque depot et retrait demande, mesure.
+    const attente = conteneurEnAttente()
+    if (attente) {
+      return attente.retires !== undefined
+        ? { ok: false, why: `${attente.retires} ${attente.objet} retire(s) d un conteneur sur ${attente.voulus} : retirer le reste` }
+        : { ok: false, why: `${attente.deposes} ${attente.objet} depose(s) dans un conteneur${attente.voulus !== null ? ` sur ${attente.voulus}` : ` (${attente.en_poche} encore en poche)`} : ${attente.en_poche > 0 ? 'deposer' : 'obtenir puis deposer'} le reste` }
+    }
     // Un geste n a ni quota ni chantier a verifier : le planificateur decide seul
     // quand la demande est satisfaite — mais pas avant d avoir agi. Un petit
     // modele declare volontiers « fini » a 0 etape pour ne rien faire.
@@ -6704,7 +6891,8 @@ function createMissionRunner (host, injected = {}) {
         : { ok: false, why: 'le bot n est pas encore arrive aupres de sa cible' }
     }
 
-    if (mission.wholeTree || mission.fabricationCible || dons.length > 0 || mission.poses?.length > 0) return { ok: true }
+    if (mission.wholeTree || mission.fabricationCible || dons.length > 0 || mission.poses?.length > 0 ||
+      mission.depots?.length > 0 || mission.retraits?.length > 0) return { ok: true }
 
     // Quantite dite par le joueur : jugee sur l inventaire, pas sur les blocs
     // casses (des fleurs cassees mais laissees au sol ne sont pas cueillies).
@@ -7036,7 +7224,7 @@ function createMissionRunner (host, injected = {}) {
       // echec et 10 s de plus). Avec un don demande, le modele livre d abord.
       while (fabricationSuivante()) { /* objets deja en poche : le suivant */ }
       if (mission.kind === 'recolte' && mission.fabricationCible && !livraisonDemandee(mission) && !arbreOuvert &&
-        fabricationProduced() >= (mission.fabricationQuantite ?? 1)) {
+        !conteneurEnAttente() && fabricationProduced() >= (mission.fabricationQuantite ?? 1)) {
         finish('done', `${mission.fabricationCible} fabrique(s) en inventaire (${fabricationProduced()}/${mission.fabricationQuantite ?? 1})`)
         return
       }
@@ -7046,6 +7234,14 @@ function createMissionRunner (host, injected = {}) {
       if (mission.kind === 'recolte' && mission.poses?.length > 0 && !livraisonDemandee(mission) && !arbreOuvert &&
         posesManquantes().length === 0 && finishAllowed(buildState()).ok) {
         finish('done', `objets poses : ${mission.poses.map(p => `${mission.posesFaites?.[p.objet] ?? 0} ${p.objet}`).join(', ')}`)
+        return
+      }
+      // Objets ranges dans un conteneur ou pris (A/B `coffres`) : mesures
+      // par l inventaire a chaque transfert, la mission se clot.
+      if (mission.kind === 'recolte' && (mission.depots?.length || mission.retraits?.length) && !livraisonDemandee(mission) &&
+        !arbreOuvert && !conteneurEnAttente() && finishAllowed(buildState()).ok) {
+        const m = conteneurMesure()
+        finish('done', [...m.depots.map(d => `${d.deposes} ${d.objet} depose(s)`), ...m.retraits.map(r => `${r.retires} ${r.objet} retire(s)`)].join(', '))
         return
       }
 
@@ -7408,7 +7604,7 @@ function createMissionRunner (host, injected = {}) {
     const blocsProches = nom => skills.nomsProches(nom, host.getBot()?.registry, { objets: false })
     let brief
     const debutBrief = Date.now()
-    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), pose: featureOn('poser'), blocConnu, blocsProches, relance: featureOn('relance_plan') }))
+    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), pose: featureOn('poser'), coffres: featureOn('coffres', false), culture: featureOn('culture', false), blocConnu, blocsProches, relance: featureOn('relance_plan') }))
     try {
       try {
         brief = await lireBrief()
@@ -7442,7 +7638,7 @@ function createMissionRunner (host, injected = {}) {
     // Mode ouvert (A/B buts_ouverts) : une capacite que la demande exige et
     // que le bot n a pas (identifiant de skills.CAPACITES_ABSENTES, jamais un
     // texte libre) se dit tout de suite, au lieu de tourner jusqu au plafond.
-    const absente = featureOn('buts_ouverts', false) && brief.horsCapacites ? skills.CAPACITES_ABSENTES[brief.horsCapacites] : null
+    const absente = featureOn('buts_ouverts', false) && brief.horsCapacites ? skills.capacitesAbsentes()[brief.horsCapacites] : null
     if (absente) {
       console.log(`[mission] "${text}" : capacite absente (${brief.horsCapacites}), mission refusee`)
       return { ok: false, error: `je ne sais pas encore ${absente.split(' (')[0]}`, horsCapacites: brief.horsCapacites }
@@ -7568,6 +7764,13 @@ function createMissionRunner (host, injected = {}) {
     // minecart » : construction 0,75, matiere aucune, 4 bancs sur 6).
     const chantierSansForme = kind === 'construction' && resource === 'aucune' && dimensions.source === 'aucune dimension lue'
     if (poses.length > 0 && !brief.route && (kind !== 'construction' || chantierSansForme)) kind = 'recolte'
+    // Objets a ranger dans un conteneur ou a y prendre (A/B `coffres`) : la
+    // revision garde les siens ; comme une pose, ils font une recolte.
+    let depots = featureOn('coffres', false) ? objetsConteneurDuBrief(host.getBot(), brief.depot) : []
+    let retraits = featureOn('coffres', false) ? objetsConteneurDuBrief(host.getBot(), brief.retrait) : []
+    if (depots.length === 0 && Array.isArray(opts.revisionOf?.depots)) depots = opts.revisionOf.depots
+    if (retraits.length === 0 && Array.isArray(opts.revisionOf?.retraits)) retraits = opts.revisionOf.retraits
+    if ((depots.length > 0 || retraits.length > 0) && !brief.route && (kind !== 'construction' || chantierSansForme)) kind = 'recolte'
     // Bloc ouvert qui ne lache rien (spawner) ou incassable : il se rejoint,
     // il ne se recolte pas. Une « recolte » de ce bloc devient un deplacement
     // mesure (bloc cible a portee), plutot qu un quota jamais atteignable.
@@ -7643,6 +7846,10 @@ function createMissionRunner (host, injected = {}) {
       fabricationsFaites: [],
       poses,
       posesFaites: { ...(opts.revisionOf?.posesFaites ?? {}) },
+      depots,
+      depotsFaits: { ...(opts.revisionOf?.depotsFaits ?? {}) },
+      retraits,
+      retraitsFaits: { ...(opts.revisionOf?.retraitsFaits ?? {}) },
 
       supply: SUPPLY,
       // Cerveau de cette mission : le planificateur, ou un script (banc de

@@ -533,7 +533,7 @@ function actionCatalogue (kind, supply, { sansDonner = false } = {}) {
     // code, plan jete : craft/torches, craft/furnace 8779070).
     if (sansDonner && name === 'donner') continue
     const spec = skills.ACTIONS[name]
-    const intent = typeof spec.intent === 'string' ? spec.intent : spec.intent.what
+    const intent = skills.intentDe(name)
     const jsonish = skills.jsonParamsFor(name)
     const bits = []
 
@@ -1265,7 +1265,7 @@ dans le jeu : "obsidian", "glowstone", "enchanting_table"), et matiere
 son identifiant parmi la liste ci-dessous ; sinon null. Ne le mets jamais
 pour une demande que les actions connues (recolter, fabriquer, cuire,
 construire, se deplacer, donner) savent faire, meme longue.
-${Object.entries(skills.CAPACITES_ABSENTES).map(([id, t]) => `- "${id}" : ${t}`).join('\n')}
+${Object.entries(skills.capacitesAbsentes()).map(([id, t]) => `- "${id}" : ${t}`).join('\n')}
 Ajoute ces deux champs au JSON : {"bloc": null, "hors_capacites": null}.
 Si l entree porte "bloc_refuse", ton identifiant precedent n existe pas au
 registre du jeu (souvent un nom francais ou invente) : rends l identifiant
@@ -1300,8 +1300,33 @@ pas. "pose un levier a cote de la porte" -> pose [{"objet": "lever",
 le bot les fabrique et s arrete sans les poser.`
 }
 
-function briefPrompt (ouvert = false, pose = false) {
-  const key = `brief${ouvert ? '|ouvert' : ''}${pose ? '|pose' : ''}`
+// Section ajoutee quand l action `poser` plante (A/B `culture`).
+function briefCulture () {
+  return `
+Semer ou planter, c est poser : graines, plants et pousses vont dans "pose"
+("plante 4 graines de ble" -> [{"objet": "wheat_seeds", "quantite": 4}] ;
+"plante de la canne a sucre au bord de l eau" -> [{"objet": "sugar_cane"}]).
+Recolter une culture (ble, carottes, canne a sucre) est une recolte du bloc
+de la plante, jamais une pose.`
+}
+
+// Section ajoutee quand les actions deposer/retirer existent (A/B `coffres`).
+function briefConteneur () {
+  return `
+
+"depot" : objets que le joueur veut RANGES dans un conteneur (coffre,
+tonneau), "retrait" : objets a PRENDRE dans un conteneur ; chacun une liste
+[{"objet": "<nom d objet Minecraft anglais, ou famille : planches, buches>",
+"quantite": <nombre dit ou null>}], sinon null. La mission est une "recolte".
+"range tes buches dans le coffre" -> depot [{"objet": "buches", "quantite": null}] ;
+"fabrique une pioche et mets-la dans le coffre" -> fabrication "pioche",
+depot [{"objet": "pioche", "quantite": 1}] ;
+"prends 3 lingots de fer dans le tonneau" -> retrait [{"objet": "iron_ingot", "quantite": 3}].
+Ajoute ces deux champs au JSON : {"depot": null, "retrait": null}.`
+}
+
+function briefPrompt (ouvert = false, pose = false, coffres = false, cultures = false) {
+  const key = `brief${ouvert ? '|ouvert' : ''}${pose ? '|pose' : ''}${coffres ? '|coffres' : ''}${cultures ? '|culture' : ''}`
   if (!prompts.has(key)) {
     prompts.set(key, `Tu lis l objectif qu un joueur confie a un bot Minecraft et tu en extrais ce qu il faut en retenir.
 
@@ -1377,7 +1402,7 @@ une entree ou un acces dans ce qui doit etre construit.
 "confiance" : de 0 a 1, ta certitude sur le type et la matiere.
 
 Tu ne rends aucune dimension et aucun nombre de blocs : le code les lit
-lui-meme dans la phrase.${ouvert ? briefOuvert() : ''}${pose ? briefPose() : ''}`)
+lui-meme dans la phrase.${ouvert ? briefOuvert() : ''}${pose ? briefPose() : ''}${pose && cultures ? briefCulture() : ''}${coffres ? briefConteneur() : ''}`)
   }
   return prompts.get(key)
 }
@@ -1432,7 +1457,8 @@ async function designBlueprint (input, opts = {}) {
 async function readBrief (objective, opts = {}) {
   if (!isEnabled()) return null
 
-  const response = await call(briefPrompt(opts.ouvert === true, opts.pose === true), JSON.stringify({ objectif: objective }), null, { ...opts, relanceMs: 0, task: 'readBrief' })
+  const sections = [opts.ouvert === true, opts.pose === true, opts.coffres === true, opts.culture === true]
+  const response = await call(briefPrompt(...sections), JSON.stringify({ objectif: objective }), null, { ...opts, relanceMs: 0, task: 'readBrief' })
   const parsed = parseJson(response.content)
   // Mode ouvert : un "bloc" absent du registre (un nom francais, invente)
   // est renvoye UNE fois au modele avec le nom refuse ; le code verifie
@@ -1442,7 +1468,7 @@ async function readBrief (objective, opts = {}) {
     const refuse = parsed.bloc.slice(0, 60)
     const proches = typeof opts.blocsProches === 'function' ? opts.blocsProches(refuse) : []
     const entree = { objectif: objective, bloc_refuse: refuse, ...(proches.length ? { noms_proches: proches } : {}) }
-    const second = await call(briefPrompt(true, opts.pose === true), JSON.stringify(entree), null, { ...opts, relanceMs: 0, task: 'readBrief' })
+    const second = await call(briefPrompt(true, ...sections.slice(1)), JSON.stringify(entree), null, { ...opts, relanceMs: 0, task: 'readBrief' })
     ms = (ms ?? 0) + (second.ms ?? 0)
     const bloc = parseJson(second.content)?.bloc
     parsed.bloc = typeof bloc === 'string' && opts.blocConnu(bloc) ? bloc : null
@@ -1511,11 +1537,14 @@ async function readBrief (objective, opts = {}) {
     doorProbability: door,
     // Mode ouvert : bruts du modele, valides par le code (registre, liste).
     blocRegistre: opts.ouvert === true && typeof parsed?.bloc === 'string' ? parsed.bloc.slice(0, 60) : null,
-    horsCapacites: opts.ouvert === true && Object.prototype.hasOwnProperty.call(skills.CAPACITES_ABSENTES, parsed?.hors_capacites)
+    horsCapacites: opts.ouvert === true && Object.prototype.hasOwnProperty.call(skills.capacitesAbsentes(), parsed?.hors_capacites)
       ? parsed.hors_capacites
       : null,
     // Objets a poser (A/B `poser`) : bruts du modele, valides par le code.
     pose: opts.pose === true && Array.isArray(parsed?.pose) ? parsed.pose.slice(0, 6) : null,
+    // Objets a ranger dans un conteneur ou a y prendre (A/B `coffres`).
+    depot: opts.coffres === true && Array.isArray(parsed?.depot) ? parsed.depot.slice(0, 6) : null,
+    retrait: opts.coffres === true && Array.isArray(parsed?.retrait) ? parsed.retrait.slice(0, 6) : null,
     usage: response.usage ?? null,
     ms
   }
