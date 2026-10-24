@@ -1,0 +1,13 @@
+# GitHub-hosted VM only: ci/setup-github-runner.sh creates this slice first.
+# All runtime containers share the 400% CPU / 10 GiB envelope, including
+# `compose run harness` for unit tests and `compose run bots` for model probes.
+# Docker image builds run separately on the disposable host.
+services:
+  minecraft:
+    cgroup_parent: agentcraft.slice
+  harness:
+    cgroup_parent: agentcraft.slice
+  bots:
+    cgroup_parent: agentcraft.slice
+  probes:
+    cgroup_parent: agentcraft.slice
