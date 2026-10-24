@@ -864,7 +864,12 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [avec('coffres'), avec('culture')],
+            'rules': {},
+            # Imprevu en plein chantier : 20 pierres en poche, pierres et pioches
+            # prises (refaire une pioche, miner encore).
+            'variants': [avec('coffres'), avec('culture'),
+                         imprevus({'quand': 'cobblestone', 'seuil': 20,
+                                   'retirer': ['cobblestone', '#minecraft:pickaxes']})],
         },
         {
             'name': 'composite/lit-cabin',
@@ -883,6 +888,31 @@ def base_levels():
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30), (31, 31)) for i in range(5)]),
             'rules': {}, 'variants': [sans('poser')],
+        },
+        # Imprevu du monde (proprietaire, 2026-10-20 : « important qu il s adapte
+        # aux changements » ; un A/B doit toujours departager : niveau dur).
+        # Rien n est dit au bot. Pioche faite : pioche, etabli et tout le bois
+        # disparaissent (couper un autre arbre, tout refaire). Cinq pierres en
+        # poche : pierres et pioche disparaissent (refaire la pioche, miner).
+        {
+            'name': 'composite/stolen-pickaxe',
+            'about': 'Inventaire vide, trois arbres et un rocher, « Fabrique-moi un four » ; sans rien dire, le banc prend '
+                     'pioche, etabli (poche et arene) et tout le bois des que la pioche en bois est faite, puis pierres et '
+                     'pioche des que le bot tient 5 pierres : il doit voir chaque manque et refaire.',
+            'kind': 'gather', 'cap': PALIER3_CAP_S, 'informative': True,
+            'instruction': 'Fabrique-moi un four',
+            'items': ['furnace'], 'target': 1,
+            'perturbations': [{'quand': 'wooden_pickaxe',
+                               'retirer': ['wooden_pickaxe', 'crafting_table', '#minecraft:logs', '#minecraft:planks', 'stick'],
+                               'enlever': ['crafting_table']},
+                              {'quand': 'cobblestone', 'seuil': 5, 'retirer': ['cobblestone', 'wooden_pickaxe']}],
+            'terrain': [(4, 200, 24, 10, 202, 30, 'stone')],
+            # Trois arbres : le premier entame est fini (arbre fini) puis son bois
+            # pris ; un des deux autres suffit a tout refaire (~12 planches).
+            'leaves': [box for (x, z) in ((28, 6), (30, 28), (6, 8))
+                       for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
+            'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((28, 6), (30, 28), (6, 8)) for i in range(5)]),
+            'rules': {},
         },
         {
             # Demande du proprietaire (2026-10-10) : chaine la plus longue du
@@ -1435,6 +1465,34 @@ BUILD_CAP_S = 300
 BUILD_IDLE_S = 600
 
 
+def perturbateur(level, x0, username, rcon, started):
+    """Imprevus du monde (proprietaire, 2026-10-20, idee des `missing_items` de
+    Mindcraft) : des que le bot tient `seuil` (1 par defaut) objets `quand`, le
+    banc lui retire les objets `retirer` (nom ou etiquette `#minecraft:logs`)
+    et enleve de l arene les blocs `enlever` (un autre joueur prend l outil,
+    l etabli, le bois). Chacun une fois, dans l ordre. Le bot n en est
+    pas averti : il doit voir le manque a l inventaire et au monde, puis
+    refaire ce qu il faut. Rend (pas, faits) ; pas() a chaque tour de boucle."""
+    pending, done = list(level.get('perturbations', [])), []
+
+    def step():
+        while pending:
+            p = pending[0]
+            match = re.search(r'Found (\d+)', rcon(f"clear {username} minecraft:{p['quand']} 0"))
+            if not match or int(match.group(1)) < p.get('seuil', 1):
+                return
+            pending.pop(0)
+            for item in p.get('retirer', []):
+                rcon(f"clear {username} {item if item.startswith('#') else 'minecraft:' + item}")
+            for block in p.get('enlever', []):
+                rcon(f'fill {x0} 200 0 {x0 + SIZE} {TOP_Y} {SIZE} air replace minecraft:{block}')
+            done.append({'t': round(time.monotonic() - started, 1), 'quand': p['quand'],
+                         'retire': p.get('retirer', []), 'enleve': p.get('enlever', [])})
+            print(f"{level['name']} : imprevu a {done[-1]['t']} s, {p['quand']} en poche : "
+                  f"retire {p.get('retirer', [])}, enleve {p.get('enlever', [])}", flush=True)
+    return step, done
+
+
 def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name, count):
     """Materials given by RCON, then « Construis ... » from the silent probe;
     blocks placed above the floor are counted in the arena by RCON. The bot
@@ -1455,6 +1513,7 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     # une fois chacun, mission en cours, par la meme voie que l ordre initial.
     events = sorted(level.get('events', []))
     event_answers = []
+    perturber, perturbations = perturbateur(level, x0, username, rcon, started)
     seen, end_reason, last_count_at, now_placed = False, f'plafond de {cap} s hors attente du modele', 0, before
     signature, changed_at = None, time.monotonic()
     plafond = Plafond(cap)
@@ -1477,6 +1536,8 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
             event_answers.append({'t': round(time.monotonic() - started, 1), 'message': message,
                                   'relation': reply.get('relation') if isinstance(reply, dict) else None})
             continue
+        if seen:
+            perturber()
         if time.monotonic() - last_count_at >= 5:
             now_placed, last_count_at = placed(), time.monotonic()
         timeline.append({'t': round(time.monotonic() - started, 1), 'pos': s.get('position'), 'running': running,
@@ -1527,11 +1588,13 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     if level.get('events'):
         # Un imprevu jamais dit (mission finie avant) ne teste rien.
         checks['imprevus_envoyes'] = len(event_answers) == len(level['events'])
+    if level.get('perturbations'):
+        checks['imprevus_subis'] = len(perturbations) == len(level['perturbations'])
     failed = [k for k, v in checks.items() if not v]
     return {
         'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
         'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
-        'events': event_answers, 'blocksPlaced': built, 'target': level['target'], 'doorBlocks': doors,
+        'events': event_answers, 'perturbations': perturbations, 'blocksPlaced': built, 'target': level['target'], 'doorBlocks': doors,
         'progress': progression(parts),
         'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
         'botFinalPosition': final.get('position'), 'probe': probe_name,
@@ -1554,6 +1617,7 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     started = time.monotonic()
     timeline = []
     answer = instruct(level, bot, bot_api, level['instruction'], probe_name)
+    perturber, perturbations = perturbateur(level, x0, username, rcon, started)
 
     def held_each():
         found = {}
@@ -1578,6 +1642,8 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         seen = seen or running
         if s.get('onGround') and p.get('y') is not None:
             lowest = min(lowest, p['y'])
+        if seen:
+            perturber()
         if time.monotonic() - last_count_at >= 3:
             count, last_count_at = held(), time.monotonic()
         timeline.append({'t': round(time.monotonic() - started, 1), 'pos': p, 'running': running, 'count': count,
@@ -1620,8 +1686,12 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         error = str((answer or {}).get('error') or '')
         checks = {'refus_dit': 'je ne sais pas encore' in error, 'aucune_mission': not seen,
                   'refus_rapide': time.monotonic() - started < 60, 'aucun_degat': damage == 0}
+    if level.get('perturbations'):
+        # Un imprevu jamais declenche (objet jamais tenu) ne teste rien.
+        checks['imprevus_subis'] = len(perturbations) == len(level['perturbations'])
     (output / (level['name'].replace('/', '-') + '-timeline.json')).write_text(
-        json.dumps({'bot': username, 'answer': answer, 'timeline': timeline}, indent=1), encoding='utf-8')
+        json.dumps({'bot': username, 'answer': answer, 'perturbations': perturbations, 'timeline': timeline},
+                   indent=1), encoding='utf-8')
     # Blocks left in a zone (young crops), items stored in a container.
     parts = []
     if count_blocks and (level.get('also') or level.get('stored')):
@@ -1637,6 +1707,7 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
         'test': level['name'], 'success': not failed, 'about': level['about'], 'bot': username,
         'checks': checks, 'endReason': end_reason, 'expectedLogs': 0, 'logsInInventory': 0,
         'itemsHeld': count, 'target': level['target'], 'lowestStandingY': round(lowest, 2),
+        **({'perturbations': perturbations} if level.get('perturbations') else {}),
         'progress': progress,
         **({'tirage': level['tirage']} if level.get('tirage') else {}),
         'elapsedS': round(time.monotonic() - started, 1), 'damageTaken': damage,
@@ -1964,6 +2035,13 @@ def avec(mode):
 # Model A/B (owner's request, 2026-10-09): the same level with another model
 # for plans, brief and chat (POST /api/models, reset after the level). Same
 # efforts as ci/models.env; informative like every variant.
+def imprevus(*perturbations):
+    """Variante d un niveau avec des imprevus du monde (`perturbations`,
+    perturbateur) : meme arene et memes modes, l adaptation se mesure la ou le
+    niveau est deja dur (proprietaire, 2026-10-20 : un A/B doit departager)."""
+    return ('imprevus', {}, None, {'perturbations': list(perturbations)})
+
+
 def modele(name):
     return (f"modele-{name.replace('/', '-')}", {}, {'plan': name, 'brief': name, 'chat': name})
 
@@ -2004,10 +2082,11 @@ def all_levels_unfiltered():
     out = []
     for level in base_levels():
         out.append(level)
-        for suffix, features, *models in level.get('variants', ()):
-            out.append(dict(level, name=f"{level['name']}~{suffix}", variants=(),
+        for suffix, features, *rest in level.get('variants', ()):
+            models, extra = (rest + [None, {}])[:2]
+            out.append(dict(level, **extra, name=f"{level['name']}~{suffix}", variants=(),
                             features={**level.get('features', {}), **features},
-                            models=models[0] if models else None,
+                            models=models,
                             informative=True, variantOf=level['name'],
                             about=f"[{suffix}] {level['about']}"))
         if level['name'].split('/')[0] in RANDOM_TWIN_FAMILIES:
@@ -2079,6 +2158,9 @@ RETIRED = frozenset({
     'composite/stone-hut-from-scratch',
     # Idem le 2026-10-20 : powered-rail-line bloquant (trois bancs d affilee).
     'craft/iron-pickaxe',
+    # Imprevus du monde (2026-10-22) : passe du premier coup (177 s, 198 s),
+    # ne departage rien ; les imprevus vont sur un composite dur.
+    'composite/stolen-pickaxe',
     # Plans longs (2026-10-16, idee des agents Gemini, arXiv 2610.22319),
     # allumes par defaut le 2026-10-17 (A/B : 16 paires, -36 % d appels) :
     # le bras sans le mode se joue par `Banc:`.
@@ -2136,6 +2218,7 @@ COVERED_BY = {
     'composite/cabin-from-scratch': 'composite/cabin-across-water', 'composite/bucket': 'composite/powered-rail-line',
     'composite/stone-hut-from-scratch': 'composite/big-stone-house',
     'craft/iron-pickaxe': 'composite/powered-rail-line',
+    'composite/stolen-pickaxe': 'composite/big-stone-house~imprevus',
 }
 
 
