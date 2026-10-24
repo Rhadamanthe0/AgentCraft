@@ -314,7 +314,15 @@ au demarrage au lieu de 75 min de niveaux rouges.
   plan de `ci/models.env`), sans reponse le banc echoue (`report.keyProbe`) ;
   `report.keyCheck` verifie qu aucune autre cle n a servi. Ne jamais
   contourner un 403 `FreeTierError` d OpenCode.
-- Runner MINIPC-CLEM : pas de Docker Engine, pas de DinD, pas de privilege en
+- Banc GitHub Actions reserve au compte `Rhadamanthe0` (ID `37266002`) dans
+  ce depot (ID `1385815795`), pour les push et lancements manuels seulement ;
+  toute relance doit aussi venir de `Rhadamanthe0`. Le job avec les secrets
+  est ignore pour les autres acteurs et les forks, et le controle final
+  `minecraft` echoue. Pas de `pull_request_target` pour executer du code de
+  PR avec la cle. La regle suppose les auteurs de workflows de confiance :
+  un collaborateur ayant le droit de les modifier peut demander les secrets.
+- Runner MINIPC-CLEM, tant que le depot est prive : pas de Docker Engine,
+  pas de DinD, pas de privilege en
   plus ; ne supprimer que les ressources du job (`mc-ci-*`, `minebot-ci:*`) ;
   ne jamais toucher `/root/infra-deploy` ni les images
   `minecraft-bot-test-bot:before-*`. Enveloppe CI 400 % CPU et 10 Go (choix du
@@ -327,6 +335,13 @@ au demarrage au lieu de 75 min de niveaux rouges.
   relancer le banc (`gh api -X POST .../actions/runs/<id>/rerun`). Le runner
   peut aussi rester deconnecte apres un redemarrage (bancs en file des heures) :
   le dire au proprietaire, qui relance son service.
+- Depot public : le banc utilise automatiquement `ubuntu-24.04` heberge par
+  GitHub ; il ne va plus sur MINIPC. `ci/setup-github-runner.sh` prepare une
+  slice `agentcraft.slice` (400 % CPU, 10 Go) pour les quatre services Docker
+  de `ci/compose.github.yaml`, unitaires via harness compris. La construction
+  des images et Python hote sont hors de cette slice, dans la VM dediee.
+  Pool 10 conserve. Aucune publication du depot par le workflow ; verifier
+  historique Git, logs et artefacts avant changement de visibilite.
 - Ne pas allonger un delai ni relacher une assertion du banc sans preuve.
 - Plafonds de niveau hors attente du modele (proprietaire, 2026-10-09,
   `trees.Plafond`) : le temps passe a attendre le gateway (brief compris,
@@ -341,8 +356,12 @@ au demarrage au lieu de 75 min de niveaux rouges.
 - Fusion seulement si tous les niveaux non informatifs passent et
   `keyCheck` est ok, sur un banc COMPLET de la tete de la PR (voir §5) ; un
   banc partiel ne suffit jamais. L etape finale « Full bench passed on this
-  commit » du job `minecraft` n est verte que dans ce cas (prerequis de
-  fusion sur `main`, 2026-10-01 ; le job est rouge sinon, 2026-10-24).
+  commit » du job `minecraft-bench` n est verte que dans ce cas. Le controle
+  obligatoire reste `minecraft` : job final sans secret, `needs` sur le banc
+  et `if: always()`, qui exige son succes. Un job privilegie ignore doit
+  echouer a ce controle, car GitHub accepte un job ignore pour une protection
+  de branche (prerequis de fusion sur `main`, 2026-10-01 ; securisation pour
+  depot public, 2026-10-24).
   Exception (proprietaire, 2026-10-21) : une PR qui ne modifie pas le bot
   (rien sous `bot/`, ni prompt ni comportement : doc, secrets et reglages
   du workflow, outillage) se fusionne directement, sans banc complet : le
@@ -355,7 +374,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
 | Jev / TypeSafe (classifieur), `jev.js` | 2026-09-27 | le planificateur JSON est le seul cerveau ; seuls les seuils `JEV_*` restent (noms historiques) |
 | `demander_aide`, `reviser_actions`, `bot/repair.js` | 2026-09-27 | reecrivaient la doc des actions, invalidaient le cache, ~20 appels/banc, aucun gain |
 | Overlay de documentation (`/data/actions-doc.json`, `DELETE /api/actions`) | 2026-09-28 | plus aucun auteur depuis repair.js ; un vieux fichier aurait continue d egarer le modele |
-| Reflexion de fond (`planner.strategize`) | 2026-09-27 | A/B cabane sur 5 bancs sans gain ; inventait des etapes (« livrer ») |
+| Reflexion de fond (`planner.strategize`) | 2026-09-27 | A/B cabane sur 5 bancs sans gain ; inventait les etapes (« livrer ») |
 | Chaines de modeles, bascule sur refus/delai, fournisseurs gratuits (Zen anonyme, Groq, Gemini, OpenRouter) | 2026-09-26 | un modele par usage, une panne remonte telle quelle ; bascule sur limite de debit essayee puis retiree le 2026-10-12 (§3) |
 | Deuxieme cle OpenCode et bascule de cle (`PLANNER_KEY_FIRST`, `OPENCODE_SECONDARY_API_KEY` cote bot) | 2026-10-20 | OpenCode n admet plus qu un abonnement Go ; la cle primary renvoyait 401 |
 | Routage double MiMo/Muse, supervisor/, kernel/, bridge/, unlock-service | 2026-09-27 | jamais branches au bot |
@@ -430,8 +449,8 @@ au demarrage au lieu de 75 min de niveaux rouges.
   stone-hut-from-scratch (dans big-stone-house) retire le 2026-10-20 a la
   promotion de sa couverture, craft/iron-pickaxe (dans powered-rail-line) le
   meme jour ; chat/question-keeps-mission (dans stone-wall-question) attend
-  la promotion de la sienne ; 14 tests unitaires retires. Un
-  niveau `skill/*` ne double pas son jumeau joue par le modele : il mesure le
+  la promotion de la sienne ; 14 tests unitaires retires. Un niveau
+  `skill/*` ne double pas son jumeau joue par le modele : il mesure le
   code seul.
 - Avant de proposer un changement d architecture, le chiffrer sur les bancs
   (`report.json` de plusieurs bancs, `containers.log`) puis le critiquer :
@@ -770,23 +789,39 @@ dans `docs/journal.md` (section « Les pieges »).
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
-- Declenche par tout push sur `main` ou `claude/**` (workflow
-  `.github/workflows/minecraft.yml`), runner self-hosted MINIPC-CLEM (Podman
-  rootless), un seul job a la fois, 75 min max.
+- Declenche par tout push sur `main` ou `claude/**`, ou lancement manuel
+  (workflow `.github/workflows/minecraft.yml`) ; banc avec les secrets
+  reserve a `Rhadamanthe0`, declencheur initial et relanceur. Aucun evenement
+  de PR. Job `minecraft-bench`, 75 min max ; verdict obligatoire `minecraft`
+  separe, sans secret ni checkout, rouge si le banc n a pas reussi au complet.
+- Tant que le depot est prive : runner self-hosted MINIPC-CLEM (Podman
+  rootless), un seul banc a la fois. Une fois public : VM GitHub standard
+  `ubuntu-24.04`, Docker, sans reservation MINIPC. La visibilite du depot
+  choisit le runner automatiquement, sans publier le depot. Le controle
+  final `minecraft` utilise toujours une petite execution GitHub standard.
 - Un nouveau push sur la meme branche (hors `main`) annule le banc en cours
   (`concurrency.cancel-in-progress`, decision du 2026-10-24) : son resultat
   porterait sur un commit perime. `main` n est jamais interrompu ; le
   nettoyage (`if: always()`) et le marqueur de projet ecrit avant le premier
   conteneur rendent l annulation sans risque.
-- Inscription GitHub permanente propre a ce depot Linux ; environnement
+- MINIPC prive : inscription GitHub permanente propre a ce depot Linux ; environnement
   neuf par job, magasin et socket Podman dedies. Les labels
   `rhada-persistent-v1`, `rhada-run-<run>-<tentative>` et
   `rhada-job-minecraft` reservent le runner au job attendu. Le bail global
   garde un seul job Linux/Windows a la fois.
-- Build Compose via l API native Podman : `DOCKER_BUILDKIT=0` et
+- MINIPC prive : build Compose via l API native Podman : `DOCKER_BUILDKIT=0` et
   `COMPOSE_BAKE=false` dans le job. Buildx choisit sinon
   `/docker/buildx` avec cgroupfs, hors du cgroup delegue du job ; ne pas
   desserrer l isolation pour le rendre accessible.
+- GitHub public : BuildKit actif ; `bash ci/setup-github-runner.sh` exige une
+  VM GitHub et Docker cgroup v2/systemd, cree et verifie la slice runtime,
+  puis pose `CI_GITHUB_HOSTED=1`, `CI_METRICS_CGROUP=/sys/fs/cgroup/agentcraft.slice`
+  et `CI_ENDPOINT_MODE=direct` via `GITHUB_ENV`. `cleanup.compose_files()`
+  ajoute alors `ci/compose.github.yaml` au banc ET au nettoyage ; un flag
+  invalide echoue. Aucun changement de daemon Docker ni de compose de prod.
+  MINIPC garde `CI_GITHUB_HOSTED=0`, les IP de conteneurs et `/host/ci-cgroup`.
+  Tests hors ligne : `ci/test_github_runner.py` (selection Compose, limites,
+  refus hors VM GitHub et refus des prerequis ou controles invalides).
 - Ce qui se joue (2026-10-01, demande du proprietaire) : **tout** sur `main` ;
   sur une branche, ce que demande la ligne finale du message de commit
   (trailer, dans le dernier paragraphe) :

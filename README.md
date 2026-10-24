@@ -316,8 +316,10 @@ NODE_PATH=$PWD/bot/node_modules node tmp/skill-sim.js --liste
 
 **Banc en jeu** : un vrai serveur Paper, une dizaine de bots en parallèle,
 chacun dans son arène, et le vrai modèle. Il rend PASS/FAIL par niveau et
-compare les interrupteurs en A/B. Il tourne à chaque push sur un runner
-auto-hébergé, ou en local par `python ci/run.py`. Fonctionnement, lecture des
+compare les interrupteurs en A/B. Il tourne sur les push autorisés de
+`Rhadamanthe0` : runner auto-hébergé tant que le dépôt est privé, runner GitHub
+standard lorsqu'il devient public ; ou en local par `python ci/run.py`.
+Fonctionnement, lecture des
 rapports et règles de fusion : [docs/remote-minecraft-tests.md](docs/remote-minecraft-tests.md).
 
 ## Documentation

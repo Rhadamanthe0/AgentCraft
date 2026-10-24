@@ -30,31 +30,34 @@ on:
 permissions:
   contents: read
 
-# One pending run per branch (a shared group let GitHub cancel the pending run
-# of one branch when another branch pushed). A new push on a branch other than
-# main cancels the running bench of that same branch: the older commit is
-# superseded, so its result is useless (decision of 2026-10-24). Main is never
-# interrupted. Cancelling is safe: the cleanup step runs `if: always()`, and a
-# run writes its project marker (test-results/mc-ci-*/active.json) before its
-# first container, so ci/cleanup.py removes what it recorded. The runner is
-# shared by the organisation's private projects: every run has its own compose
-# project (mc-ci-<run id>-...).
+# One pending run per branch. A new branch push supersedes its old bench;
+# main is never interrupted. Cleanup always runs, targeting only the project
+# recorded before the first container (mc-ci-<run id>-...).
 concurrency:
   group: minecraft-bench-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  minecraft:
-    if: github.event.repository.private == true
-    # MINIPC-CLEM : Linux, runner en conteneur, Podman rootless par socket
-    # (clients docker et docker compose). Ports publies injoignables depuis le
-    # conteneur du runner (localhost = le runner) : CI_ENDPOINT_MODE=ip, IP des conteneurs du projet.
-    runs-on: [self-hosted, linux, x64, minipc, rhada-persistent-v1, rhada-job-minecraft, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
-    # API Podman rootless : Buildx impose sinon /docker/buildx hors du cgroup delegue.
+  minecraft-bench:
+    # Only the owner may launch/re-run the secret-bearing job in this exact
+    # repository. No PR event, no fork. Workflow authors must remain trusted:
+    # write access could otherwise introduce another workflow reading secrets.
+    if: >-
+      github.repository_id == '1385815795' &&
+      github.actor_id == '37266002' &&
+      github.triggering_actor == 'Rhadamanthe0' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # Keep MINIPC while private; switch to a disposable standard GitHub VM
+    # once public. This does not change the repository's visibility.
+    runs-on: ${{ github.event.repository.private && fromJSON(format('["self-hosted","linux","x64","minipc","rhada-persistent-v1","rhada-job-minecraft","rhada-run-{0}-{1}"]', github.run_id, github.run_attempt)) || 'ubuntu-24.04' }}
     env:
-      DOCKER_BUILDKIT: '0'
+      # Podman needs its native build; GitHub Docker uses BuildKit.
+      DOCKER_BUILDKIT: ${{ github.event.repository.private && '0' || '1' }}
       COMPOSE_BAKE: 'false'
-    # Scenarios composites jusqu a 45 min, lances en premier (chemin critique).
+      # MINIPC defaults; hosted setup overrides them through GITHUB_ENV.
+      CI_GITHUB_HOSTED: '0'
+      CI_ENDPOINT_MODE: ip
+      CI_METRICS_CGROUP: /host/ci-cgroup
     timeout-minutes: 75
     defaults:
       run:
@@ -64,21 +67,19 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Prepare the public GitHub runner
+        if: github.event.repository.private == false
+        run: bash ci/setup-github-runner.sh
       - name: Pool and admission controller on simulated metrics
-        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py ci/test_keyprobe.py ci/test_promotion.py ci/test_ab.py ci/test_ouvert.py ci/test_rejeu.py ci/test_plafond.py ci/test_perturbations.py ci/test_unit_runner.py ci/test_conteneur.py
-      # Tests a jouer (demande du proprietaire, 2026-10-01) : tout le banc sur
-      # main ; sur une branche, ce que le commit demande par sa ligne finale
-      # `Banc: <motifs>` (`Banc: unitaires` = tests unitaires seuls ; sans
-      # ligne, tout le banc) ; au lancement manuel, l entree `levels`. Le message passe par
-      # l environnement, jamais interpole dans le script, et seuls des noms de
-      # niveaux et des jokers sont acceptes.
+        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py ci/test_keyprobe.py ci/test_promotion.py ci/test_ab.py ci/test_ouvert.py ci/test_rejeu.py ci/test_plafond.py ci/test_perturbations.py ci/test_unit_runner.py ci/test_conteneur.py ci/test_github_runner.py
+      # Main always plays everything. Branches use the final Banc: trailer;
+      # manual runs use levels. Values are validated before being passed on.
       - name: Choose the levels for this commit
         id: levels
         env:
           REF: ${{ github.ref }}
           EVENT: ${{ github.event_name }}
           INPUT_LEVELS: ${{ inputs.levels }}
-          # Les variantes openai/* n existent que si la cle est posee (ci/trees.py).
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           if [ "$EVENT" = workflow_dispatch ]; then
@@ -101,9 +102,6 @@ jobs:
           echo "Niveaux : $levels (suite $suite)"
           echo "levels=$levels" >> "$GITHUB_OUTPUT"
           echo "suite=$suite" >> "$GITHUB_OUTPUT"
-      # Lancement manuel seulement : remplace les modeles de ci/models.env dans
-      # ce checkout (sonde de cle et bots compris). openai/<modele> : cle
-      # OPENAI_API_KEY seule, aucune cle OpenCode ne va aux bots.
       - name: Override the bench model for this run
         if: github.event_name == 'workflow_dispatch' && inputs.base_model != ''
         env:
@@ -116,32 +114,14 @@ jobs:
           sed -i -E "s#^(PLANNER_MODEL|PLANNER_MODEL_PLAN|PLANNER_MODEL_BRIEF|PLANNER_MODEL_CHAT|PLANNER_MODEL_COMPACT)=.*#\1=$BASE_MODEL#" ci/models.env
           grep -E '^PLANNER_MODEL' ci/models.env
       - name: Run unit regressions and real Minecraft tests
-        # Une seule cle OpenCode (un seul abonnement Go, 2026-10-20), sondee au
-        # demarrage (ci/keyprobe.py) : sans reponse, le banc echoue. Elle va au
-        # conteneur jetable des bots, jamais dans une image, un artefact ou un
-        # journal. report.keyCheck verifie qu aucune autre n a servi.
+        # Only this authorized job gets the keys; no secret is baked into an
+        # image. keyprobe and keyCheck keep the existing single-key contract.
         env:
           PLANNER_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-          # Modeles openai/* de l A/B de modele seulement (API OpenAI en direct,
-          # jamais un repli) ; absent, ces variantes ne se jouent pas.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CI_ENDPOINT_MODE: ip
-          # Pool adaptatif (ci/capacity.py) : admissions sous 75 % de l enveloppe
-          # (300 % sur 400 %) et 4 Gio de reserve CI + hote ; sans mesures
-          # fiables, repli fixe a CI_POOL_SIZE (10 depuis le 2026-10-13 : enveloppe
-          # de 10 Go et 400 %, piege 21 d AGENTS.md ; 16 avant le 2026-10-12).
-          # Fixe par defaut (comparaison meme graine, 800 %) : fixe 16 = 219 s
-          # 65/65 ; adaptatif un a un 347 s, par lots 297 s puis 292 s (22
-          # workers, deux niveaux perdus). L adaptatif reste au choix (dispatch).
           CI_POOL_MODE: ${{ inputs.pool_mode || 'fixed' }}
-          # Enveloppe CI vue du runner (cgroupns prive : son /sys/fs/cgroup n est
-          # que sa feuille) : slice user-1008 (podman-ci, CPUQuota 400 % depuis le 2026-10-13, 600 % depuis
-          # le 2026-09-28, choix du proprietaire pour laisser de la marge aux
-          # autres services de la machine ; memoire limitee a 10 Go pour les CI
-          # Linux, proprietaire 2026-10-13, piege 21 d AGENTS.md) montee
-          # en lecture seule par le quadlet du runner (rhada-server). Absente =>
-          # repli fixe, ecrit dans le rapport.
-          CI_METRICS_CGROUP: /host/ci-cgroup
+          # Same envelope and pool on both runners. Missing adaptive metrics
+          # still impose the fixed fallback, recorded in the report.
           CI_ENVELOPE_CPU_PCT: '400'
           CI_POOL_SIZE: '10'
           CI_VARIATION_SEED: ${{ inputs.variation_seed }}
@@ -159,13 +139,7 @@ jobs:
           path: test-results/
           if-no-files-found: error
           retention-days: 14
-      # Porte de fusion (decision du proprietaire, 2026-10-01) : verte seulement
-      # si le banc COMPLET (`tout`) de ce commit a reussi. Un banc partiel la
-      # laisse rouge : choisir des niveaux accelere le travail, jamais la
-      # fusion. Toujours jouee, et derniere etape du job : le job `minecraft`
-      # porte le verdict (2026-10-24, plus de job `banc-complet`), et un banc
-      # saute, annule ou en echec rend ce job rouge (un job SAUTE compte comme
-      # reussi par GitHub).
+      # A partial bench can measure, but can never authorize a merge.
       - name: Full bench passed on this commit
         if: always()
         env:
@@ -190,3 +164,22 @@ jobs:
             exit 1
           fi
           echo "Banc complet reussi : fusion permise."
+
+  # A skipped job is accepted by required checks. Keep the required name
+  # minecraft on an unconditional, secret-free gate, with no branch checkout.
+  minecraft:
+    needs: minecraft-bench
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Require a successful complete bench
+        env:
+          BENCH_RESULT: ${{ needs.minecraft-bench.result }}
+        run: |
+          if [ "$BENCH_RESULT" != success ]; then
+            echo "Banc absent, ignore, annule, partiel ou en echec ($BENCH_RESULT) : fusion refusee." >&2
+            exit 1
+          fi
+          echo "Banc complet reussi sur ce commit : fusion permise."

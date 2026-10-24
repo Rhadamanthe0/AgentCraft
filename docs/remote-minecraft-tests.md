@@ -12,9 +12,21 @@ ce document explique comment il fonctionne.
 ### En CI
 
 Le workflow `.github/workflows/minecraft.yml` part à chaque push sur `main` ou
-`claude/**`, sur le runner auto-hébergé **MINIPC-CLEM** (Linux, Podman
-rootless, labels `self-hosted, linux, x64, minipc, podman`), un job à la fois,
-75 minutes au plus.
+`claude/**`, ou sur lancement manuel. Le banc avec les secrets est réservé
+au compte **Rhadamanthe0** (ID `37266002`), y compris pour les relances, dans
+ce dépôt (ID `1385815795`). Il ne se déclenche pas sur les événements de PR.
+La durée maximale du banc reste de 75 minutes.
+
+| Visibilité du dépôt | Machine du banc |
+| --- | --- |
+| privé | **MINIPC-CLEM**, Podman rootless, réservation et labels actuels conservés |
+| public | VM GitHub standard **ubuntu-24.04**, Docker, neuve à chaque job |
+
+La bascule est automatique au changement de visibilité ; ce workflow ne
+publie pas lui-même le dépôt. Le runner privé évite de déplacer le banc de
+10 Go sur une VM GitHub privée plus petite. Les runners GitHub standards sont
+gratuits pour le temps de calcul d'un dépôt public ; la consommation OpenCode
+et les quotas de stockage restent distincts.
 
 | Déclencheur | Niveaux joués |
 | --- | --- |
@@ -29,9 +41,11 @@ message (jamais de ligne `Co-Authored-By`). Un motif qui ne désigne aucun nivea
 échouer le banc avant tout lancement. Une ligne qui ne nomme que des niveaux
 `skill/*` se joue sans clé ni sonde de modèle.
 
-L'étape finale « Full bench passed on this commit » du job `minecraft` n'est
-verte que si le banc **complet** du commit a réussi : un banc partiel, annulé
-ou en échec rend le job rouge, et ne vaut jamais autorisation de fusion. Un
+L'étape finale « Full bench passed on this commit » du job `minecraft-bench`
+n'est verte que si le banc **complet** du commit a réussi. Le contrôle final
+`minecraft`, sans checkout ni secret, s'exécute même si le banc a été ignoré
+par la règle d'autorisation ; il exige le succès du banc. Un banc ignoré,
+partiel, annulé ou en échec ne vaut donc jamais autorisation de fusion. Un
 nouveau push sur une branche autre que `main` annule le banc en cours de cette
 branche (son résultat porterait sur un commit périmé) ; `main` n'est jamais
 interrompu.
@@ -200,14 +214,23 @@ est montée en lecture seule sur `/host/ci-cgroup` et le workflow pose
 `CI_METRICS_CGROUP=/host/ci-cgroup`. Le rapport en garde la trace
 (`report.pool`, `report.capacity`, `report.serverTicks`).
 
+Sur la VM GitHub publique, `ci/setup-github-runner.sh` prépare une slice
+systemd `agentcraft.slice` limitée à **400 % CPU et 10 Go**. Il vérifie le
+pilote cgroup v2/systemd de Docker et les limites avant d'activer
+`CI_GITHUB_HOSTED=1`. `ci/compose.github.yaml` place les quatre services dans
+cette slice, y compris le conteneur des tests unitaires lancé via `harness`.
+Les métriques viennent de `/sys/fs/cgroup/agentcraft.slice`. Cette enveloppe
+couvre les conteneurs du banc ; la construction des images et le processus
+Python de l'hôte restent dans la VM dédiée. Le pool reste à 10 workers.
+
 Tests hors ligne du pool et de l'admission, joués avant chaque banc :
 `python3 -m unittest ci/test_capacity.py ci/test_pool.py`.
 
 ### Accès aux conteneurs et nettoyage
 
-- `CI_ENDPOINT_MODE=ip` sur le runner : `localhost` y est le conteneur du
+- `CI_ENDPOINT_MODE=ip` sur MINIPC : `localhost` y est le conteneur du
   runner, donc RCON et HTTP visent l'IP de chaque conteneur. En local,
-  `direct` (défaut) passe par les ports publiés sur `127.0.0.1`, avec repli sur
+  et sur la VM GitHub, `direct` passe par les ports publiés sur `127.0.0.1`, avec repli sur
   `docker compose exec`.
 - Aucun montage de fichier du dépôt : le moteur résout les chemins sur l'hôte.
   Les dépendances npm du bot et du banc partagent `bot/package-lock.json`.
@@ -224,11 +247,25 @@ Tests hors ligne du pool et de l'admission, joués avant chaque banc :
 ### Sécurité du runner
 
 Le runner initie les connexions vers GitHub : aucun port entrant. Le code du
-workflow s'exécute avec les droits du compte du runner et l'accès au moteur de
-conteneurs ; les conteneurs n'isolent pas le runner lui-même. Le workflow
-refuse les dépôts publics, ne garde pas les identifiants du checkout et ne se
-déclenche pas sur les PR de forks. Ce dépôt est réservé à du code de
-confiance.
+workflow s'exécute avec les droits du compte du runner et l'accès au moteur
+de conteneurs ; les conteneurs n'isolent pas le runner lui-même. MINIPC ne
+reçoit plus de banc lorsque le dépôt devient public. Le checkout ne conserve
+pas d'identifiants et les secrets ne sont injectés que dans les étapes qui
+en ont besoin, à l'intérieur du job autorisé.
+
+L'autorisation contrôle `github.repository_id`, `github.actor_id` et
+`github.triggering_actor`, ainsi que l'événement (`push` ou
+`workflow_dispatch`). Les autres comptes, les relances par un autre compte
+et les copies du workflow dans un fork sont refusés avant l'allocation du
+job avec les secrets. Une PR externe ne déclenche aucun banc ; son code doit
+être examiné avant de le reprendre sur une branche de confiance.
+
+Cette règle ne protège pas contre un collaborateur capable de modifier les
+workflows dans le dépôt : les droits d'écriture doivent rester réservés aux
+personnes de confiance. Une protection supplémentaire demanderait de
+déplacer la clé dans un environnement avec approbation obligatoire. Avant de
+rendre le dépôt public, vérifier aussi l'historique Git, les logs et les
+artefacts qui deviendront accessibles.
 
 ## 6. Outils hors banc
 

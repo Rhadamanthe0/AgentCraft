@@ -40,7 +40,13 @@ def paper_image():
 
 def compose_files():
     """`-f` arguments of the bench: ci/compose.yaml, plus ci/compose.old-api.yaml
-    when the engine API is older than 1.44 (Podman: no healthcheck.start_interval)."""
+    when the engine API is older than 1.44 (Podman: no healthcheck.start_interval).
+    GitHub-hosted jobs explicitly add the common runtime resource envelope;
+    the unset flag leaves local and private Podman runs unchanged.
+    """
+    github_hosted = os.environ.get('CI_GITHUB_HOSTED', '')
+    if github_hosted not in ('', '0', '1'):
+        raise ValueError('CI_GITHUB_HOSTED doit valoir 0 ou 1')
     files = ['-f', str(ROOT / 'ci/compose.yaml')]
     version = docker('version', '--format', '{{.Server.APIVersion}}').stdout.strip()
     try:
@@ -49,6 +55,8 @@ def compose_files():
         old = False  # Version illisible : fichier de base seul, l erreur de Compose parlera.
     if old:
         files += ['-f', str(ROOT / 'ci/compose.old-api.yaml')]
+    if github_hosted == '1':
+        files += ['-f', str(ROOT / 'ci/compose.github.yaml')]
     return files
 
 
