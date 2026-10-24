@@ -360,6 +360,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
 
 - Parler au proprietaire en francais ; finir chaque reponse par ce qu il doit
   faire, ou « Tu n as rien a faire ».
+- Jamais de ligne `Co-Authored-By` / `Co-authored-by` dans un commit ni une
+  fusion (proprietaire, 2026-10-24) ; une fusion squash recoit un message
+  explicite, sinon GitHub ajoute ses propres lignes de co-auteur.
 - Points de controle programmes (`send_later`, routines) : **45 min** au plus
   apres le dernier travail, jamais 60. Le cache du contexte dure une heure a
   partir de la derniere activite ; a 60 min il expire et tout se relit.
@@ -767,7 +770,7 @@ dans `docs/journal.md` (section « Les pieges »).
   desserrer l isolation pour le rendre accessible.
 - Ce qui se joue (2026-10-01, demande du proprietaire) : **tout** sur `main` ;
   sur une branche, ce que demande la ligne finale du message de commit
-  (trailer, dans le dernier paragraphe avec `Co-Authored-By`) :
+  (trailer, dans le dernier paragraphe) :
   `Banc: composite/cabin-from-scratch* trees/pillar*` (motifs sur le nom
   complet, variantes comprises ; un composite entraine son jumeau),
   `Banc: unitaires` pour les tests unitaires seuls (ni serveur ni modele) ;
