@@ -31,8 +31,13 @@ function createGestes ({ host, getMission, findTargetBlock, scaled }) {
       return { resultat: `attente de ${Math.round(duration / 100) / 10} s` }
     },
 
-    async terminer () {
-      return { resultat: 'fin demandee par le planificateur', fin: true }
+    // `raison` (arret motive) : le bot s arrete parce qu il est bloque ;
+    // mission.js n accepte cet arret que sur une impasse mesuree.
+    async terminer (scale, params = {}) {
+      const raison = typeof params.raison === 'string' ? params.raison.trim() : ''
+      return raison
+        ? { resultat: `arret demande, bloque : ${raison}`, fin: true, raison }
+        : { resultat: 'fin demandee par le planificateur', fin: true }
     },
 
     // -----------------------------------------------------------------------

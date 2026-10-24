@@ -684,7 +684,15 @@ const ACTIONS = {
     summary: 'clore la mission',
     scale: 'sans effet',
     secondes: 0,
-    intent: "Rien d utile ne peut plus etre fait, ou l objectif est atteint : clore la mission"
+    intent: "Rien d utile ne peut plus etre fait, ou l objectif est atteint : clore la mission",
+    params: {
+      // Arret motive (proprietaire, 2026-10-20) : dire au joueur pourquoi le
+      // bot s arrete ; accepte seulement sur une impasse mesuree.
+      raison: {
+        json: { kind: 'text', max: 120 },
+        question: "Bloque : pourquoi t arreter (cause concrete, dite au joueur) ? Seulement si une impasse empeche d avancer ; omis quand l objectif est atteint"
+      }
+    }
   },
 
   // -------------------------------------------------------------------------

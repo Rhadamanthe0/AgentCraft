@@ -366,6 +366,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
 | Plan sans raisonnement (`plan_sans_raisonnement`, thinking desactive au lieu de l effort low) | retire 2026-10-18 par le proprietaire | A/B sur les composites du palier 3 (2 bancs, 8 paires) : 5/8 contre 5/8, duree x0,49 et appels x0,62 sur les doubles reussites, mais progression 0,27-0,37 contre 0,8 sur la ligne de rails (chantier trop court declare fini) ; `ab.py` : retirer. L effort `none` (variable ou A/B d effort) coupe toujours le raisonnement |
 | Relance de la lecture d objectif (`PLANNER_RELAUNCH_MS_BRIEF`) | retiree 2026-10-11 par le proprietaire | consommait du quota, devenu le facteur limitant ; elle reduisait pourtant les briefs sans reponse de ~11 a 2-4 par banc (3 bancs, 2026-10-08) : un niveau bloquant laisse sans plan est rejoue une fois (`trees.rejouable`) |
 | Prompt de plan en anglais (`prompt_anglais`, consignes traduites, exemples de demandes et textes dits en francais) | ecarte 2026-10-20 par le proprietaire | A/B de 7 paires sur niveaux durs (4b0891c, PR #89) : 6/7 contre 7/7 (echec : panne du gateway), duree x1,39 et appels x1,25 sur les doubles reussites ; gain plafonne a ~12 % de jetons d entree par appel, presque tous servis du cache ; le bot comprenait et repondait bien en francais |
+| Replanification sur evenement (`replan_probleme` : etape sans effet, degats ou blocage jettent le plan ; `replan_etape` : etape du solveur franchie), idee d Astra | retiree 2026-10-23 par le proprietaire | A/B sur les composites durs (2 bancs valides, PR #90) : 6/6 contre 6/6 et appels +26 %, 5/5 contre 5/5 et appels +51 % ; un echec vide deja la file. Seul l arret motive (`terminer {raison}`) est garde |
 | Bibliotheque de savoir-faire appris, code genere par le modele (Voyager) | ecarte 2026-10-02 | apprendrait le banc ; code genere = risque (commandes `/`), lent ; les primitives generiques et les arbres de buts couvrent le besoin |
 
 ### Conduite d une session d agent (2026-10-02)
@@ -479,7 +480,13 @@ Flux d une demande (details : ARCHITECTURE.md) :
    declare casse `tmp/outcomes.test.js`. Un nom refuse (`objet_inconnu`,
    `ancre_inconnue`, fabrication inconnue) dit les noms proches du registre
    (« voulais-tu dire « oak_planks » ? », `skills.suggestionNom`, idee de
-   Mindcraft) sans jamais corriger en silence. La meme etape echouee (ou sans effet)
+   Mindcraft) sans jamais corriger en silence. Arret motive (proprietaire,
+   2026-10-20) : `terminer {raison}` arrete le bot bloque, « Échec : bloque :
+   <raison> » dans le chat, accepte seulement sur une impasse mesuree
+   (`impasseMesuree` : blocage detecte, echec ou etape sans effet parmi les
+   trois dernieres ; sinon refuse comme un arret premature, 3 fois au plus),
+   jamais sur un arbre commence ; sans interrupteur, le banc n a aucune
+   mission impossible pour le mesurer (tmp/arret-motive.test.js). La meme etape echouee (ou sans effet)
    deux fois a l identique n est pas rejouee (`anti_boucle`). Preconditions
    et effets des actions : `CONTRATS` (mission.js). Un champ persiste se
    declare dans `mission-state.js`, nulle part ailleurs. Mort du bot

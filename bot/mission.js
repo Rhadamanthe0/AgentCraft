@@ -2837,6 +2837,15 @@ function createMissionRunner (host, injected = {}) {
     return { detecte: false, raison: null }
   }
 
+  // Arret motive (proprietaire, 2026-10-20) : `terminer {raison}` n est
+  // accepte que sur une impasse mesuree : blocage
+  // detecte, echec ou etape sans effet parmi les trois dernieres (l etape
+  // `terminer` elle-meme exclue).
+  function impasseMesuree () {
+    return Boolean(mission.stuck) || mission.failures > 0 ||
+      mission.history.slice(-4, -1).some(h => h.echec || h.sans_effet)
+  }
+
   // -------------------------------------------------------------------------
   // Inventaire : en survie, c est lui qui decide de ce qui est possible
   // -------------------------------------------------------------------------
@@ -7297,6 +7306,25 @@ function createMissionRunner (host, injected = {}) {
       // (docs/journal.md, piege 17).
       if (outcome.fin) {
         const allowed = finishAllowed(buildState())
+        // Arret motive : « je suis bloque, parce que... ».
+        // Jamais sur un arbre commence ; sans impasse mesuree, refuse comme un
+        // arret premature (3 fois au plus), puis accepte.
+        const raison = !allowed.ok && !arbreOuvert
+          ? String(outcome.raison ?? '').trim().slice(0, 120) : ''
+        if (raison) {
+          if (impasseMesuree() || mission.finishRefused >= REFUSALS_BEFORE_YIELD) {
+            traceDe(mission)?.push({ type: 'arret_motive', raison })
+            console.log(`[mission] arret motive : ${raison}`)
+            finish('failed', `bloque : ${raison}`)
+            return
+          }
+          mission.finishRefused += 1
+          mission.refusalNote = `arret pour blocage refuse : aucune impasse mesuree (ni echec recent ni blocage detecte) ; ${allowed.why}`
+          mission.queue = []
+          abortPrefetch('arret motive refuse')
+          console.log(`[mission] arret motive refuse (${mission.finishRefused}/${REFUSALS_BEFORE_YIELD}) : ${raison}`)
+          continue
+        }
         // Quantite explicite pas encore en inventaire, ou arbre demande pas
         // fini : meme refus reinjecte que pour `fini` (3 au plus), au lieu de
         // clore la mission en echec (chat/replace-and-join 73b4876 : plan
