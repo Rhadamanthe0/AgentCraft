@@ -52,6 +52,11 @@ const REMEDES = {
   pose_hors_portee: ['avancer', 'sortir'],
   pose_refusee: ['avancer', 'sortir'],
   enfermement: ['sortir', 'avancer'],
+  // Plantation (A/B `culture`) : graines sans terre labouree ni houe.
+  houe_absente: ['fabriquer', 'obtenir'],
+  // Conteneurs (action-conteneur.js, A/B `coffres`)
+  conteneur_refuse: ['avancer', 'sortir'],
+  conteneur_sans_objet: ['retirer', 'explorer', 'recolter'],
   // Dons
   invalid_item: ['donner'],
   invalid_count: ['donner'],
@@ -86,6 +91,8 @@ const REMEDES_PAR_ACTION = {
   poser: ['avancer', 'fabriquer', 'sortir'],
   ouvrir_porte: ['sortir', 'avancer'],
   utiliser: ['sortir', 'avancer'],
+  deposer: ['avancer', 'sortir'],
+  retirer: ['avancer', 'explorer'],
   sortir: ['casser', 'piler'],
   choisir_terrain: ['avancer', 'explorer'],
   rejoindre_demandeur: ['avancer', 'explorer'],

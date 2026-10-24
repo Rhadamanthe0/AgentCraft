@@ -19,6 +19,12 @@ function celluleValide (c) {
 }
 const cellules = value => Array.isArray(value) ? value.map(celluleValide).filter(Boolean) : []
 
+const objetsConteneur = v => Array.isArray(v) ? v.filter(p => typeof p?.objet === 'string')
+  .map(p => ({ objet: p.objet, quantite: Number.isInteger(p.quantite) ? p.quantite : null })) : []
+const comptesParObjet = v => v && typeof v === 'object' && !Array.isArray(v)
+  ? Object.fromEntries(Object.entries(v).filter(([, n]) => Number.isFinite(n) && n >= 0))
+  : {}
+
 // Types de champs : lire(valeur, source, dejaLus) -> valeur de mission ;
 // ecrire(valeur) -> JSON. `dejaLus` donne les champs precedents du schema
 // (ordre de declaration), pour une validation qui depend d un autre champ.
@@ -141,6 +147,12 @@ function schemaReprise ({ landmarks = {}, defaultQuota = 16, craftMin = 1, craft
         : {},
       ecrire: v => v ?? {}
     },
+    // Objets a ranger dans un conteneur et a y prendre (A/B `coffres`), et
+    // transferts mesures par objet.
+    depots: { lire: v => objetsConteneur(v), ecrire: v => v ?? [] },
+    depotsFaits: { lire: v => comptesParObjet(v), ecrire: v => v ?? {} },
+    retraits: { lire: v => objetsConteneur(v), ecrire: v => v ?? [] },
+    retraitsFaits: { lire: v => comptesParObjet(v), ecrire: v => v ?? {} },
     fabricationInitial: {
       lire: v => Number.isFinite(Number(v)) && v !== null ? Math.max(0, Math.round(Number(v))) : 0,
       ecrire: v => v ?? 0

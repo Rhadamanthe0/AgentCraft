@@ -31,13 +31,17 @@ permissions:
   contents: read
 
 # One pending run per branch (a shared group let GitHub cancel the pending run
-# of one branch when another branch pushed); a new push never interrupts a
-# running bench. The runner is shared by the organisation's private projects:
-# every run has its own compose project (mc-ci-<run id>-...) and cleans up only
-# what it recorded (ci/cleanup.py).
+# of one branch when another branch pushed). A new push on a branch other than
+# main cancels the running bench of that same branch: the older commit is
+# superseded, so its result is useless (decision of 2026-10-24). Main is never
+# interrupted. Cancelling is safe: the cleanup step runs `if: always()`, and a
+# run writes its project marker (test-results/mc-ci-*/active.json) before its
+# first container, so ci/cleanup.py removes what it recorded. The runner is
+# shared by the organisation's private projects: every run has its own compose
+# project (mc-ci-<run id>-...).
 concurrency:
   group: minecraft-bench-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   minecraft:
@@ -50,8 +54,6 @@ jobs:
     env:
       DOCKER_BUILDKIT: '0'
       COMPOSE_BAKE: 'false'
-    outputs:
-      levels: ${{ steps.levels.outputs.levels }}
     # Scenarios composites jusqu a 45 min, lances en premier (chemin critique).
     timeout-minutes: 75
     defaults:
@@ -63,7 +65,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Pool and admission controller on simulated metrics
-        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py ci/test_keyprobe.py ci/test_promotion.py ci/test_ab.py ci/test_ouvert.py ci/test_rejeu.py ci/test_plafond.py ci/test_perturbations.py ci/test_unit_runner.py
+        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py ci/test_keyprobe.py ci/test_promotion.py ci/test_ab.py ci/test_ouvert.py ci/test_rejeu.py ci/test_plafond.py ci/test_perturbations.py ci/test_unit_runner.py ci/test_conteneur.py
       # Tests a jouer (demande du proprietaire, 2026-10-01) : tout le banc sur
       # main ; sur une branche, ce que le commit demande par sa ligne finale
       # `Banc: <motifs>` (`Banc: unitaires` = tests unitaires seuls ; sans
@@ -157,27 +159,18 @@ jobs:
           path: test-results/
           if-no-files-found: error
           retention-days: 14
-
-  # Porte de fusion (decision du proprietaire, 2026-10-01) : vert seulement si
-  # le banc COMPLET (`tout`) de ce commit a reussi. Un banc partiel le laisse
-  # rouge : choisir des niveaux accelere le travail, jamais la fusion. Check
-  # requis de la protection de `main`. Toujours execute (un check requis
-  # SAUTE compte comme reussi) : banc saute = porte rouge. Runner isole
-  # MINIPC-CLEM, sans checkout : il ne lit que deux sorties du banc.
-  banc-complet:
-    needs: minecraft
-    if: always()
-    runs-on: [self-hosted, linux, x64, minipc, rhada-persistent-v1, rhada-job-banc-complet, "rhada-run-${{ github.run_id }}-${{ github.run_attempt }}"]
-    # API Podman rootless : Buildx impose sinon /docker/buildx hors du cgroup delegue.
-    env:
-      DOCKER_BUILDKIT: '0'
-      COMPOSE_BAKE: 'false'
-    timeout-minutes: 5
-    steps:
+      # Porte de fusion (decision du proprietaire, 2026-10-01) : verte seulement
+      # si le banc COMPLET (`tout`) de ce commit a reussi. Un banc partiel la
+      # laisse rouge : choisir des niveaux accelere le travail, jamais la
+      # fusion. Toujours jouee, et derniere etape du job : le job `minecraft`
+      # porte le verdict (2026-10-24, plus de job `banc-complet`), et un banc
+      # saute, annule ou en echec rend ce job rouge (un job SAUTE compte comme
+      # reussi par GitHub).
       - name: Full bench passed on this commit
+        if: always()
         env:
-          LEVELS: ${{ needs.minecraft.outputs.levels }}
-          RESULT: ${{ needs.minecraft.result }}
+          LEVELS: ${{ steps.levels.outputs.levels }}
+          RESULT: ${{ job.status }}
           BASE_MODEL: ${{ inputs.base_model }}
         run: |
           if [ -n "$BASE_MODEL" ]; then
