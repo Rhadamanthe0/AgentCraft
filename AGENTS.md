@@ -328,8 +328,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
   Jamais un niveau informatif, `skill/*`, ni un niveau que le modele a servi.
 - Fusion seulement si tous les niveaux non informatifs passent et
   `keyCheck` est ok, sur un banc COMPLET de la tete de la PR (voir §5) ; un
-  banc partiel ne suffit jamais. Le check `banc-complet` du workflow n est
-  vert que dans ce cas (prerequis de fusion sur `main`, 2026-10-01).
+  banc partiel ne suffit jamais. L etape finale « Full bench passed on this
+  commit » du job `minecraft` n est verte que dans ce cas (prerequis de
+  fusion sur `main`, 2026-10-01 ; le job est rouge sinon, 2026-10-24).
   Exception (proprietaire, 2026-10-21) : une PR qui ne modifie pas le bot
   (rien sous `bot/`, ni prompt ni comportement : doc, secrets et reglages
   du workflow, outillage) se fusionne directement, sans banc complet : le
@@ -360,6 +361,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
 
 - Parler au proprietaire en francais ; finir chaque reponse par ce qu il doit
   faire, ou « Tu n as rien a faire ».
+- Jamais de ligne `Co-Authored-By` / `Co-authored-by` dans un commit ni une
+  fusion (proprietaire, 2026-10-24) ; une fusion squash recoit un message
+  explicite, sinon GitHub ajoute ses propres lignes de co-auteur.
 - Points de controle programmes (`send_later`, routines) : **45 min** au plus
   apres le dernier travail, jamais 60. Le cache du contexte dure une heure a
   partir de la derniere activite ; a 60 min il expire et tout se relit.
@@ -391,8 +395,9 @@ au demarrage au lieu de 75 min de niveaux rouges.
   (`read_ops`, 3 x 90 s) et un echec s ajoute a `report.errors` sans perdre
   les resultats des niveaux (un `exec` de plus de 60 s sur machine saturee
   avait efface tout un banc, run 38089012969).
-- Sur un banc partiel (ligne `Banc:`), `banc-complet` est rouge par
-  construction : un seul commentaire de PR l explique, pas un par banc.
+- Sur un banc partiel (ligne `Banc:`), l etape finale « Full bench passed on
+  this commit » est rouge par construction (le job `minecraft` aussi) : un
+  seul commentaire de PR l explique, pas un par banc.
 - `tmp/*` est ignore par git sauf `*.js` (et les exceptions de
   `.gitignore`) : un nouveau fichier de donnees dans `tmp/` exige son
   exception. Verifier avant de pousser dans un clone propre
@@ -756,18 +761,23 @@ dans `docs/journal.md` (section « Les pieges »).
 - Declenche par tout push sur `main` ou `claude/**` (workflow
   `.github/workflows/minecraft.yml`), runner self-hosted MINIPC-CLEM (Podman
   rootless), un seul job a la fois, 75 min max.
+- Un nouveau push sur la meme branche (hors `main`) annule le banc en cours
+  (`concurrency.cancel-in-progress`, decision du 2026-10-24) : son resultat
+  porterait sur un commit perime. `main` n est jamais interrompu ; le
+  nettoyage (`if: always()`) et le marqueur de projet ecrit avant le premier
+  conteneur rendent l annulation sans risque.
 - Inscription GitHub permanente propre a ce depot Linux ; environnement
   neuf par job, magasin et socket Podman dedies. Les labels
   `rhada-persistent-v1`, `rhada-run-<run>-<tentative>` et
-  `rhada-job-minecraft` ou `rhada-job-banc-complet` reservent le runner
-  au job attendu. Le bail global garde un seul job Linux/Windows a la fois.
+  `rhada-job-minecraft` reservent le runner au job attendu. Le bail global
+  garde un seul job Linux/Windows a la fois.
 - Build Compose via l API native Podman : `DOCKER_BUILDKIT=0` et
-  `COMPOSE_BAKE=false` dans les deux jobs. Buildx choisit sinon
+  `COMPOSE_BAKE=false` dans le job. Buildx choisit sinon
   `/docker/buildx` avec cgroupfs, hors du cgroup delegue du job ; ne pas
   desserrer l isolation pour le rendre accessible.
 - Ce qui se joue (2026-10-01, demande du proprietaire) : **tout** sur `main` ;
   sur une branche, ce que demande la ligne finale du message de commit
-  (trailer, dans le dernier paragraphe avec `Co-Authored-By`) :
+  (trailer, dans le dernier paragraphe) :
   `Banc: composite/cabin-from-scratch* trees/pillar*` (motifs sur le nom
   complet, variantes comprises ; un composite entraine son jumeau),
   `Banc: unitaires` pour les tests unitaires seuls (ni serveur ni modele) ;
@@ -778,11 +788,12 @@ dans `docs/journal.md` (section « Les pieges »).
   et `base_model` (2026-10-10) qui remplace le modele de plan, brief et chat de
   `ci/models.env` le temps du lancement (A/B quand le modele du banc est sans
   quota ; `keyprobe` sonde ce modele ; `openai/<modele>` : sonde et cle
-  OpenAI seules, aucune cle OpenCode aux bots) ; `banc-complet` reste alors rouge,
+  OpenAI seules, aucune cle OpenCode aux bots) ; l etape finale « Full bench
+  passed on this commit » reste alors rouge,
   jamais de fusion sur un autre modele que celui de `ci/models.env`.
   Pendant le travail, choisir les niveaux que le changement peut toucher ; le
-  dernier commit avant fusion n a pas de ligne `Banc:` (banc complet, check
-  `banc-complet` vert exige).
+  dernier commit avant fusion n a pas de ligne `Banc:` (banc complet, etape
+  finale « Full bench passed on this commit » verte exige).
 - Moins de 50 niveaux par banc complet (proprietaire, 2026-10-10, quota) :
   `trees.MAX_LEVELS = 49`, scenarios de navigation compris, verifie par
   `ci/test_selection.py`. Les niveaux simples sont retires (`trees.RETIRED` :
