@@ -25,7 +25,7 @@ rootless, labels `self-hosted, linux, x64, minipc, podman`), un job à la fois,
 | lancement manuel | entrée `levels` (vide = tous), plus `pool_mode`, `variation_seed`, `random_seed`, `base_model` |
 
 La ligne `Banc:` est un trailer Git : elle va dans le dernier paragraphe du
-message, avec `Co-Authored-By`. Un motif qui ne désigne aucun niveau fait
+message (jamais de ligne `Co-Authored-By`). Un motif qui ne désigne aucun niveau fait
 échouer le banc avant tout lancement. Une ligne qui ne nomme que des niveaux
 `skill/*` se joue sans clé ni sonde de modèle.
 
