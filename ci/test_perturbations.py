@@ -1,7 +1,6 @@
 """World surprises of a level (ci/trees.py, perturbateur): once the bot holds
 the trigger item, the bench takes items and removes blocks, once, unannounced
-(owner, 2026-10-20: the bot must adapt to changes, composite/big-stone-house~imprevus),
-or switches an action off (`bloquer`, owner 2026-10-25, ~action-retiree).
+(owner, 2026-10-20: the bot must adapt to changes, composite/big-stone-house~imprevus).
 """
 import re
 import sys
@@ -68,36 +67,22 @@ class PerturbateurTest(unittest.TestCase):
         step()
         self.assertEqual((done, rcon.sent), ([], []))
 
-    def test_blocked_action_switched_off_once(self):
-        rcon, sent = FakeRcon(), []
-        level = {'name': 'x', 'perturbations': [{'quand': 'cobblestone', 'seuil': 20, 'bloquer': ['recolter']}]}
-        step, done = trees.perturbateur(level, 100, 'TestBot', rcon, 0, sent.append)
-        rcon.held['cobblestone'] = 19
-        step()
-        self.assertEqual(sent, [])
-        rcon.held['cobblestone'] = 20
-        step()
-        step()
-        self.assertEqual(sent, [{'recolter': False}])
-        self.assertEqual(done[0]['bloque'], ['recolter'])
-
-    def test_blocked_actions_are_bot_switches(self):
-        # A renamed switch would block nothing: the variant would measure the base level.
+    def test_action_retiree_variant_names_real_actions(self):
+        # A misspelt action would remove nothing: the variant would measure the base level.
         skills = (Path(__file__).parent.parent / 'bot' / 'skills.js').read_text(encoding='utf-8')
-        switches = set(re.findall(r"feature: '([a-z_]+)'", skills))
-        actions = skills[skills.index('const ACTIONS = {'):]
-        switches |= {'action_' + name for name in re.findall(r"^  ([a-z_]+): \{$", actions, re.M)}
-        for level in trees.all_levels_unfiltered():
-            for p in level.get('perturbations', []):
-                for action in p.get('bloquer', []):
-                    self.assertIn(action, switches, level['name'])
-
-    def test_action_retiree_variant(self):
+        catalogue = skills[skills.index('const ACTIONS = {'):]
+        actions = set(re.findall(r"^  ([a-z_]+): \{$", catalogue[:catalogue.index('\n}\n')], re.M))
+        self.assertIn('casser', actions)
         names = {lv['name']: lv for lv in trees.all_levels_unfiltered()}
         variant = names['composite/big-stone-house~action-retiree']
         self.assertTrue(variant['informative'])
-        self.assertEqual(variant['perturbations'][0]['bloquer'], ['action_casser'])
+        self.assertEqual(variant['features'], {'action_casser': False})
         self.assertIn(variant['name'], [lv['name'] for lv in trees.levels()])
+        for level in trees.all_levels_unfiltered():
+            for key, value in level.get('features', {}).items():
+                if key.startswith('action_'):
+                    self.assertIn(key[len('action_'):], actions, level['name'])
+                    self.assertFalse(value)
 
     def test_imprevus_variant_carries_its_surprises(self):
         names = {lv['name']: lv for lv in trees.all_levels_unfiltered()}

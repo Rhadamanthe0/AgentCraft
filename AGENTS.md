@@ -283,14 +283,14 @@ au demarrage au lieu de 75 min de niveaux rouges.
   imprevus) est retire le 2026-10-22 : passe du premier coup (177 s, jumeau
   198 s), il ne departageait rien ; les imprevus vont la ou le bot est
   fragile. Action retiree (proprietaire, 2026-10-25, idee des
-  `blocked_actions` de Mindcraft) : `bloquer` d une perturbation coupe des
-  actions du bot par `/api/features` en pleine mission, sans le dire :
-  `action_<nom>` retire n importe quelle action (sauf `terminer`, `sortir`,
-  `attendre` ; `skills.actionRetiree`), et la sort aussi de la file deja
-  planifiee. Variante `action_retiree(...)` :
-  `composite/big-stone-house~action-retiree` (20 pierres en poche : plus de
-  `casser`, l action la plus jouee ; retirer `recolter`, appelee une fois
-  par mission, ne departageait rien au banc cible f02099d). Une ferme a canne a sucre exige `culture` (A/B
+  `blocked_actions` de Mindcraft) : `action_<nom>` par `/api/features` retire
+  n importe quelle action du catalogue du bot (sauf `terminer`, `sortir`,
+  `attendre` ; `skills.actionRetiree`), servie par defaut ; le bot ne cree
+  pas d action, il doit finir avec celles qui restent. Variante
+  `action_retiree(...)` (des le depart) :
+  `composite/big-stone-house~action-retiree` (sans `casser`, l action la plus
+  jouee ; retirer `recolter`, appelee une fois par mission, ne departageait
+  rien au banc cible f02099d). Une ferme a canne a sucre exige `culture` (A/B
   `culture` depuis le 2026-10-20 : planter, recolter mur) et `mecanisme`
   (circuits) : ce n est pas encore un niveau. Coffres et culture (2026-10-20,
   informatifs) : `composite/chest-pickaxe` (pioche en pierre sans pierre en

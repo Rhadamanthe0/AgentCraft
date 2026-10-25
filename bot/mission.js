@@ -8583,16 +8583,7 @@ function createMissionRunner (host, injected = {}) {
     isRunning,
     SUPPLY,
     ACTION_NAMES: Object.keys(ACTIONS),
-    // Une action retiree en pleine mission (banc, `action_<nom>`) quitte
-    // aussi la file deja planifiee : le prochain geste la voit absente.
-    setFeatures: changes => {
-      const features = setFeatures(changes)
-      if (mission?.queue?.length) {
-        const servies = new Set(skills.actionsFor(mission.kind, mission.supply))
-        mission.queue = mission.queue.filter(e => servies.has(e.action))
-      }
-      return features
-    },
+    setFeatures,
     featureOn
   }
 }

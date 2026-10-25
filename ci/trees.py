@@ -867,14 +867,13 @@ def base_levels():
             'rules': {},
             # Imprevu en plein chantier : 20 pierres en poche, pierres et pioches
             # prises (refaire une pioche, miner encore).
-            # Action retiree a 20 pierres : plus de `casser` (l action dont le
-            # bot se sert le plus, 8 a 15 fois ; `recolter` une seule fois au
-            # banc cible f02099d), la pierre et le bois qui manquent passent
-            # par `recolter`.
+            # Action retiree des le depart : pas de `casser` (l action dont le
+            # bot se sert le plus, 8 a 15 fois par mission), pierre et bois
+            # passent par `recolter`.
             'variants': [avec('coffres'), avec('culture'),
                          imprevus({'quand': 'cobblestone', 'seuil': 20,
                                    'retirer': ['cobblestone', '#minecraft:pickaxes']}),
-                         action_retiree({'quand': 'cobblestone', 'seuil': 20, 'bloquer': ['action_casser']})],
+                         action_retiree('casser')],
         },
         {
             'name': 'composite/lit-cabin',
@@ -1470,18 +1469,14 @@ BUILD_CAP_S = 300
 BUILD_IDLE_S = 600
 
 
-def perturbateur(level, x0, username, rcon, started, features=None):
+def perturbateur(level, x0, username, rcon, started):
     """Imprevus du monde (proprietaire, 2026-10-20, idee des `missing_items` de
     Mindcraft) : des que le bot tient `seuil` (1 par defaut) objets `quand`, le
     banc lui retire les objets `retirer` (nom ou etiquette `#minecraft:logs`)
     et enleve de l arene les blocs `enlever` (un autre joueur prend l outil,
     l etabli, le bois). Chacun une fois, dans l ordre. Le bot n en est
     pas averti : il doit voir le manque a l inventaire et au monde, puis
-    refaire ce qu il faut. `bloquer` retire en plus des actions au bot
-    (`action_<nom>` ou un interrupteur de bot/skills.js, coupes par
-    /api/features, `features`) :
-    action retiree en pleine mission, idee des `blocked_actions` de Mindcraft
-    (proprietaire, 2026-10-25). Rend (pas, faits) ; pas() a chaque tour."""
+    refaire ce qu il faut. Rend (pas, faits) ; pas() a chaque tour de boucle."""
     pending, done = list(level.get('perturbations', [])), []
 
     def step():
@@ -1495,14 +1490,10 @@ def perturbateur(level, x0, username, rcon, started, features=None):
                 rcon(f"clear {username} {item if item.startswith('#') else 'minecraft:' + item}")
             for block in p.get('enlever', []):
                 rcon(f'fill {x0} 200 0 {x0 + SIZE} {TOP_Y} {SIZE} air replace minecraft:{block}')
-            if p.get('bloquer'):
-                features({action: False for action in p['bloquer']})
             done.append({'t': round(time.monotonic() - started, 1), 'quand': p['quand'],
-                         'retire': p.get('retirer', []), 'enleve': p.get('enlever', []),
-                         'bloque': p.get('bloquer', [])})
+                         'retire': p.get('retirer', []), 'enleve': p.get('enlever', [])})
             print(f"{level['name']} : imprevu a {done[-1]['t']} s, {p['quand']} en poche : "
-                  f"retire {p.get('retirer', [])}, enleve {p.get('enlever', [])}, "
-                  f"bloque {p.get('bloquer', [])}", flush=True)
+                  f"retire {p.get('retirer', [])}, enleve {p.get('enlever', [])}", flush=True)
     return step, done
 
 
@@ -1526,8 +1517,7 @@ def run_build_script(level, x0, bot, username, output, rcon, bot_api, probe_name
     # une fois chacun, mission en cours, par la meme voie que l ordre initial.
     events = sorted(level.get('events', []))
     event_answers = []
-    perturber, perturbations = perturbateur(level, x0, username, rcon, started,
-                                            lambda body: bot_api(bot, '/api/features', body))
+    perturber, perturbations = perturbateur(level, x0, username, rcon, started)
     seen, end_reason, last_count_at, now_placed = False, f'plafond de {cap} s hors attente du modele', 0, before
     signature, changed_at = None, time.monotonic()
     plafond = Plafond(cap)
@@ -1631,8 +1621,7 @@ def run_gather_script(level, x0, bot, username, output, rcon, bot_api, probe_nam
     started = time.monotonic()
     timeline = []
     answer = instruct(level, bot, bot_api, level['instruction'], probe_name)
-    perturber, perturbations = perturbateur(level, x0, username, rcon, started,
-                                            lambda body: bot_api(bot, '/api/features', body))
+    perturber, perturbations = perturbateur(level, x0, username, rcon, started)
 
     def held_each():
         found = {}
@@ -2057,11 +2046,12 @@ def imprevus(*perturbations):
     return ('imprevus', {}, None, {'perturbations': list(perturbations)})
 
 
-def action_retiree(*perturbations):
-    """Variante ou une action disparait du catalogue du bot en pleine mission
-    (`bloquer` d une perturbation) : il doit finir par un autre chemin, sans
-    qu on le lui dise (proprietaire, 2026-10-25, `blocked_actions` de Mindcraft)."""
-    return ('action-retiree', {}, None, {'perturbations': list(perturbations)})
+def action_retiree(*actions):
+    """Variante ou des actions manquent au bot des le depart (`action_<nom>`
+    coupe par /api/features, bot/skills.js actionRetiree) : il doit finir avec
+    celles qui restent, sans qu on le lui dise (proprietaire, 2026-10-25, idee
+    des `blocked_actions` de Mindcraft)."""
+    return ('action-retiree', {f'action_{action}': False for action in actions})
 
 
 def modele(name):
