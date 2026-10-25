@@ -894,8 +894,9 @@ dans `docs/journal.md` (section « Les pieges »).
 
 ## 6. Tests locaux
 
-Les unitaires CI passent avant Paper et les sondes de modele, avec la borne
-inchangee de 180 s. Un timeout conserve les sorties dans `unit.log`, marque
+Les unitaires CI passent avant Paper et les sondes de modele, avec une borne
+de 180 s, 300 s sur un runner GitHub (`CI_GITHUB_HOSTED=1`, choix du
+proprietaire le 2026-10-25 : la suite y frolait 180 s, main compris). Un timeout conserve les sorties dans `unit.log`, marque
 l echec et arrete/supprime seulement `<projet-du-banc>-unit`. Une suite unit/all
 sans resultat unitaire ne peut pas devenir verte (`ci/test_unit_runner.py`).
 

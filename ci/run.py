@@ -152,29 +152,35 @@ def classify_failures(report):
 UNIT_TEST_NAME = 'unit/navigation-regression'
 
 
+def unit_budget_s():
+    return 300 if os.environ.get('CI_GITHUB_HOSTED') == '1' else 180
+
+
 def run_unit_regressions(compose, command, project, output):
     """Aucun serveur ni modele en parallele ; un conteneur unique par banc."""
     name = project + '-unit'
     result = {'test': UNIT_TEST_NAME, 'success': False}
-    logs = ''
+    logs, budget = '', unit_budget_s()
     text = lambda value: value.decode('utf-8', 'replace') if isinstance(value, bytes) else (value or '')
     try:
         # GitHub has four CPUs: Node defaults to three test processes. With
         # this exact suite that exceeds 180 s; eight processes passed all 727
         # tests in 165 s under the unchanged 400% CPU / 10 GiB envelope.
         # Keep local and private MINIPC scheduling unchanged.
+        # Owner's choice (2026-10-25): still at the 180 s edge on GitHub
+        # (two timeouts on #99, main too), so 300 s there; 180 s elsewhere.
         node = ['node', '--test']
         if os.environ.get('CI_GITHUB_HOSTED') == '1':
             node.append('--test-concurrency=8')
         done = compose('run', '--rm', '--no-deps', '--name', name, 'harness', *node,
-                       *['tmp/' + item for item in UNIT], timeout=180, check=False)
+                       *['tmp/' + item for item in UNIT], timeout=budget, check=False)
         logs = text(done.stdout) + text(done.stderr)
         result['success'] = done.returncode == 0
         if done.returncode:
             result['error'] = f'Unit container exited with {done.returncode}'
     except subprocess.TimeoutExpired as error:
         logs = text(error.stdout) + text(error.stderr)
-        result['error'] = 'Unit container timed out after 180 seconds'
+        result['error'] = f'Unit container timed out after {budget} seconds'
         # Tuer le client Compose ne tue pas necessairement le conteneur. Sa
         # sortie et son nettoyage ciblent exclusivement le nom de CE banc.
         for argv in (['docker', 'logs', name], ['docker', 'stop', '--time', '5', name],
