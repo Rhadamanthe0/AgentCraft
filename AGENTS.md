@@ -282,7 +282,14 @@ au demarrage au lieu de 75 min de niveaux rouges.
   pioches prises en plein chantier). `composite/stolen-pickaxe` (four, deux
   imprevus) est retire le 2026-10-22 : passe du premier coup (177 s, jumeau
   198 s), il ne departageait rien ; les imprevus vont la ou le bot est
-  fragile. Pas encore d action retiree (`blocked_actions`). Une ferme a canne a sucre exige `culture` (A/B
+  fragile. Action retiree (proprietaire, 2026-10-25, idee des
+  `blocked_actions` de Mindcraft) : `bloquer` d une perturbation coupe des
+  interrupteurs d action du bot (`spec.feature` de `bot/skills.js`, par
+  `/api/features`) en pleine mission, sans le dire ; variante
+  `action_retiree(...)` : `composite/big-stone-house~action-retiree` (20
+  pierres en poche : plus de `recolter`, finir par avancer, casser,
+  ramasser). Seules les actions a interrupteur se retirent ; les etapes deja
+  en file au moment du blocage se jouent encore. Une ferme a canne a sucre exige `culture` (A/B
   `culture` depuis le 2026-10-20 : planter, recolter mur) et `mecanisme`
   (circuits) : ce n est pas encore un niveau. Coffres et culture (2026-10-20,
   informatifs) : `composite/chest-pickaxe` (pioche en pierre sans pierre en
@@ -860,7 +867,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 173 niveaux avec variantes, 44 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 174 niveaux avec variantes, 45 joues par defaut (49 avec les scenarios : la limite est atteinte) dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
