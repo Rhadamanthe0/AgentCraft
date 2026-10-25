@@ -159,7 +159,14 @@ def run_unit_regressions(compose, command, project, output):
     logs = ''
     text = lambda value: value.decode('utf-8', 'replace') if isinstance(value, bytes) else (value or '')
     try:
-        done = compose('run', '--rm', '--no-deps', '--name', name, 'harness', 'node', '--test',
+        # GitHub has four CPUs: Node defaults to three test processes. With
+        # this exact suite that exceeds 180 s; eight processes passed all 727
+        # tests in 165 s under the unchanged 400% CPU / 10 GiB envelope.
+        # Keep local and private MINIPC scheduling unchanged.
+        node = ['node', '--test']
+        if os.environ.get('CI_GITHUB_HOSTED') == '1':
+            node.append('--test-concurrency=8')
+        done = compose('run', '--rm', '--no-deps', '--name', name, 'harness', *node,
                        *['tmp/' + item for item in UNIT], timeout=180, check=False)
         logs = text(done.stdout) + text(done.stderr)
         result['success'] = done.returncode == 0
