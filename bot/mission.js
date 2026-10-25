@@ -127,7 +127,7 @@ function setFeatures (changes = {}) {
     for (const key of Object.keys(featureOverrides)) delete featureOverrides[key]
   }
   for (const [key, value] of Object.entries(changes ?? {})) {
-    if (key !== 'reset' && /^[a-z_]{1,24}$/.test(key) && typeof value === 'boolean') featureOverrides[key] = value
+    if (key !== 'reset' && /^[a-z_]{1,32}$/.test(key) && typeof value === 'boolean') featureOverrides[key] = value
   }
   syncActionFeatures()
   return { ...featureOverrides }
@@ -148,6 +148,9 @@ function syncActionFeatures () {
   // Modes sans action propre (A/B `culture`, eteint) : phrases ajoutees aux
   // intents et capacites absentes du brief (skills.capacitesAbsentes).
   skills.setFeatureEnabled('culture', featureOn('culture', false))
+  // Toute action se retire par `action_<nom>` (banc, niveau « action
+  // retiree ») ; servie par defaut.
+  for (const name of Object.keys(skills.ACTIONS)) skills.setFeatureEnabled(`action_${name}`, featureOn(`action_${name}`, true))
 }
 syncActionFeatures()
 const SCREENSHOT_EVERY = config.positiveInt(process.env.MISSION_SCREENSHOT_EVERY, 5, 'MISSION_SCREENSHOT_EVERY')
@@ -8580,7 +8583,16 @@ function createMissionRunner (host, injected = {}) {
     isRunning,
     SUPPLY,
     ACTION_NAMES: Object.keys(ACTIONS),
-    setFeatures,
+    // Une action retiree en pleine mission (banc, `action_<nom>`) quitte
+    // aussi la file deja planifiee : le prochain geste la voit absente.
+    setFeatures: changes => {
+      const features = setFeatures(changes)
+      if (mission?.queue?.length) {
+        const servies = new Set(skills.actionsFor(mission.kind, mission.supply))
+        mission.queue = mission.queue.filter(e => servies.has(e.action))
+      }
+      return features
+    },
     featureOn
   }
 }

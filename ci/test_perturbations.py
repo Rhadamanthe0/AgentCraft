@@ -85,6 +85,8 @@ class PerturbateurTest(unittest.TestCase):
         # A renamed switch would block nothing: the variant would measure the base level.
         skills = (Path(__file__).parent.parent / 'bot' / 'skills.js').read_text(encoding='utf-8')
         switches = set(re.findall(r"feature: '([a-z_]+)'", skills))
+        actions = skills[skills.index('const ACTIONS = {'):]
+        switches |= {'action_' + name for name in re.findall(r"^  ([a-z_]+): \{$", actions, re.M)}
         for level in trees.all_levels_unfiltered():
             for p in level.get('perturbations', []):
                 for action in p.get('bloquer', []):
@@ -94,7 +96,7 @@ class PerturbateurTest(unittest.TestCase):
         names = {lv['name']: lv for lv in trees.all_levels_unfiltered()}
         variant = names['composite/big-stone-house~action-retiree']
         self.assertTrue(variant['informative'])
-        self.assertEqual(variant['perturbations'][0]['bloquer'], ['recolter'])
+        self.assertEqual(variant['perturbations'][0]['bloquer'], ['action_casser'])
         self.assertIn(variant['name'], [lv['name'] for lv in trees.levels()])
 
     def test_imprevus_variant_carries_its_surprises(self):

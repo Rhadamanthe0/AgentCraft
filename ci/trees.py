@@ -867,13 +867,14 @@ def base_levels():
             'rules': {},
             # Imprevu en plein chantier : 20 pierres en poche, pierres et pioches
             # prises (refaire une pioche, miner encore).
-            # Action retiree a 20 pierres : plus de `recolter`, la pierre et le
-            # bois qui manquent se prennent geste par geste (avancer, casser,
-            # ramasser).
+            # Action retiree a 20 pierres : plus de `casser` (l action dont le
+            # bot se sert le plus, 8 a 15 fois ; `recolter` une seule fois au
+            # banc cible f02099d), la pierre et le bois qui manquent passent
+            # par `recolter`.
             'variants': [avec('coffres'), avec('culture'),
                          imprevus({'quand': 'cobblestone', 'seuil': 20,
                                    'retirer': ['cobblestone', '#minecraft:pickaxes']}),
-                         action_retiree({'quand': 'cobblestone', 'seuil': 20, 'bloquer': ['recolter']})],
+                         action_retiree({'quand': 'cobblestone', 'seuil': 20, 'bloquer': ['action_casser']})],
         },
         {
             'name': 'composite/lit-cabin',
@@ -1477,7 +1478,8 @@ def perturbateur(level, x0, username, rcon, started, features=None):
     l etabli, le bois). Chacun une fois, dans l ordre. Le bot n en est
     pas averti : il doit voir le manque a l inventaire et au monde, puis
     refaire ce qu il faut. `bloquer` retire en plus des actions au bot
-    (interrupteurs de bot/skills.js coupes par /api/features, `features`) :
+    (`action_<nom>` ou un interrupteur de bot/skills.js, coupes par
+    /api/features, `features`) :
     action retiree en pleine mission, idee des `blocked_actions` de Mindcraft
     (proprietaire, 2026-10-25). Rend (pas, faits) ; pas() a chaque tour."""
     pending, done = list(level.get('perturbations', [])), []
