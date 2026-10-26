@@ -22,6 +22,7 @@ function withTimeout (promise, ms, label) {
 const RAYON = 24
 const OUVERTURE_MS = 4000
 const TRANSFERT_MS = 4000
+const MESURE_MS = 1500
 const MEMOIRE_MAX = 32
 const CONTENEUR = /^(chest|trapped_chest|barrel|([a-z_]+_)?shulker_box)$/
 
@@ -115,13 +116,22 @@ function createConteneurs (deps) {
   }
 
   const stock = (bot, objet) => (bot.inventory?.items() ?? []).filter(i => deps.correspond(objet, i.name)).reduce((n, i) => n + i.count, 0)
+  const dedans = (fenetre, objet) => (fenetre.containerItems?.() ?? []).filter(i => deps.correspond(objet, i.name)).reduce((n, i) => n + i.count, 0)
 
   // Deplace jusqu a `voulu` objets entre la fenetre et l inventaire, une pile
-  // a la fois ; l inventaire fait foi apres chaque transfert.
+  // a la fois. Le serveur confirme les cases apres coup : chaque transfert se
+  // mesure sur l inventaire ET le conteneur, attendus jusqu a MESURE_MS (banc
+  // 692d157, chest-pickaxe~aleatoire : pioche bien rangee, lue « sans effet »
+  // aussitot, jamais comptee, la mission a tourne jusqu au plafond).
   async function transferer (bot, fenetre, sens, objet, voulu) {
     let fait = 0
     let derniere = null
     const avant = stock(bot, objet)
+    const avantDedans = dedans(fenetre, objet)
+    const mesurer = () => Math.max(
+      sens === 'deposer' ? avant - stock(bot, objet) : stock(bot, objet) - avant,
+      sens === 'deposer' ? dedans(fenetre, objet) - avantDedans : avantDedans - dedans(fenetre, objet))
+    const source_ = () => sens === 'deposer' ? avant - stock(bot, objet) : avantDedans - dedans(fenetre, objet)
     for (let essai = 0; essai < 27 && fait < voulu; essai++) {
       if (deps.signal?.()?.aborted) { derniere = 'interrompu'; break }
       const source = sens === 'deposer' ? (bot.inventory?.items() ?? []) : (fenetre.containerItems?.() ?? [])
@@ -134,9 +144,16 @@ function createConteneurs (deps) {
         derniere = err.message
         break
       }
-      const mesure = sens === 'deposer' ? avant - stock(bot, objet) : stock(bot, objet) - avant
-      if (mesure <= fait) { derniere = 'transfert sans effet sur l inventaire'; break }
+      let mesure = mesurer()
+      for (const fin = Date.now() + MESURE_MS; mesure <= fait && Date.now() < fin;) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        mesure = mesurer()
+      }
+      if (mesure <= fait) { derniere = 'transfert sans effet sur l inventaire ni le conteneur'; break }
       fait = mesure
+      // La pile suivante se lit sur la source : attendre qu elle montre le
+      // transfert, sinon un objet deja deplace repartirait une seconde fois.
+      for (const fin = Date.now() + MESURE_MS; source_() < fait && Date.now() < fin;) await new Promise(resolve => setTimeout(resolve, 100))
     }
     return { fait: Math.max(0, fait), derniere }
   }

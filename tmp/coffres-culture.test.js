@@ -18,8 +18,8 @@ const { createMissionRunner } = require('../bot/mission')
 const culture = require('../bot/culture')
 const skills = require('../bot/skills')
 
-async function jouer ({ blocks = {}, inventory = [], conteneurs = {}, brief, script, features, objectif }) {
-  const sim = createSimServer({ blocks, conteneurs, start: new Vec3(8.5, 200, 15.5), borne: { x0: 0, x1: 30, z0: 0, z1: 30 }, inventory })
+async function jouer ({ blocks = {}, inventory = [], conteneurs = {}, brief, script, features, objectif, inventaireLentMs = 0 }) {
+  const sim = createSimServer({ blocks, conteneurs, inventaireLentMs, start: new Vec3(8.5, 200, 15.5), borne: { x0: 0, x1: 30, z0: 0, z1: 30 }, inventory })
   const log = console.log
   const lignes = []
   console.log = (...a) => { lignes.push(a.join(' ')) }
@@ -162,9 +162,10 @@ test('coffres : lire un coffre jamais ouvert, en retirer ce que la consigne veut
   assert.ok(lignes.some(l => /Objectif atteint/.test(l)), fin(lignes))
 })
 
-test('coffres : ranger tout le stock d une famille (« tes buches ») sans objet nomme, fin mesuree', async () => {
+test('coffres : ranger tout le stock d une famille (« tes buches ») sans objet nomme, inventaire confirme en retard, fin mesuree', async () => {
   const { sim, lignes } = await jouer({
     blocks: { '13,200,15': 'barrel' },
+    inventaireLentMs: 400,
     inventory: [{ name: 'oak_log', count: 3 }, { name: 'birch_log', count: 2 }, { name: 'stick', count: 4 }],
     brief: { type: 'recolte', matiere: 'aucune', depot: [{ objet: 'buches', quantite: null }] },
     script: [{ action: 'deposer', repeter: 2 }, { action: 'terminer' }],
@@ -173,6 +174,7 @@ test('coffres : ranger tout le stock d une famille (« tes buches ») sans objet
   })
   assert.deepEqual(sim.contenu('13,200,15'), [{ name: 'oak_log', count: 3 }, { name: 'birch_log', count: 2 }], fin(lignes))
   assert.deepEqual(sim.inventory(), [{ name: 'stick', count: 4 }])
+  assert.ok(!lignes.some(l => /sans effet/.test(l)), fin(lignes))
   assert.ok(lignes.some(l => /Objectif atteint/.test(l)), fin(lignes))
 })
 

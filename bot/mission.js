@@ -4125,7 +4125,12 @@ function createMissionRunner (host, injected = {}) {
       const r = await host.navigateToPosition(centre, {
         signal: mission.navigationAbort.signal, __owner: stepToken, interaction: true, timeoutMs: 15000, distanceBudget: 40
       })
-      return aPortee() ? { ok: true } : { ok: false, raison: r?.code ?? 'trajet impossible' }
+      if (aPortee() || mission.cancelled) return { ok: aPortee(), raison: r?.code }
+      // Sans chemin a pied (banc 692d157, chest-pickaxe : bot au fond du trou
+      // creuse pour la pierre, « no_path » vingt minutes durant) : le moteur
+      // d acces, qui pose un echafaudage et casse la terre, comme un joueur.
+      const r2 = await atteindre(bloc)
+      return aPortee() ? { ok: true } : { ok: false, raison: r2?.code ?? r?.code ?? 'trajet impossible' }
     },
     signal: () => mission?.navigationAbort?.signal,
     resoudreObjet: texte => {
