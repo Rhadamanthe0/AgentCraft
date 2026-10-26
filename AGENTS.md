@@ -318,8 +318,8 @@ au demarrage au lieu de 75 min de niveaux rouges.
   ce depot (ID `1385815795`), pour les push et lancements manuels seulement ;
   toute relance doit aussi venir de `Rhadamanthe0`. Le job avec les secrets
   est ignore pour les autres acteurs et les forks, et le controle final
-  `minecraft` echoue. Pas de `pull_request_target` pour executer du code de
-  PR avec la cle. La regle suppose les auteurs de workflows de confiance :
+  `banc-complet` (job `minecraft`) echoue. Pas de `pull_request_target` pour
+  executer du code de PR avec la cle. La regle suppose les auteurs de workflows de confiance :
   un collaborateur ayant le droit de les modifier peut demander les secrets.
 - Runner MINIPC-CLEM, tant que le depot est prive : pas de Docker Engine,
   pas de DinD, pas de privilege en
@@ -357,7 +357,8 @@ au demarrage au lieu de 75 min de niveaux rouges.
   `keyCheck` est ok, sur un banc COMPLET de la tete de la PR (voir §5) ; un
   banc partiel ne suffit jamais. L etape finale « Full bench passed on this
   commit » du job `minecraft-bench` n est verte que dans ce cas. Le controle
-  obligatoire reste `minecraft` : job final sans secret, `needs` sur le banc
+  obligatoire GitHub est `banc-complet` (identifiant YAML `minecraft`) :
+  job final sans secret, `needs` sur le banc
   et `if: always()`, qui exige son succes. Un job privilegie ignore doit
   echouer a ce controle, car GitHub accepte un job ignore pour une protection
   de branche (prerequis de fusion sur `main`, 2026-10-01 ; securisation pour
@@ -366,6 +367,10 @@ au demarrage au lieu de 75 min de niveaux rouges.
   (rien sous `bot/`, ni prompt ni comportement : doc, secrets et reglages
   du workflow, outillage) se fusionne directement, sans banc complet : le
   banc n y mesurerait rien de nouveau. Ses tests unitaires restent verts.
+  La protection effective de `main` (ruleset `24300678`, verifie le
+  2026-10-26) exige toutefois `banc-complet` sans derogation, meme pour ces
+  PR : le banc complet reste requis par GitHub ; ni la protection ni le
+  verdict ne sont contournes.
 
 ### Decisions de retrait (ne pas remettre sans A/B favorable)
 
@@ -427,8 +432,8 @@ au demarrage au lieu de 75 min de niveaux rouges.
   les resultats des niveaux (un `exec` de plus de 60 s sur machine saturee
   avait efface tout un banc, run 38089012969).
 - Sur un banc partiel (ligne `Banc:`), l etape finale « Full bench passed on
-  this commit » est rouge par construction (le job `minecraft` aussi) : un
-  seul commentaire de PR l explique, pas un par banc.
+  this commit » et le controle `banc-complet` (job `minecraft`) sont rouges
+  par construction : un seul commentaire de PR l explique, pas un par banc.
 - `tmp/*` est ignore par git sauf `*.js` (et les exceptions de
   `.gitignore`) : un nouveau fichier de donnees dans `tmp/` exige son
   exception. Verifier avant de pousser dans un clone propre
@@ -792,13 +797,15 @@ dans `docs/journal.md` (section « Les pieges »).
 - Declenche par tout push sur `main` ou `claude/**`, ou lancement manuel
   (workflow `.github/workflows/minecraft.yml`) ; banc avec les secrets
   reserve a `Rhadamanthe0`, declencheur initial et relanceur. Aucun evenement
-  de PR. Job `minecraft-bench`, 75 min max ; verdict obligatoire `minecraft`
-  separe, sans secret ni checkout, rouge si le banc n a pas reussi au complet.
+  de PR. Job `minecraft-bench`, 75 min max ; verdict obligatoire
+  `banc-complet` (job `minecraft`) separe, sans secret ni checkout, rouge si
+  le banc n a pas reussi au complet.
 - Tant que le depot est prive : runner self-hosted MINIPC-CLEM (Podman
   rootless), un seul banc a la fois. Une fois public : VM GitHub standard
   `ubuntu-24.04`, Docker, sans reservation MINIPC. La visibilite du depot
   choisit le runner automatiquement, sans publier le depot. Le controle
-  final `minecraft` utilise toujours une petite execution GitHub standard.
+  final `banc-complet` (job `minecraft`) utilise toujours une petite execution
+  GitHub standard.
 - Un nouveau push sur la meme branche (hors `main`) annule le banc en cours
   (`concurrency.cancel-in-progress`, decision du 2026-10-24) : son resultat
   porterait sur un commit perime. `main` n est jamais interrompu ; le
@@ -886,8 +893,12 @@ dans `docs/journal.md` (section « Les pieges »).
 
 ## 6. Tests locaux
 
-Les unitaires CI passent avant Paper et les sondes de modele, avec la borne
-inchangee de 180 s. Un timeout conserve les sorties dans `unit.log`, marque
+Les unitaires CI passent avant Paper et les sondes de modele, avec une borne
+de 180 s, 300 s sur un runner GitHub (`CI_GITHUB_HOSTED=1`, choix du
+proprietaire le 2026-10-25 : la suite y frolait 180 s, main compris).
+Le runner GitHub utilise `--test-concurrency=8`, sans changer la liste des
+tests ni l enveloppe 400 % CPU / 10 Gio ; ailleurs, le parallelisme de Node
+est conserve. Un timeout conserve les sorties dans `unit.log`, marque
 l echec et arrete/supprime seulement `<projet-du-banc>-unit`. Une suite unit/all
 sans resultat unitaire ne peut pas devenir verte (`ci/test_unit_runner.py`).
 

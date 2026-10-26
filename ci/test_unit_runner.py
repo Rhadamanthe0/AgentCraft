@@ -13,7 +13,7 @@ import run as bench
 
 
 class UnitRunner(unittest.TestCase):
-    def test_hosted_parallelism_keeps_every_file_and_the_same_deadline(self):
+    def test_hosted_parallelism_keeps_every_file_and_uses_runner_budget(self):
         for hosted in ('', '0', '1'):
             with self.subTest(hosted=hosted), tempfile.TemporaryDirectory() as root:
                 calls = []
@@ -29,7 +29,7 @@ class UnitRunner(unittest.TestCase):
                 self.assertEqual(args, ('run', '--rm', '--no-deps', '--name', 'mc-ci-fixture-unit',
                                         'harness', 'node', '--test', *extra,
                                         *['tmp/' + item for item in bench.UNIT]))
-                self.assertEqual(options, {'timeout': 180, 'check': False})
+                self.assertEqual(options, {'timeout': 300 if hosted == '1' else 180, 'check': False})
 
     def test_timeout_preserves_output_and_cleans_only_own_container(self):
         with tempfile.TemporaryDirectory() as root:
@@ -41,7 +41,7 @@ class UnitRunner(unittest.TestCase):
             script.write_text("import pathlib,sys,time\npathlib.Path(sys.argv[1]).write_text('live')\nprint('assertions started',flush=True)\nprint('fixture stderr',file=sys.stderr,flush=True)\ntime.sleep(10)\n")
             operations = []
             def compose(*argv, **kwargs):
-                self.assertEqual(kwargs['timeout'], 180)
+                self.assertEqual(kwargs['timeout'], bench.unit_budget_s())
                 self.assertEqual(argv[:6], ('run', '--rm', '--no-deps', '--name', owned.name, 'harness'))
                 extra = ['--test-concurrency=8'] if os.environ.get('CI_GITHUB_HOSTED') == '1' else []
                 self.assertEqual(argv[6:], ('node', '--test', *extra, *['tmp/' + item for item in bench.UNIT]))
@@ -60,9 +60,10 @@ class UnitRunner(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, '', '')
             result = bench.run_unit_regressions(compose, command, 'mc-ci-fixture-unique', output)
             self.assertFalse(result['success'])
-            self.assertIn('180 seconds', result['error'])
+            budget = f'{bench.unit_budget_s()} seconds'
+            self.assertIn(budget, result['error'])
             log = (output / 'unit.log').read_text()
-            for message in ('assertions started', 'fixture stderr', 'container tail', '180 seconds'):
+            for message in ('assertions started', 'fixture stderr', 'container tail', budget):
                 self.assertIn(message, log)
             self.assertEqual([op[1] for op in operations], ['logs', 'stop', 'rm'])
             self.assertFalse(owned.exists())
