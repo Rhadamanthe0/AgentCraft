@@ -6,12 +6,31 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(__file__))
 import run as bench
 
 
 class UnitRunner(unittest.TestCase):
+    def test_hosted_parallelism_keeps_every_file_and_the_same_deadline(self):
+        for hosted in ('', '0', '1'):
+            with self.subTest(hosted=hosted), tempfile.TemporaryDirectory() as root:
+                calls = []
+                def compose(*argv, **kwargs):
+                    calls.append((argv, kwargs))
+                    return subprocess.CompletedProcess(argv, 0, 'all assertions passed', '')
+                with patch.dict(os.environ, {'CI_GITHUB_HOSTED': hosted}):
+                    result = bench.run_unit_regressions(compose, None, 'mc-ci-fixture', Path(root))
+                self.assertTrue(result['success'])
+                self.assertEqual(len(calls), 1)
+                args, options = calls[0]
+                extra = ['--test-concurrency=8'] if hosted == '1' else []
+                self.assertEqual(args, ('run', '--rm', '--no-deps', '--name', 'mc-ci-fixture-unit',
+                                        'harness', 'node', '--test', *extra,
+                                        *['tmp/' + item for item in bench.UNIT]))
+                self.assertEqual(options, {'timeout': 180, 'check': False})
+
     def test_timeout_preserves_output_and_cleans_only_own_container(self):
         with tempfile.TemporaryDirectory() as root:
             output = Path(root)
@@ -24,7 +43,8 @@ class UnitRunner(unittest.TestCase):
             def compose(*argv, **kwargs):
                 self.assertEqual(kwargs['timeout'], 180)
                 self.assertEqual(argv[:6], ('run', '--rm', '--no-deps', '--name', owned.name, 'harness'))
-                self.assertEqual(argv[6:], ('node', '--test', *['tmp/' + item for item in bench.UNIT]))
+                extra = ['--test-concurrency=8'] if os.environ.get('CI_GITHUB_HOSTED') == '1' else []
+                self.assertEqual(argv[6:], ('node', '--test', *extra, *['tmp/' + item for item in bench.UNIT]))
                 return subprocess.run([sys.executable, str(script), str(owned)], capture_output=True, timeout=0.2)
             def command(argv, **kwargs):
                 operations.append(argv)
