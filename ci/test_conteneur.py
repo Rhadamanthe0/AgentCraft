@@ -26,15 +26,23 @@ class ExtraChecks(unittest.TestCase):
                  'also': {'jeunes': (['minecraft:wheat'], 4, (16, 200, 20, 19, 200, 20))}}
         asked = []
 
+        slots = ['{Slot: 0b, id: "minecraft:cobblestone", count: 3}',
+                 '{Slot: 13b, id: "minecraft:stone_pickaxe", count: 1}']
+
         def rcon(cmd):
             asked.append(cmd)
-            return 'b: [{Slot: 0b, id: "minecraft:stone_pickaxe", count: 1}]'
+            if cmd.endswith(' Items'):  # Paper 26.1 abbreviates the whole list
+                return '126, 200, 10 has the following block data: [{Slot: 0b, id: "minecraft:cobblestone", count: 3}, {Slot:...'
+            i = int(cmd.rsplit('[', 1)[1].rstrip(']'))
+            if i < len(slots):
+                return '126, 200, 10 has the following block data: ' + slots[i]
+            return f'Found no elements matching Items[{i}]'
 
         checks, parts = {}, []
         trees.extra_checks(level, 100, rcon, lambda area, block: 3, checks, parts)
         self.assertEqual(checks, {'jeunes': False, 'au_coffre': True})
         self.assertEqual(parts, [(3, 4), (1, 1)])
-        self.assertIn('data get block 126 200 10 Items', asked)
+        self.assertEqual(asked[-3:], [f'data get block 126 200 10 Items[{i}]' for i in range(3)])
 
     def test_stored_follows_the_arena(self):
         level = next(x for x in trees.all_levels_unfiltered() if x['name'] == 'composite/chest-pickaxe~aleatoire')
