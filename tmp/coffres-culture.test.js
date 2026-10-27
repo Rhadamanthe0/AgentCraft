@@ -15,6 +15,7 @@ const { createSimServer, registry, etatDe } = require('./sim-server')
 const craft = require('../bot/craft')
 craft.targetCriteria = craft.targetCriteria ?? (() => ({}))
 const { createMissionRunner } = require('../bot/mission')
+const { createConteneurs } = require('../bot/action-conteneur')
 const culture = require('../bot/culture')
 const skills = require('../bot/skills')
 
@@ -216,4 +217,87 @@ test('coffres : l etat montre le contenu lu et ce qui sert le solveur ; un objet
   assert.ok(etats.length >= 2, fin(lignes))
   assert.deepEqual(sim.contenu('13,200,15'), [{ name: 'cobblestone', count: 3 }, { name: 'stone_pickaxe', count: 1 }], fin(lignes))
   assert.ok(lignes.some(l => /Objectif atteint/.test(l)), fin(lignes))
+})
+function gestesCoffreDirects (sim, compte) {
+  return createConteneurs({
+    getBot: () => sim.bot,
+    atteindre: async () => ({ ok: true }),
+    signal: () => ({ aborted: false }),
+    resoudreObjet: nom => nom,
+    correspond: (objet, nom) => objet === 'buches' ? /_log$/.test(nom) : objet === nom,
+    defaut: () => null,
+    compter: (sens, objet, n) => compte.push([sens, objet, n])
+  })
+}
+
+test('coffres : depot avec confirmation de source apres le delai, sans double transfert et avec reprise', async () => {
+  const sim = createSimServer({
+    blocks: { '13,200,15': 'barrel' },
+    conteneurs: { '13,200,15': [] },
+    inventory: [{ name: 'oak_log', count: 3 }, { name: 'birch_log', count: 2 }],
+    inventaireLentMs: 3400,
+    start: new Vec3(8.5, 200, 15.5), borne: { x0: 0, x1: 30, z0: 0, z1: 30 }
+  })
+  const compte = []
+  const gestes = gestesCoffreDirects(sim, compte)
+  try {
+    const premier = await gestes.deposer({ objet: 'buches', quantite: 5, dans: 'barrel' })
+    assert.match(premier.resultat, /3 buches/)
+    assert.match(premier.resultat, /source non synchronisee/)
+    assert.deepEqual(sim.contenu('13,200,15'), [{ name: 'oak_log', count: 3 }])
+    assert.deepEqual(compte, [['deposer', 'buches', 3]])
+    // Un second ordre immediat ne doit pas rejouer oak_log, encore visible.
+    const bloque = await gestes.deposer({ objet: 'buches', quantite: 2, dans: 'barrel' })
+    assert.equal(bloque.code, 'conteneur_source_non_confirmee')
+    assert.deepEqual(sim.contenu('13,200,15'), [{ name: 'oak_log', count: 3 }])
+    // La source finit par confirmer ; la deuxieme pile peut alors partir.
+    await new Promise(resolve => setTimeout(resolve, 2700))
+    const second = await gestes.deposer({ objet: 'buches', quantite: 2, dans: 'barrel' })
+    assert.match(second.resultat, /2 buches/)
+    assert.deepEqual(sim.contenu('13,200,15'),
+      [{ name: 'oak_log', count: 3 }, { name: 'birch_log', count: 2 }])
+    assert.deepEqual(compte, [['deposer', 'buches', 3], ['deposer', 'buches', 2]])
+  } finally { sim.close() }
+})
+
+test('coffres : retrait avec source jamais confirmee, un geste unique puis reprise apres reouverture', async () => {
+  const sim = createSimServer({
+    blocks: { '13,200,15': 'chest' },
+    conteneurs: { '13,200,15': [{ name: 'oak_log', count: 3 }, { name: 'birch_log', count: 2 }] },
+    start: new Vec3(8.5, 200, 15.5), borne: { x0: 0, x1: 30, z0: 0, z1: 30 }
+  })
+  // La vue du conteneur reste figee pour toute la fenetre ouverte.
+  // Fermer puis rouvrir resynchronise l inventaire (serveur simule).
+  const ouvrir = sim.bot.openContainer.bind(sim.bot)
+  let appels = 0
+  let vueInitiale = null
+  let resynchronise = false
+  sim.bot.openContainer = async bloc => {
+    const fenetre = await ouvrir(bloc)
+    if (!vueInitiale) vueInitiale = fenetre.containerItems().map(i => ({ ...i }))
+    const vue = resynchronise ? fenetre.containerItems() : vueInitiale
+    const retirer = fenetre.withdraw.bind(fenetre)
+    fenetre.containerItems = () => vue.map(i => ({ ...i }))
+    fenetre.withdraw = async (...args) => { appels++; return retirer(...args) }
+    return fenetre
+  }
+  const compte = []
+  const gestes = gestesCoffreDirects(sim, compte)
+  try {
+    const premier = await gestes.retirer({ objet: 'buches', quantite: 5, dans: 'chest' })
+    assert.match(premier.resultat, /3 buches/)
+    assert.match(premier.resultat, /source non synchronisee/)
+    assert.equal(appels, 1, 'aucun second retrait sur une pile encore affichee')
+    assert.deepEqual(sim.contenu('13,200,15'), [{ name: 'birch_log', count: 2 }])
+    assert.deepEqual(compte, [['retirer', 'buches', 3]])
+    const bloque = await gestes.retirer({ objet: 'buches', quantite: 2, dans: 'chest' })
+    assert.equal(bloque.code, 'conteneur_source_non_confirmee')
+    assert.equal(appels, 1, 'la seconde fenetre conserve une vue perimee')
+    resynchronise = true
+    const second = await gestes.retirer({ objet: 'buches', quantite: 2, dans: 'chest' })
+    assert.match(second.resultat, /2 buches/)
+    assert.equal(appels, 2)
+    assert.deepEqual(sim.contenu('13,200,15'), [])
+    assert.deepEqual(compte, [['retirer', 'buches', 3], ['retirer', 'buches', 2]])
+  } finally { sim.close() }
 })
