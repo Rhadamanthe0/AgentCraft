@@ -13,7 +13,7 @@ import run as bench
 
 
 class UnitRunner(unittest.TestCase):
-    def test_hosted_parallelism_keeps_every_file_and_the_same_deadline(self):
+    def test_hosted_parallelism_keeps_every_file_and_uses_runner_budget(self):
         for hosted in ('', '0', '1'):
             with self.subTest(hosted=hosted), tempfile.TemporaryDirectory() as root:
                 calls = []

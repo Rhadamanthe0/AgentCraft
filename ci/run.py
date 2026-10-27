@@ -666,7 +666,7 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
         compose('build', 'harness', *(['minecraft'] if missing else []), timeout=900)
         phase('build', started)
         # Les unitaires precedent le serveur et les sondes de modeles : ils
-        # gardent leur budget de 180 s sans concurrence au demarrage.
+        # gardent leur budget par runner sans concurrence au demarrage.
         nav_results = []
         if args.suite in ('unit', 'all'):
             print('Running focused offline regression tests (before Paper)...', flush=True)

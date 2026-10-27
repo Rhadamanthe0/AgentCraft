@@ -94,6 +94,16 @@ class HostedSetup(unittest.TestCase):
             config = root / 'slice.conf'
             return result, output.read_text(), commands, config.read_text() if config.exists() else None
 
+    def test_final_merge_gate_uses_required_public_check_name(self):
+        # The ruleset requires 'banc-complet', but the YAML job id remains
+        # 'minecraft' so its existing needs and fail-closed verdict survive.
+        workflow = (ROOT / '.github/workflows/minecraft.yml').read_text()
+        self.assertEqual(workflow.count('    name: banc-complet\\n'), 1)
+        gate = workflow.split('\\n  minecraft:\\n', 1)[1]
+        self.assertIn('    needs: minecraft-bench\\n', gate)
+        self.assertIn('    if: always()\\n', gate)
+        self.assertIn('if [ "$BENCH_RESULT" != success ]; then', gate)
+
     def test_never_changes_a_self_hosted_or_local_machine(self):
         for overrides in ({'RUNNER_ENVIRONMENT': 'self-hosted'}, {'GITHUB_ACTIONS': 'false'}):
             with self.subTest(overrides=overrides):
