@@ -170,7 +170,7 @@ et appels) ; `coffres` (eteint, 2026-10-20, idee 5 de la revue du
 2026-10-16 validee par le proprietaire : actions `deposer` et `retirer
 {objet, quantite, dans}`, `bot/action-conteneur.js` ; le conteneur nomme (ou
 famille : `chest` couvre le coffre piege) ou le plus proche a 24 blocs est
-rejoint et ouvert, chaque transfert compte par l inventaire ; `retirer` sans
+rejoint et ouvert, chaque transfert est mesure cote inventaire et conteneur ; une attente bornee et une memoire des transferts non confirmes evitent le double geste ; `retirer` sans
 objet lit le contenu ; le contenu vu est retenu par position et servi dans
 l etat (`conteneurs` : contenu ou « jamais ouvert », `utiles` = ce que le
 solveur ou un retrait demande) ; brief `depot`/`retrait` (cle `|coffres`),
@@ -282,7 +282,15 @@ au demarrage au lieu de 75 min de niveaux rouges.
   pioches prises en plein chantier). `composite/stolen-pickaxe` (four, deux
   imprevus) est retire le 2026-10-22 : passe du premier coup (177 s, jumeau
   198 s), il ne departageait rien ; les imprevus vont la ou le bot est
-  fragile. Pas encore d action retiree (`blocked_actions`). Une ferme a canne a sucre exige `culture` (A/B
+  fragile. Action retiree (proprietaire, 2026-10-25, idee des
+  `blocked_actions` de Mindcraft) : `action_<nom>` par `/api/features` retire
+  n importe quelle action du catalogue du bot (sauf `terminer`, `sortir`,
+  `attendre` ; `skills.actionRetiree`), servie par defaut ; le bot ne cree
+  pas d action, il doit finir avec celles qui restent. Variante
+  `action_retiree(...)` (des le depart) :
+  `composite/big-stone-house~action-retiree` (sans `casser`, l action la plus
+  jouee ; retirer `recolter`, appelee une fois par mission, ne departageait
+  rien au banc cible f02099d). Une ferme a canne a sucre exige `culture` (A/B
   `culture` depuis le 2026-10-20 : planter, recolter mur) et `mecanisme`
   (circuits) : ce n est pas encore un niveau. Coffres et culture (2026-10-20,
   informatifs) : `composite/chest-pickaxe` (pioche en pierre sans pierre en
@@ -318,8 +326,8 @@ au demarrage au lieu de 75 min de niveaux rouges.
   ce depot (ID `1385815795`), pour les push et lancements manuels seulement ;
   toute relance doit aussi venir de `Rhadamanthe0`. Le job avec les secrets
   est ignore pour les autres acteurs et les forks, et le controle final
-  `minecraft` echoue. Pas de `pull_request_target` pour executer du code de
-  PR avec la cle. La regle suppose les auteurs de workflows de confiance :
+  `banc-complet` (job `minecraft`) echoue. Pas de `pull_request_target` pour
+  executer du code de PR avec la cle. La regle suppose les auteurs de workflows de confiance :
   un collaborateur ayant le droit de les modifier peut demander les secrets.
 - Runner MINIPC-CLEM, tant que le depot est prive : pas de Docker Engine,
   pas de DinD, pas de privilege en
@@ -357,15 +365,31 @@ au demarrage au lieu de 75 min de niveaux rouges.
   `keyCheck` est ok, sur un banc COMPLET de la tete de la PR (voir §5) ; un
   banc partiel ne suffit jamais. L etape finale « Full bench passed on this
   commit » du job `minecraft-bench` n est verte que dans ce cas. Le controle
-  obligatoire reste `minecraft` : job final sans secret, `needs` sur le banc
+  obligatoire GitHub est `banc-complet` (identifiant YAML `minecraft`) :
+  job final sans secret, `needs` sur le banc
   et `if: always()`, qui exige son succes. Un job privilegie ignore doit
   echouer a ce controle, car GitHub accepte un job ignore pour une protection
   de branche (prerequis de fusion sur `main`, 2026-10-01 ; securisation pour
   depot public, 2026-10-24).
-  Exception (proprietaire, 2026-10-21) : une PR qui ne modifie pas le bot
-  (rien sous `bot/`, ni prompt ni comportement : doc, secrets et reglages
-  du workflow, outillage) se fusionne directement, sans banc complet : le
-  banc n y mesurerait rien de nouveau. Ses tests unitaires restent verts.
+  Exception de validation adaptee (proprietaire, 2026-10-28) : le check
+  public obligatoire `banc-complet` reste exige par le ruleset `24300678`,
+  mais le workflow classe le diff Git reel, jamais le titre/trailer.
+  `docs` uniquement (README.md, ARCHITECTURE.md, docs/**/*.md, hors
+  AGENTS.md) : controle statique et tests du classificateur. `deps`
+  uniquement (bot/package-lock.json et eventuellement package.json,
+  documentation autorisee) : npm ci sans scripts, 76 fichiers de tests Node
+  de `ci/run.py` et toute la suite Python hors ligne. Mises a jour majeures,
+  dependances Minecraft/Mineflayer, scripts npm, sources de paquets non
+  fiables, changements mixtes/inconnus et CI : banc Minecraft complet.
+  `ci/change_scope.py` refuse tout cas ambigu. La porte finale `minecraft`
+  (nom public `banc-complet`, `if: always()`) exige soit le job
+  `minecraft-bench` complet reussi et le rapide ignore, soit la validation
+  rapide reussie et le banc Minecraft ignore ; jamais deux ignores ni un
+  succes unitaire partiel. La protection GitHub, son integration ID et ses
+  exigences ne sont pas modifies. Ce nom historique designe donc le controle
+  obligatoire du parcours adapte, pas toujours un Minecraft complet.
+  La seule difference de cout est l absence d appels au modele pour les
+  modifications admissibles ; le calcul GitHub et les tests npm restent reels.
 
 ### Decisions de retrait (ne pas remettre sans A/B favorable)
 
@@ -427,8 +451,8 @@ au demarrage au lieu de 75 min de niveaux rouges.
   les resultats des niveaux (un `exec` de plus de 60 s sur machine saturee
   avait efface tout un banc, run 38089012969).
 - Sur un banc partiel (ligne `Banc:`), l etape finale « Full bench passed on
-  this commit » est rouge par construction (le job `minecraft` aussi) : un
-  seul commentaire de PR l explique, pas un par banc.
+  this commit » et le controle `banc-complet` (job `minecraft`) sont rouges
+  par construction : un seul commentaire de PR l explique, pas un par banc.
 - `tmp/*` est ignore par git sauf `*.js` (et les exceptions de
   `.gitignore`) : un nouveau fichier de donnees dans `tmp/` exige son
   exception. Verifier avant de pousser dans un clone propre
@@ -789,16 +813,33 @@ dans `docs/journal.md` (section « Les pieges »).
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
-- Declenche par tout push sur `main` ou `claude/**`, ou lancement manuel
-  (workflow `.github/workflows/minecraft.yml`) ; banc avec les secrets
-  reserve a `Rhadamanthe0`, declencheur initial et relanceur. Aucun evenement
-  de PR. Job `minecraft-bench`, 75 min max ; verdict obligatoire `minecraft`
-  separe, sans secret ni checkout, rouge si le banc n a pas reussi au complet.
+- Synchronisation d inventaire entre niveaux : apres le `clear` RCON de
+  `ci/trees.py`, attendre que `/api/status.inventoryStacks` (nombre de piles
+  vu par Mineflayer, sans noms d objets) atteigne zero avant de lancer un
+  objectif. En cas de retard de plus de 8 s ou de metrique indisponible,
+  echouer avec un diagnostic RCON/client ; ne jamais assimiler le `clear`
+  serveur a une confirmation client. `ci/inventory_barrier.py`, tests dans
+  `ci/test_perturbations.py`. Les refus de pose du pont conservent la cause
+  physique et les coordonnees dans les logs de mission (terrain/moat,
+  run 40671566288 tentative 2).
+
+- Declenche par push sur `main`, `claude/**`, `dependabot/**`
+  et `docs/**`, ou lancement manuel. Le job `classify` compare `main` au
+  HEAD (la paire before/after pour un push de main). Les changements de doc
+  ou de dependances sans impact Minecraft passent par `lightweight` sans
+  modele et sans secret. Le banc `minecraft-bench` avec secrets reste
+  reserve a `Rhadamanthe0`, declencheur initial et relanceur, sur
+  `main` ou `claude/**`. Aucun evenement de PR, jamais de
+  `pull_request_target`. Lancement manuel = toujours parcours complet.
+  Controle final `banc-complet` (job `minecraft`), sans secret ni
+  checkout, toujours execute : refuse une classification absente, un job
+  requis ignore, partiel ou rouge. Le banc normal garde ses 75 min max.
 - Tant que le depot est prive : runner self-hosted MINIPC-CLEM (Podman
   rootless), un seul banc a la fois. Une fois public : VM GitHub standard
   `ubuntu-24.04`, Docker, sans reservation MINIPC. La visibilite du depot
   choisit le runner automatiquement, sans publier le depot. Le controle
-  final `minecraft` utilise toujours une petite execution GitHub standard.
+  final `banc-complet` (job `minecraft`) utilise toujours une petite execution
+  GitHub standard.
 - Un nouveau push sur la meme branche (hors `main`) annule le banc en cours
   (`concurrency.cancel-in-progress`, decision du 2026-10-24) : son resultat
   porterait sur un commit perime. `main` n est jamais interrompu ; le
@@ -822,8 +863,9 @@ dans `docs/journal.md` (section « Les pieges »).
   MINIPC garde `CI_GITHUB_HOSTED=0`, les IP de conteneurs et `/host/ci-cgroup`.
   Tests hors ligne : `ci/test_github_runner.py` (selection Compose, limites,
   refus hors VM GitHub et refus des prerequis ou controles invalides).
-- Ce qui se joue (2026-10-01, demande du proprietaire) : **tout** sur `main` ;
-  sur une branche, ce que demande la ligne finale du message de commit
+- Pour les modifications de code/CI (classification `full`) :
+  **tout** sur `main` ; sur une branche autorisee, ce que demande la ligne
+  finale du message de commit
   (trailer, dans le dernier paragraphe) :
   `Banc: composite/cabin-from-scratch* trees/pillar*` (motifs sur le nom
   complet, variantes comprises ; un composite entraine son jumeau),
@@ -860,7 +902,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 173 niveaux avec variantes, 44 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 174 niveaux avec variantes, 45 joues par defaut (49 avec les scenarios : la limite est atteinte) dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,
@@ -886,8 +928,12 @@ dans `docs/journal.md` (section « Les pieges »).
 
 ## 6. Tests locaux
 
-Les unitaires CI passent avant Paper et les sondes de modele, avec la borne
-inchangee de 180 s. Un timeout conserve les sorties dans `unit.log`, marque
+Les unitaires CI passent avant Paper et les sondes de modele, avec une borne
+de 180 s, 300 s sur un runner GitHub (`CI_GITHUB_HOSTED=1`, choix du
+proprietaire le 2026-10-25 : la suite y frolait 180 s, main compris).
+Le runner GitHub utilise `--test-concurrency=8`, sans changer la liste des
+tests ni l enveloppe 400 % CPU / 10 Gio ; ailleurs, le parallelisme de Node
+est conserve. Un timeout conserve les sorties dans `unit.log`, marque
 l echec et arrete/supprime seulement `<projet-du-banc>-unit`. Une suite unit/all
 sans resultat unitaire ne peut pas devenir verte (`ci/test_unit_runner.py`).
 

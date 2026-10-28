@@ -167,7 +167,8 @@ def run_unit_regressions(compose, command, project, output):
         # this exact suite that exceeds 180 s; eight processes passed all 727
         # tests in 165 s under the unchanged 400% CPU / 10 GiB envelope.
         # Keep local and private MINIPC scheduling unchanged.
-        # Owner's choice (2026-10-25): 300 s on GitHub, 180 s elsewhere.
+        # Owner's choice (2026-10-25): still at the 180 s edge on GitHub
+        # (two timeouts on #99, main too), so 300 s there; 180 s elsewhere.
         node = ['node', '--test']
         if os.environ.get('CI_GITHUB_HOSTED') == '1':
             node.append('--test-concurrency=8')
@@ -226,7 +227,7 @@ UNIT = ['attendre-chunks.test.js', 'navigation.test.js', 'navigation-drop.test.j
         'place-direct.test.js', 'craft-table-reuse.test.js',
         # Ajoutes le 2026-09-27 (revue : 1 a 11 s chacun, regressions a bas cout).
         'craft.test.js', 'mission-craft.test.js', 'mission-context.test.js', 'mission-duration.test.js',
-        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'navigation-place.test.js', 'sous-buts.test.js', 'skill-sim.test.js', 'construire-trou.test.js', 'reparer.test.js', 'arret-motive.test.js', 'arbre-chantier.test.js', 'poser.test.js', 'coffres-culture.test.js', 'porte-chantier.test.js', 'minerai-faisable.test.js', 'trouver-blocs.test.js', 'casse.test.js', 'paroi.test.js', 'correctifs-jeu.test.js', 'mort.test.js', 'but-bloc.test.js', 'objet-vers.test.js', 'utiliser.test.js', 'buts-ouverts.test.js', 'arbitrage-options.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
+        'mission-delivery.test.js', 'piler-materials.test.js', 'outcomes.test.js', 'perception.test.js', 'mission-state.test.js', 'trace.test.js', 'script-brain.test.js', 'navigation-dig.test.js', 'navigation-place.test.js', 'sous-buts.test.js', 'skill-sim.test.js', 'construire-trou.test.js', 'reparer.test.js', 'arret-motive.test.js', 'action-retiree.test.js', 'arbre-chantier.test.js', 'poser.test.js', 'coffres-culture.test.js', 'porte-chantier.test.js', 'minerai-faisable.test.js', 'trouver-blocs.test.js', 'casse.test.js', 'paroi.test.js', 'correctifs-jeu.test.js', 'mort.test.js', 'but-bloc.test.js', 'objet-vers.test.js', 'utiliser.test.js', 'buts-ouverts.test.js', 'arbitrage-options.test.js', 'tree-pillar-support.test.js', 'tree-position.test.js',
         'delivery.test.js', 'planner-profile.test.js', 'planner-relaunch.test.js', 'planner-outage.test.js','llm.test.js', 'executor.test.js', 'objective-controller.test.js',
         'state-store.test.js', 'activity.test.js', 'recipe-plan.test.js', 'recolter.test.js', 'smelt.test.js', 'explorer.test.js', 'reflexes.test.js', 'door-guard.test.js', 'ouvrir-porte.test.js', 'enclosure.test.js',
         'physical-exclusive.test.js', 'execution-envelope.test.js', 'objective-failed.test.js',
