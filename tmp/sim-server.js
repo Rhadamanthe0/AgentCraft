@@ -68,7 +68,7 @@ function calculerEtat (brut) {
 // les cases non listees (defaut : herbe en 199, pierre dessous, air dessus) ;
 // borne : { x0, x1, z0, z1 } au-dela de laquelle tout est barriere.
 function createSimServer ({ blocks = {}, sol = null, borne = null, start = new Vec3(0.5, 200, 0.5),
-  inventory = [], tickMs = 50, herbeMs = Number(process.env.SIM_HERBE_MS ?? 0), conteneurs = {} } = {}) {
+  inventory = [], tickMs = 50, herbeMs = Number(process.env.SIM_HERBE_MS ?? 0), conteneurs = {}, inventaireLentMs = 0 } = {}) {
   // Contenu des conteneurs : 'x,y,z' -> [{ name, count }].
   const contenus = new Map(Object.entries(conteneurs).map(([k, v]) => [k, v.map(i => ({ ...i }))]))
   const cells = new Map(blocks instanceof Map ? blocks : Object.entries(blocks))
@@ -250,8 +250,14 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
           const name = registry.items[type]?.name
           const possede = stock.filter(i => i.name === name).reduce((n, i) => n + i.count, 0)
           if (possede < count) throw new Error(`Can't find ${name} in slots`)
-          let reste = count
-          for (const i of stock) if (i.name === name && reste > 0) { const n = Math.min(i.count, reste); i.count -= n; reste -= n }
+          // `inventaireLentMs` : le serveur confirme l inventaire apres coup,
+          // le conteneur montre l objet tout de suite (banc 692d157).
+          const retirer = () => {
+            let reste = count
+            for (const i of stock) if (i.name === name && reste > 0) { const n = Math.min(i.count, reste); i.count -= n; reste -= n }
+          }
+          if (inventaireLentMs > 0) setTimeout(retirer, inventaireLentMs).unref?.()
+          else retirer()
           const pile = dedans.find(i => i.name === name)
           if (pile) pile.count += count
           else dedans.push({ name, count })

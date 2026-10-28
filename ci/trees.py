@@ -1287,6 +1287,23 @@ def container_items(answer):
     return out
 
 
+def stored_items(rcon, x, y, z):
+    """Items of the container at (x, y, z), one slot per command: Paper 26.1
+    abbreviates a long answer (« [{Slot: 0b, id: "minecraft:cobblestone",
+    count: 3}, {Slot:... », reproduced locally on 26.1.2-74), so reading the
+    whole list saw the first slot only (banc 5bc74a5, chest-pickaxe : pioche
+    bien deposee, comptee absente). A double chest has 54 slots."""
+    out = {}
+    for i in range(54):
+        answer = rcon(f'data get block {x} {y} {z} Items[{i}]') or ''
+        start = answer.find('{')
+        if 'has the following block data' not in answer or start < 0:
+            break
+        for name, n in container_items('[' + answer[start:] + ']').items():
+            out[name] = out.get(name, 0) + n
+    return out
+
+
 def extra_checks(level, x0, rcon, count, checks, parts):
     """Checks shared by the gather and build scripts: `also`, extra blocks
     counted in the arena or in a zone (x0, y0, z0, x1, y1, z1, relative), and
@@ -1301,7 +1318,7 @@ def extra_checks(level, x0, rcon, count, checks, parts):
         checks[check] = got >= minimum
         parts.append((got, minimum))
     for check, ((x, y, z), items, minimum) in level.get('stored', {}).items():
-        held = container_items(rcon(f'data get block {x0 + x} {y} {z} Items'))
+        held = stored_items(rcon, x0 + x, y, z)
         got = sum(n for name, n in held.items() if name in items)
         checks[check] = got >= minimum
         parts.append((got, minimum))

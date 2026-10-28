@@ -22,6 +22,7 @@ function withTimeout (promise, ms, label) {
 const RAYON = 24
 const OUVERTURE_MS = 4000
 const TRANSFERT_MS = 4000
+const MESURE_MS = 1500
 const MEMOIRE_MAX = 32
 const CONTENEUR = /^(chest|trapped_chest|barrel|([a-z_]+_)?shulker_box)$/
 
@@ -57,6 +58,10 @@ function texteContenu (contenu) {
 function createConteneurs (deps) {
   // Contenu vu par position, le plus recent en dernier.
   const memoire = new Map()
+  // Un transfert confirme d un cote mais non par la source ne doit pas etre
+  // rejoue par le prochain appel avant resynchronisation.
+  let depotEnAttente = null
+  const retraitsEnAttente = new Map()
   function retenir (bloc, contenu) {
     memoire.delete(cle(bloc.position))
     memoire.set(cle(bloc.position), { nom: bloc.name, position: bloc.position.clone(), contenu, vuA: Date.now() })
@@ -115,13 +120,22 @@ function createConteneurs (deps) {
   }
 
   const stock = (bot, objet) => (bot.inventory?.items() ?? []).filter(i => deps.correspond(objet, i.name)).reduce((n, i) => n + i.count, 0)
+  const dedans = (fenetre, objet) => (fenetre.containerItems?.() ?? []).filter(i => deps.correspond(objet, i.name)).reduce((n, i) => n + i.count, 0)
 
   // Deplace jusqu a `voulu` objets entre la fenetre et l inventaire, une pile
-  // a la fois ; l inventaire fait foi apres chaque transfert.
+  // a la fois. Le serveur confirme les cases apres coup : chaque transfert se
+  // mesure sur l inventaire ET le conteneur, attendus jusqu a MESURE_MS (banc
+  // 692d157, chest-pickaxe~aleatoire : pioche bien rangee, lue « sans effet »
+  // aussitot, jamais comptee, la mission a tourne jusqu au plafond).
   async function transferer (bot, fenetre, sens, objet, voulu) {
     let fait = 0
     let derniere = null
     const avant = stock(bot, objet)
+    const avantDedans = dedans(fenetre, objet)
+    const mesurer = () => Math.max(
+      sens === 'deposer' ? avant - stock(bot, objet) : stock(bot, objet) - avant,
+      sens === 'deposer' ? dedans(fenetre, objet) - avantDedans : avantDedans - dedans(fenetre, objet))
+    const source_ = () => sens === 'deposer' ? avant - stock(bot, objet) : avantDedans - dedans(fenetre, objet)
     for (let essai = 0; essai < 27 && fait < voulu; essai++) {
       if (deps.signal?.()?.aborted) { derniere = 'interrompu'; break }
       const source = sens === 'deposer' ? (bot.inventory?.items() ?? []) : (fenetre.containerItems?.() ?? [])
@@ -134,9 +148,22 @@ function createConteneurs (deps) {
         derniere = err.message
         break
       }
-      const mesure = sens === 'deposer' ? avant - stock(bot, objet) : stock(bot, objet) - avant
-      if (mesure <= fait) { derniere = 'transfert sans effet sur l inventaire'; break }
+      let mesure = mesurer()
+      for (const fin = Date.now() + MESURE_MS; mesure <= fait && Date.now() < fin;) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        mesure = mesurer()
+      }
+      if (mesure <= fait) { derniere = 'transfert sans effet sur l inventaire ni le conteneur'; break }
       fait = mesure
+      // La pile suivante se lit sur la source : attendre qu elle montre le
+      // transfert, sinon un objet deja deplace repartirait une seconde fois.
+      for (const fin = Date.now() + MESURE_MS; source_() < fait && Date.now() < fin;) await new Promise(resolve => setTimeout(resolve, 100))
+      // Une source encore perimee risque de rejouer le meme geste au tour
+      // suivant, alors que la destination l a deja confirme.
+      if (source_() < fait) {
+        derniere = 'source non synchronisee : arret pour eviter un transfert en double'
+        break
+      }
     }
     return { fait: Math.max(0, fait), derniere }
   }
@@ -144,6 +171,12 @@ function createConteneurs (deps) {
   async function geste (sens, params = {}) {
     const bot = deps.getBot()
     if (!bot?.entity) return { resultat: 'bot absent', echec: true, code: 'unavailable' }
+    if (sens === 'deposer' && depotEnAttente) {
+      if (stock(bot, depotEnAttente.objet) > depotEnAttente.maximum) {
+        return { resultat: 'deposer : source non synchronisee, attendre sa confirmation avant un nouveau depot', echec: true, code: 'conteneur_source_non_confirmee' }
+      }
+      depotEnAttente = null
+    }
     const defaut = deps.defaut?.(sens) ?? null
     // Retrait sans objet : lire le contenu (le modele decide quoi prendre) ;
     // depot sans objet : celui que la consigne attend encore.
@@ -159,6 +192,14 @@ function createConteneurs (deps) {
     const o = await ouvrir(bot, bloc)
     if (o.erreur) return { resultat: o.erreur, echec: true, code: o.code }
     const { fenetre } = o
+    const attenteRetrait = retraitsEnAttente.get(cle(bloc.position))
+    if (sens === 'retirer' && objet && attenteRetrait) {
+      if (dedans(fenetre, attenteRetrait.objet) > attenteRetrait.maximum) {
+        try { fenetre.close() } catch (_) { /* deja fermee */ }
+        return { resultat: 'retirer : source non synchronisee, attendre sa confirmation avant un nouveau retrait', echec: true, code: 'conteneur_source_non_confirmee' }
+      }
+      retraitsEnAttente.delete(cle(bloc.position))
+    }
     let r = { fait: 0, derniere: null }
     const ou = `${bloc.name} en ${bloc.position.x} ${bloc.position.y} ${bloc.position.z}`
     try {
@@ -171,7 +212,14 @@ function createConteneurs (deps) {
         // sinon tout ce qui est disponible.
         const attendu = defaut && (defaut.objet === objet || deps.correspond(defaut.objet, objet)) ? defaut.quantite : null
         const voulu = Math.min(dispo, dite ?? attendu ?? dispo)
-        if (voulu > 0) r = await transferer(o.bot, fenetre, sens, objet, voulu)
+        if (voulu > 0) {
+          r = await transferer(o.bot, fenetre, sens, objet, voulu)
+          if (r.derniere?.startsWith('source non synchronisee')) {
+            const attente = { objet, maximum: Math.max(0, dispo - r.fait) }
+            if (sens === 'deposer') depotEnAttente = attente
+            else retraitsEnAttente.set(cle(bloc.position), attente)
+          }
+        }
         else r.derniere = sens === 'retirer' ? `aucun ${objet} dans ce conteneur` : null
       }
       retenir(bloc, contenuDe(fenetre))
@@ -190,7 +238,7 @@ function createConteneurs (deps) {
     deposer: params => geste('deposer', params),
     retirer: params => geste('retirer', params),
     enVue,
-    oublier: () => memoire.clear()
+    oublier: () => { memoire.clear(); depotEnAttente = null; retraitsEnAttente.clear() }
   }
 }
 

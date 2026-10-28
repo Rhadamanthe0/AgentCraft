@@ -170,7 +170,7 @@ et appels) ; `coffres` (eteint, 2026-10-20, idee 5 de la revue du
 2026-10-16 validee par le proprietaire : actions `deposer` et `retirer
 {objet, quantite, dans}`, `bot/action-conteneur.js` ; le conteneur nomme (ou
 famille : `chest` couvre le coffre piege) ou le plus proche a 24 blocs est
-rejoint et ouvert, chaque transfert compte par l inventaire ; `retirer` sans
+rejoint et ouvert, chaque transfert est mesure cote inventaire et conteneur ; une attente bornee et une memoire des transferts non confirmes evitent le double geste ; `retirer` sans
 objet lit le contenu ; le contenu vu est retenu par position et servi dans
 l etat (`conteneurs` : contenu ou « jamais ouvert », `utiles` = ce que le
 solveur ou un retrait demande) ; brief `depot`/`retrait` (cle `|coffres`),
