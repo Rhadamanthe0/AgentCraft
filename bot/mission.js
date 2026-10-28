@@ -1356,7 +1356,10 @@ function createMissionRunner (host, injected = {}) {
     const dir = Math.abs(ddx) >= Math.abs(ddz) ? new Vec3(Math.sign(ddx), 0, 0) : new Vec3(0, 0, Math.sign(ddz))
     if (dir.x === 0 && dir.z === 0) return null
     const trou = b => !b || b.boundingBox === 'empty' || /water|lava/.test(b.name)
-    if (!gapToward(target)) return null
+    if (!gapToward(target)) {
+      console.log('[mission] pont : plus de vide ni de liquide sur le cap vers la cible')
+      return null
+    }
     let poses = 0
     let pas = 0
     for (let i = 0; i < 24 && !mission.cancelled; i += 1) {
@@ -1364,28 +1367,47 @@ function createMissionRunner (host, injected = {}) {
       const here = live.entity.position.floored()
       const next = here.plus(dir)
       const sol = live.blockAt(next.offset(0, -1, 0))
-      if (!trou(live.blockAt(next)) || !trou(live.blockAt(next.offset(0, 1, 0)))) break
+      if (!trou(live.blockAt(next)) || !trou(live.blockAt(next.offset(0, 1, 0)))) {
+        console.log(`[mission] pont : corps non libre en ${next.x} ${next.y} ${next.z}, arret sans pose`)
+        break
+      }
       if (trou(sol)) {
-        if (poses > 0 && Math.hypot(next.x + 0.5 - target.x, next.z + 0.5 - target.z) < 1) break
+        if (poses > 0 && Math.hypot(next.x + 0.5 - target.x, next.z + 0.5 - target.z) < 1) {
+          console.log('[mission] pont : arret a proximite de la cible apres pose')
+          break
+        }
         const stock = scaffoldingStock(live).materiaux[0]
         const owned = stock && live.inventory.items().find(item => item.name === stock.nom)
-        if (!owned) break
+        if (!owned) {
+          console.log(`[mission] pont : aucun materiau valide dans l inventaire client au bord ${here.x} ${here.y} ${here.z}`)
+          break
+        }
         try {
           if (!live.heldItem || live.heldItem.name !== owned.name) await withTimeout(live.equip(owned, 'hand'), 4000, 'equipement trop long')
           const appui = live.blockAt(here.offset(0, -1, 0))
           await withTimeout(live.lookAt(next.offset(0.5, -0.5, 0.5), true), 3000, 'visee trop longue')
           await withTimeout(live.placeBlock(appui, dir), 5000, 'pose trop longue')
-        } catch (_) {}
+        } catch (err) {
+          // Conserver le refus physique exact, plutot que 'rien pose'.
+          const appui = live.blockAt(here.offset(0, -1, 0))
+          console.log(`[mission] pont : pose vers ${next.x} ${next.y - 1} ${next.z} depuis ${here.x} ${here.y} ${here.z}, appui ${appui?.name ?? 'inconnu'} refusee : ${err.message}`)
+        }
         const posee = live.blockAt(next.offset(0, -1, 0))
-        if (trou(posee)) break
+        if (trou(posee)) {
+          console.log(`[mission] pont : case ${next.x} ${next.y - 1} ${next.z} non confirmee ; stock client ${scaffoldingStock(live).total}`)
+          break
+        }
         poses += 1
       } else if (poses > 0) {
         // Terre ferme de l autre cote : le trajet normal reprend.
         break
       }
-      await host.navigateToPosition(next.offset(0.5, 0, 0.5), { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.4, distanceBudget: 3 })
+      const marche = await host.navigateToPosition(next.offset(0.5, 0, 0.5), { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.4, distanceBudget: 3 })
       const now = host.getBot().entity.position.floored()
-      if (now.x !== next.x || now.z !== next.z) break
+      if (now.x !== next.x || now.z !== next.z) {
+        console.log(`[mission] pont : deplacement vers ${next.x} ${next.y} ${next.z} non atteint (${marche?.code ?? 'inconnu'}), bot ${now.x} ${now.y} ${now.z}`)
+        break
+      }
       pas += 1
     }
     return poses > 0 ? `${poses} bloc(s) poses, ${pas} pas` : null
@@ -1397,7 +1419,10 @@ function createMissionRunner (host, injected = {}) {
   async function bridgeRounds (goal, owner, { liquidOnly = false } = {}) {
     for (let tour = 0; tour < 4 && gapToward(goal, { liquidOnly }) && !mission?.cancelled; tour += 1) {
       const tete = host.getBot().entity.position.clone()
-      if (scaffoldingStock(host.getBot()).total < 3) {
+      const stockDebut = scaffoldingStock(host.getBot())
+      console.log(`[mission] pont : tour ${tour + 1}, tete ${tete.x.toFixed(1)} ${tete.y.toFixed(1)} ${tete.z.toFixed(1)}, ` +
+        `stock client ${stockDebut.total} (${stockDebut.materiaux.map(m => `${m.quantite} ${m.nom}`).join(', ') || 'vide'})`)
+      if (stockDebut.total < 3) {
         // Terre prise derriere soi seulement : un trou au bord de l eau se
         // remplirait et agrandirait la riviere.
         const vx = goal.x - tete.x
@@ -1408,7 +1433,10 @@ function createMissionRunner (host, injected = {}) {
         await host.navigateToPosition(tete, { signal: mission.navigationAbort.signal, __owner: owner, radius: 0.5, distanceBudget: 12 })
         console.log(`[mission] pont : ${pris} bloc(s) de terre creuses, stock ${scaffoldingStock(host.getBot()).total}`)
       }
-      if (scaffoldingStock(host.getBot()).total < 1) break
+      if (scaffoldingStock(host.getBot()).total < 1) {
+        console.log('[mission] pont : toujours aucun materiau apres la tentative de collecte')
+        break
+      }
       const bridged = await bridgeToward(goal, owner)
       console.log(`[mission] pont : ${bridged ?? 'rien pose'}`)
       if (!bridged) break

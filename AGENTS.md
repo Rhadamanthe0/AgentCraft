@@ -802,6 +802,16 @@ dans `docs/journal.md` (section « Les pieges »).
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
+- Synchronisation d inventaire entre niveaux : apres le `clear` RCON de
+  `ci/trees.py`, attendre que `/api/status.inventoryStacks` (nombre de piles
+  vu par Mineflayer, sans noms d objets) atteigne zero avant de lancer un
+  objectif. En cas de retard de plus de 8 s ou de metrique indisponible,
+  echouer avec un diagnostic RCON/client ; ne jamais assimiler le `clear`
+  serveur a une confirmation client. `ci/inventory_barrier.py`, tests dans
+  `ci/test_perturbations.py`. Les refus de pose du pont conservent la cause
+  physique et les coordonnees dans les logs de mission (terrain/moat,
+  run 40671566288 tentative 2).
+
 - Declenche par tout push sur `main` ou `claude/**`, ou lancement manuel
   (workflow `.github/workflows/minecraft.yml`) ; banc avec les secrets
   reserve a `Rhadamanthe0`, declencheur initial et relanceur. Aucun evenement

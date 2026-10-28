@@ -170,6 +170,9 @@ function createApi (rt, deps) {
       // de deviner pourquoi un chantier n avance pas.
       supply: missionRunner.SUPPLY,
       inventory: rt.bot?.inventory ? craft.snapshot(rt.bot) : null,
+      // Diagnostic de synchro apres clear RCON (banc) : un nombre de piles,
+      // jamais leur contenu complet dans l API publique.
+      inventoryStacks: rt.bot?.inventory?.items?.()?.length ?? null,
       heldItem: rt.bot?.heldItem?.name ?? null
     }
   }
