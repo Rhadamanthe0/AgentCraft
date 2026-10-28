@@ -100,9 +100,27 @@ class HostedSetup(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/minecraft.yml').read_text()
         self.assertEqual(workflow.count('    name: banc-complet\n'), 1)
         gate = workflow.split('\n  minecraft:\n', 1)[1]
-        self.assertIn('    needs: minecraft-bench\n', gate)
+        self.assertIn('    needs: [classify, minecraft-bench, lightweight]\n', gate)
         self.assertIn('    if: always()\n', gate)
-        self.assertIn('if [ "$BENCH_RESULT" != success ]; then', gate)
+        self.assertIn('if [ "$CLASS_RESULT" != success ]; then', gate)
+        self.assertIn('if [ "$QUICK_RESULT" != success ] || [ "$BENCH_RESULT" != skipped ]; then', gate)
+        self.assertIn('if [ "$MODE" != full ] || [ "$BENCH_RESULT" != success ] || [ "$QUICK_RESULT" != skipped ]; then', gate)
+
+    def test_fast_validation_preserves_owner_only_model_and_no_pr_event(self):
+        workflow = (ROOT / '.github/workflows/minecraft.yml').read_text()
+        self.assertNotIn('  pull_request:', workflow)
+        self.assertIn("github.actor_id == '37266002'", workflow)
+        self.assertIn("github.triggering_actor == 'Rhadamanthe0'", workflow)
+        self.assertIn("needs.classify.outputs.mode == 'full'", workflow)
+        self.assertIn('    needs: classify\n', workflow)
+        lightweight = workflow.split('\n  lightweight:\n', 1)[1].split('\n  minecraft-bench:\n', 1)[0]
+        self.assertNotIn('secrets.', lightweight)
+        self.assertIn('npm ci --prefix bot --ignore-scripts', lightweight)
+        self.assertIn('python3 -m unittest ci/test_change_scope.py', lightweight)
+        self.assertIn('git show refs/remotes/origin/main:ci/change_scope.py', workflow,
+                      'la branche ne doit pas pouvoir falsifier son propre classificateur')
+        self.assertIn("echo 'mode=full' >> \"$GITHUB_OUTPUT\"", workflow,
+                      'premiere installation : controle complet impose')
 
     def test_never_changes_a_self_hosted_or_local_machine(self):
         for overrides in ({'RUNNER_ENVIRONMENT': 'self-hosted'}, {'GITHUB_ACTIONS': 'false'}):

@@ -2,7 +2,9 @@ name: Minecraft bench
 
 on:
   push:
-    branches: [main, 'claude/**']
+    # No PR event executes a secret-bearing job. Dependabot and docs branches
+    # run only the small, unprivileged checks when the Git diff permits it.
+    branches: [main, 'claude/**', 'dependabot/**', 'docs/**']
   workflow_dispatch:
     inputs:
       pool_mode:
@@ -38,11 +40,89 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Git-diff based classifier, fail closed. Git history includes main so a
+  # branch's LAST commit alone cannot launder earlier code changes as docs.
+  classify:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 8
+    outputs:
+      mode: ${{ steps.detect.outputs.mode }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Determine required validation from the full Git diff
+        id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            echo 'mode=full' >> "$GITHUB_OUTPUT"
+          elif [ "$REF" = refs/heads/main ]; then
+            python3 ci/change_scope.py --base "$BEFORE" --head "$GITHUB_SHA" --output "$GITHUB_OUTPUT"
+          else
+            base=$(git merge-base HEAD refs/remotes/origin/main)
+            # A branch cannot approve its own reduced validation by rewriting
+            # this classifier. Use the protected main version if available.
+            if git cat-file -e refs/remotes/origin/main:ci/change_scope.py 2>/dev/null; then
+              git show refs/remotes/origin/main:ci/change_scope.py > "$RUNNER_TEMP/trusted_change_scope.py"
+              python3 "$RUNNER_TEMP/trusted_change_scope.py" --base "$base" --head "$GITHUB_SHA" --output "$GITHUB_OUTPUT"
+            else
+              # First rollout of this policy: never skip the full bench.
+              echo 'mode=full' >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+  # No secrets, model gateway, Paper or Docker. Even Dependabot runs this
+  # job with read-only checkout and no lifecycle scripts in npm ci.
+  lightweight:
+    needs: classify
+    if: >-
+      needs.classify.result == 'success' &&
+      (needs.classify.outputs.mode == 'docs' || needs.classify.outputs.mode == 'deps')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify deny-by-default classifier
+        run: python3 -m unittest ci/test_change_scope.py
+      - name: Install the locked dependencies without package scripts
+        if: needs.classify.outputs.mode == 'deps'
+        run: npm ci --prefix bot --ignore-scripts --no-audit --no-fund
+      - name: All Python offline regressions
+        if: needs.classify.outputs.mode == 'deps'
+        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py ci/test_keyprobe.py ci/test_promotion.py ci/test_ab.py ci/test_ouvert.py ci/test_rejeu.py ci/test_plafond.py ci/test_perturbations.py ci/test_unit_runner.py ci/test_conteneur.py ci/test_github_runner.py ci/test_change_scope.py
+      - name: Complete Node unit suite (same UNIT manifest as Minecraft)
+        if: needs.classify.outputs.mode == 'deps'
+        env:
+          NODE_PATH: ${{ github.workspace }}/bot/node_modules
+        run: |
+          mapfile -t tests < <(python3 -c 'import sys; sys.path.insert(0, "ci"); from run import UNIT; [print("tmp/" + t) for t in UNIT]')
+          if [ "${#tests[@]}" -lt 76 ]; then
+            echo 'Complete unit manifest missing or shortened: no reduced validation' >&2
+            exit 1
+          fi
+          timeout --signal=TERM --kill-after=10s 300s node --test --test-concurrency=8 "${tests[@]}"
   minecraft-bench:
+    needs: classify
     # Only the owner may launch/re-run the secret-bearing job in this exact
     # repository. No PR event, no fork. Workflow authors must remain trusted:
     # write access could otherwise introduce another workflow reading secrets.
     if: >-
+      needs.classify.result == 'success' &&
+      needs.classify.outputs.mode == 'full' &&
+      (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/claude/')) &&
       github.repository_id == '1385815795' &&
       github.actor_id == '37266002' &&
       github.triggering_actor == 'Rhadamanthe0' &&
@@ -71,7 +151,7 @@ jobs:
         if: github.event.repository.private == false
         run: bash ci/setup-github-runner.sh
       - name: Pool and admission controller on simulated metrics
-        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py ci/test_keyprobe.py ci/test_promotion.py ci/test_ab.py ci/test_ouvert.py ci/test_rejeu.py ci/test_plafond.py ci/test_perturbations.py ci/test_unit_runner.py ci/test_conteneur.py ci/test_github_runner.py
+        run: python3 -m unittest ci/test_capacity.py ci/test_pool.py ci/test_selection.py ci/test_keyprobe.py ci/test_promotion.py ci/test_ab.py ci/test_ouvert.py ci/test_rejeu.py ci/test_plafond.py ci/test_perturbations.py ci/test_unit_runner.py ci/test_conteneur.py ci/test_github_runner.py ci/test_change_scope.py
       # Main always plays everything. Branches use the final Banc: trailer;
       # manual runs use levels. Values are validated before being passed on.
       - name: Choose the levels for this commit
@@ -165,23 +245,38 @@ jobs:
           fi
           echo "Banc complet reussi : fusion permise."
 
-  # A skipped job is accepted by required checks. This unconditional gate has
-  # no secrets and no checkout. Its job id stays minecraft; the check name
-  # must match the active main ruleset 24300678 (verified 2026-10-25).
+  # A skipped job is accepted by GitHub required checks, so this final gate
+  # always runs. It never treats a missing full AND missing lightweight run
+  # as validated. The public context remains ruleset 24300678's banc-complet.
   minecraft:
     name: banc-complet
-    needs: minecraft-bench
+    needs: [classify, minecraft-bench, lightweight]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}
     timeout-minutes: 5
     steps:
-      - name: Require a successful complete bench
+      - name: Require the correct completed validation for this Git diff
         env:
+          CLASS_RESULT: ${{ needs.classify.result }}
+          MODE: ${{ needs.classify.outputs.mode }}
           BENCH_RESULT: ${{ needs.minecraft-bench.result }}
+          QUICK_RESULT: ${{ needs.lightweight.result }}
         run: |
-          if [ "$BENCH_RESULT" != success ]; then
-            echo "Banc absent, ignore, annule, partiel ou en echec ($BENCH_RESULT) : fusion refusee." >&2
+          if [ "$CLASS_RESULT" != success ]; then
+            echo "Scope check missing or failed ($CLASS_RESULT): merge denied." >&2
             exit 1
           fi
-          echo "Banc complet reussi sur ce commit : fusion permise."
+          if [ "$MODE" = docs ] || [ "$MODE" = deps ]; then
+            if [ "$QUICK_RESULT" != success ] || [ "$BENCH_RESULT" != skipped ]; then
+              echo "Incomplete lightweight validation ($MODE, quick=$QUICK_RESULT, bench=$BENCH_RESULT): merge denied." >&2
+              exit 1
+            fi
+            echo "Verified $MODE-only change on exact commit: no model/Minecraft run required."
+            exit 0
+          fi
+          if [ "$MODE" != full ] || [ "$BENCH_RESULT" != success ] || [ "$QUICK_RESULT" != skipped ]; then
+            echo "Full Minecraft validation missing, skipped, partial or failed (mode=$MODE, bench=$BENCH_RESULT, quick=$QUICK_RESULT): merge denied." >&2
+            exit 1
+          fi
+          echo 'Full Minecraft bench succeeded on this commit: merge permitted.'
