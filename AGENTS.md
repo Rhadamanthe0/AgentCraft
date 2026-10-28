@@ -282,7 +282,15 @@ au demarrage au lieu de 75 min de niveaux rouges.
   pioches prises en plein chantier). `composite/stolen-pickaxe` (four, deux
   imprevus) est retire le 2026-10-22 : passe du premier coup (177 s, jumeau
   198 s), il ne departageait rien ; les imprevus vont la ou le bot est
-  fragile. Pas encore d action retiree (`blocked_actions`). Une ferme a canne a sucre exige `culture` (A/B
+  fragile. Action retiree (proprietaire, 2026-10-25, idee des
+  `blocked_actions` de Mindcraft) : `action_<nom>` par `/api/features` retire
+  n importe quelle action du catalogue du bot (sauf `terminer`, `sortir`,
+  `attendre` ; `skills.actionRetiree`), servie par defaut ; le bot ne cree
+  pas d action, il doit finir avec celles qui restent. Variante
+  `action_retiree(...)` (des le depart) :
+  `composite/big-stone-house~action-retiree` (sans `casser`, l action la plus
+  jouee ; retirer `recolter`, appelee une fois par mission, ne departageait
+  rien au banc cible f02099d). Une ferme a canne a sucre exige `culture` (A/B
   `culture` depuis le 2026-10-20 : planter, recolter mur) et `mecanisme`
   (circuits) : ce n est pas encore un niveau. Coffres et culture (2026-10-20,
   informatifs) : `composite/chest-pickaxe` (pioche en pierre sans pierre en
@@ -794,6 +802,16 @@ dans `docs/journal.md` (section « Les pieges »).
 
 ## 5. Banc CI (`ci/`, docs/remote-minecraft-tests.md)
 
+- Synchronisation d inventaire entre niveaux : apres le `clear` RCON de
+  `ci/trees.py`, attendre que `/api/status.inventoryStacks` (nombre de piles
+  vu par Mineflayer, sans noms d objets) atteigne zero avant de lancer un
+  objectif. En cas de retard de plus de 8 s ou de metrique indisponible,
+  echouer avec un diagnostic RCON/client ; ne jamais assimiler le `clear`
+  serveur a une confirmation client. `ci/inventory_barrier.py`, tests dans
+  `ci/test_perturbations.py`. Les refus de pose du pont conservent la cause
+  physique et les coordonnees dans les logs de mission (terrain/moat,
+  run 40671566288 tentative 2).
+
 - Declenche par tout push sur `main` ou `claude/**`, ou lancement manuel
   (workflow `.github/workflows/minecraft.yml`) ; banc avec les secrets
   reserve a `Rhadamanthe0`, declencheur initial et relanceur. Aucun evenement
@@ -867,7 +885,7 @@ dans `docs/journal.md` (section « Les pieges »).
   `minebot-ci-paper:<hash>`, bots et sondes a la demande (`ci/pool.py`,
   `CI_POOL_MODE=fixed`, 10 workers depuis le 2026-10-13 (piege 21), 16
   avant le 2026-10-12 ; banc complet ~12 700 s de niveaux), RCON et HTTP en direct.
-- Familles (`ci/trees.py`, 173 niveaux avec variantes, 44 joues par defaut dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
+- Familles (`ci/trees.py`, 174 niveaux avec variantes, 45 joues par defaut (49 avec les scenarios : la limite est atteinte) dont 24 bloquants, plus 4 scenarios de navigation) : `trees`, `chat`,
   `join`, `terrain`, `follow`, `gather`, `craft`, `build`, `route`,
   `composite`, `ouvert` (missions hors catalogue tirees au sort a chaque banc
   dans une reserve, `tirage`, rejouee par `CI_RANDOM_SEED` : recolte libre,

@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import trees  # noqa: E402
+from inventory_barrier import attendre_inventaire_vide
 
 
 class FakeRcon:
@@ -67,6 +68,23 @@ class PerturbateurTest(unittest.TestCase):
         step()
         self.assertEqual((done, rcon.sent), ([], []))
 
+    def test_action_retiree_variant_names_real_actions(self):
+        # A misspelt action would remove nothing: the variant would measure the base level.
+        skills = (Path(__file__).parent.parent / 'bot' / 'skills.js').read_text(encoding='utf-8')
+        catalogue = skills[skills.index('const ACTIONS = {'):]
+        actions = set(re.findall(r"^  ([a-z_]+): \{$", catalogue[:catalogue.index('\n}\n')], re.M))
+        self.assertIn('casser', actions)
+        names = {lv['name']: lv for lv in trees.all_levels_unfiltered()}
+        variant = names['composite/big-stone-house~action-retiree']
+        self.assertTrue(variant['informative'])
+        self.assertEqual(variant['features'], {'action_casser': False})
+        self.assertIn(variant['name'], [lv['name'] for lv in trees.levels()])
+        for level in trees.all_levels_unfiltered():
+            for key, value in level.get('features', {}).items():
+                if key.startswith('action_'):
+                    self.assertIn(key[len('action_'):], actions, level['name'])
+                    self.assertFalse(value)
+
     def test_imprevus_variant_carries_its_surprises(self):
         names = {lv['name']: lv for lv in trees.all_levels_unfiltered()}
         variant = names['composite/big-stone-house~imprevus']
@@ -74,6 +92,52 @@ class PerturbateurTest(unittest.TestCase):
         self.assertEqual(variant['perturbations'][0]['quand'], 'cobblestone')
         self.assertNotIn('perturbations', names['composite/big-stone-house'])
         self.assertIn('composite/big-stone-house~imprevus', [lv['name'] for lv in trees.levels()])
+
+
+class InventaireSynchroTest(unittest.TestCase):
+    def test_client_deja_vide(self):
+        calls = []
+        def lire():
+            calls.append(0)
+            return {'inventoryStacks': 0}
+        result = attendre_inventaire_vide(lire, horloge=lambda: 0, attendre=lambda _: None)
+        self.assertEqual(result, {'avant': 0, 'apres': 0, 'attente_s': 0})
+        self.assertEqual(calls, [0])
+
+    def test_clear_serveur_avant_confirmation_client(self):
+        # Reproduction de terrain/moat : le serveur a retire 8 objets,
+        # mais Mineflayer voit ses anciens slots pendant deux polls.
+        valeurs = iter([8, 8, 0])
+        clock = [0]
+        lus = []
+        def lire():
+            nombre = next(valeurs)
+            lus.append(nombre)
+            return {'inventoryStacks': nombre}
+        def pause(secondes):
+            clock[0] += secondes
+        result = attendre_inventaire_vide(lire, horloge=lambda: clock[0], attendre=pause)
+        self.assertEqual(lus, [8, 8, 0])
+        self.assertEqual(result, {'avant': 8, 'apres': 0, 'attente_s': 0.2})
+
+    def test_synchro_absente_echoue_sans_commencer_la_mission(self):
+        clock = [0]
+        calls = []
+        def lire():
+            calls.append(3)
+            return {'inventoryStacks': 3}
+        def pause(secondes):
+            clock[0] += secondes
+        with self.assertRaisesRegex(RuntimeError, r'3 pile\(s\).*2.0 s'):
+            attendre_inventaire_vide(lire, delai_s=2, intervalle_s=.5,
+                                     horloge=lambda: clock[0], attendre=pause)
+        self.assertEqual(calls, [3] * 5)
+
+    def test_absence_ou_type_invalide_echoue(self):
+        for valeur in (None, True, '0', -1, 0.0):
+            with self.subTest(valeur=valeur), self.assertRaisesRegex(RuntimeError, 'non observable'):
+                attendre_inventaire_vide(lambda: {'inventoryStacks': valeur},
+                                         horloge=lambda: 0, attendre=lambda _: None)
 
 
 if __name__ == '__main__':
