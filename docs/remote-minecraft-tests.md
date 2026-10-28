@@ -43,8 +43,9 @@ message (jamais de ligne `Co-Authored-By`). Un motif qui ne désigne aucun nivea
 
 L'étape finale « Full bench passed on this commit » du job `minecraft-bench`
 n'est verte que si le banc **complet** du commit a réussi. Le contrôle final
-`minecraft`, sans checkout ni secret, s'exécute même si le banc a été ignoré
-par la règle d'autorisation ; il exige le succès du banc. Un banc ignoré,
+`banc-complet` (identifiant YAML `minecraft`), sans checkout ni secret,
+s'exécute même si le banc a été ignoré par la règle d'autorisation ; il exige
+le succès du banc. Un banc ignoré,
 partiel, annulé ou en échec ne vaut donc jamais autorisation de fusion. Un
 nouveau push sur une branche autre que `main` annule le banc en cours de cette
 branche (son résultat porterait sur un commit périmé) ; `main` n'est jamais

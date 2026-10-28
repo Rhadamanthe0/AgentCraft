@@ -165,9 +165,11 @@ jobs:
           fi
           echo "Banc complet reussi : fusion permise."
 
-  # A skipped job is accepted by required checks. Keep the required name
-  # minecraft on an unconditional, secret-free gate, with no branch checkout.
+  # A skipped job is accepted by required checks. This unconditional gate has
+  # no secrets and no checkout. Its job id stays minecraft; the check name
+  # must match the active main ruleset 24300678 (verified 2026-10-25).
   minecraft:
+    name: banc-complet
     needs: minecraft-bench
     if: always()
     runs-on: ubuntu-24.04
