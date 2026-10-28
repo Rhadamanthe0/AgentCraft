@@ -26,6 +26,8 @@ import re
 import secrets
 import time
 
+from inventory_barrier import attendre_inventaire_vide
+
 INSTRUCTION = 'coupe moi un arbre'
 REQUESTER = 'Testeur'
 FLOOR_Y, TOP_Y = 199, 215
@@ -867,9 +869,13 @@ def base_levels():
             'rules': {},
             # Imprevu en plein chantier : 20 pierres en poche, pierres et pioches
             # prises (refaire une pioche, miner encore).
+            # Action retiree des le depart : pas de `casser` (l action dont le
+            # bot se sert le plus, 8 a 15 fois par mission), pierre et bois
+            # passent par `recolter`.
             'variants': [avec('coffres'), avec('culture'),
                          imprevus({'quand': 'cobblestone', 'seuil': 20,
-                                   'retirer': ['cobblestone', '#minecraft:pickaxes']})],
+                                   'retirer': ['cobblestone', '#minecraft:pickaxes']}),
+                         action_retiree('casser')],
         },
         {
             'name': 'composite/lit-cabin',
@@ -2042,6 +2048,14 @@ def imprevus(*perturbations):
     return ('imprevus', {}, None, {'perturbations': list(perturbations)})
 
 
+def action_retiree(*actions):
+    """Variante ou des actions manquent au bot des le depart (`action_<nom>`
+    coupe par /api/features, bot/skills.js actionRetiree) : il doit finir avec
+    celles qui restent, sans qu on le lui dise (proprietaire, 2026-10-25, idee
+    des `blocked_actions` de Mindcraft)."""
+    return ('action-retiree', {f'action_{action}': False for action in actions})
+
+
 def modele(name):
     return (f"modele-{name.replace('/', '-')}", {}, {'plan': name, 'brief': name, 'chat': name})
 
@@ -2308,7 +2322,7 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
         for (x, y, z), block in level['logs']:
             rcon(f'setblock {x0 + x} {y} {z} {block}')
         rcon(f'tp {username} ' + ' '.join(map(str, start)))
-        rcon(f'clear {username}')
+        nettoyage = rcon(f'clear {username}')
         rcon(f'scoreboard players set {username} degats 0')
         until = time.monotonic() + 20
         # Bot au repos (au sol, aucune touche, aucune mission) mais ailleurs que
@@ -2337,6 +2351,19 @@ def run_level(level, x0, bot, username, output, rcon, bot_api, probe_name):
                 etat['mission'] = {k: (s.get('mission') or {}).get(k) for k in ('state', 'reason', 'etape')} if isinstance(s.get('mission'), dict) else s.get('mission')
                 raise RuntimeError(f'Bot did not settle at level start (attendu {start}) : {json.dumps(etat, default=str)[:600]}')
             time.sleep(.25)
+        # RCON a execute clear sur le serveur ; Mineflayer peut voir ses anciens
+        # slots encore plusieurs ticks (terrain/moat, run 40671566288 essai 2).
+        # Aucun objectif ni geste n est lance tant que l inventaire client est perime.
+        try:
+            synchro = attendre_inventaire_vide(lambda: bot_api(bot, '/api/status'))
+        except Exception as err:
+            # Une API devenue indisponible est aussi un echec de preparation,
+            # pas une mission a lancer avec des piles possiblement perimees.
+            raise RuntimeError(f'{name} : inventaire client non confirme : {type(err).__name__}: {err} '
+                               f'; clear RCON : {str(nettoyage)[:120]}') from err
+        if synchro['avant'] or 'Removed' in str(nettoyage):
+            print(f"{name} : inventaire clear RCON ({str(nettoyage)[:100]}) ; piles client "
+                  f"{synchro['avant']} -> {synchro['apres']} en {synchro['attente_s']} s", flush=True)
         before = measure()
         expected_logs = len(level['logs'])
         if before['logs'] != expected_logs:

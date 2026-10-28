@@ -1368,9 +1368,18 @@ function setFeatureEnabled (feature, enabled) {
   if (before !== disabledFeatures.has(feature)) docGeneration += 1
 }
 
+// Action retiree par le banc (`action_<nom>`, mission.js) : idee des
+// `blocked_actions` de Mindcraft, le bot doit finir par un autre chemin.
+// De quoi finir et se degager reste toujours servi.
+const ACTIONS_GARDEES = new Set(['terminer', 'sortir', 'attendre'])
+function actionRetiree (name) {
+  return !ACTIONS_GARDEES.has(name) && disabledFeatures.has(`action_${name}`)
+}
+
 function availableFor (kind, supply = 'harvest') {
-  return Object.entries(ACTIONS).filter(([, spec]) => {
+  return Object.entries(ACTIONS).filter(([name, spec]) => {
     if (kind && !spec.kinds.includes(kind)) return false
+    if (actionRetiree(name)) return false
     // Plusieurs interrupteurs : servie si l un d eux est allume.
     if (spec.feature && [].concat(spec.feature).every(f => disabledFeatures.has(f))) return false
     // Remplacee par une action generique quand son mode est allume.

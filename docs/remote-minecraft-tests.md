@@ -11,11 +11,16 @@ ce document explique comment il fonctionne.
 
 ### En CI
 
-Le workflow `.github/workflows/minecraft.yml` part à chaque push sur `main` ou
-`claude/**`, ou sur lancement manuel. Le banc avec les secrets est réservé
-au compte **Rhadamanthe0** (ID `37266002`), y compris pour les relances, dans
-ce dépôt (ID `1385815795`). Il ne se déclenche pas sur les événements de PR.
-La durée maximale du banc reste de 75 minutes.
+Le workflow `.github/workflows/minecraft.yml` part sur les pushes vers
+`main`, `claude/**`, `dependabot/**` et `docs/**`, ou manuellement.
+`classify` décide d'après le **diff Git complet**, jamais le titre, le
+trailer ou la branche : `docs`, `deps` ou `full`. Les branches de
+Dependabot n'accèdent ni au modèle, ni aux secrets, ni à Minecraft lorsque
+leurs changements sont reconnus comme dépendances de faible risque.
+Le banc avec les secrets reste réservé au compte **Rhadamanthe0**
+(ID `37266002`), sur les pushes `main`/`claude/**` et les lancements
+manuels dans ce dépôt (ID `1385815795`). Il ne se déclenche jamais sur
+un événement de PR. La durée maximale d'un banc complet est de 75 minutes.
 
 | Visibilité du dépôt | Machine du banc |
 | --- | --- |
@@ -30,8 +35,10 @@ et les quotas de stockage restent distincts.
 
 | Déclencheur | Niveaux joués |
 | --- | --- |
-| push sur `main` | tous |
-| push sur une branche, sans ligne `Banc:` | tous |
+| push `main` avec code/CI ou dépendance Minecraft | tous |
+| push de branche avec code/CI ou dépendance Minecraft, sans `Banc:` | tous |
+| push purement documentaire reconnu | vérification du diff ; aucun Minecraft |
+| mise à jour npm admissible (patch/minor, hors moteur Minecraft) | npm ci, suite Python et Node complète ; aucun Minecraft |
 | commit avec `Banc: composite/cabin* trees/pillar*` | ces motifs (nom complet, variantes comprises ; un composite entraîne son jumeau) |
 | commit avec `Banc: unitaires` | tests unitaires seuls, ni serveur ni modèle |
 | lancement manuel | entrée `levels` (vide = tous), plus `pool_mode`, `variation_seed`, `random_seed`, `base_model` |
@@ -41,14 +48,28 @@ message (jamais de ligne `Co-Authored-By`). Un motif qui ne désigne aucun nivea
 échouer le banc avant tout lancement. Une ligne qui ne nomme que des niveaux
 `skill/*` se joue sans clé ni sonde de modèle.
 
-L'étape finale « Full bench passed on this commit » du job `minecraft-bench`
-n'est verte que si le banc **complet** du commit a réussi. Le contrôle final
-`banc-complet` (identifiant YAML `minecraft`), sans checkout ni secret,
-s'exécute même si le banc a été ignoré par la règle d'autorisation ; il exige
-le succès du banc. Un banc ignoré,
-partiel, annulé ou en échec ne vaut donc jamais autorisation de fusion. Un
-nouveau push sur une branche autre que `main` annule le banc en cours de cette
-branche (son résultat porterait sur un commit périmé) ; `main` n'est jamais
+L'étape « Full bench passed on this commit » du job `minecraft-bench`
+n'est verte que si le **véritable banc complet** du commit réussit.
+Pour les seules modifications admissibles, un job sans secret `lightweight`
+réalise une validation proportionnée : `docs` pour `README.md`,
+`ARCHITECTURE.md` et `docs/**/*.md` (pas `AGENTS.md`) ; `deps` pour
+un `bot/package-lock.json` et éventuellement `bot/package.json` modifiés,
+sans scripts npm, changement majeur, dépendance du moteur Minecraft ou
+nouvelle origine de paquet. `deps` installe les paquets avec `npm ci
+--ignore-scripts`, puis exécute les tests Python et la liste Node `UNIT`
+de `ci/run.py` (8 fichiers en parallèle, budget 300 secondes).
+Toute ambiguïté, mélange avec du code ou absence de preuve repasse en `full`.
+
+Le contrôle obligatoire `banc-complet` (job YAML `minecraft`) reste
+`if: always()` et sans secret. Il exige exactement l'un des deux succès :
+banc complet vert et job léger ignoré, **ou** job léger vert et banc
+Minecraft ignoré. Deux jobs ignorés, un banc partiel, une erreur de
+classification ou une validation rouge bloquent toujours la fusion.
+Le nom public reste celui imposé par le ruleset `24300678`, désormais
+pour le parcours de validation requis, pas systématiquement pour Minecraft.
+L'événement manuel conserve l'exigence du banc complet.
+Un nouveau push sur une branche autre que `main` annule le banc en cours de
+cette branche (son résultat porterait sur un commit périmé) ; `main` n'est jamais
 interrompu.
 
 ### En local
