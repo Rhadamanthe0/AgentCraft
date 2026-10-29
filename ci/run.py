@@ -979,7 +979,9 @@ fetch('http://127.0.0.1:'+port+route, body ? {method,headers:{'content-type':'ap
             failed = [k for k, ok in (t.get('checks') or {}).items() if not ok]
             if 'checks' not in t:
                 return ''
-            info = f" ({t['logsInInventory']}/{t['expectedLogs']} buches, {t['elapsedS']} s, {t['endReason']})"
+            wait = (t.get('kpi') or {}).get('attenteModeleS')
+            waited = f" dont {wait} s d attente du modele" if wait is not None and t.get('elapsedS') is not None else ''
+            info = f" ({t['logsInInventory']}/{t['expectedLogs']} buches, {t['elapsedS']} s{waited}, {t['endReason']})"
             return info + (' ; echec : ' + ', '.join(failed) if failed else '')
         def line(t):
             tag = ('INFO-' if t.get('informative') else '') + ('PASS' if t['success'] else 'FAIL')

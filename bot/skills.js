@@ -621,7 +621,6 @@ const ACTIONS = {
   deposer: {
     kinds: ['recolte', 'deplacement', 'construction', 'geste'],
     feature: 'coffres',
-    featureDefault: false,
     summary: 'ranger des objets de l inventaire dans un conteneur (coffre, tonneau)',
     scale: 'nombre d objets deposes, de 1 a 256',
     secondes: 3,
@@ -644,7 +643,6 @@ const ACTIONS = {
   retirer: {
     kinds: ['recolte', 'deplacement', 'construction', 'geste'],
     feature: 'coffres',
-    featureDefault: false,
     summary: 'prendre des objets dans un conteneur, ou lire son contenu',
     scale: 'nombre d objets retires, de 1 a 256',
     secondes: 3,

@@ -10,16 +10,19 @@ import trees  # noqa: E402
 
 def bench(sha, base_ok, variant_ok, base_s=60, variant_s=60, base_calls=5, variant_calls=5,
           mode='acces_unifie', suffix='avec', acted=True, base_progress=None, variant_progress=None,
-          base_tokens=None, variant_tokens=None):
+          base_tokens=None, variant_tokens=None, base_wait=None, variant_wait=None):
     on = suffix == 'avec'
     variant = {'test': f'trees/x~{suffix}-{mode}', 'informative': True, 'variantOf': 'trees/x',
                'features': {mode: on}, 'success': variant_ok, 'elapsedS': variant_s, 'plannerCalls': variant_calls,
                'progress': variant_progress, 'plannerTokens': variant_tokens}
+    if variant_wait is not None:
+        variant['kpi'] = {'attenteModeleS': variant_wait}
     if acted:
         variant['modes'] = {'acces': {'appels': 1, 'atteints': 1}}
     return {'sha': sha, 'dirty': False, 'tests': [
         {'test': 'trees/x', 'success': base_ok, 'elapsedS': base_s, 'plannerCalls': base_calls,
-         'progress': base_progress, 'plannerTokens': base_tokens},
+         'progress': base_progress, 'plannerTokens': base_tokens,
+         **({'kpi': {'attenteModeleS': base_wait}} if base_wait is not None else {})},
         variant,
         # A random twin is not an A/B pair.
         {'test': 'composite/a', 'success': True},
@@ -58,6 +61,14 @@ class AB(unittest.TestCase):
         self.assertEqual(row['verdict'], 'retirer')
         self.assertEqual(row['durationRatio'], 1.32)
         self.assertEqual(verdict([bench(str(i), True, True) for i in range(6)])['verdict'], 'egalite')
+
+    def test_duration_is_judged_without_the_model_wait(self):
+        # Plus long au total, mais seulement par l attente du fournisseur : le
+        # temps propre du bot (130 - 60 = 70 s contre 100 - 10 = 90 s) decide.
+        reports = [bench(str(i), True, True, base_s=100, variant_s=130, base_wait=10, variant_wait=60) for i in range(6)]
+        row = verdict(reports)
+        self.assertEqual(row['durationRatio'], 0.778)
+        self.assertEqual(row['verdict'], 'garder')
 
     def test_cost_shown_not_judged(self):
         # Model cost (a mode that changes the prompt or the calls) is shown on double

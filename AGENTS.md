@@ -166,7 +166,9 @@ reussies : appels au modele -36 %, duree totale +3 %, trees/tall +33 % ;
 `sans(...)` sur terrain/plateau, gather/sand-walled, build/no-materials,
 trees/tall, trees/double, craft/iron-pickaxe et les composites cabane et
 maison en pierre, retires du banc complet ; compteur `modes.plans` : etapes
-et appels) ; `coffres` (eteint, 2026-10-20, idee 5 de la revue du
+et appels) ; `coffres` (allume par defaut le 2026-10-29, A/B de deux bancs :
+chest-pickaxe 1/2 contre 0/2 sans, aucun cout sur les composites durs ; cree
+le 2026-10-20, idee 5 de la revue du
 2026-10-16 validee par le proprietaire : actions `deposer` et `retirer
 {objet, quantite, dans}`, `bot/action-conteneur.js` ; le conteneur nomme (ou
 famille : `chest` couvre le coffre piege) ou le plus proche a 24 blocs est
@@ -177,10 +179,11 @@ solveur ou un retrait demande) ; brief `depot`/`retrait` (cle `|coffres`),
 objet du registre ou famille (`buches`, `planches`), quantite nulle = tout le
 stock ; fin mesuree, une fabrication rangee reste fabriquee
 (`fabricationProduced`, `collected` comptent les depots) ; capacite
-`conteneur` retiree des refus ; `sans(...)` sur composite/chest-pickaxe,
-`avec(...)` sur les niveaux durs big-stone-house et powered-rail-line, car
-un A/B departage toujours sur des niveaux durs, proprietaire 2026-10-20) ;
-`culture` (eteint, 2026-10-20, meme idee : planter = `poser` d une graine,
+`conteneur` retiree des refus ; `sans(...)` sur composite/chest-pickaxe et
+les niveaux durs big-stone-house et powered-rail-line, car un A/B departage
+toujours sur des niveaux durs, proprietaire 2026-10-20) ; `culture` (allume
+par defaut le 2026-10-29, A/B de deux bancs : 4/4 contre 0/4 sans sur ses
+niveaux ; cree le 2026-10-20, meme idee : planter = `poser` d une graine,
 d un plant ou d une pousse, `bot/culture.js` : sol de chaque plante, terre
 labouree par le code si une houe est en poche (humide d abord, eau a 4
 blocs), canne a sucre sur un sol touchant l eau ; sans terre labouree ni
@@ -189,8 +192,8 @@ houe, la houe en bois devient la cible du solveur (`houeAObtenir`) ;
 et jamais le pied d une plante en colonne (canne, bambou, cactus) ; phrase
 ajoutee a l intent de `poser` (`ajouts`, `skills.intentDe`) et au brief (cle
 `|culture`) ; capacite `culture` retiree des refus ; `sans(...)` sur
-composite/wheat-field et gather/ripe-wheat, `avec(...)` sur big-stone-house
-et powered-rail-line ; une matiere ouverte d une
+composite/wheat-field, gather/ripe-wheat, big-stone-house et
+powered-rail-line ; une matiere ouverte d une
 culture compte son produit, le ble et non ses graines, mode allume ou non :
 minecraft-data ne fait lacher au ble que ses graines ; tmp/coffres-culture.test.js).
 
@@ -291,7 +294,7 @@ au demarrage au lieu de 75 min de niveaux rouges.
   `composite/big-stone-house~action-retiree` (sans `casser`, l action la plus
   jouee ; retirer `recolter`, appelee une fois par mission, ne departageait
   rien au banc cible f02099d). Une ferme a canne a sucre exige `culture` (A/B
-  `culture` depuis le 2026-10-20 : planter, recolter mur) et `mecanisme`
+  `culture`, allume par defaut le 2026-10-29 : planter, recolter mur) et `mecanisme`
   (circuits) : ce n est pas encore un niveau. Coffres et culture (2026-10-20,
   informatifs) : `composite/chest-pickaxe` (pioche en pierre sans pierre en
   vue, 3 pierres taillees dans un coffre, pioche rangee dans le coffre ;
@@ -995,7 +998,7 @@ Toutes ont une valeur par defaut dans le code ; le compose en fixe une partie.
 | `PLANNER_REASONING_EFFORT[_<USAGE>]` | vide | `reasoning_effort` (ou `reasoning.effort`) |
 | `PLANNER_TIMEOUT_MS[_<USAGE>]` | 12000 | delai d un appel |
 | `PLANNER_RELAUNCH_MS` | 10000 | plan sans reponse apres ce delai : appel coupe et refait une fois avec le temps restant, jamais deux appels en meme temps, delai total inchange (interrupteur `relance_plan`, decision du proprietaire 2026-09-29) |
-| `MISSION_PLANNER_OUTAGE_MS` | 90000 | serie de pannes passageres du plan (`planner.estPassager` : silence, reseau coupe, 5xx, 429) toleree avant d abandonner la mission ; un refus (403...) arrete au troisieme echec. Lecture d objectif et chat rejouent aussi une coupure reseau dans le budget de deux essais (`rejouerSiPassager`) |
+| `MISSION_PLANNER_OUTAGE_MS` | 180000 (90000 avant le 2026-10-29) | serie de pannes passageres du plan (`planner.estPassager` : silence, reseau coupe, 5xx, 429) toleree avant d abandonner la mission ; un refus (403...) arrete au troisieme echec. Lecture d objectif et chat rejouent aussi une coupure reseau dans le budget de deux essais (`rejouerSiPassager`) |
 | `PLANNER_PLAN_MAX` | 5 | actions max par plan, `plans_longs` coupe |
 | `PLANNER_BUDGET_MIN_S` / `_MAX_S` | 6 / 10 | secondes de jeu visees par plan (consigne du prompt, jamais appliquee) |
 | `PLANNER_LONG_PLAN_MAX`, `PLANNER_LONG_BUDGET_MIN_S` / `_MAX_S` | 10, 25 / 40 | memes bornes avec l interrupteur `plans_longs` (allume par defaut) |

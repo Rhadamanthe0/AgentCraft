@@ -56,8 +56,18 @@ def variant_mode(test):
     return mode, bool(value)
 
 
+def active_s(test):
+    """Duration without the model wait (kpi.attenteModeleS): the provider's
+    speed varies from run to run, the bot's own time is what an A/B compares.
+    Total duration when the wait is unknown."""
+    total, wait = test.get('elapsedS'), (test.get('kpi') or {}).get('attenteModeleS')
+    if total is None or wait is None:
+        return total
+    return round(max(0.0, total - wait), 1)
+
+
 def run_view(test):
-    return {'success': bool(test.get('success')), 'elapsedS': test.get('elapsedS'),
+    return {'success': bool(test.get('success')), 'elapsedS': test.get('elapsedS'), 'activeS': active_s(test),
             'calls': test.get('plannerCalls'), 'damage': test.get('damageTaken'),
             'progress': test.get('progress'),
             'cost': model_cost(test.get('plannerTokens'), BASE_MODEL),
@@ -93,7 +103,7 @@ def judge(group):
     gains = sum(1 for p in group if p['on']['success'] and not p['off']['success'])
     losses = sum(1 for p in group if p['off']['success'] and not p['on']['success'])
     both = [p for p in group if p['on']['success'] and p['off']['success']]
-    duration = ratio([p['on']['elapsedS'] for p in both], [p['off']['elapsedS'] for p in both])
+    duration = ratio([p['on']['activeS'] for p in both], [p['off']['activeS'] for p in both])
     calls = ratio([p['on']['calls'] for p in both], [p['off']['calls'] for p in both])
     dollars = ratio([p['on']['cost'] for p in both], [p['off']['cost'] for p in both])
     failed = [p for p in group if not p['on']['success'] and not p['off']['success']
@@ -146,7 +156,7 @@ VERDICTS = {'garder': 'GARDER', 'retirer': 'RETIRER', 'egalite': 'EGALITE (garde
 def line(name, j):
     cost = []
     if j['durationRatio'] is not None:
-        cost.append(f"duree x{j['durationRatio']}")
+        cost.append(f"duree hors attente du modele x{j['durationRatio']}")
     if j['callsRatio'] is not None:
         cost.append(f"appels x{j['callsRatio']}")
     if j.get('costRatio') is not None:
