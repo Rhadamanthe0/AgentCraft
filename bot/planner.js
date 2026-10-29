@@ -1281,6 +1281,10 @@ n en reprends un que s il designe bien le bloc voulu.`
 // coffres et des cultures, le modele rendait « rail x2 » au lieu de la ligne
 // entre deux blocs (bancs du 2026-10-29, powered-rail-line : 4 lectures sur
 // 10 modes allumes contre 0 sur 4 modes eteints ; les 4 ont echoue).
+// L objet de base d une ligne « avec des » objets en plus vient en premier :
+// la premiere entree couvre la ligne (mission.posesMesurees). Une lecture
+// sans lui faisait couvrir la ligne de rails accelerateurs (18 lingots d or
+// pour 6 minerais, banc 40902841226 essai 2).
 function briefPose (cultures = false) {
   return `
 
@@ -1302,6 +1306,11 @@ Des objets en ligne d un bloc nomme a un autre (« entre », « de ... a ») :
 CHAQUE objet de la ligne porte "de" et "vers", noms de bloc anglais du jeu,
 et aucune quantite : le bot couvre toute la ligne ("une cloture du chene au
 bouleau" -> [{"objet": "oak_fence", "de": "oak_log", "vers": "birch_log"}]).
+Une ligne « avec des » objets en plus garde son objet de base, EN PREMIER,
+puis les objets en plus sur la meme ligne : le premier couvre la ligne, les
+suivants n en prennent que quelques cases ("une cloture du chene au bouleau
+avec des portillons" -> [{"objet": "oak_fence", "de": "oak_log", "vers":
+"birch_log"}, {"objet": "oak_fence_gate", "de": "oak_log", "vers": "birch_log"}]).
 Un objet qui ne pose pas de bloc (minecart, bateau) garde sa quantite.`
 }
 
