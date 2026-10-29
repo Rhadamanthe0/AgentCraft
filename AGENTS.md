@@ -847,7 +847,11 @@ dans `docs/journal.md` (section « Les pieges »).
   (`concurrency.cancel-in-progress`, decision du 2026-10-24) : son resultat
   porterait sur un commit perime. `main` n est jamais interrompu ; le
   nettoyage (`if: always()`) et le marqueur de projet ecrit avant le premier
-  conteneur rendent l annulation sans risque.
+  conteneur rendent l annulation sans risque. Sur une annulation, `ci/run.py`
+  (son `finally`) et l etape `if: always()` retirent le meme marqueur de
+  projet : `ci/cleanup.py` tolere donc un marqueur deja disparu
+  (`FileNotFoundError` seul, jamais un marqueur malforme ni un echec Compose)
+  et reste verte (2026-10-30).
 - MINIPC prive : inscription GitHub permanente propre a ce depot Linux ; environnement
   neuf par job, magasin et socket Podman dedies. Les labels
   `rhada-persistent-v1`, `rhada-run-<run>-<tentative>` et

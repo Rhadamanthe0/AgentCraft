@@ -1,10 +1,12 @@
 """Hosted-runner envelope selection and setup without changing the test host."""
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -71,6 +73,111 @@ class ComposeEnvelope(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'CI_GITHUB_HOSTED'):
                 cleanup.compose_files()
             docker.assert_not_called()
+
+
+# Container engine stand-in for ci/cleanup.py: records every call and, on
+# `compose rm`, can remove the project marker just like the cancelled bench's
+# own teardown (ci/run.py finally) does at the same time.
+ENGINE = r'''#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import sys
+
+args = sys.argv[1:]
+root = Path(os.environ['FIXTURE_ROOT'])
+with (root / 'commands.jsonl').open('a') as stream:
+    stream.write(json.dumps(args) + '\n')
+if args[:2] == ['version', '--format']:
+    print('1.52')
+elif args[:2] == ['image', 'inspect']:
+    sys.exit(1)
+elif args[0] == 'compose' and 'rm' in args:
+    if os.environ.get('FIXTURE_VANISH'):
+        Path(os.environ['FIXTURE_VANISH']).unlink(missing_ok=True)
+    sys.exit(int(os.environ.get('FIXTURE_RM_EXIT', '0')))
+elif args[0] == 'compose' and 'down' in args:
+    sys.exit(0)
+else:
+    sys.exit(90)
+'''
+
+
+class RecordedCleanup(unittest.TestCase):
+    """ci/cleanup.py on real marker files, with only the engine faked."""
+
+    PROJECT = 'mc-ci-40900919215-9a46e934'
+
+    def run_cleanup(self, vanish=False, read_vanishes=False, rm_exit=0, marker_text=None):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            engine = root / 'bin/docker'
+            engine.parent.mkdir()
+            engine.write_text(ENGINE)
+            engine.chmod(0o755)
+            checkout = root / 'checkout'
+            marker = checkout / 'test-results' / self.PROJECT / 'active.json'
+            marker.parent.mkdir(parents=True)
+            marker.write_text(marker_text or json.dumps({'project': self.PROJECT}))
+            env = {key: value for key, value in os.environ.items() if not key.startswith('CI_GITHUB_HOSTED')}
+            env.update(FIXTURE_ROOT=str(root), FIXTURE_RM_EXIT=str(rm_exit),
+                       PATH=str(engine.parent) + os.pathsep + env['PATH'])
+            if vanish:
+                env['FIXTURE_VANISH'] = str(marker)
+            read_text = Path.read_text
+
+            def vanish_before_read(path, *args, **kwargs):
+                if read_vanishes and path == marker:
+                    path.unlink()
+                return read_text(path, *args, **kwargs)
+
+            removed = []
+            output = io.StringIO()
+            error = None
+            with patch.object(cleanup, 'ROOT', checkout), patch.dict(os.environ, env, clear=True), \
+                 patch.object(Path, 'read_text', vanish_before_read), redirect_stdout(output):
+                try:
+                    cleanup.recorded_projects(removed)
+                except Exception as caught:
+                    error = caught
+            log = root / 'commands.jsonl'
+            commands = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+            return removed, commands, marker.exists(), output.getvalue(), error
+
+    def compose_calls(self, commands, action):
+        return [call for call in commands if call[:1] == ['compose'] and action in call]
+
+    def test_marker_removed_by_the_cancelled_run_keeps_cleanup_green(self):
+        removed, commands, exists, output, error = self.run_cleanup(vanish=True)
+        self.assertIsNone(error, repr(error))
+        self.assertEqual(removed, [f'project {self.PROJECT}'])
+        self.assertIn(f'removed project {self.PROJECT}', output)
+        self.assertFalse(exists, 'le marqueur a bien ete consomme par le nettoyage concurrent')
+        for action, flag in (('rm', '--volumes'), ('down', '--remove-orphans')):
+            calls = self.compose_calls(commands, action)
+            self.assertEqual(len(calls), 1, calls)
+            self.assertIn(flag, calls[0])
+            self.assertEqual(calls[0][calls[0].index('-p') + 1], self.PROJECT)
+
+    def test_marker_removed_between_enumeration_and_read_is_ignored(self):
+        removed, commands, exists, output, error = self.run_cleanup(read_vanishes=True)
+        self.assertIsNone(error, repr(error))
+        self.assertEqual(removed, [])
+        self.assertFalse(exists)
+        self.assertEqual(self.compose_calls(commands, 'rm') + self.compose_calls(commands, 'down'), [])
+
+    def test_failing_compose_removal_stays_red_and_keeps_the_marker(self):
+        removed, _, exists, _, error = self.run_cleanup(rm_exit=5)
+        self.assertIsInstance(error, subprocess.CalledProcessError)
+        self.assertEqual(removed, [])
+        self.assertTrue(exists, 'un echec reel ne doit pas consommer le marqueur')
+
+    def test_malformed_marker_stays_red(self):
+        removed, commands, exists, _, error = self.run_cleanup(marker_text='{"project": ')
+        self.assertIsInstance(error, json.JSONDecodeError)
+        self.assertEqual(removed, [])
+        self.assertTrue(exists)
+        self.assertEqual(self.compose_calls(commands, 'rm'), [])
 
 
 class HostedSetup(unittest.TestCase):

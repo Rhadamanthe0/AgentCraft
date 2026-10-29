@@ -95,7 +95,13 @@ def recorded_projects(removed):
         if key.startswith('COMPOSE_') and key != 'COMPOSE_DISABLE_ENV_FILE':
             del env[key]
     for marker in (ROOT / 'test-results').glob('mc-ci-*/active.json'):
-        project = json.loads(marker.read_text(encoding='utf-8'))['project']
+        try:
+            project = json.loads(marker.read_text(encoding='utf-8'))['project']
+        except FileNotFoundError:
+            # A cancelled bench's own teardown (ci/run.py finally) removes the
+            # same marker: gone before it is read means already cleaned up.
+            print(f'skipped {marker.parent.name}: marker already removed', flush=True)
+            continue
         if not PROJECT.fullmatch(project) or marker.parent.name != project:
             raise ValueError('Invalid disposable project marker')
         env['CI_TAG'] = project
@@ -107,7 +113,9 @@ def recorded_projects(removed):
         remove('image', ['image', 'rm'], [f'minebot-ci:{project}'] if docker('image', 'inspect', f'minebot-ci:{project}').returncode == 0 else [], removed)
         removed.append(f'project {project}')
         print(f'removed project {project}', flush=True)
-        marker.unlink()
+        # During a cancel, ci/run.py finally tears the same project down and
+        # unlinks this marker first: that concurrent cleanup already finished.
+        marker.unlink(missing_ok=True)
 
 
 def sweep(removed):
