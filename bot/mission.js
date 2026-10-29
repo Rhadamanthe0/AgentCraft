@@ -195,8 +195,10 @@ const MAX_PLANNER_ERRORS = 3
 // complet, 5 a 11 missions tuees par trois silences de suite, puis 13 par
 // 30 s de « fetch failed ». Une serie de pannes passageres est toleree tant
 // qu elle dure moins que ce delai ; tout autre echec (refus, 403) arrete au
-// troisieme.
-const PLANNER_OUTAGE_MS = config.finiteNumber(process.env.MISSION_PLANNER_OUTAGE_MS, 90000, 'MISSION_PLANNER_OUTAGE_MS', { min: 0 })
+// troisieme. 180 s depuis le 2026-10-29 (proprietaire) : powered-rail-line
+// arrete trois bancs de suite par 6 silences en 112 s (fournisseur lent sur
+// les longs prompts, p99 d un plan 18 s pour 20 s accordees).
+const PLANNER_OUTAGE_MS = config.finiteNumber(process.env.MISSION_PLANNER_OUTAGE_MS, 180000, 'MISSION_PLANNER_OUTAGE_MS', { min: 0 })
 const MAX_REPEATED_FAILURES = 5
 // Pilier : bornes de la montee en blocs. Un pilier coute sa dirt (inventaire
 // reel, jamais de creatif) et expose a la chute a la descente : 6 blocs
