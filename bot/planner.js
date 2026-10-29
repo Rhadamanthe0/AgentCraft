@@ -1276,8 +1276,12 @@ n en reprends un que s il designe bien le bloc voulu.`
 
 // Section ajoutee au brief quand l action `poser` existe (A/B `poser`) :
 // les objets que le joueur veut voir POSES dans le monde. Prompt a part
-// (cle `|pose`) : le brief ordinaire et son cache ne bougent pas.
-function briefPose () {
+// (cle `|pose`) : le brief ordinaire et son cache ne bougent pas. Placee en
+// dernier, regle de la ligne a la fin : apres les exemples a quantite des
+// coffres et des cultures, le modele rendait « rail x2 » au lieu de la ligne
+// entre deux blocs (bancs du 2026-10-29, powered-rail-line : 4 lectures sur
+// 10 modes allumes contre 0 sur 4 modes eteints ; les 4 ont echoue).
+function briefPose (cultures = false) {
   return `
 
 "pose" : quand le joueur veut des objets POSES dans le monde hors d un
@@ -1286,21 +1290,23 @@ la liste de ces objets, nom d objet Minecraft en anglais comme dans le jeu,
 avec la quantite si elle est dite : [{"objet": "torch", "quantite": 4}] ;
 sinon null. Chaque objet que la demande fait poser y figure, meme implicite
 (un objet qui roule sur des rails exige ces rails), et l objet qui donne son
-nom a l ouvrage aussi (« un quai a bateaux » pose au moins un bateau). Des
-objets en ligne d un
-bloc nomme a un autre : l entree porte aussi "de" et "vers", noms de bloc
-anglais du jeu, et le bot couvre toute la ligne ("une cloture du chene au
-bouleau" -> [{"objet": "oak_fence", "de": "oak_log", "vers": "birch_log"}]).
+nom a l ouvrage aussi (« un quai a bateaux » pose au moins un bateau).${cultures ? briefCulture() : ''}
 La mission est alors une
 "recolte" (le bot obtient puis pose), sauf si elle bati aussi un chantier
 ("construction") : la pose s ajoute alors au chantier, elle ne le remplace
 pas. "pose un levier a cote de la porte" -> pose [{"objet": "lever",
 "quantite": 1}] ; "entoure le puits d une cloture" -> pose [{"objet":
 "oak_fence"}]. Une fabrication de ces objets ne suffit jamais : sans "pose",
-le bot les fabrique et s arrete sans les poser.`
+le bot les fabrique et s arrete sans les poser.
+Des objets en ligne d un bloc nomme a un autre (« entre », « de ... a ») :
+CHAQUE objet de la ligne porte "de" et "vers", noms de bloc anglais du jeu,
+et aucune quantite : le bot couvre toute la ligne ("une cloture du chene au
+bouleau" -> [{"objet": "oak_fence", "de": "oak_log", "vers": "birch_log"}]).
+Un objet qui ne pose pas de bloc (minecart, bateau) garde sa quantite.`
 }
 
-// Section ajoutee quand l action `poser` plante (A/B `culture`).
+// Phrases ajoutees a la section pose quand l action `poser` plante (A/B
+// `culture`).
 function briefCulture () {
   return `
 Semer ou planter, c est poser : graines, plants et pousses vont dans "pose"
@@ -1310,7 +1316,6 @@ Recolter une culture (ble, carottes, canne a sucre) est une recolte du bloc
 de la plante, jamais une pose.`
 }
 
-// Section ajoutee quand les actions deposer/retirer existent (A/B `coffres`).
 function briefConteneur () {
   return `
 
@@ -1402,7 +1407,7 @@ une entree ou un acces dans ce qui doit etre construit.
 "confiance" : de 0 a 1, ta certitude sur le type et la matiere.
 
 Tu ne rends aucune dimension et aucun nombre de blocs : le code les lit
-lui-meme dans la phrase.${ouvert ? briefOuvert() : ''}${pose ? briefPose() : ''}${pose && cultures ? briefCulture() : ''}${coffres ? briefConteneur() : ''}`)
+lui-meme dans la phrase.${ouvert ? briefOuvert() : ''}${coffres ? briefConteneur() : ''}${pose ? briefPose(cultures) : ''}`)
   }
   return prompts.get(key)
 }
