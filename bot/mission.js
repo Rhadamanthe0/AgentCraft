@@ -4973,10 +4973,15 @@ function createMissionRunner (host, injected = {}) {
       // pose » ; 6ab854b : pioche en pierre et four deja faits par une etape
       // reprise, redemandes, « pas utile pour iron_pickaxe »). On fait l etape
       // suivante du plan, ou la cible, a la place. Sauf si l objet est la cible.
+      // Mission a poser sans fabrication nommee : meme regle, sauf pour un
+      // objet a poser. Sans elle, une deuxieme pioche en fer prenait les 3
+      // lingots du minecart (composite/powered-rail-line, banc 40917485651).
       const itemDemande = CIBLE_ITEM[target] ?? target
       const itemCible = CIBLE_ITEM[mission.fabricationCible] ?? mission.fabricationCible
       const outil = OUTIL_OU_POSTE.test(itemDemande)
-      if (mission.fabricationCible && itemDemande !== itemCible && !reorientation &&
+      const cibleFixee = mission.fabricationCible ||
+        ((mission.poses?.length ?? 0) > 0 && !mission.poses.some(p => p.objet === itemDemande))
+      if (cibleFixee && itemDemande !== itemCible && !reorientation &&
         (itemDemande === 'crafting_table' || (outil && !dansLePlan))) {
         const ou = dejaObtenu(bot, itemDemande)
         if (ou) {
@@ -4991,6 +4996,8 @@ function createMissionRunner (host, injected = {}) {
           if (suivante?.op === 'fabriquer') {
             target = suivante.objet
             wanted = Math.max(CRAFT_MIN, Math.min(CRAFT_MAX, Number(suivante.quantite) || CRAFT_MIN))
+          } else if (!mission.fabricationCible) {
+            return { resultat: `${ou} : rien a refaire, poser ou recolter la suite` }
           } else {
             target = mission.fabricationCible
             wanted = Math.max(1, (mission.fabricationQuantite ?? 1) - fabricationProduced())

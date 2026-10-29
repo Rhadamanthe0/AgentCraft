@@ -121,6 +121,12 @@ function createConteneurs (deps) {
 
   const stock = (bot, objet) => (bot.inventory?.items() ?? []).filter(i => deps.correspond(objet, i.name)).reduce((n, i) => n + i.count, 0)
   const dedans = (fenetre, objet) => (fenetre.containerItems?.() ?? []).filter(i => deps.correspond(objet, i.name)).reduce((n, i) => n + i.count, 0)
+  // Inventaire du bot vu par la fenetre ouverte : celui que deposit/withdraw
+  // lisent et ecrivent a chaque clic. `bot.inventory` ne suit qu a la
+  // fermeture : lu seul, il bornait chaque depot a une pile (garde « source
+  // non synchronisee » a chaque fois). Sans `items` (fenetre minimale) : lui.
+  const cote = (bot, fenetre) => typeof fenetre.items === 'function' ? fenetre.items() : (bot.inventory?.items() ?? [])
+  const enMain = (bot, fenetre, objet) => cote(bot, fenetre).filter(i => deps.correspond(objet, i.name)).reduce((n, i) => n + i.count, 0)
 
   // Deplace jusqu a `voulu` objets entre la fenetre et l inventaire, une pile
   // a la fois. Le serveur confirme les cases apres coup : chaque transfert se
@@ -130,15 +136,15 @@ function createConteneurs (deps) {
   async function transferer (bot, fenetre, sens, objet, voulu) {
     let fait = 0
     let derniere = null
-    const avant = stock(bot, objet)
+    const avant = enMain(bot, fenetre, objet)
     const avantDedans = dedans(fenetre, objet)
     const mesurer = () => Math.max(
-      sens === 'deposer' ? avant - stock(bot, objet) : stock(bot, objet) - avant,
+      sens === 'deposer' ? avant - enMain(bot, fenetre, objet) : enMain(bot, fenetre, objet) - avant,
       sens === 'deposer' ? dedans(fenetre, objet) - avantDedans : avantDedans - dedans(fenetre, objet))
-    const source_ = () => sens === 'deposer' ? avant - stock(bot, objet) : avantDedans - dedans(fenetre, objet)
+    const source_ = () => sens === 'deposer' ? avant - enMain(bot, fenetre, objet) : avantDedans - dedans(fenetre, objet)
     for (let essai = 0; essai < 27 && fait < voulu; essai++) {
       if (deps.signal?.()?.aborted) { derniere = 'interrompu'; break }
-      const source = sens === 'deposer' ? (bot.inventory?.items() ?? []) : (fenetre.containerItems?.() ?? [])
+      const source = sens === 'deposer' ? cote(bot, fenetre) : (fenetre.containerItems?.() ?? [])
       const pile = source.find(i => deps.correspond(objet, i.name))
       if (!pile) break
       const n = Math.min(pile.count, voulu - fait)
@@ -206,7 +212,7 @@ function createConteneurs (deps) {
       if (objet) {
         const q = Number(params.quantite)
         const dite = Number.isFinite(q) ? Math.max(1, Math.min(256, Math.round(q))) : null
-        const dispo = sens === 'deposer' ? stock(o.bot, objet)
+        const dispo = sens === 'deposer' ? enMain(o.bot, fenetre, objet)
           : Object.entries(contenuDe(fenetre)).filter(([n]) => deps.correspond(objet, n)).reduce((n, [, k]) => n + k, 0)
         // Sans quantite : le reste que la consigne attend pour cet objet,
         // sinon tout ce qui est disponible.

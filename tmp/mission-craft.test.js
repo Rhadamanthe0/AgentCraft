@@ -364,6 +364,32 @@ test('outil deja en poche redemande : etape suivante du plan, pas de refus', asy
   }
 })
 
+test('mission a poser : outil deja en poche jamais refait, objet a poser fabrique', async () => {
+  // Vu sur composite/powered-rail-line (banc 40917485651) : deuxieme pioche
+  // en fer, 3 lingots du minecart perdus.
+  const makeCalls = []
+  try {
+    const brief = realShapeBrief({ resource: 'aucune', pose: [{ objet: 'torch', quantite: 4 }], _texte: 'pose 4 torches ici' })
+    const stub = async (bot, target, wanted) => {
+      makeCalls.push(target)
+      bot._stock[target] = (bot._stock[target] ?? 0) + wanted
+      return { item: target, produced: wanted, wanted, usedTable: false }
+    }
+    const { status } = await runMission({
+      brief,
+      stock: { iron_pickaxe: 1, stick: 1, coal: 1 },
+      plans: ['fabriquer:iron_pickaxe:1', 'fabriquer:torch:4', 'terminer'],
+      makeStub: stub
+    })
+    assert.deepEqual(makeCalls, ['torch'])
+    const fab = status.historique.find(h => h.action === 'fabriquer')
+    assert.match(fab.resultat, /^iron_pickaxe deja dans l inventaire/)
+  } finally {
+    restorePlanner()
+    restoreCraft()
+  }
+})
+
 // Plan du solveur impose (fabriquer la cible), sans recolte ni cuisson.
 async function runWithPlan (plans, stock) {
   const acquirePlan = require('../bot/acquire-plan')
