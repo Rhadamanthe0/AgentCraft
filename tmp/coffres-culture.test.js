@@ -60,17 +60,18 @@ test('culture : graine -> plante et sol, age mur decode de l etat, produit d une
   assert.ok(!skills.resourceSpec('libre:wheat', registry).items.test('wheat_seeds'))
 })
 
-test('interrupteurs : deposer/retirer servis avec `coffres`, capacites couvertes retirees du brief', () => {
+test('interrupteurs : `coffres` et `culture` allumes par defaut, coupes par le bras sans', () => {
   const r = createMissionRunner({ getBot: () => null, isReady: () => false })
+  // Allumes par defaut (proprietaire, 2026-10-29, A/B de deux bancs).
   r.setFeatures({ reset: true })
-  assert.ok(!skills.actionsFor('recolte').includes('deposer'))
-  assert.ok('conteneur' in skills.capacitesAbsentes() && 'culture' in skills.capacitesAbsentes())
-  assert.ok(!/Planter, c est poser/.test(skills.describeAction('poser')))
-  r.setFeatures({ coffres: true, culture: true })
   assert.ok(skills.actionsFor('recolte').includes('deposer') && skills.actionsFor('geste').includes('retirer'))
   assert.ok(!('conteneur' in skills.capacitesAbsentes()) && !('culture' in skills.capacitesAbsentes()))
   assert.ok('animal' in skills.capacitesAbsentes())
   assert.ok(/Planter, c est poser/.test(skills.describeAction('poser')))
+  r.setFeatures({ coffres: false, culture: false })
+  assert.ok(!skills.actionsFor('recolte').includes('deposer'))
+  assert.ok('conteneur' in skills.capacitesAbsentes() && 'culture' in skills.capacitesAbsentes())
+  assert.ok(!/Planter, c est poser/.test(skills.describeAction('poser')))
   r.setFeatures({ reset: true })
 })
 

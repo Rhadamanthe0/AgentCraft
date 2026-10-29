@@ -145,9 +145,9 @@ function syncActionFeatures () {
       if (d.feature) skills.setFeatureEnabled(d.feature, featureOn(d.feature, false))
     }
   }
-  // Modes sans action propre (A/B `culture`, eteint) : phrases ajoutees aux
+  // Modes sans action propre (A/B `culture`, allume par defaut le 2026-10-29) : phrases ajoutees aux
   // intents et capacites absentes du brief (skills.capacitesAbsentes).
-  skills.setFeatureEnabled('culture', featureOn('culture', false))
+  skills.setFeatureEnabled('culture', featureOn('culture'))
   // Toute action se retire par `action_<nom>` (banc, niveau « action
   // retiree ») ; servie par defaut.
   for (const name of Object.keys(skills.ACTIONS)) skills.setFeatureEnabled(`action_${name}`, featureOn(`action_${name}`, true))
@@ -882,7 +882,7 @@ function createMissionRunner (host, injected = {}) {
   // Conteneurs en vue servis au modele : contenu vu (ou jamais ouvert) et ce
   // qui y sert la mission (retrait demande, etape ou blocage du solveur).
   function conteneursEtat () {
-    if (!featureOn('coffres', false)) return null
+    if (!featureOn('coffres')) return null
     const bot = host.getBot()
     const vus = conteneurs.enVue(bot)
     if (vus.length === 0) return null
@@ -906,7 +906,7 @@ function createMissionRunner (host, injected = {}) {
   // poche, sans assez de terre labouree libre en vue ni houe : la houe la
   // moins chere devient la cible du solveur.
   function houeAObtenir () {
-    if (!featureOn('culture', false) || !mission?.poses?.length) return null
+    if (!featureOn('culture') || !mission?.poses?.length) return null
     const bot = host.getBot()
     if (!bot?.entity || bot.inventory?.items().some(i => /_hoe$/.test(i.name))) return null
     for (const p of posesManquantes()) {
@@ -2055,7 +2055,7 @@ function createMissionRunner (host, injected = {}) {
     // Cultures (A/B `culture`) : une plante a age seulement mure, une plante
     // en colonne (canne a sucre) jamais par son pied, comme un joueur qui
     // garde sa ferme (culture.recoltable).
-    const cultures = featureOn('culture', false) && ids.some(id => culture.estCulture(bot.registry?.blocks?.[id]?.name))
+    const cultures = featureOn('culture') && ids.some(id => culture.estCulture(bot.registry?.blocks?.[id]?.name))
     const parEtat = bot.registry?.blocksByStateId ?? {}
     const mure = (pos, lire) => {
       if (!cultures) return true
@@ -3535,7 +3535,7 @@ function createMissionRunner (host, injected = {}) {
         ...(mission.retraits?.length ? { retraits: conteneurMesure().retraits } : {})
       },
       // Conteneurs en vue (A/B `coffres`), contenu vu ou jamais ouvert.
-      ...(featureOn('coffres', false) ? { conteneurs: chrono('conteneurs', () => conteneursEtat()) } : {}),
+      ...(featureOn('coffres') ? { conteneurs: chrono('conteneurs', () => conteneursEtat()) } : {}),
       quota_par_defaut: DEFAULT_QUOTA,
       // La quantite reellement visee (lue dans la consigne, sinon le defaut).
       // Le modele la lit ; c est `finishAllowed` qui s en sert pour juger.
@@ -4142,7 +4142,7 @@ function createMissionRunner (host, injected = {}) {
       mission.posesFaites = { ...(mission.posesFaites ?? {}), [objet]: (mission.posesFaites?.[objet] ?? 0) + n }
     },
     // Plantation (A/B `culture`) : la graine pose sa plante sur son sol.
-    plante: objet => featureOn('culture', false) ? culture.plante(objet, host.getBot()?.registry) : null,
+    plante: objet => featureOn('culture') ? culture.plante(objet, host.getBot()?.registry) : null,
     houe: () => host.getBot()?.inventory?.items().find(i => /_hoe$/.test(i.name)) ?? null
   })
   // Conteneurs (A/B `coffres`) : deposer et retirer, objet, quantite et
@@ -7668,7 +7668,7 @@ function createMissionRunner (host, injected = {}) {
     const blocsProches = nom => skills.nomsProches(nom, host.getBot()?.registry, { objets: false })
     let brief
     const debutBrief = Date.now()
-    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), pose: featureOn('poser'), coffres: featureOn('coffres', false), culture: featureOn('culture', false), blocConnu, blocsProches, relance: featureOn('relance_plan') }))
+    const lireBrief = async () => normalizeBrief(await cerveau.readBrief(text, { signal: request.signal, deferGestureValidation: true, ouvert: featureOn('buts_ouverts', false), pose: featureOn('poser'), coffres: featureOn('coffres'), culture: featureOn('culture'), blocConnu, blocsProches, relance: featureOn('relance_plan') }))
     try {
       try {
         brief = await lireBrief()
@@ -7830,8 +7830,8 @@ function createMissionRunner (host, injected = {}) {
     if (poses.length > 0 && !brief.route && (kind !== 'construction' || chantierSansForme)) kind = 'recolte'
     // Objets a ranger dans un conteneur ou a y prendre (A/B `coffres`) : la
     // revision garde les siens ; comme une pose, ils font une recolte.
-    let depots = featureOn('coffres', false) ? objetsConteneurDuBrief(host.getBot(), brief.depot) : []
-    let retraits = featureOn('coffres', false) ? objetsConteneurDuBrief(host.getBot(), brief.retrait) : []
+    let depots = featureOn('coffres') ? objetsConteneurDuBrief(host.getBot(), brief.depot) : []
+    let retraits = featureOn('coffres') ? objetsConteneurDuBrief(host.getBot(), brief.retrait) : []
     if (depots.length === 0 && Array.isArray(opts.revisionOf?.depots)) depots = opts.revisionOf.depots
     if (retraits.length === 0 && Array.isArray(opts.revisionOf?.retraits)) retraits = opts.revisionOf.retraits
     if ((depots.length > 0 || retraits.length > 0) && !brief.route && (kind !== 'construction' || chantierSansForme)) kind = 'recolte'

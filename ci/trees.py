@@ -872,7 +872,7 @@ def base_levels():
             # Action retiree des le depart : pas de `casser` (l action dont le
             # bot se sert le plus, 8 a 15 fois par mission), pierre et bois
             # passent par `recolter`.
-            'variants': [avec('coffres'), avec('culture'),
+            'variants': [sans('coffres'), sans('culture'),
                          imprevus({'quand': 'cobblestone', 'seuil': 20,
                                    'retirer': ['cobblestone', '#minecraft:pickaxes']}),
                          action_retiree('casser')],
@@ -943,11 +943,11 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 6), (6, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 6), (6, 30)) for i in range(5)]),
-            'rules': {}, 'variants': [sans('poser'), avec('coffres'), avec('culture')],
+            'rules': {}, 'variants': [sans('poser'), sans('coffres'), sans('culture')],
         },
         # Coffres et culture (2026-10-20, idee 5 de la revue du 2026-10-16,
         # prerequis d une ferme a canne a sucre) : A/B `coffres` et `culture`,
-        # eteints par defaut, informatifs ; le bras sans le mode se joue par
+        # allumes par defaut depuis le 2026-10-29, informatifs ; le bras sans le mode se joue par
         # `Banc:` (trees.RETIRED).
         {
             'name': 'composite/chest-pickaxe',
@@ -964,7 +964,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (30, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (30, 30)) for i in range(5)]),
-            'rules': {}, 'features': {'coffres': True}, 'variants': [sans('coffres')],
+            'rules': {}, 'variants': [sans('coffres')],
         },
         {
             'name': 'composite/wheat-field',
@@ -977,7 +977,7 @@ def base_levels():
             'leaves': [box for (x, z) in ((4, 6), (6, 30))
                        for box in ((x-2, 204, z-2, x+2, 205, z+2), (x-1, 206, z-1, x+1, 206, z+1))],
             'logs': _logs(*[(x, 200 + i, z) for (x, z) in ((4, 6), (6, 30)) for i in range(5)]),
-            'rules': {}, 'features': {'culture': True}, 'variants': [sans('culture')],
+            'rules': {}, 'variants': [sans('culture')],
         },
         {
             'name': 'gather/ripe-wheat',
@@ -989,7 +989,7 @@ def base_levels():
                         (16, 199, 20, 19, 199, 20, 'farmland[moisture=7]'), (16, 200, 20, 19, 200, 20, 'wheat[age=1]')],
             'also': {'jeunes_pousses_intactes': (['minecraft:wheat'], 4, (16, 200, 20, 19, 200, 20))},
             'leaves': [], 'logs': [], 'rules': {},
-            'features': {'culture': True, 'buts_ouverts': True}, 'variants': [sans('culture')],
+            'features': {'buts_ouverts': True}, 'variants': [sans('culture')],
         },
         # Missions ouvertes (2026-10-02, A/B buts_ouverts) : une demande hors du
         # catalogue de matieres, tiree au sort a chaque banc dans une reserve
@@ -2199,14 +2199,12 @@ RETIRED = frozenset({
     'build/no-materials~sans-plans_longs', 'trees/tall~sans-plans_longs', 'trees/double~sans-plans_longs',
     'craft/iron-pickaxe~sans-plans_longs', 'composite/cabin-from-scratch~sans-plans_longs',
     'composite/stone-hut-from-scratch~sans-plans_longs',
-    # Coffres et culture (2026-10-20) : le bras sans le mode se joue par
-    # `Banc:` le temps de la campagne A/B, jamais au banc complet (quota).
+    # Coffres et culture, allumes par defaut (proprietaire, 2026-10-29, A/B de
+    # deux bancs : culture 4/4 contre 0/4, coffres 1/2 contre 0/2, aucun cout
+    # sur les composites durs) : le bras sans le mode se joue par `Banc:`.
     'composite/chest-pickaxe~sans-coffres', 'composite/wheat-field~sans-culture', 'gather/ripe-wheat~sans-culture',
-    # Un A/B departage sur des niveaux durs (proprietaire, 2026-10-20) : les
-    # deux modes allumes sur les composites les plus longs du palier 3, pour
-    # mesurer ce que les actions et phrases en plus coutent hors de leur usage.
-    'composite/big-stone-house~avec-coffres', 'composite/big-stone-house~avec-culture',
-    'composite/powered-rail-line~avec-coffres', 'composite/powered-rail-line~avec-culture',
+    'composite/big-stone-house~sans-coffres', 'composite/big-stone-house~sans-culture',
+    'composite/powered-rail-line~sans-coffres', 'composite/powered-rail-line~sans-culture',
 })
 
 # Owner's limit (2026-10-10): a full bench plays fewer than 50 tests (levels,
