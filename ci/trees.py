@@ -107,10 +107,11 @@ OUVERT_TROUVER = [('spawner', 'un spawner'), ('bell', 'une cloche'), ('lodestone
                   ('anvil', 'une enclume'), ('lectern', 'un pupitre'), ('cauldron', 'un chaudron'),
                   ('beehive', 'une ruche'), ('composter', 'un composteur')]
 # Demandes que le bot ne sait pas encore faire (bot/skills.js CAPACITES_ABSENTES) :
-# la bonne reponse est un refus rapide qui le dit.
+# la bonne reponse est un refus rapide qui le dit. Ni coffre ni culture depuis
+# que `coffres` et `culture` sont allumes par defaut (2026-10-29).
 OUVERT_HORS = ['Fais-moi une ferme a oeufs automatique avec des entonnoirs et un coffre',
-               'Range tout ton inventaire dans un coffre', 'Tonds un mouton et ramene-moi la laine',
-               'Seme du ble dans un champ laboure', 'Va dans le Nether et ramene-moi du quartz']
+               'Tue les zombies autour de la maison', 'Tonds un mouton et ramene-moi la laine',
+               'Echange des emeraudes contre du pain avec un villageois', 'Va dans le Nether et ramene-moi du quartz']
 
 
 def tirage(reserve, sel):
