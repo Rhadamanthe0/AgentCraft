@@ -243,13 +243,23 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
       if (!contenus.has(k)) contenus.set(k, [])
       const dedans = contenus.get(k)
       const vivants = () => dedans.filter(i => i.count > 0)
+      // Cases du joueur dans la fenetre : a jour a chaque clic, comme
+      // mineflayer, quand `bot.inventory` attend `inventaireLentMs`.
+      const cases = stock.filter(i => i.count > 0).map(i => ({ name: i.name, count: i.count }))
+      const bouger = (name, n) => {
+        let reste = n
+        for (const i of cases) if (i.name === name && reste > 0) { const k = Math.min(i.count, reste); i.count -= k; reste -= k }
+        if (reste < 0) cases.push({ name, count: -reste })
+      }
       return {
         type: 'minecraft:generic_9x3',
         containerItems: () => vivants().map(i => ({ name: i.name, count: i.count, type: registry.itemsByName[i.name]?.id })),
+        items: () => cases.filter(i => i.count > 0).map(i => ({ name: i.name, count: i.count, type: registry.itemsByName[i.name]?.id })),
         deposit: async (type, _meta, count) => {
           const name = registry.items[type]?.name
-          const possede = stock.filter(i => i.name === name).reduce((n, i) => n + i.count, 0)
+          const possede = cases.filter(i => i.name === name).reduce((n, i) => n + i.count, 0)
           if (possede < count) throw new Error(`Can't find ${name} in slots`)
+          bouger(name, count)
           // `inventaireLentMs` : le serveur confirme l inventaire apres coup,
           // le conteneur montre l objet tout de suite (banc 692d157).
           const retirer = () => {
@@ -268,6 +278,7 @@ function createSimServer ({ blocks = {}, sol = null, borne = null, start = new V
           if (!pile) throw new Error(`Can't find ${name} in slots`)
           pile.count -= count
           ajouter(name, count)
+          bouger(name, -count)
         },
         close () {}
       }

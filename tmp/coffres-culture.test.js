@@ -231,7 +231,9 @@ function gestesCoffreDirects (sim, compte) {
   })
 }
 
-test('coffres : depot avec confirmation de source apres le delai, sans double transfert et avec reprise', async () => {
+test('coffres : depot de plusieurs piles en un geste, inventaire du bot confirme apres coup', async () => {
+  // Les cases de la fenetre suivent chaque clic : sans elles, chaque depot
+  // s arretait a une pile (« source non synchronisee »).
   const sim = createSimServer({
     blocks: { '13,200,15': 'barrel' },
     conteneurs: { '13,200,15': [] },
@@ -239,6 +241,33 @@ test('coffres : depot avec confirmation de source apres le delai, sans double tr
     inventaireLentMs: 3400,
     start: new Vec3(8.5, 200, 15.5), borne: { x0: 0, x1: 30, z0: 0, z1: 30 }
   })
+  const compte = []
+  const gestes = gestesCoffreDirects(sim, compte)
+  try {
+    const r = await gestes.deposer({ objet: 'buches', quantite: 5, dans: 'barrel' })
+    assert.match(r.resultat, /^5 buches/)
+    assert.doesNotMatch(r.resultat, /non synchronisee/)
+    assert.deepEqual(sim.contenu('13,200,15'), [{ name: 'oak_log', count: 3 }, { name: 'birch_log', count: 2 }])
+    assert.deepEqual(compte, [['deposer', 'buches', 5]])
+  } finally { sim.close() }
+})
+
+test('coffres : depot avec source perimee, sans double transfert et avec reprise', async () => {
+  const sim = createSimServer({
+    blocks: { '13,200,15': 'barrel' },
+    conteneurs: { '13,200,15': [] },
+    inventory: [{ name: 'oak_log', count: 3 }, { name: 'birch_log', count: 2 }],
+    inventaireLentMs: 3400,
+    start: new Vec3(8.5, 200, 15.5), borne: { x0: 0, x1: 30, z0: 0, z1: 30 }
+  })
+  // Cases du joueur figees dans la fenetre : la source ne confirme pas.
+  const ouvrir = sim.bot.openContainer.bind(sim.bot)
+  sim.bot.openContainer = async bloc => {
+    const fenetre = await ouvrir(bloc)
+    const vue = fenetre.items()
+    fenetre.items = () => vue.map(i => ({ ...i }))
+    return fenetre
+  }
   const compte = []
   const gestes = gestesCoffreDirects(sim, compte)
   try {
